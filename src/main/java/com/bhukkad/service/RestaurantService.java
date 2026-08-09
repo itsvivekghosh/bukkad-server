@@ -1,0 +1,26 @@
+package com.bhukkad.service;
+
+import com.bhukkad.dto.request.RestaurantRequest;
+import com.bhukkad.dto.response.RestaurantResponse;
+
+import java.util.List;
+
+public interface RestaurantService {
+    RestaurantResponse createRestaurant(RestaurantRequest request);
+    RestaurantResponse getRestaurantById(Long id);
+    List<RestaurantResponse> getAllActiveRestaurants();
+    List<RestaurantResponse> getRestaurantsByOwner(Long ownerId);
+    RestaurantResponse updateRestaurant(Long id, RestaurantRequest request);
+    void deleteRestaurant(Long id);
+
+    // Search and filter
+    List<RestaurantResponse> searchRestaurants(String keyword);
+    List<RestaurantResponse> filterRestaurants(Long cuisineId, Boolean isPureVeg);
+
+    // Status management
+    void toggleRestaurantStatus(Long id, Boolean isOpen);
+    void updateRestaurantRating(Long restaurantId);
+
+    // Owner operations
+    List<RestaurantResponse> getMyRestaurants();
+}

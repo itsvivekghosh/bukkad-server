@@ -1,0 +1,123 @@
+package com.bhukkad.controller;
+
+import com.bhukkad.dto.request.MenuItemRequest;
+import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.MenuItemResponse;
+import com.bhukkad.entity.MenuCategory;
+import com.bhukkad.service.MenuService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/menu")
+@RequiredArgsConstructor
+public class MenuController {
+
+    private final MenuService menuService;
+
+    // Category endpoints
+    @PostMapping("/categories")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<MenuCategory>> createCategory(
+            @RequestParam Long restaurantId,
+            @RequestBody MenuCategory category) {
+        MenuCategory createdCategory = menuService.createCategory(restaurantId, category);
+        return ResponseEntity.ok(ApiResponse.success("Category created successfully", createdCategory));
+    }
+
+    @GetMapping("/categories/restaurant/{restaurantId}")
+    public ResponseEntity<ApiResponse<List<MenuCategory>>> getCategoriesByRestaurant(@PathVariable Long restaurantId) {
+        List<MenuCategory> categories = menuService.getCategoriesByRestaurant(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success(categories));
+    }
+
+    @PutMapping("/categories/{categoryId}")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<MenuCategory>> updateCategory(
+            @PathVariable Long categoryId,
+            @RequestBody MenuCategory category) {
+        MenuCategory updatedCategory = menuService.updateCategory(categoryId, category);
+        return ResponseEntity.ok(ApiResponse.success("Category updated successfully", updatedCategory));
+    }
+
+    @DeleteMapping("/categories/{categoryId}")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<Void>> deleteCategory(@PathVariable Long categoryId) {
+        menuService.deleteCategory(categoryId);
+        return ResponseEntity.ok(ApiResponse.success("Category deleted successfully", null));
+    }
+
+    // Menu item endpoints
+    @PostMapping("/items")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<MenuItemResponse>> createMenuItem(@Valid @RequestBody MenuItemRequest request) {
+        MenuItemResponse menuItem = menuService.createMenuItem(request);
+        return ResponseEntity.ok(ApiResponse.success("Menu item created successfully", menuItem));
+    }
+
+    @GetMapping("/items/{id}")
+    public ResponseEntity<ApiResponse<MenuItemResponse>> getMenuItemById(@PathVariable Long id) {
+        MenuItemResponse menuItem = menuService.getMenuItemById(id);
+        return ResponseEntity.ok(ApiResponse.success(menuItem));
+    }
+
+    @GetMapping("/items/category/{categoryId}")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByCategory(@PathVariable Long categoryId) {
+        List<MenuItemResponse> menuItems = menuService.getMenuItemsByCategory(categoryId);
+        return ResponseEntity.ok(ApiResponse.success(menuItems));
+    }
+
+    @GetMapping("/items/restaurant/{restaurantId}")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByRestaurant(@PathVariable Long restaurantId) {
+        List<MenuItemResponse> menuItems = menuService.getMenuItemsByRestaurant(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success(menuItems));
+    }
+
+    @PutMapping("/items/{id}")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<MenuItemResponse>> updateMenuItem(
+            @PathVariable Long id,
+            @Valid @RequestBody MenuItemRequest request) {
+        MenuItemResponse menuItem = menuService.updateMenuItem(id, request);
+        return ResponseEntity.ok(ApiResponse.success("Menu item updated successfully", menuItem));
+    }
+
+    @DeleteMapping("/items/{id}")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<Void>> deleteMenuItem(@PathVariable Long id) {
+        menuService.deleteMenuItem(id);
+        return ResponseEntity.ok(ApiResponse.success("Menu item deleted successfully", null));
+    }
+
+    @PutMapping("/items/{id}/toggle-availability")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<Void>> toggleItemAvailability(
+            @PathVariable Long id,
+            @RequestParam Boolean available) {
+        menuService.toggleItemAvailability(id, available);
+        return ResponseEntity.ok(ApiResponse.success("Item availability updated", null));
+    }
+
+    @GetMapping("/items/restaurant/{restaurantId}/bestsellers")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getBestsellers(@PathVariable Long restaurantId) {
+        List<MenuItemResponse> bestsellers = menuService.getBestsellers(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success(bestsellers));
+    }
+
+    @GetMapping("/items/restaurant/{restaurantId}/recommended")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getRecommended(@PathVariable Long restaurantId) {
+        List<MenuItemResponse> recommended = menuService.getRecommended(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success(recommended));
+    }
+
+    @GetMapping("/items/search")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> searchMenuItems(@RequestParam String keyword) {
+        List<MenuItemResponse> menuItems = menuService.searchMenuItems(keyword);
+        return ResponseEntity.ok(ApiResponse.success(menuItems));
+    }
+}

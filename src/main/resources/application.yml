@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: bhukkad-server
+
+  profiles:
+    active: dev
+
+  # Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 5
+          min-idle: 2
+          max-wait: 3000ms
+        shutdown-timeout: 200ms
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+          fetch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+    default-property-inclusion: non_null
+
+# Cache TTL Configuration (in seconds)
+cache:
+  ttl:
+    restaurant: 1800          # 30 minutes
+    restaurant-list: 600      # 10 minutes
+    menu-item: 900            # 15 minutes
+    menu-category: 1800       # 30 minutes
+    cuisine: 86400            # 24 hours
+    user-profile: 3600        # 1 hour
+    cart: 1800                # 30 minutes
+    order: 300                # 5 minutes
+    review: 1800              # 30 minutes
+    coupon: 3600              # 1 hour
+    search: 300               # 5 minutes
+
+server:
+  port: 8080
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: on_param
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+
+app:
+  environment: local
+  debug: false
+  jwt:
+    secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    expiration: 86400000
+    refresh-expiration: 604800000
+
+logging:
+  level:
+    root: INFO
+    com.bhukkad: DEBUG
+    com.bhukkad.security: DEBUG
+    com.bhukkad.logging: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.springframework.cache: DEBUG
+    org.springframework.data.redis: DEBUG
+    PERFORMANCE: DEBUG
+    ORDER: DEBUG
+    PAYMENT: DEBUG
+    SECURITY: DEBUG
+    org.springframework.web.servlet.handler.HandlerMappingIntrospector: ERROR
+    org.springframework.web.servlet.DispatcherServlet: WARN
+    org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor: WARN
+  file:
+    name: logs/bhukkad-system.log
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+    filter: true
+    try-it-out-enabled: true
+    doc-expansion: none
+  default-produces-media-type: application/json
+  default-consumes-media-type: application/json
+  packages-to-scan: com.bhukkad.controller
+  show-actuator: false
