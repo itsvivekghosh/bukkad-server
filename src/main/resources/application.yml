@@ -20,6 +20,9 @@ spring:
           min-idle: 2
           max-wait: 3000ms
         shutdown-timeout: 200ms
+        cluster:
+          refresh:
+            adaptive: true
 
   jpa:
     hibernate:
@@ -43,21 +46,6 @@ spring:
     time-zone: UTC
     default-property-inclusion: non_null
 
-# Cache TTL Configuration (in seconds)
-cache:
-  ttl:
-    restaurant: 1800          # 30 minutes
-    restaurant-list: 600      # 10 minutes
-    menu-item: 900            # 15 minutes
-    menu-category: 1800       # 30 minutes
-    cuisine: 86400            # 24 hours
-    user-profile: 3600        # 1 hour
-    cart: 1800                # 30 minutes
-    order: 300                # 5 minutes
-    review: 1800              # 30 minutes
-    coupon: 3600              # 1 hour
-    search: 300               # 5 minutes
-
 server:
   port: 8080
   error:
@@ -75,6 +63,20 @@ app:
     secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
     expiration: 86400000
     refresh-expiration: 604800000
+
+cache:
+  ttl:
+    restaurant: 1800
+    restaurant-list: 600
+    menu-item: 900
+    menu-category: 1800
+    cuisine: 86400
+    user-profile: 3600
+    cart: 1800
+    order: 300
+    review: 1800
+    coupon: 3600
+    search: 300
 
 logging:
   level:
@@ -111,6 +113,8 @@ springdoc:
     filter: true
     try-it-out-enabled: true
     doc-expansion: none
+    default-models-expand-depth: 2
+    default-model-expand-depth: 2
   default-produces-media-type: application/json
   default-consumes-media-type: application/json
   packages-to-scan: com.bhukkad.controller

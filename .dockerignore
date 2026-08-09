@@ -1,0 +1,51 @@
+# ============================================
+# Docker Ignore File
+# ============================================
+
+# Git
+.git/
+.gitignore
+
+# Build output
+target/
+build/
+*.jar
+*.war
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker/mysql-data/
+docker/redis-data/
+
+# Documentation
+*.md
+docs/
+
+# Tests
+src/test/
+
+# Scripts (copied separately)
+docker/scripts/
+
+# Environment files
+.env
+.env.local
+docker/.env.prod
+
+# Temp
+tmp/
+temp/

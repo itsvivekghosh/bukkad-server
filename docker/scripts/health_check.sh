@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Bhukkad Server Health Check Script
-# Usage: ./health-check.sh [host] [port]
+# Usage: ./health_check.sh [host] [port]
 
 HOST=${1:-localhost}
 PORT=${2:-8080}
