@@ -9,16 +9,16 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DeliveryAgentResponse {
+public class CustomerResponse {
     private Long id;
-    private String fullName;
     private String email;
+    private String fullName;
     private String phoneNumber;
-    private String vehicleType;
-    private String vehicleNumber;
-    private Boolean available;
-    private Boolean verified;
-    private Double averageRating;
-    private Integer totalDeliveries;
+    private String profileImageUrl;
+    private Boolean active;
+    private Boolean emailVerified;
+    private Integer loyaltyPoints;
+    private Double walletBalance;
     private String role;
+    private String createdAt;
 }

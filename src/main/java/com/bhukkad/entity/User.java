@@ -1,9 +1,7 @@
 package com.bhukkad.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -24,6 +22,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Inheritance(strategy = InheritanceType.JOINED)
 @EntityListeners(AuditingEntityListener.class)
+@ToString
+@EqualsAndHashCode
 public class User {
 
     @Id

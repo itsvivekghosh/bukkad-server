@@ -2,15 +2,16 @@ package com.bhukkad.service;
 
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.response.AddressResponse;
+import com.bhukkad.dto.response.CustomerProfileResponse;
+import com.bhukkad.dto.response.CustomerResponse;
 import com.bhukkad.entity.Customer;
 
 import java.util.List;
 
 public interface CustomerService {
-    Customer getCustomerById(Long id);
+    CustomerProfileResponse getCustomerById(Long id);
     Customer getCurrentCustomer();
-    Customer updateProfile(Long id, Customer customer);
-    void deleteAccount(Long id);
+    void deleteAccount();
 
     // Address management
     AddressResponse addAddress(AddressRequest request);
@@ -25,4 +26,7 @@ public interface CustomerService {
 
     // Loyalty points
     Integer getLoyaltyPoints();
+
+    CustomerProfileResponse getProfile();
+    CustomerResponse updateProfile(String fullName, String phoneNumber, String profileImageUrl);
 }

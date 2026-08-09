@@ -10,4 +10,7 @@ public interface AuthService {
     void verifyEmail(String email, String token);
     void forgotPassword(String email);
     void resetPassword(String token, String newPassword);
+    AuthResponse refreshToken(String token);
+    void changePassword(String token, String oldPassword, String newPassword);
+    void logout(String token);
 }

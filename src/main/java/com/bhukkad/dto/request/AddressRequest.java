@@ -7,6 +7,7 @@ import lombok.Data;
 
 @Data
 public class AddressRequest {
+
     @NotBlank(message = "Address line 1 is required")
     private String addressLine1;
 

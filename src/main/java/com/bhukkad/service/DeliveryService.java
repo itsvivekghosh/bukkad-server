@@ -7,6 +7,7 @@ import com.bhukkad.entity.DeliveryAgent;
 import java.util.List;
 
 public interface DeliveryService {
+    DeliveryAgentResponse getProfile();
     DeliveryAgent getDeliveryAgentById(Long id);
     DeliveryAgent getCurrentDeliveryAgent();
     DeliveryAgent updateProfile(Long id, DeliveryAgent agent);

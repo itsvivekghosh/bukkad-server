@@ -4,7 +4,9 @@ import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.dto.response.BlankResponse;
 import com.bhukkad.service.AuthService;
+import com.bhukkad.util.RequestUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +32,8 @@ public class AuthController {
     }
 
     @PostMapping("/verify-email")
-    public ResponseEntity<ApiResponse<Void>> verifyEmail(@RequestParam String email, @RequestParam String token) {
+    public ResponseEntity<ApiResponse<Void>> verifyEmail(@RequestHeader("Authorization") String authHeader, @RequestParam String email) {
+        String token = RequestUtils.extractTokenFromRequestHeaders(authHeader);
         authService.verifyEmail(email, token);
         return ResponseEntity.ok(ApiResponse.success("Email verified successfully", null));
     }
@@ -45,5 +48,32 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> resetPassword(@RequestParam String token, @RequestParam String newPassword) {
         authService.resetPassword(token, newPassword);
         return ResponseEntity.ok(ApiResponse.success("Password reset successful", null));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam String oldPassword,
+            @RequestParam String newPassword) {
+
+        String token = RequestUtils.extractTokenFromRequestHeaders(authHeader);
+        authService.changePassword(token, oldPassword, newPassword);
+        return ResponseEntity.ok(ApiResponse.success("Password changed successfully", null));
+    }
+
+    @PostMapping("/refresh-token")
+    public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(
+            @RequestHeader("Authorization") String authHeader) {
+
+        String token = RequestUtils.extractTokenFromRequestHeaders(authHeader);
+        AuthResponse response = authService.refreshToken(token);
+        return ResponseEntity.ok(ApiResponse.success("Token refreshed", response));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<String>> logout(@RequestHeader("Authorization") String authHeader) {
+        String token = RequestUtils.extractTokenFromRequestHeaders(authHeader);
+        authService.logout(token);
+        return ResponseEntity.ok(ApiResponse.success("Logger out successfully"));
     }
 }

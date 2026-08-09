@@ -4,6 +4,7 @@ import com.bhukkad.logging.RequestLoggingFilter;
 import com.bhukkad.security.CustomUserDetailsService;
 import com.bhukkad.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -31,76 +32,92 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RequestLoggingFilter requestLoggingFilter;
 
-    // All swagger and public paths
-    private static final String[] PUBLIC_PATHS = {
-            "/api/auth/**",
-            "/api/health/**",
-            // Swagger UI paths
-            "/swagger-ui/**",
-            "/swagger-ui.html",
-            "/swagger-ui/index.html",
-            // OpenAPI paths
-            "/v3/api-docs/**",
-            "/v3/api-docs",
-            "/v3/api-docs/swagger-config",
-            "/api-docs/**",
-            "/api-docs",
-            // Webjars
-            "/webjars/**",
-            "/webjars/swagger-ui/**",
-            // Swagger resources
-            "/swagger-resources/**",
-            "/configuration/ui",
-            "/configuration/security",
-            // Favicon
-            "/favicon.ico"
-    };
+    @Value("${app.debug:false}")
+    private boolean debugMode;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
-                .authorizeHttpRequests(auth -> auth
+                .authorizeHttpRequests(auth -> {
 
-                        // Public paths
-                        .requestMatchers(PUBLIC_PATHS).permitAll()
+                    // ==================== PUBLIC - No Auth ====================
 
-                        // Public GET restaurant endpoints
-                        .requestMatchers(HttpMethod.GET, "/api/restaurants/public/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/cuisines/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/menu/items/restaurant/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/menu/categories/restaurant/**").permitAll()
+                    // Auth
+                    auth.requestMatchers("/api/auth/**").permitAll();
 
-                        // Customer endpoints
-                        .requestMatchers("/api/customers/**").hasRole("CUSTOMER")
-                        .requestMatchers("/api/cart/**").hasRole("CUSTOMER")
-                        .requestMatchers("/api/orders/customer/**").hasRole("CUSTOMER")
-                        .requestMatchers("/api/reviews/**").hasRole("CUSTOMER")
+                    // Health
+                    auth.requestMatchers("/api/health/**").permitAll();
 
-                        // Restaurant Owner endpoints
-                        .requestMatchers("/api/restaurants/owner/**").hasRole("RESTAURANT_OWNER")
-                        .requestMatchers("/api/menu/**").hasRole("RESTAURANT_OWNER")
-                        .requestMatchers("/api/orders/restaurant/**").hasRole("RESTAURANT_OWNER")
+                    // Swagger
+                    auth.requestMatchers(
+                            "/swagger-ui/**",
+                            "/swagger-ui.html",
+                            "/v3/api-docs/**",
+                            "/v3/api-docs",
+                            "/webjars/**",
+                            "/favicon.ico"
+                    ).permitAll();
 
-                        // Delivery Agent endpoints
-                        .requestMatchers("/api/delivery/**").hasRole("DELIVERY_AGENT")
-                        .requestMatchers("/api/orders/delivery/**").hasRole("DELIVERY_AGENT")
+                    // Restaurants - Public GET
+                    auth.requestMatchers(HttpMethod.GET, "/api/restaurants/public/**").permitAll();
 
-                        // Admin endpoints
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                    // Cuisines - Public GET
+                    auth.requestMatchers(HttpMethod.GET, "/api/cuisines/**").permitAll();
 
-                        .requestMatchers("/api/cache/**").hasRole("ADMIN") // Add to permitAll or admin-only section
-                        .requestMatchers("/api/cache/**").permitAll() // Or for dev, add to permitAll
+                    // Menu - Public GET (all GET requests)
+                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/search").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/restaurant/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/category/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, "/api/menu/categories/**").permitAll();
 
-                        // All other requests must be authenticated
-                        .anyRequest().authenticated()
+                    // Coupons - Public GET
+                    auth.requestMatchers(HttpMethod.GET, "/api/coupons/active").permitAll();
 
-                )
+                    // Reviews - Public GET
+                    auth.requestMatchers(HttpMethod.GET, "/api/reviews/restaurant/**").permitAll();
+
+                    // Cache - Dev public, Prod admin
+                    if (debugMode) {
+                        auth.requestMatchers("/api/cache/**").permitAll();
+                    } else {
+                        auth.requestMatchers("/api/cache/**").hasRole("ADMIN");
+                    }
+
+                    // ==================== CUSTOMER ====================
+                    auth.requestMatchers("/api/customers/**").hasRole("CUSTOMER");
+                    auth.requestMatchers("/api/cart/**").hasRole("CUSTOMER");
+                    auth.requestMatchers("/api/orders/customer/**").hasRole("CUSTOMER");
+                    auth.requestMatchers("/api/coupons/validate").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.POST, "/api/reviews").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.GET, "/api/reviews/my-reviews").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.DELETE, "/api/reviews/**").hasRole("CUSTOMER");
+
+                    // ==================== RESTAURANT OWNER ====================
+                    auth.requestMatchers("/api/restaurants/owner/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.POST, "/api/menu/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.PUT, "/api/menu/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.DELETE, "/api/menu/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers("/api/orders/restaurant/**").hasRole("RESTAURANT_OWNER");
+
+                    // ==================== DELIVERY AGENT ====================
+                    auth.requestMatchers("/api/delivery/**").hasRole("DELIVERY_AGENT");
+                    auth.requestMatchers("/api/orders/delivery/**").hasRole("DELIVERY_AGENT");
+
+                    // ==================== ADMIN ====================
+                    auth.requestMatchers("/api/admin/**").hasRole("ADMIN");
+                    auth.requestMatchers(HttpMethod.POST, "/api/coupons").hasAnyRole("ADMIN", "RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.PUT, "/api/coupons/**").hasRole("ADMIN");
+                    auth.requestMatchers(HttpMethod.DELETE, "/api/coupons/**").hasRole("ADMIN");
+
+                    // ==================== ALL OTHERS ====================
+                    auth.anyRequest().authenticated();
+                })
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .authenticationProvider(authenticationProvider())
-                // ORDER MATTERS: RequestLoggingFilter -> JwtFilter -> UsernamePasswordFilter
                 .addFilterBefore(requestLoggingFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

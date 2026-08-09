@@ -1,6 +1,8 @@
 package com.bhukkad.repository;
 
 import com.bhukkad.entity.Order;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,25 +14,51 @@ import java.util.Optional;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
-    Optional<Order> findByOrderNumber(String orderNumber);
 
-    List<Order> findByCustomerIdOrderByCreatedAtDesc(Long customerId);
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "JOIN FETCH o.customer " +
+            "JOIN FETCH o.restaurant " +
+            "JOIN FETCH o.deliveryAddress " +
+            "WHERE o.id = :id")
+    Optional<Order> findByIdWithDetails(@Param("id") Long id);
 
-    List<Order> findByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "JOIN FETCH o.customer " +
+            "JOIN FETCH o.restaurant " +
+            "JOIN FETCH o.deliveryAddress " +
+            "WHERE o.customer.id = :customerId " +
+            "ORDER BY o.createdAt DESC")
+    List<Order> findByCustomerIdWithDetails(@Param("customerId") Long customerId);
 
-    List<Order> findByDeliveryAgentIdOrderByCreatedAtDesc(Long deliveryAgentId);
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "JOIN FETCH o.customer " +
+            "JOIN FETCH o.restaurant " +
+            "JOIN FETCH o.deliveryAddress " +
+            "WHERE o.restaurant.id = :restaurantId " +
+            "ORDER BY o.createdAt DESC")
+    List<Order> findByRestaurantIdWithDetails(@Param("restaurantId") Long restaurantId);
 
-    @Query("SELECT o FROM Order o WHERE o.restaurant.id = :restaurantId AND " +
-            "o.status = :status ORDER BY o.createdAt DESC")
-    List<Order> findByRestaurantAndStatus(@Param("restaurantId") Long restaurantId,
-                                          @Param("status") Order.OrderStatus status);
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "JOIN FETCH o.customer " +
+            "JOIN FETCH o.restaurant " +
+            "JOIN FETCH o.deliveryAddress " +
+            "WHERE o.restaurant.id = :restaurantId AND o.status = :status " +
+            "ORDER BY o.createdAt DESC")
+    List<Order> findByRestaurantAndStatusWithDetails(@Param("restaurantId") Long restaurantId, @Param("status") Order.OrderStatus status);
 
-    @Query("SELECT o FROM Order o WHERE o.deliveryAgent.id = :agentId AND " +
-            "o.status IN ('OUT_FOR_DELIVERY') ORDER BY o.createdAt DESC")
-    List<Order> findActiveDeliveriesByAgent(@Param("agentId") Long agentId);
+    long countByCustomerId(Long customerId);
 
-    @Query("SELECT COUNT(o) FROM Order o WHERE o.customer.id = :customerId AND " +
-            "o.createdAt >= :startDate")
-    Long countCustomerOrdersSince(@Param("customerId") Long customerId,
-                                  @Param("startDate") LocalDateTime startDate);
+    // Add missing methods for Admin Service
+    long countByCreatedAtAfter(LocalDateTime dateTime);
+    long countByStatus(Order.OrderStatus status);
+    long countByStatusAndCreatedAtAfter(Order.OrderStatus status, LocalDateTime dateTime);
+
+    @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.status = 'DELIVERED'")
+    Double sumTotalAmount();
+
+    @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.status = 'DELIVERED' AND o.createdAt >= :startDate")
+    Double sumTotalAmountAfter(@Param("startDate") LocalDateTime startDate);
+
+    List<Order> findTop10ByOrderByCreatedAtDesc();
+    Page<Order> findByStatus(Order.OrderStatus status, Pageable pageable);
 }

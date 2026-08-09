@@ -3,12 +3,10 @@
 # ==============================
 
 # Step 1: Clean everything
-cd ../
 docker compose -f docker-compose.dev.yml down -v --remove-orphans 2>/dev/null
 docker volume prune -f 2>/dev/null
 
 # Step 2: Build JAR
-cd ../
 mvn clean package -DskipTests
 
 # Step 3: Build Docker image

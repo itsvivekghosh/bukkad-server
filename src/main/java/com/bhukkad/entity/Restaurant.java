@@ -1,9 +1,8 @@
 package com.bhukkad.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -33,27 +32,32 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)
+@ToString(exclude = {"owner", "cuisines", "menuCategories", "reviews", "address"})
+@EqualsAndHashCode(exclude = {"owner", "cuisines", "menuCategories", "reviews", "address"}, callSuper = false)
 public class Restaurant {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 200)
     private String name;
 
-    @Column(length = 1000)
+    @Column(length = 2000)
     private String description;
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
     private RestaurantOwner owner;
 
-    @OneToOne(cascade = CascadeType.ALL)
+    @JsonIgnore
+    @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @JoinColumn(name = "address_id")
     private Address address;
 
-    @ManyToMany
+    @JsonIgnore
+    @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "restaurant_cuisines",
             joinColumns = @JoinColumn(name = "restaurant_id"),
@@ -61,16 +65,16 @@ public class Restaurant {
     )
     private Set<Cuisine> cuisines = new HashSet<>();
 
-    @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL)
+    @JsonIgnore
+    @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<MenuCategory> menuCategories = new ArrayList<>();
 
-    @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL)
+    @JsonIgnore
+    @OneToMany(mappedBy = "restaurant", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Review> reviews = new ArrayList<>();
 
+    @Column(length = 500)
     private String imageUrl;
-
-    @ElementCollection
-    private List<String> galleryImages = new ArrayList<>();
 
     @Column(nullable = false)
     private LocalTime openingTime;
@@ -85,15 +89,12 @@ public class Restaurant {
     private Boolean isOpen = true;
 
     private Double averageRating = 0.0;
-
     private Integer totalReviews = 0;
-
-    private Integer averageDeliveryTime; // in minutes
-
+    private Integer averageDeliveryTime;
     private Double minimumOrderAmount;
-
     private Double deliveryFee;
 
+    @Column(nullable = false)
     private Boolean freeDeliveryAvailable = false;
 
     private Double freeDeliveryAbove;
@@ -101,15 +102,10 @@ public class Restaurant {
     @Column(nullable = false)
     private Boolean isPureVeg = false;
 
-    @ElementCollection
-    @Enumerated(EnumType.STRING)
-    private Set<FoodType> foodTypes = new HashSet<>();
-
-    @ElementCollection
-    private Set<String> features = new HashSet<>(); // e.g., "Live Tracking", "Hygiene Certified"
-
+    @Column(length = 50)
     private String licenseNumber;
 
+    @Column(length = 50)
     private String fssaiNumber;
 
     @CreatedDate
@@ -118,6 +114,22 @@ public class Restaurant {
 
     @LastModifiedDate
     private LocalDateTime updatedAt;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "restaurant_features", joinColumns = @JoinColumn(name = "restaurant_id"))
+    @Column(name = "feature", length = 100)
+    private Set<String> features = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "restaurant_gallery", joinColumns = @JoinColumn(name = "restaurant_id"))
+    @Column(name = "image_url", length = 500)
+    private List<String> galleryImages = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Enumerated(EnumType.STRING)
+    @CollectionTable(name = "restaurant_food_types", joinColumns = @JoinColumn(name = "restaurant_id"))
+    @Column(name = "food_type")
+    private Set<FoodType> foodTypes = new HashSet<>();
 
     public enum FoodType {
         VEG, NON_VEG, VEGAN, GLUTEN_FREE

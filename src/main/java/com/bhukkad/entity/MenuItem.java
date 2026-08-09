@@ -1,9 +1,8 @@
 package com.bhukkad.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -33,18 +32,21 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)
+@ToString(exclude = {"category", "customizationOptions"})
+@EqualsAndHashCode(exclude = {"category", "customizationOptions"}, callSuper = false)
 public class MenuItem {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 200)
     private String name;
 
-    @Column(length = 1000)
+    @Column(length = 2000)
     private String description;
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id", nullable = false)
     private MenuCategory category;
@@ -53,14 +55,13 @@ public class MenuItem {
     private Double price;
 
     private Double originalPrice;
-
     private Double discountPercentage;
 
     @Column(nullable = false)
     private Boolean available = true;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 20)
     private FoodType foodType;
 
     @Column(nullable = false)
@@ -69,38 +70,47 @@ public class MenuItem {
     private Boolean isSpicy = false;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 20)
     private SpiceLevel spiceLevel;
 
-    @ElementCollection
-    private Set<String> allergens = new HashSet<>();
-
+    @Column(length = 500)
     private String imageUrl;
 
-    @ElementCollection
-    private List<String> additionalImages = new ArrayList<>();
-
-    private Integer preparationTime; // in minutes
-
+    private Integer preparationTime;
     private Boolean bestseller = false;
-
     private Boolean recommended = false;
-
     private Integer calories;
 
+    @Column(length = 50)
     private String servingSize;
 
-    @ElementCollection
-    private Set<String> ingredients = new HashSet<>();
-
     private Double averageRating = 0.0;
-
     private Integer totalRatings = 0;
 
-    @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL)
+    @JsonIgnore
+    @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<CustomizationOption> customizationOptions = new ArrayList<>();
 
-    @ElementCollection
-    private Set<String> tags = new HashSet<>(); // e.g., "Chef's Special", "New"
+    // ALL ElementCollections must be EAGER to avoid LazyInitializationException
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "menu_item_tags", joinColumns = @JoinColumn(name = "menu_item_id"))
+    @Column(name = "tag", length = 50)
+    private Set<String> tags = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "menu_item_allergens", joinColumns = @JoinColumn(name = "menu_item_id"))
+    @Column(name = "allergen", length = 50)
+    private Set<String> allergens = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "menu_item_ingredients", joinColumns = @JoinColumn(name = "menu_item_id"))
+    @Column(name = "ingredient", length = 100)
+    private Set<String> ingredients = new HashSet<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "menu_item_images", joinColumns = @JoinColumn(name = "menu_item_id"))
+    @Column(name = "image_url", length = 500)
+    private List<String> additionalImages = new ArrayList<>();
 
     @CreatedDate
     @Column(nullable = false, updatable = false)

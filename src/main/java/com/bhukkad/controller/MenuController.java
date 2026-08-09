@@ -1,7 +1,9 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.MenuCategoryResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.service.MenuService;
@@ -23,25 +25,25 @@ public class MenuController {
     // Category endpoints
     @PostMapping("/categories")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
-    public ResponseEntity<ApiResponse<MenuCategory>> createCategory(
+    public ResponseEntity<ApiResponse<MenuCategoryResponse>> createCategory(
             @RequestParam Long restaurantId,
-            @RequestBody MenuCategory category) {
-        MenuCategory createdCategory = menuService.createCategory(restaurantId, category);
+            @RequestBody MenuCategoryRequest category) {
+        MenuCategoryResponse createdCategory = menuService.createCategory(restaurantId, category);
         return ResponseEntity.ok(ApiResponse.success("Category created successfully", createdCategory));
     }
 
     @GetMapping("/categories/restaurant/{restaurantId}")
-    public ResponseEntity<ApiResponse<List<MenuCategory>>> getCategoriesByRestaurant(@PathVariable Long restaurantId) {
-        List<MenuCategory> categories = menuService.getCategoriesByRestaurant(restaurantId);
+    public ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> getCategoriesByRestaurant(@PathVariable Long restaurantId) {
+        List<MenuCategoryResponse> categories = menuService.getCategoriesByRestaurant(restaurantId);
         return ResponseEntity.ok(ApiResponse.success(categories));
     }
 
     @PutMapping("/categories/{categoryId}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
-    public ResponseEntity<ApiResponse<MenuCategory>> updateCategory(
+    public ResponseEntity<ApiResponse<MenuCategoryResponse>> updateCategory(
             @PathVariable Long categoryId,
-            @RequestBody MenuCategory category) {
-        MenuCategory updatedCategory = menuService.updateCategory(categoryId, category);
+            @RequestBody MenuCategoryRequest category) {
+        MenuCategoryResponse updatedCategory = menuService.updateCategory(categoryId, category);
         return ResponseEntity.ok(ApiResponse.success("Category updated successfully", updatedCategory));
     }
 

@@ -1,11 +1,12 @@
 package com.bhukkad.exception;
 
 import com.bhukkad.dto.response.ApiResponse;
-import com.bhukkad.logging.LoggingConstants;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -19,114 +20,98 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
-@Slf4j
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleResourceNotFoundException(
             ResourceNotFoundException ex, WebRequest request) {
-        log.warn("Resource not found | TraceId: {} | Path: {} | Message: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false),
-                ex.getMessage());
-
-        return new ResponseEntity<>(
-                buildErrorResponse(ex.getMessage()),
-                HttpStatus.NOT_FOUND);
+        log.warn("ResourceNotFound | {} | TraceId: {}",
+                ex.getMessage(), MDC.get("traceId"));
+        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.NOT_FOUND);
     }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(
             BusinessException ex, WebRequest request) {
-        log.warn("Business rule violation | TraceId: {} | Path: {} | Message: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false),
-                ex.getMessage());
-
-        return new ResponseEntity<>(
-                buildErrorResponse(ex.getMessage()),
-                HttpStatus.BAD_REQUEST);
+        log.warn("BusinessException | {} | TraceId: {}",
+                ex.getMessage(), MDC.get("traceId"));
+        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnauthorizedException(
             UnauthorizedException ex, WebRequest request) {
-        log.warn("Unauthorized access | TraceId: {} | Path: {} | Message: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false),
-                ex.getMessage());
+        log.warn("Unauthorized | {} | TraceId: {}",
+                ex.getMessage(), MDC.get("traceId"));
+        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.UNAUTHORIZED);
+    }
 
-        return new ResponseEntity<>(
-                buildErrorResponse(ex.getMessage()),
-                HttpStatus.UNAUTHORIZED);
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDeniedException(
+            AccessDeniedException ex, WebRequest request) {
+        log.warn("AccessDenied | {} | TraceId: {}",
+                ex.getMessage(), MDC.get("traceId"));
+        return new ResponseEntity<>(buildError("Access denied. You don't have permission."), HttpStatus.FORBIDDEN);
     }
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ApiResponse<Void>> handleAuthenticationException(
             AuthenticationException ex, WebRequest request) {
-        log.warn("Authentication failed | TraceId: {} | Path: {} | Message: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false),
-                ex.getMessage());
-
-        return new ResponseEntity<>(
-                buildErrorResponse("Authentication failed: " + ex.getMessage()),
-                HttpStatus.UNAUTHORIZED);
+        log.warn("AuthenticationFailed | {} | TraceId: {}",
+                ex.getMessage(), MDC.get("traceId"));
+        return new ResponseEntity<>(buildError("Authentication failed"), HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadCredentialsException(
             BadCredentialsException ex, WebRequest request) {
-        log.warn("Bad credentials | TraceId: {} | Path: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false));
-
-        return new ResponseEntity<>(
-                buildErrorResponse("Invalid email or password"),
-                HttpStatus.UNAUTHORIZED);
+        log.warn("BadCredentials | TraceId: {}", MDC.get("traceId"));
+        return new ResponseEntity<>(buildError("Invalid email or password"), HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationExceptions(
-            MethodArgumentNotValidException ex, WebRequest request) {
+            MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach((error) -> {
-            String fieldName = ((FieldError) error).getField();
-            String errorMessage = error.getDefaultMessage();
-            errors.put(fieldName, errorMessage);
+        ex.getBindingResult().getAllErrors().forEach(error -> {
+            String field = ((FieldError) error).getField();
+            String message = error.getDefaultMessage();
+            errors.put(field, message);
         });
 
-        log.warn("Validation failed | TraceId: {} | Path: {} | Errors: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false),
-                errors);
+        log.warn("ValidationFailed | {} | TraceId: {}", errors, MDC.get("traceId"));
 
-        ApiResponse<Map<String, String>> response = ApiResponse.<Map<String, String>>builder()
-                .success(false)
-                .message("Validation failed")
-                .data(errors)
-                .timestamp(LocalDateTime.now())
-                .build();
+        return new ResponseEntity<>(
+                ApiResponse.<Map<String, String>>builder()
+                        .success(false)
+                        .message("Validation failed")
+                        .data(errors)
+                        .timestamp(LocalDateTime.now())
+                        .build(),
+                HttpStatus.BAD_REQUEST);
+    }
 
-        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRuntimeException(
+            RuntimeException ex, WebRequest request) {
+        log.error("RuntimeException | {} | Class: {} | TraceId: {}",
+                ex.getMessage(), ex.getClass().getSimpleName(), MDC.get("traceId"), ex);
+        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGlobalException(
             Exception ex, WebRequest request) {
-        log.error("Unexpected error | TraceId: {} | Path: {} | Error: {} | Message: {}",
-                MDC.get(LoggingConstants.TRACE_ID),
-                request.getDescription(false),
-                ex.getClass().getSimpleName(),
-                ex.getMessage(),
-                ex);
-
+        log.error("UnexpectedException | {} | Class: {} | TraceId: {}",
+                ex.getMessage(), ex.getClass().getSimpleName(), MDC.get("traceId"), ex);
         return new ResponseEntity<>(
-                buildErrorResponse("An unexpected error occurred. Please try again later."),
+                buildError("An unexpected error occurred. Please try again later."),
                 HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
-    private ApiResponse<Void> buildErrorResponse(String message) {
+    private ApiResponse<Void> buildError(String message) {
         return ApiResponse.<Void>builder()
                 .success(false)
                 .message(message)

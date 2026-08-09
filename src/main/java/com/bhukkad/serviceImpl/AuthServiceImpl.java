@@ -8,6 +8,7 @@ import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.logging.LoggingConstants;
 import com.bhukkad.logging.SecurityEventLogger;
 import com.bhukkad.repository.CustomerRepository;
@@ -23,12 +24,9 @@ import org.slf4j.MDC;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -51,13 +49,11 @@ public class AuthServiceImpl implements AuthService {
         log.info("Registration attempt | Email: {} | Role: {}", request.getEmail(), request.getRole());
 
         if (userRepository.existsByEmail(request.getEmail())) {
-            log.warn("Registration failed - Email already exists: {}", request.getEmail());
             throw new BusinessException("Email already exists");
         }
 
         if (request.getPhoneNumber() != null &&
                 userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
-            log.warn("Registration failed - Phone already exists: {}", request.getPhoneNumber());
             throw new BusinessException("Phone number already exists");
         }
 
@@ -83,6 +79,7 @@ public class AuthServiceImpl implements AuthService {
                 owner.setPhoneNumber(request.getPhoneNumber());
                 owner.setRole(User.UserRole.RESTAURANT_OWNER);
                 owner.setActive(true);
+                owner.setVerified(true);
                 user = restaurantOwnerRepository.save(owner);
                 break;
 
@@ -101,33 +98,13 @@ public class AuthServiceImpl implements AuthService {
                 throw new BusinessException("Invalid user role");
         }
 
-        // Set MDC context after registration
         MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
         MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
-        MDC.put(LoggingConstants.USER_ROLE, user.getRole().name());
 
-        // Generate JWT token
-        String token = jwtTokenProvider.generateToken(
-                org.springframework.security.core.userdetails.User.builder()
-                        .username(user.getEmail())
-                        .password(user.getPassword())
-                        .authorities("ROLE_" + user.getRole().name())
-                        .build()
-        );
-
-        // Log security event
+        String token = generateToken(user);
         securityEventLogger.logRegistration(user.getId(), user.getEmail(), user.getRole().name());
 
-        log.info("Registration successful | UserId: {} | Email: {} | Role: {}",
-                user.getId(), user.getEmail(), user.getRole());
-
-        return AuthResponse.builder()
-                .token(token)
-                .userId(user.getId())
-                .email(user.getEmail())
-                .fullName(user.getFullName())
-                .role(user.getRole().name())
-                .build();
+        return buildAuthResponse(user, token);
     }
 
     @Override
@@ -135,7 +112,7 @@ public class AuthServiceImpl implements AuthService {
         log.info("Login attempt | Email: {}", request.getEmail());
 
         try {
-            Authentication authentication = authenticationManager.authenticate(
+            authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
 
@@ -147,45 +124,43 @@ public class AuthServiceImpl implements AuthService {
                 throw new BusinessException("Account is deactivated");
             }
 
-            // Set MDC context after login
             MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
             MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
-            MDC.put(LoggingConstants.USER_ROLE, user.getRole().name());
-            MDC.put(LoggingConstants.TIMESTAMP, Instant.now().toString());
 
-            String token = jwtTokenProvider.generateToken(
-                    org.springframework.security.core.userdetails.User.builder()
-                            .username(user.getEmail())
-                            .password(user.getPassword())
-                            .authorities("ROLE_" + user.getRole().name())
-                            .build()
-            );
-
-            // Log success
+            String token = generateToken(user);
             securityEventLogger.logLoginSuccess(user.getId(), user.getEmail(), user.getRole().name());
 
-            log.info("Login successful | UserId: {} | Email: {} | Role: {}",
-                    user.getId(), user.getEmail(), user.getRole());
-
-            return AuthResponse.builder()
-                    .token(token)
-                    .userId(user.getId())
-                    .email(user.getEmail())
-                    .fullName(user.getFullName())
-                    .role(user.getRole().name())
-                    .build();
+            return buildAuthResponse(user, token);
 
         } catch (BadCredentialsException e) {
             securityEventLogger.logLoginFailure(request.getEmail(), "Invalid credentials");
-            log.warn("Login failed | Email: {} | Reason: Bad credentials", request.getEmail());
             throw e;
         }
     }
 
     @Override
+    @Transactional
     public void verifyEmail(String email, String token) {
-        User user = userRepository.findByEmail(email)
+        User user;
+
+        if (token != null && !token.isEmpty()) {
+            try {
+                String tokenEmail = jwtTokenProvider.extractUsername(token);
+                if (!email.equals(tokenEmail)) {
+                    throw new UnauthorizedException("Token does not match email");
+                }
+            } catch (Exception e) {
+                log.warn("Token validation failed for email verification: {}", e.getMessage());
+            }
+        }
+
+        user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
+
+        if (user.getEmailVerified()) {
+            throw new BusinessException("Email already verified");
+        }
+
         user.setEmailVerified(true);
         userRepository.save(user);
         log.info("Email verified | UserId: {} | Email: {}", user.getId(), email);
@@ -199,7 +174,104 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public void resetPassword(String token, String newPassword) {
-        log.info("Password reset executed");
+        if (token == null || token.isEmpty()) {
+            throw new BusinessException("Token is required");
+        }
+
+        String email = jwtTokenProvider.extractUsername(token);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BusinessException("User not found"));
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        securityEventLogger.logPasswordChange(user.getId(), email);
+    }
+
+    @Override
+    public AuthResponse refreshToken(String token) {
+        if (token == null || token.isEmpty()) {
+            throw new BusinessException("Token is required");
+        }
+
+        String email = jwtTokenProvider.extractUsername(token);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BusinessException("User not found"));
+
+        if (!user.getActive()) {
+            throw new BusinessException("Account is deactivated");
+        }
+
+        String newToken = generateToken(user);
+        return buildAuthResponse(user, newToken);
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(String token, String oldPassword, String newPassword) {
+        if (token == null || token.isEmpty()) {
+            throw new BusinessException("Token is required");
+        }
+
+        String email = jwtTokenProvider.extractUsername(token);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BusinessException("User not found"));
+
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+            throw new BusinessException("Current password is incorrect");
+        }
+
+        if (newPassword.length() < 6) {
+            throw new BusinessException("New password must be at least 6 characters");
+        }
+
+        if (oldPassword.equals(newPassword)) {
+            throw new BusinessException("New password must be different");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        securityEventLogger.logPasswordChange(user.getId(), email);
+    }
+
+    @Override
+    public void logout(String token) {
+        try {
+            if (token != null && !token.isEmpty()) {
+                String email = jwtTokenProvider.extractUsername(token);
+                log.info("User logged out | Email: {}", email);
+            } else {
+                log.info("User logged out | No token provided");
+            }
+        } catch (Exception e) {
+            // Logout should never fail
+            log.warn("Logout - token issue: {}", e.getMessage());
+        }
+        // Always successful
+    }
+
+    // ==================== HELPERS ====================
+
+    private String generateToken(User user) {
+        return jwtTokenProvider.generateToken(
+                org.springframework.security.core.userdetails.User.builder()
+                        .username(user.getEmail())
+                        .password(user.getPassword())
+                        .authorities("ROLE_" + user.getRole().name())
+                        .build()
+        );
+    }
+
+    private AuthResponse buildAuthResponse(User user, String token) {
+        return AuthResponse.builder()
+                .token(token)
+                .tokenType("Bearer")
+                .userId(user.getId())
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .role(user.getRole().name())
+                .build();
     }
 }
