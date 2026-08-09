@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-nginx
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: nginx
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: bhukkad
+    component: nginx
