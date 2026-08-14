@@ -18,8 +18,10 @@ public interface DeliveryService {
 
     // Assignments
     List<OrderResponse> getActiveDeliveries();
+    List<OrderResponse> getAvailableOrders();
     List<OrderResponse> getDeliveryHistory();
     OrderResponse acceptDelivery(Long orderId);
+    OrderResponse rejectDelivery(Long orderId);
 
     // Admin operations
     List<DeliveryAgentResponse> getAllDeliveryAgents();

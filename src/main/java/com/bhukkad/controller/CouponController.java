@@ -1,5 +1,7 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.dto.request.CouponRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.CouponResponse;
@@ -13,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/coupons")
+@RequestMapping(ApiPaths.V1_PREFIX + "/coupons")
 @RequiredArgsConstructor
 public class CouponController {
 

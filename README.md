@@ -8,8 +8,11 @@ A comprehensive food delivery platform built with Spring Boot, similar to Swiggy
 ![Redis](https://img.shields.io/badge/Redis-7.0-red)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
+> **Documentation:** Full onboarding and runbooks live in **[docs/](./docs/README.md)** — getting started, Docker, Kubernetes, API usage, and operations.
+
 ## 📋 Table of Contents
 
+- [Documentation](./docs/README.md)
 - [Features](#-features)
 - [Tech Stack](#-tech-stack)
 - [Architecture](#-architecture)

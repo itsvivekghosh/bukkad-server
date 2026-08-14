@@ -11,7 +11,6 @@ import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.service.CouponService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,7 +24,6 @@ public class CouponServiceImpl implements CouponService {
     private final RestaurantRepository restaurantRepository;
 
     @Override
-    @Transactional
     public Coupon createCoupon(Coupon coupon) {
         if (couponRepository.findByCode(coupon.getCode()).isPresent()) {
             throw new BusinessException("Coupon code already exists");
@@ -34,7 +32,6 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<Coupon> getActiveCoupons(Long restaurantId) {
         LocalDateTime now = LocalDateTime.now();
         if (restaurantId != null) {
@@ -44,7 +41,6 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Coupon getCouponByCode(String code) {
         return couponRepository.findByCode(code)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));
@@ -93,7 +89,6 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<CouponResponse> getActiveCouponResponses(Long restaurantId) {
         return getActiveCoupons(restaurantId).stream()
                 .map(this::mapToResponse)
@@ -110,7 +105,6 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
-    @Transactional
     public CouponResponse createCouponFromRequest(CouponRequest request) {
         if (couponRepository.findByCode(request.getCode()).isPresent()) {
             throw new BusinessException("Coupon code already exists");
@@ -141,9 +135,8 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
-    @Transactional
     public CouponResponse updateCoupon(Long couponId, CouponRequest request) {
-        Coupon coupon = couponRepository.findById(couponId)
+        Coupon coupon = couponRepository.findByIdWithRestaurant(couponId)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));
 
         coupon.setDescription(request.getDescription());
@@ -161,11 +154,16 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
-    @Transactional
     public void deactivateCoupon(Long couponId) {
         Coupon coupon = couponRepository.findById(couponId)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));
         coupon.setActive(false);
+        couponRepository.save(coupon);
+    }
+
+    @Override
+    public void recordCouponUsage(Coupon coupon) {
+        coupon.setUsedCount(coupon.getUsedCount() + 1);
         couponRepository.save(coupon);
     }
 

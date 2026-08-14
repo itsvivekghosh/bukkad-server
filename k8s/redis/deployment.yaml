@@ -12,6 +12,8 @@ spec:
     matchLabels:
       app: bhukkad
       component: redis
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
@@ -26,36 +28,39 @@ spec:
               name: redis
           command:
             - redis-server
-            - --appendonly
-            - "yes"
-            - --maxmemory
-            - 256mb
-            - --maxmemory-policy
-            - allkeys-lru
+            - /etc/redis/redis.conf
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
               memory: 512Mi
+          startupProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 3
+            failureThreshold: 20
           livenessProbe:
             exec:
-              command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 15
+              command: ["redis-cli", "ping"]
             periodSeconds: 10
+            timeoutSeconds: 3
           readinessProbe:
             exec:
-              command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 5
+              command: ["redis-cli", "ping"]
             periodSeconds: 5
+            timeoutSeconds: 3
           volumeMounts:
             - name: redis-data
               mountPath: /data
+            - name: redis-config
+              mountPath: /etc/redis/redis.conf
+              subPath: redis.conf
       volumes:
         - name: redis-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: bhukkad-redis-pvc
+        - name: redis-config
+          configMap:
+            name: bhukkad-redis-config

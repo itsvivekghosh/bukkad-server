@@ -1,5 +1,6 @@
 package com.bhukkad.serviceImpl;
 
+import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.response.AddressResponse;
 import com.bhukkad.dto.response.CustomerProfileResponse;
@@ -13,56 +14,36 @@ import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.repository.AddressRepository;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;
+import com.bhukkad.config.WalletProperties;
+import com.bhukkad.entity.WalletTransaction;
+import com.bhukkad.wallet.WalletService;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CustomerService;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CustomerServiceImpl implements CustomerService {
-
-    private static final Logger log = LoggerFactory.getLogger(CustomerServiceImpl.class);
 
     private final CustomerRepository customerRepository;
     private final AddressRepository addressRepository;
     private final OrderRepository orderRepository;
     private final SecurityUtils securityUtils;
+    private final WalletProperties walletProperties;
+    private final WalletService walletService;
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public CustomerProfileResponse getProfile() {
-        Customer customer = getCurrentCustomer();
-
-        List<AddressResponse> addresses = addressRepository
-                .findByCustomerId(customer.getId())
-                .stream()
-                .map(this::mapToAddressResponse)
-                .collect(Collectors.toList());
-
-        long totalOrders = orderRepository.countByCustomerId(customer.getId());
-
-        return CustomerProfileResponse.builder()
-                .id(customer.getId())
-                .email(customer.getEmail())
-                .fullName(customer.getFullName())
-                .phoneNumber(customer.getPhoneNumber())
-                .profileImageUrl(customer.getProfileImageUrl())
-                .active(customer.getActive())
-                .emailVerified(customer.getEmailVerified())
-                .loyaltyPoints(customer.getLoyaltyPoints())
-                .walletBalance(customer.getWalletBalance())
-                .role(customer.getRole().name())
-                .createdAt(customer.getCreatedAt() != null ? customer.getCreatedAt().toString() : null)
-                .addresses(addresses)
-                .totalOrders((int) totalOrders)
-                .build();
+        return buildProfileResponse(getCurrentCustomer());
     }
 
     @Override
@@ -70,9 +51,15 @@ public class CustomerServiceImpl implements CustomerService {
     public CustomerResponse updateProfile(String fullName, String phoneNumber, String profileImageUrl) {
         Customer customer = getCurrentCustomer();
 
-        if (fullName != null && !fullName.isEmpty()) customer.setFullName(fullName);
-        if (phoneNumber != null && !phoneNumber.isEmpty()) customer.setPhoneNumber(phoneNumber);
-        if (profileImageUrl != null && !profileImageUrl.isEmpty()) customer.setProfileImageUrl(profileImageUrl);
+        if (fullName != null && !fullName.isEmpty()) {
+            customer.setFullName(fullName);
+        }
+        if (phoneNumber != null && !phoneNumber.isEmpty()) {
+            customer.setPhoneNumber(phoneNumber);
+        }
+        if (profileImageUrl != null && !profileImageUrl.isEmpty()) {
+            customer.setProfileImageUrl(profileImageUrl);
+        }
 
         customer = customerRepository.save(customer);
         log.info("Profile updated for customer: {}", customer.getId());
@@ -113,7 +100,7 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<AddressResponse> getAddresses() {
         Customer customer = getCurrentCustomer();
         return addressRepository.findByCustomerId(customer.getId())
@@ -127,7 +114,7 @@ public class CustomerServiceImpl implements CustomerService {
     public AddressResponse updateAddress(Long addressId, AddressRequest request) {
         Customer customer = getCurrentCustomer();
 
-        Address address = addressRepository.findById(addressId)
+        Address address = addressRepository.findByIdWithCustomer(addressId)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
 
         if (!address.getCustomer().getId().equals(customer.getId())) {
@@ -144,7 +131,7 @@ public class CustomerServiceImpl implements CustomerService {
     public void deleteAddress(Long addressId) {
         Customer customer = getCurrentCustomer();
 
-        Address address = addressRepository.findById(addressId)
+        Address address = addressRepository.findByIdWithCustomer(addressId)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
 
         if (!address.getCustomer().getId().equals(customer.getId())) {
@@ -159,7 +146,7 @@ public class CustomerServiceImpl implements CustomerService {
     public AddressResponse setDefaultAddress(Long addressId) {
         Customer customer = getCurrentCustomer();
 
-        Address address = addressRepository.findById(addressId)
+        Address address = addressRepository.findByIdWithCustomer(addressId)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
 
         if (!address.getCustomer().getId().equals(customer.getId())) {
@@ -178,7 +165,7 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public Double getWalletBalance() {
         return getCurrentCustomer().getWalletBalance();
     }
@@ -189,20 +176,32 @@ public class CustomerServiceImpl implements CustomerService {
         if (amount == null || amount <= 0) {
             throw new BusinessException("Amount must be positive");
         }
+        if (!walletProperties.isAllowDirectTopUp()) {
+            throw new BusinessException(
+                    "Direct wallet credit is disabled. Use POST /customers/wallet/top-up to pay via gateway.");
+        }
         Customer customer = getCurrentCustomer();
-        customer.setWalletBalance(customer.getWalletBalance() + amount);
-        customerRepository.save(customer);
+        walletService.credit(
+                customer,
+                amount,
+                WalletTransaction.TransactionType.ADJUSTMENT,
+                null,
+                "Direct wallet top-up (dev/admin)");
+        log.info("Direct wallet credit | customerId={} | amount={}", customer.getId(), amount);
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public Integer getLoyaltyPoints() {
         return getCurrentCustomer().getLoyaltyPoints();
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public CustomerProfileResponse getCustomerById(Long customerId) {
+        if (!customerId.equals(securityUtils.getCurrentUserId())) {
+            throw new UnauthorizedException("Cannot access another customer's profile");
+        }
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + customerId));
         return buildProfileResponse(customer);

@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-fluent-bit-config
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: logging
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush        1
+        Log_Level    info
+
+    [INPUT]
+        Name              tail
+        Path              /app/logs/*.log
+        Tag               bhukkad.app
+        Refresh_Interval  5
+
+    [OUTPUT]
+        Name              loki
+        Match             bhukkad.*
+        Host              ${LOKI_HOST}
+        Port              3100
+        Labels            app=bhukkad,env=production
+        auto_kubernetes_labels on

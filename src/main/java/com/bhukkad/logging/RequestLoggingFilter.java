@@ -36,7 +36,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final String[] SKIP_PATTERNS = {
             "/swagger-ui", "/v3/api-docs", "/api-docs",
-            "/actuator", "/favicon.ico", "/webjars"
+            "/actuator", "/favicon.ico", "/webjars",
+            "/api/v1/health", "/health"
     };
 
     public RequestLoggingFilter(UserRepository userRepository) {

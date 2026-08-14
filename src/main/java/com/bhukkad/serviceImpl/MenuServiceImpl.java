@@ -2,23 +2,28 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
 import com.bhukkad.dto.response.MenuCategoryResponse;
+import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.mapper.MenuItemMapper;
 import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.MenuService;
+import com.bhukkad.storage.ImageStorageProperties;
+import com.bhukkad.storage.MenuImageService;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,17 +34,20 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class MenuServiceImpl implements MenuService {
-
-    private static final Logger log = LoggerFactory.getLogger(MenuServiceImpl.class);
 
     private final MenuItemRepository menuItemRepository;
     private final MenuCategoryRepository menuCategoryRepository;
     private final RestaurantRepository restaurantRepository;
     private final SecurityUtils securityUtils;
     private final RedisCacheService cacheService;
+    private final MenuItemMapper menuItemMapper;
+    private final MenuImageService menuImageService;
+    private final ImageStorageProperties imageStorageProperties;
 
     @Value("${cache.ttl.menu-item:900}")
     private long menuItemTtl;
@@ -55,7 +63,7 @@ public class MenuServiceImpl implements MenuService {
     @Override
     @Transactional
     public MenuCategoryResponse createCategory(Long restaurantId, MenuCategoryRequest request) {
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
         verifyOwnership(restaurant);
@@ -74,27 +82,20 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<MenuCategoryResponse> getCategoriesByRestaurant(Long restaurantId) {
         String cacheKey = CacheKeyGenerator.menuCategoriesByRestaurant(restaurantId);
-
-        Optional<List<MenuCategoryResponse>> cached = cacheService.getList(cacheKey, MenuCategoryResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<MenuCategoryResponse> categories = menuCategoryRepository
-                .findByRestaurantIdOrderByDisplayOrderAsc(restaurantId)
-                .stream()
-                .map(this::mapToCategoryResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, categories, menuCategoryTtl);
-        return categories;
+        return cacheService.getListOrCompute(cacheKey, MenuCategoryResponse.class, menuCategoryTtl, () ->
+                menuCategoryRepository.findByRestaurantIdWithRestaurantOrderByDisplayOrderAsc(restaurantId)
+                        .stream()
+                        .map(this::mapToCategoryResponse)
+                        .collect(Collectors.toList()));
     }
 
     @Override
     @Transactional
     public MenuCategoryResponse updateCategory(Long categoryId, MenuCategoryRequest request) {
-        MenuCategory category = menuCategoryRepository.findById(categoryId)
+        MenuCategory category = menuCategoryRepository.findByIdWithRestaurant(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         verifyOwnership(category.getRestaurant());
@@ -112,7 +113,7 @@ public class MenuServiceImpl implements MenuService {
     @Override
     @Transactional
     public void deleteCategory(Long categoryId) {
-        MenuCategory category = menuCategoryRepository.findById(categoryId)
+        MenuCategory category = menuCategoryRepository.findByIdWithRestaurant(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         verifyOwnership(category.getRestaurant());
@@ -124,117 +125,98 @@ public class MenuServiceImpl implements MenuService {
     // ==================== MENU ITEMS ====================
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public MenuItemResponse getMenuItemById(Long id) {
         String cacheKey = CacheKeyGenerator.menuItem(id);
-
-        Optional<MenuItemResponse> cached = cacheService.get(cacheKey, MenuItemResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        MenuItem menuItem = menuItemRepository.findByIdWithDetails(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
-
-        MenuItemResponse response = mapToMenuItemResponse(menuItem);
-        cacheService.set(cacheKey, response, menuItemTtl);
-        return response;
+        return cacheService.getOrCompute(cacheKey, MenuItemResponse.class, menuItemTtl, () -> {
+            MenuItem menuItem = menuItemRepository.findByIdWithDetails(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
+            return menuItemMapper.toResponse(menuItem);
+        });
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<MenuItemResponse> getMenuItemsByRestaurant(Long restaurantId) {
         String cacheKey = CacheKeyGenerator.menuItemsByRestaurant(restaurantId);
-
-        Optional<List<MenuItemResponse>> cached = cacheService.getList(cacheKey, MenuItemResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<MenuItemResponse> items = menuItemRepository
-                .findByRestaurantIdWithDetails(restaurantId)
-                .stream()
-                .map(this::mapToMenuItemResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, items, menuItemTtl);
-        return items;
+        return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, menuItemTtl, () ->
+                menuItemRepository.findByRestaurantIdWithDetails(restaurantId)
+                        .stream()
+                        .map(menuItemMapper::toResponse)
+                        .collect(Collectors.toList()));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<MenuItemResponse> getMenuItemsByCategory(Long categoryId) {
         String cacheKey = CacheKeyGenerator.menuItemsByCategory(categoryId);
-
-        Optional<List<MenuItemResponse>> cached = cacheService.getList(cacheKey, MenuItemResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<MenuItemResponse> items = menuItemRepository
-                .findByCategoryIdWithDetails(categoryId)
-                .stream()
-                .map(this::mapToMenuItemResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, items, menuItemTtl);
-        return items;
+        return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, menuItemTtl, () ->
+                menuItemRepository.findByCategoryIdWithDetails(categoryId)
+                        .stream()
+                        .map(menuItemMapper::toResponse)
+                        .collect(Collectors.toList()));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<MenuItemResponse> getBestsellers(Long restaurantId) {
         String cacheKey = CacheKeyGenerator.bestsellers(restaurantId);
-
-        Optional<List<MenuItemResponse>> cached = cacheService.getList(cacheKey, MenuItemResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<MenuItemResponse> items = menuItemRepository
-                .findBestsellersWithDetails(restaurantId)
-                .stream()
-                .map(this::mapToMenuItemResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, items, menuItemTtl);
-        return items;
+        return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, menuItemTtl, () ->
+                menuItemRepository.findBestsellersWithDetails(restaurantId)
+                        .stream()
+                        .map(menuItemMapper::toResponse)
+                        .collect(Collectors.toList()));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<MenuItemResponse> getRecommended(Long restaurantId) {
-        return getMenuItemsByRestaurant(restaurantId).stream()
-                .filter(item -> Boolean.TRUE.equals(item.getRecommended()))
-                .collect(Collectors.toList());
+        String cacheKey = CacheKeyGenerator.recommended(restaurantId);
+        return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, menuItemTtl, () ->
+                getMenuItemsByRestaurant(restaurantId).stream()
+                        .filter(item -> Boolean.TRUE.equals(item.getRecommended()))
+                        .collect(Collectors.toList()));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<MenuItemResponse> searchMenuItems(String keyword) {
-        String cacheKey = "menu-search:" + keyword.toLowerCase().trim();
-
-        Optional<List<MenuItemResponse>> cached = cacheService.getList(cacheKey, MenuItemResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<MenuItemResponse> items = menuItemRepository
-                .searchByNameWithDetails(keyword)
-                .stream()
-                .map(this::mapToMenuItemResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, items, searchTtl);
-        return items;
+        String cacheKey = CacheKeyGenerator.menuSearch(keyword);
+        return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, searchTtl, () -> {
+            List<MenuItem> found;
+            try {
+                found = menuItemRepository.fullTextSearch(keyword.trim());
+                if (found.isEmpty()) {
+                    found = menuItemRepository.searchByNameWithDetails(keyword);
+                }
+            } catch (Exception ex) {
+                log.debug("MENU_FULLTEXT_FALLBACK | keyword={}", keyword);
+                found = menuItemRepository.searchByNameWithDetails(keyword);
+            }
+            return found.stream()
+                    .map(item -> menuItemRepository.findByIdWithDetails(item.getId()).orElse(item))
+                    .map(menuItemMapper::toResponse)
+                    .collect(Collectors.toList());
+        });
     }
 
     @Override
     @Transactional
     public MenuItemResponse createMenuItem(MenuItemRequest request) {
-        MenuCategory category = menuCategoryRepository.findById(request.getCategoryId())
+        MenuCategory category = menuCategoryRepository.findByIdWithRestaurant(request.getCategoryId())
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         verifyOwnership(category.getRestaurant());
 
         MenuItem menuItem = new MenuItem();
         menuItem.setCategory(category);
+        menuItem.setAvailable(true);
         mapRequestToMenuItem(request, menuItem);
 
         menuItem = menuItemRepository.save(menuItem);
         invalidateMenuCaches(category.getRestaurant().getId());
 
-        return mapToMenuItemResponse(menuItem);
+        return menuItemMapper.toResponse(menuItem);
     }
 
     @Override
@@ -253,7 +235,7 @@ public class MenuServiceImpl implements MenuService {
         cacheService.delete(CacheKeyGenerator.menuItem(id));
         invalidateMenuCaches(menuItem.getCategory().getRestaurant().getId());
 
-        return mapToMenuItemResponse(menuItem);
+        return menuItemMapper.toResponse(menuItem);
     }
 
     @Override
@@ -286,18 +268,29 @@ public class MenuServiceImpl implements MenuService {
         invalidateMenuCaches(menuItem.getCategory().getRestaurant().getId());
     }
 
+    @Override
+    @Transactional
+    public MenuImageUploadResponse createMenuItemImageUploadUrl(Long menuItemId, MenuImageUploadRequest request) {
+        MenuItem menuItem = menuItemRepository.findByIdWithDetails(menuItemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
+        Restaurant restaurant = menuItem.getCategory().getRestaurant();
+        verifyOwnership(restaurant);
+
+        String imageKey = menuImageService.generateImageKey(restaurant.getId(), menuItemId, request.getContentType());
+        String uploadUrl = menuImageService.createUploadUrl(imageKey, request.getContentType());
+
+        return MenuImageUploadResponse.builder()
+                .uploadUrl(uploadUrl)
+                .imageKey(imageKey)
+                .expiresInSeconds(imageStorageProperties.getUploadUrlExpirySeconds())
+                .build();
+    }
+
     // ==================== HELPERS ====================
 
     private void verifyOwnership(Restaurant restaurant) {
-        try {
-            Long currentUserId = securityUtils.getCurrentUserId();
-            if (!restaurant.getOwner().getId().equals(currentUserId)) {
-                throw new UnauthorizedException("You don't own this restaurant");
-            }
-        } catch (UnauthorizedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.debug("No auth context - public access");
+        if (!restaurant.getOwner().getId().equals(securityUtils.getCurrentUserId())) {
+            throw new UnauthorizedException("You don't own this restaurant");
         }
     }
 
@@ -318,12 +311,19 @@ public class MenuServiceImpl implements MenuService {
         if (request.getIsVeg() != null) menuItem.setIsVeg(request.getIsVeg());
         if (request.getIsSpicy() != null) menuItem.setIsSpicy(request.getIsSpicy());
         if (request.getSpiceLevel() != null) menuItem.setSpiceLevel(request.getSpiceLevel());
-        if (request.getImageUrl() != null) menuItem.setImageUrl(request.getImageUrl());
+        if (request.getImageKey() != null) {
+            menuImageService.validateImageKey(request.getImageKey());
+            menuItem.setImageUrl(request.getImageKey());
+        } else if (request.getImageUrl() != null) {
+            if (imageStorageProperties.isEnabled()) {
+                throw new com.bhukkad.exception.BusinessException(
+                        "Use image upload-url flow instead of raw image URLs when S3 is enabled");
+            }
+            menuItem.setImageUrl(request.getImageUrl());
+        }
         if (request.getPreparationTime() != null) menuItem.setPreparationTime(request.getPreparationTime());
         if (request.getCalories() != null) menuItem.setCalories(request.getCalories());
         if (request.getServingSize() != null) menuItem.setServingSize(request.getServingSize());
-
-        menuItem.setAvailable(true);
 
         // ElementCollections - replace entirely
         if (request.getIngredients() != null) {
@@ -370,51 +370,6 @@ public class MenuServiceImpl implements MenuService {
                 .displayOrder(category.getDisplayOrder())
                 .active(category.getActive())
                 .itemCount(itemCount)
-                .build();
-    }
-
-    @Transactional(readOnly = true)
-    private MenuItemResponse mapToMenuItemResponse(MenuItem menuItem) {
-        String categoryName = "";
-        try {
-            categoryName = menuItem.getCategory().getName();
-        } catch (Exception e) {
-            log.debug("Could not get category name for item: {}", menuItem.getId());
-        }
-
-        // Safe access to ElementCollections
-        Set<String> tags = new HashSet<>();
-        Set<String> allergens = new HashSet<>();
-        Set<String> ingredients = new HashSet<>();
-
-        try { if (menuItem.getTags() != null) tags = new HashSet<>(menuItem.getTags()); } catch (Exception e) {}
-        try { if (menuItem.getAllergens() != null) allergens = new HashSet<>(menuItem.getAllergens()); } catch (Exception e) {}
-        try { if (menuItem.getIngredients() != null) ingredients = new HashSet<>(menuItem.getIngredients()); } catch (Exception e) {}
-
-        return MenuItemResponse.builder()
-                .id(menuItem.getId())
-                .name(menuItem.getName())
-                .description(menuItem.getDescription())
-                .categoryName(categoryName)
-                .price(menuItem.getPrice())
-                .originalPrice(menuItem.getOriginalPrice())
-                .discountPercentage(menuItem.getDiscountPercentage())
-                .available(menuItem.getAvailable())
-                .foodType(menuItem.getFoodType() != null ? menuItem.getFoodType().name() : null)
-                .isVeg(menuItem.getIsVeg())
-                .isSpicy(menuItem.getIsSpicy())
-                .spiceLevel(menuItem.getSpiceLevel() != null ? menuItem.getSpiceLevel().name() : null)
-                .imageUrl(menuItem.getImageUrl())
-                .preparationTime(menuItem.getPreparationTime())
-                .bestseller(menuItem.getBestseller())
-                .recommended(menuItem.getRecommended())
-                .calories(menuItem.getCalories())
-                .servingSize(menuItem.getServingSize())
-                .averageRating(menuItem.getAverageRating())
-                .totalRatings(menuItem.getTotalRatings())
-                .tags(tags)
-                .allergens(allergens)
-                .ingredients(ingredients)
                 .build();
     }
 }

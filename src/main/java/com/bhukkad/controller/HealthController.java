@@ -1,6 +1,11 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.cluster.InstanceMetadata;
+import com.bhukkad.datasource.ReadReplicaProperties;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.http.ResponseEntity;
@@ -21,10 +26,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/health")
+@RequestMapping(ApiPaths.V1_PREFIX + "/health")
 public class HealthController {
 
-    private final DataSource dataSource;
+    private final DataSource writeDataSource;
+    private final DataSource readDataSource;
+    private final ReadReplicaProperties readReplicaProperties;
     private final Environment environment;
     private final Instant startTime = Instant.now();
 
@@ -43,11 +50,20 @@ public class HealthController {
 
     // Add Redis dependency
     private final RedisCacheService cacheService;
+    private final InstanceMetadata instanceMetadata;
 
-    public HealthController(DataSource dataSource, Environment environment, RedisCacheService cacheService) {
-        this.dataSource = dataSource;
+    public HealthController(@Qualifier("writeDataSource") DataSource writeDataSource,
+                            @Qualifier("readDataSource") DataSource readDataSource,
+                            ReadReplicaProperties readReplicaProperties,
+                            Environment environment,
+                            RedisCacheService cacheService,
+                            InstanceMetadata instanceMetadata) {
+        this.writeDataSource = writeDataSource;
+        this.readDataSource = readDataSource;
+        this.readReplicaProperties = readReplicaProperties;
         this.environment = environment;
         this.cacheService = cacheService;
+        this.instanceMetadata = instanceMetadata;
     }
 
     @GetMapping
@@ -58,6 +74,7 @@ public class HealthController {
         health.put("environment", appEnvironment);
         health.put("activeProfiles", getActiveProfiles());
         health.put("port", port);
+        health.put("instanceId", instanceMetadata.getInstanceId());
         health.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         health.put("uptime", getUptime());
         return ResponseEntity.ok(health);
@@ -72,9 +89,11 @@ public class HealthController {
         health.put("environment", appEnvironment);
         health.put("activeProfiles", getActiveProfiles());
         health.put("port", port);
+        health.put("instanceId", instanceMetadata.getInstanceId());
         health.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         health.put("uptime", getUptime());
         health.put("database", checkDatabase());
+        health.put("readReplica", checkReadReplica());
         health.put("redis", checkRedis());     // ADD THIS
         health.put("memory", getMemoryInfo());
         health.put("jvm", getJvmInfo());
@@ -110,6 +129,11 @@ public class HealthController {
         return ResponseEntity.ok(checkDatabase());
     }
 
+    @GetMapping("/db/replica")
+    public ResponseEntity<Map<String, Object>> readReplicaHealth() {
+        return ResponseEntity.ok(checkReadReplica());
+    }
+
     @GetMapping("/memory")
     public ResponseEntity<Map<String, Object>> memoryHealth() {
         return ResponseEntity.ok(getMemoryInfo());
@@ -121,6 +145,7 @@ public class HealthController {
         response.put("status", "pong");
         response.put("application", appName);
         response.put("environment", appEnvironment);
+        response.put("instanceId", instanceMetadata.getInstanceId());
         response.put("timestamp", Instant.now().toString());
         return ResponseEntity.ok(response);
     }
@@ -147,7 +172,30 @@ public class HealthController {
     }
 
     private Map<String, Object> checkDatabase() {
+        return checkDataSource(writeDataSource, "primary");
+    }
+
+    private Map<String, Object> checkReadReplica() {
+        Map<String, Object> replicaHealth = new LinkedHashMap<>();
+        if (!readReplicaProperties.isConfigured()) {
+            replicaHealth.put("status", "DISABLED");
+            replicaHealth.put("configured", false);
+            return replicaHealth;
+        }
+        replicaHealth.put("configured", true);
+        if (readDataSource == writeDataSource) {
+            replicaHealth.put("status", "DISABLED");
+            replicaHealth.put("message", "Read replica URL not configured; using primary");
+            return replicaHealth;
+        }
+        Map<String, Object> probe = checkDataSource(readDataSource, "read-replica");
+        replicaHealth.putAll(probe);
+        return replicaHealth;
+    }
+
+    private Map<String, Object> checkDataSource(DataSource dataSource, String role) {
         Map<String, Object> dbHealth = new LinkedHashMap<>();
+        dbHealth.put("role", role);
         long startMs = System.currentTimeMillis();
 
         try (Connection connection = dataSource.getConnection()) {
@@ -187,13 +235,7 @@ public class HealthController {
         memory.put("nonHeapUsed", formatBytes(memoryBean.getNonHeapMemoryUsage().getUsed()));
 
         double usagePercent = (double) usedMemory / maxMemory * 100;
-        if (usagePercent > 90) {
-            memory.put("status", "CRITICAL");
-        } else if (usagePercent > 75) {
-            memory.put("status", "WARNING");
-        } else {
-            memory.put("status", "HEALTHY");
-        }
+        memory.put("status", resolveMemoryStatus(usagePercent));
 
         return memory;
     }
@@ -242,6 +284,16 @@ public class HealthController {
         sb.append(seconds).append("s");
 
         return sb.toString().trim();
+    }
+
+    String resolveMemoryStatus(double usagePercent) {
+        if (usagePercent > 90) {
+            return "CRITICAL";
+        }
+        if (usagePercent > 75) {
+            return "WARNING";
+        }
+        return "HEALTHY";
     }
 
     private String formatBytes(long bytes) {

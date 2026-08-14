@@ -41,8 +41,8 @@ public class OpenAPIConfig {
                         Complete REST API for the Bhukkad food delivery platform.
                         
                         ## Authentication
-                        - Register a new account using `/api/auth/register`
-                        - Login using `/api/auth/login` to get JWT token
+                        - Register using `/api/v1/auth/register`
+                        - Login using `/api/v1/auth/login` to get JWT token
                         - Click **Authorize** button and enter: `Bearer <your-token>`
                         
                         ## Roles
@@ -79,7 +79,7 @@ public class OpenAPIConfig {
                         .bearerFormat("JWT")
                         .in(SecurityScheme.In.HEADER)
                         .name("Authorization")
-                        .description("Enter JWT token received from /api/auth/login"));
+                        .description("Enter JWT token received from /api/v1/auth/login"));
     }
 
     private List<Tag> buildTags() {

@@ -25,6 +25,7 @@ TOTAL=0
 
 # Tokens
 CUSTOMER_TOKEN=""
+CUSTOMER_REFRESH_TOKEN=""
 OWNER_TOKEN=""
 AGENT_TOKEN=""
 
@@ -40,15 +41,22 @@ ORDER_ID=""
 REVIEW_ID=""
 CART_ITEM_ID=""
 
-# Random data
+# Random data — unique per run to avoid DB collisions when tests run in parallel
+RUN_ID=$(python3 -c "import secrets; print(secrets.token_hex(4))" 2>/dev/null || echo "${RANDOM}${RANDOM}")
 TIMESTAMP=$(date +%s)
-CUSTOMER_EMAIL="customer_${TIMESTAMP}@bhukkad.com"
-OWNER_EMAIL="owner_${TIMESTAMP}@bhukkad.com"
-AGENT_EMAIL="agent_${TIMESTAMP}@bhukkad.com"
-CUSTOMER_PHONE="98${TIMESTAMP:0:8}"
-OWNER_PHONE="97${TIMESTAMP:0:8}"
-AGENT_PHONE="96${TIMESTAMP:0:8}"
+CUSTOMER_EMAIL="customer_${TIMESTAMP}_${RUN_ID}@bhukkad.test"
+OWNER_EMAIL="owner_${TIMESTAMP}_${RUN_ID}@bhukkad.test"
+AGENT_EMAIL="agent_${TIMESTAMP}_${RUN_ID}@bhukkad.test"
 PASSWORD="Test@123456"
+
+random_phone() {
+    local prefix="$1"
+    python3 -c "import secrets; p='$prefix'; print(p + ''.join(secrets.choice('0123456789') for _ in range(10 - len(p))))"
+}
+
+CUSTOMER_PHONE=$(random_phone "98")
+OWNER_PHONE=$(random_phone "97")
+AGENT_PHONE=$(random_phone "96")
 
 # ==================== HELPERS ====================
 
@@ -164,6 +172,55 @@ do_request() {
     eval $curl_cmd 2>/dev/null
 }
 
+register_or_login() {
+    local role_label="$1"
+    local email="$2"
+    local phone="$3"
+    local role="$4"
+    local token_var="$5"
+    local refresh_var="$6"
+    local id_var="$7"
+
+    local register_body="{\"fullName\":\"Test $role_label\",\"email\":\"$email\",\"password\":\"$PASSWORD\",\"phoneNumber\":\"$phone\",\"role\":\"$role\"}"
+    local response
+    response=$(do_request "POST" "$BASE/auth/register" "$register_body")
+
+    local token
+    token=$(extract_json "$response" "data.token")
+    local refresh
+    refresh=$(extract_json "$response" "data.refreshToken")
+    local user_id
+    user_id=$(extract_json "$response" "data.userId")
+
+    if [ -z "$token" ]; then
+        local login_body="{\"email\":\"$email\",\"password\":\"$PASSWORD\"}"
+        response=$(do_request "POST" "$BASE/auth/login" "$login_body")
+        token=$(extract_json "$response" "data.token")
+        refresh=$(extract_json "$response" "data.refreshToken")
+        user_id=$(extract_json "$response" "data.userId")
+    fi
+
+    eval "$token_var=\"$token\""
+    if [ -n "$refresh_var" ]; then
+        eval "$refresh_var=\"$refresh\""
+    fi
+    if [ -n "$id_var" ]; then
+        eval "$id_var=\"$user_id\""
+    fi
+
+    TOTAL=$((TOTAL + 1))
+    if [ -n "$token" ] && [ "$token" != "" ]; then
+        echo -e "  ${GREEN}✅ PASS${NC} | Register $role_label (ID: $user_id)"
+        PASS=$((PASS + 1))
+        return 0
+    fi
+
+    echo -e "  ${RED}❌ FAIL${NC} | Register $role_label"
+    echo -e "  ${RED}   Response: $(echo "$response" | head -c 200)${NC}"
+    FAIL=$((FAIL + 1))
+    return 1
+}
+
 # ==================== START ====================
 
 echo ""
@@ -210,53 +267,16 @@ test_api "Swagger UI" \
 log_header "3. AUTHENTICATION - REGISTER"
 
 log_section "Register Customer"
-REGISTER_RESPONSE=$(do_request "POST" "$BASE/auth/register" \
-    "{\"fullName\":\"Test Customer\",\"email\":\"$CUSTOMER_EMAIL\",\"password\":\"$PASSWORD\",\"phoneNumber\":\"$CUSTOMER_PHONE\",\"role\":\"CUSTOMER\"}")
-
-CUSTOMER_TOKEN=$(extract_json "$REGISTER_RESPONSE" "data.token")
-CUSTOMER_ID=$(extract_json "$REGISTER_RESPONSE" "data.userId")
-
-if [ -n "$CUSTOMER_TOKEN" ] && [ "$CUSTOMER_TOKEN" != "" ]; then
-    echo -e "  ${GREEN}✅ PASS${NC} | Register Customer (ID: $CUSTOMER_ID)"
-    PASS=$((PASS + 1))
-else
-    echo -e "  ${RED}❌ FAIL${NC} | Register Customer"
-    echo -e "  ${RED}   Response: $(echo "$REGISTER_RESPONSE" | head -c 200)${NC}"
-    FAIL=$((FAIL + 1))
-fi
-TOTAL=$((TOTAL + 1))
+register_or_login "Customer" "$CUSTOMER_EMAIL" "$CUSTOMER_PHONE" "CUSTOMER" \
+    CUSTOMER_TOKEN CUSTOMER_REFRESH_TOKEN CUSTOMER_ID
 
 log_section "Register Restaurant Owner"
-OWNER_RESPONSE=$(do_request "POST" "$BASE/auth/register" \
-    "{\"fullName\":\"Test Owner\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$PASSWORD\",\"phoneNumber\":\"$OWNER_PHONE\",\"role\":\"RESTAURANT_OWNER\"}")
-
-OWNER_TOKEN=$(extract_json "$OWNER_RESPONSE" "data.token")
-OWNER_ID=$(extract_json "$OWNER_RESPONSE" "data.userId")
-
-if [ -n "$OWNER_TOKEN" ] && [ "$OWNER_TOKEN" != "" ]; then
-    echo -e "  ${GREEN}✅ PASS${NC} | Register Owner (ID: $OWNER_ID)"
-    PASS=$((PASS + 1))
-else
-    echo -e "  ${RED}❌ FAIL${NC} | Register Owner"
-    FAIL=$((FAIL + 1))
-fi
-TOTAL=$((TOTAL + 1))
+register_or_login "Owner" "$OWNER_EMAIL" "$OWNER_PHONE" "RESTAURANT_OWNER" \
+    OWNER_TOKEN "" OWNER_ID
 
 log_section "Register Delivery Agent"
-AGENT_RESPONSE=$(do_request "POST" "$BASE/auth/register" \
-    "{\"fullName\":\"Test Agent\",\"email\":\"$AGENT_EMAIL\",\"password\":\"$PASSWORD\",\"phoneNumber\":\"$AGENT_PHONE\",\"role\":\"DELIVERY_AGENT\"}")
-
-AGENT_TOKEN=$(extract_json "$AGENT_RESPONSE" "data.token")
-AGENT_ID=$(extract_json "$AGENT_RESPONSE" "data.userId")
-
-if [ -n "$AGENT_TOKEN" ] && [ "$AGENT_TOKEN" != "" ]; then
-    echo -e "  ${GREEN}✅ PASS${NC} | Register Agent (ID: $AGENT_ID)"
-    PASS=$((PASS + 1))
-else
-    echo -e "  ${RED}❌ FAIL${NC} | Register Agent"
-    FAIL=$((FAIL + 1))
-fi
-TOTAL=$((TOTAL + 1))
+register_or_login "Agent" "$AGENT_EMAIL" "$AGENT_PHONE" "DELIVERY_AGENT" \
+    AGENT_TOKEN "" AGENT_ID
 
 # ==================== AUTH - LOGIN ====================
 
@@ -267,6 +287,7 @@ LOGIN_RESPONSE=$(do_request "POST" "$BASE/auth/login" \
     "{\"email\":\"$CUSTOMER_EMAIL\",\"password\":\"$PASSWORD\"}")
 
 CUSTOMER_TOKEN=$(extract_json "$LOGIN_RESPONSE" "data.token")
+CUSTOMER_REFRESH_TOKEN=$(extract_json "$LOGIN_RESPONSE" "data.refreshToken")
 
 if [ -n "$CUSTOMER_TOKEN" ] && [ "$CUSTOMER_TOKEN" != "" ]; then
     echo -e "  ${GREEN}✅ PASS${NC} | Login Customer"
@@ -319,8 +340,23 @@ log_header "5. AUTHENTICATION - OTHER OPERATIONS"
 test_api "Verify Email" \
     "POST" "$BASE/auth/verify-email?email=$CUSTOMER_EMAIL" "" "200" "$CUSTOMER_TOKEN"
 
-test_api "Refresh Token" \
-    "POST" "$BASE/auth/refresh-token" "" "200" "$CUSTOMER_TOKEN"
+log_section "Refresh Token"
+REFRESH_FULL=$(curl -s -w "\n%{http_code}" -X POST "$BASE/auth/refresh-token" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $CUSTOMER_REFRESH_TOKEN")
+REFRESH_HTTP=$(echo "$REFRESH_FULL" | tail -1)
+REFRESH_RESPONSE=$(echo "$REFRESH_FULL" | sed '$d')
+TOTAL=$((TOTAL + 1))
+if [ "$REFRESH_HTTP" = "200" ]; then
+    echo -e "  ${GREEN}✅ PASS${NC} | Refresh Token (HTTP $REFRESH_HTTP)"
+    PASS=$((PASS + 1))
+    CUSTOMER_TOKEN=$(extract_json "$REFRESH_RESPONSE" "data.token")
+    CUSTOMER_REFRESH_TOKEN=$(extract_json "$REFRESH_RESPONSE" "data.refreshToken")
+else
+    echo -e "  ${RED}❌ FAIL${NC} | Refresh Token (Expected: 200, Got: $REFRESH_HTTP)"
+    echo -e "  ${RED}   Response: $(echo "$REFRESH_RESPONSE" | head -c 200)${NC}"
+    FAIL=$((FAIL + 1))
+fi
 
 test_api "Change Password" \
     "POST" "$BASE/auth/change-password?oldPassword=$PASSWORD&newPassword=NewPass@123" \
@@ -330,6 +366,7 @@ test_api "Change Password" \
 LOGIN_RESPONSE=$(do_request "POST" "$BASE/auth/login" \
     "{\"email\":\"$CUSTOMER_EMAIL\",\"password\":\"NewPass@123\"}")
 CUSTOMER_TOKEN=$(extract_json "$LOGIN_RESPONSE" "data.token")
+CUSTOMER_REFRESH_TOKEN=$(extract_json "$LOGIN_RESPONSE" "data.refreshToken")
 
 test_api "Login with new password" \
     "POST" "$BASE/auth/login" \
@@ -343,6 +380,7 @@ do_request "POST" "$BASE/auth/change-password?oldPassword=NewPass@123&newPasswor
 LOGIN_RESPONSE=$(do_request "POST" "$BASE/auth/login" \
     "{\"email\":\"$CUSTOMER_EMAIL\",\"password\":\"$PASSWORD\"}")
 CUSTOMER_TOKEN=$(extract_json "$LOGIN_RESPONSE" "data.token")
+CUSTOMER_REFRESH_TOKEN=$(extract_json "$LOGIN_RESPONSE" "data.refreshToken")
 
 test_api "Forgot Password" \
     "POST" "$BASE/auth/forgot-password?email=$CUSTOMER_EMAIL" "" "200" ""

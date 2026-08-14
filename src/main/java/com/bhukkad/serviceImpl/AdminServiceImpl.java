@@ -1,5 +1,8 @@
 package com.bhukkad.serviceImpl;
 
+import com.bhukkad.cache.CacheKeyGenerator;
+import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.entity.*;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.*;
@@ -7,6 +10,7 @@ import com.bhukkad.service.AdminService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -31,10 +35,23 @@ public class AdminServiceImpl implements AdminService {
     private final OrderRepository orderRepository;
     private final ReviewRepository reviewRepository;
     private final PaymentRepository paymentRepository;
+    private final RedisCacheService cacheService;
+
+    @Value("${cache.ttl.admin-dashboard:60}")
+    private long adminDashboardTtl;
 
     @Override
+    @UseReadReplica
     @Transactional(readOnly = true)
     public Map<String, Object> getDashboardStats() {
+        return (Map<String, Object>) cacheService.getOrCompute(
+                CacheKeyGenerator.adminDashboard(),
+                Map.class,
+                adminDashboardTtl,
+                this::loadDashboardStats);
+    }
+
+    private Map<String, Object> loadDashboardStats() {
         Map<String, Object> stats = new LinkedHashMap<>();
 
         // User counts
@@ -77,6 +94,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @UseReadReplica
     @Transactional(readOnly = true)
     public Map<String, Object> getAllUsers(int page, int size, String role, String search) {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -145,6 +163,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @UseReadReplica
     @Transactional(readOnly = true)
     public Map<String, Object> getAllOrders(int page, int size, String status) {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -170,6 +189,7 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @UseReadReplica
     @Transactional(readOnly = true)
     public Map<String, Object> getAllRestaurants(int page, int size, Boolean active) {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -215,8 +235,17 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @UseReadReplica
     @Transactional(readOnly = true)
     public Map<String, Object> getRevenueStats(int days) {
+        return (Map<String, Object>) cacheService.getOrCompute(
+                CacheKeyGenerator.adminRevenue(days),
+                Map.class,
+                adminDashboardTtl,
+                () -> loadRevenueStats(days));
+    }
+
+    private Map<String, Object> loadRevenueStats(int days) {
         Map<String, Object> revenue = new LinkedHashMap<>();
 
         LocalDateTime startDate = LocalDateTime.now().minusDays(days);
@@ -240,8 +269,17 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @UseReadReplica
     @Transactional(readOnly = true)
     public Map<String, Object> getAnalytics() {
+        return (Map<String, Object>) cacheService.getOrCompute(
+                CacheKeyGenerator.adminAnalytics(),
+                Map.class,
+                adminDashboardTtl,
+                this::loadAnalytics);
+    }
+
+    private Map<String, Object> loadAnalytics() {
         Map<String, Object> analytics = new LinkedHashMap<>();
 
         // Order status distribution

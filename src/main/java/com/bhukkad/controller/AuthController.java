@@ -1,10 +1,13 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
 import com.bhukkad.dto.response.BlankResponse;
+import com.bhukkad.ratelimit.RateLimited;
 import com.bhukkad.service.AuthService;
 import com.bhukkad.util.RequestUtils;
 import jakarta.validation.Valid;
@@ -13,7 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping(ApiPaths.V1_PREFIX + "/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -26,6 +29,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @RateLimited("auth-login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(ApiResponse.success("Login successful", response));

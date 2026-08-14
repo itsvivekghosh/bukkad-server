@@ -48,48 +48,49 @@ spec:
                   name: bhukkad-secrets
                   key: MYSQL_PASSWORD
           args:
-            - --default-authentication-plugin=mysql_native_password
-            - --character-set-server=utf8mb4
-            - --collation-server=utf8mb4_unicode_ci
-            - --max-connections=200
+            - --defaults-extra-file=/etc/mysql/conf.d/performance.cnf
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 300m
+              memory: 768Mi
             limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 1536Mi
           volumeMounts:
             - name: mysql-data
               mountPath: /var/lib/mysql
             - name: init-sql
               mountPath: /docker-entrypoint-initdb.d
+            - name: mysql-config
+              mountPath: /etc/mysql/conf.d/performance.cnf
+              subPath: my.cnf
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
           livenessProbe:
             exec:
               command:
-                - mysqladmin
-                - ping
-                - -h
-                - "127.0.0.1"
-                - -u
-                - root
-                - --password=$(MYSQL_ROOT_PASSWORD)
-            initialDelaySeconds: 60
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent
             periodSeconds: 10
             timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             exec:
               command:
-                - mysqladmin
-                - ping
-                - -h
-                - "127.0.0.1"
-                - -u
-                - root
-                - --password=$(MYSQL_ROOT_PASSWORD)
-            initialDelaySeconds: 30
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent
             periodSeconds: 5
             timeoutSeconds: 3
+            failureThreshold: 3
       volumes:
         - name: mysql-data
           persistentVolumeClaim:
@@ -100,3 +101,6 @@ spec:
             items:
               - key: init.sql
                 path: init.sql
+        - name: mysql-config
+          configMap:
+            name: bhukkad-mysql-config

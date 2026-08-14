@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../app/hpa-custom-metrics.yaml
+
+# Apply on top of the base stack:
+# kubectl apply -k k8s/overlays/custom-metrics-hpa

@@ -2,8 +2,15 @@ spring:
   application:
     name: bhukkad-server
 
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
   profiles:
     active: dev
+
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
   # Redis Configuration
   data:
@@ -26,12 +33,14 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: true
     open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+        type:
+          prefer_native_enum_types: false
         format_sql: true
         use_sql_comments: true
         jdbc:
@@ -39,6 +48,14 @@ spring:
           fetch_size: 50
         order_inserts: true
         order_updates: true
+        generate_statistics: false
+        query:
+          fail_on_pagination_over_collection_fetch: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
 
   jackson:
     serialization:
@@ -48,6 +65,7 @@ spring:
 
 server:
   port: 8080
+  shutdown: graceful
   error:
     include-message: always
     include-binding-errors: always
@@ -59,10 +77,168 @@ server:
 app:
   environment: local
   debug: false
+  async:
+    order:
+      core-pool-size: 4
+      max-pool-size: 16
+      queue-capacity: 200
+  cloud-kitchen:
+    kitchen-queue-default-limit: 50
+    order-list-default-size: 20
+    order-list-max-size: 100
   jwt:
-    secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    secret: ${JWT_SECRET:}
     expiration: 86400000
     refresh-expiration: 604800000
+  outbox:
+    poll-interval-ms: 2000
+  datasource:
+    read-replica:
+      enabled: false
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_REPLICA_USERNAME:}
+      password: ${DB_REPLICA_PASSWORD:}
+      hikari:
+        pool-name: BhukkadReadReplicaPool
+        maximum-pool-size: 10
+        minimum-idle: 2
+        read-only: true
+
+  rate-limit:
+    enabled: true
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 30
+        window-seconds: 60
+      auth-login:
+        limit: 10
+        window-seconds: 60
+      cart-mutation:
+        limit: 40
+        window-seconds: 60
+
+  cluster:
+    live-relay:
+      enabled: true
+      channel: bhukkad:live:order-updates
+
+  live:
+    sse:
+      heartbeat-interval-ms: 25000
+      replay:
+        max-events-per-stream: 200
+        ttl-seconds: 3600
+
+  stomp:
+    broker:
+      type: simple
+      rabbit:
+        host: ${RABBITMQ_HOST:localhost}
+        port: ${RABBITMQ_STOMP_PORT:61613}
+        username: ${RABBITMQ_USERNAME:guest}
+        password: ${RABBITMQ_PASSWORD:guest}
+        virtual-host: ${RABBITMQ_VHOST:/}
+
+  storage:
+    s3:
+      enabled: ${S3_ENABLED:false}
+      bucket: ${S3_BUCKET:bhukkad-menu-images}
+      region: ${AWS_REGION:ap-south-1}
+      key-prefix: menu-items
+      upload-url-expiry-seconds: 900
+      download-url-expiry-seconds: 3600
+
+  payment:
+    provider: simulated
+    razorpay:
+      enabled: false
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+      currency: INR
+
+  notification:
+    enabled: true
+    email:
+      enabled: false
+      from: noreply@bhukkad.com
+    sms:
+      enabled: false
+      provider: log
+      twilio:
+        account-sid: ${TWILIO_ACCOUNT_SID:}
+        auth-token: ${TWILIO_AUTH_TOKEN:}
+        from-number: ${TWILIO_FROM_NUMBER:}
+    push:
+      enabled: false
+      provider: log
+      fcm:
+        server-key: ${FCM_SERVER_KEY:}
+        project-id: ${FCM_PROJECT_ID:}
+
+  wallet:
+    allow-direct-top-up: false
+
+  monitoring:
+    prometheus:
+      require-auth: true
+      bearer-token: ${PROMETHEUS_BEARER_TOKEN:}
+
+  delivery:
+    earnings:
+      per-delivery: 30.0
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentGateway:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      notificationEmail:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,redis
+  health:
+    rabbit:
+      enabled: false
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+    redis:
+      enabled: true
+    db:
+      enabled: true
 
 cache:
   ttl:
@@ -74,9 +250,12 @@ cache:
     user-profile: 3600
     cart: 1800
     order: 300
+    order-track: 30
+    kitchen-queue: 15
     review: 1800
     coupon: 3600
     search: 300
+    admin-dashboard: 60
 
 logging:
   level:

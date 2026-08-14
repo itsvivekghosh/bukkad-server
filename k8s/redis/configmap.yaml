@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-redis-config
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redis
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    port 6379
+    tcp-backlog 511
+    timeout 300
+    tcp-keepalive 60
+    daemonize no
+    supervised no
+    loglevel notice
+    appendonly yes
+    appendfsync everysec
+    save 900 1
+    save 300 10
+    save 60 10000
+    maxmemory 384mb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+    lazyfree-lazy-eviction yes
+    lazyfree-lazy-expire yes
+    lazyfree-lazy-server-del yes

@@ -8,11 +8,11 @@ ENV=${1:-dev}
 CLEAN=${2:-}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+DOCKER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 case $ENV in
-    dev) COMPOSE_FILE="$PROJECT_DIR/docker/docker-compose.dev.yml" ;;
-    prod) COMPOSE_FILE="$PROJECT_DIR/docker/docker-compose.prod.yml" ;;
+    dev) COMPOSE_FILE="$DOCKER_DIR/docker-compose.dev.yml" ;;
+    prod) COMPOSE_FILE="$DOCKER_DIR/docker-compose.prod.yml" ;;
     *) echo "Usage: ./stop.sh [dev|prod] [--clean]"; exit 1 ;;
 esac
 

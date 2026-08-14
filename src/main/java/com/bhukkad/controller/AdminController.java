@@ -1,5 +1,7 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.service.AdminService;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping(ApiPaths.V1_PREFIX + "/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminController {

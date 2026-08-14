@@ -15,7 +15,8 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     // With JOIN FETCH for category
     @Query("SELECT m FROM MenuItem m " +
             "JOIN FETCH m.category c " +
-            "JOIN FETCH c.restaurant " +
+            "JOIN FETCH c.restaurant r " +
+            "LEFT JOIN FETCH r.owner " +
             "WHERE m.id = :id")
     Optional<MenuItem> findByIdWithDetails(@Param("id") Long id);
 
@@ -51,6 +52,15 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
     @Query("SELECT m FROM MenuItem m WHERE m.available = true AND LOWER(m.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     List<MenuItem> searchByName(@Param("keyword") String keyword);
+
+    @Query(value = """
+            SELECT m.* FROM menu_items m
+            WHERE m.available = 1
+            AND MATCH(m.name, m.description) AGAINST(:keyword IN NATURAL LANGUAGE MODE)
+            ORDER BY MATCH(m.name, m.description) AGAINST(:keyword IN NATURAL LANGUAGE MODE) DESC
+            LIMIT 100
+            """, nativeQuery = true)
+    List<MenuItem> fullTextSearch(@Param("keyword") String keyword);
 
     int countByCategoryId(Long categoryId);
 }

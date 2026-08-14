@@ -39,6 +39,9 @@ public class MenuItemRequest {
 
     private String imageUrl;
 
+    /** S3 object key returned from the image upload-url endpoint (preferred over imageUrl). */
+    private String imageKey;
+
     private List<String> additionalImages;
 
     private Integer preparationTime;

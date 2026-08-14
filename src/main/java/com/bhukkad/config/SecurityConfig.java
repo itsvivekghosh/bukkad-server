@@ -3,6 +3,7 @@ package com.bhukkad.config;
 import com.bhukkad.logging.RequestLoggingFilter;
 import com.bhukkad.security.CustomUserDetailsService;
 import com.bhukkad.security.JwtAuthenticationFilter;
+import com.bhukkad.security.PrometheusAuthFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -28,9 +29,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    private static final String V1 = ApiPaths.V1_PREFIX;
+
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RequestLoggingFilter requestLoggingFilter;
+    private final PrometheusAuthFilter prometheusAuthFilter;
 
     @Value("${app.debug:false}")
     private boolean debugMode;
@@ -44,10 +48,21 @@ public class SecurityConfig {
                     // ==================== PUBLIC - No Auth ====================
 
                     // Auth
-                    auth.requestMatchers("/api/auth/**").permitAll();
+                    auth.requestMatchers(V1 + "/auth/**").permitAll();
+                    auth.requestMatchers(V1 + "/payments/webhooks/**").permitAll();
 
                     // Health
-                    auth.requestMatchers("/api/health/**").permitAll();
+                    auth.requestMatchers(V1 + "/health/**").permitAll();
+                    auth.requestMatchers(
+                        "/actuator/health",
+                        "/actuator/health/**",
+                        "/actuator/info"
+                    ).permitAll();
+                    if (debugMode) {
+                        auth.requestMatchers("/actuator/prometheus").permitAll();
+                    } else {
+                        auth.requestMatchers("/actuator/prometheus").hasRole("ADMIN");
+                    }
 
                     // Swagger
                     auth.requestMatchers(
@@ -60,56 +75,65 @@ public class SecurityConfig {
                     ).permitAll();
 
                     // Restaurants - Public GET
-                    auth.requestMatchers(HttpMethod.GET, "/api/restaurants/public/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/restaurants/public/**").permitAll();
 
                     // Cuisines - Public GET
-                    auth.requestMatchers(HttpMethod.GET, "/api/cuisines/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/cuisines/**").permitAll();
 
                     // Menu - Public GET (all GET requests)
-                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/**").permitAll();
-                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/search").permitAll();
-                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/restaurant/**").permitAll();
-                    auth.requestMatchers(HttpMethod.GET, "/api/menu/items/category/**").permitAll();
-                    auth.requestMatchers(HttpMethod.GET, "/api/menu/categories/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/menu/items/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/menu/items/search").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/menu/items/restaurant/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/menu/items/category/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/menu/categories/**").permitAll();
 
                     // Coupons - Public GET
-                    auth.requestMatchers(HttpMethod.GET, "/api/coupons/active").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/coupons/active").permitAll();
 
                     // Reviews - Public GET
-                    auth.requestMatchers(HttpMethod.GET, "/api/reviews/restaurant/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/reviews/restaurant/**").permitAll();
 
                     // Cache - Dev public, Prod admin
                     if (debugMode) {
-                        auth.requestMatchers("/api/cache/**").permitAll();
+                        auth.requestMatchers(V1 + "/cache/**").permitAll();
                     } else {
-                        auth.requestMatchers("/api/cache/**").hasRole("ADMIN");
+                        auth.requestMatchers(V1 + "/cache/**").hasRole("ADMIN");
                     }
 
                     // ==================== CUSTOMER ====================
-                    auth.requestMatchers("/api/customers/**").hasRole("CUSTOMER");
-                    auth.requestMatchers("/api/cart/**").hasRole("CUSTOMER");
-                    auth.requestMatchers("/api/orders/customer/**").hasRole("CUSTOMER");
-                    auth.requestMatchers("/api/coupons/validate").hasRole("CUSTOMER");
-                    auth.requestMatchers(HttpMethod.POST, "/api/reviews").hasRole("CUSTOMER");
-                    auth.requestMatchers(HttpMethod.GET, "/api/reviews/my-reviews").hasRole("CUSTOMER");
-                    auth.requestMatchers(HttpMethod.DELETE, "/api/reviews/**").hasRole("CUSTOMER");
+                    auth.requestMatchers(V1 + "/customers/**").hasRole("CUSTOMER");
+                    auth.requestMatchers(V1 + "/cart/**").hasRole("CUSTOMER");
+                    auth.requestMatchers(V1 + "/orders/customer/**").hasRole("CUSTOMER");
+                    auth.requestMatchers(V1 + "/payments/orders/**").hasRole("CUSTOMER");
+                    auth.requestMatchers(V1 + "/coupons/validate").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.POST, V1 + "/reviews").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/reviews/my-reviews").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.DELETE, V1 + "/reviews/**").hasRole("CUSTOMER");
 
                     // ==================== RESTAURANT OWNER ====================
-                    auth.requestMatchers("/api/restaurants/owner/**").hasRole("RESTAURANT_OWNER");
-                    auth.requestMatchers(HttpMethod.POST, "/api/menu/**").hasRole("RESTAURANT_OWNER");
-                    auth.requestMatchers(HttpMethod.PUT, "/api/menu/**").hasRole("RESTAURANT_OWNER");
-                    auth.requestMatchers(HttpMethod.DELETE, "/api/menu/**").hasRole("RESTAURANT_OWNER");
-                    auth.requestMatchers("/api/orders/restaurant/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(V1 + "/restaurants/owner/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.POST, V1 + "/menu/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.PUT, V1 + "/menu/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.DELETE, V1 + "/menu/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(V1 + "/orders/restaurant/**").hasRole("RESTAURANT_OWNER");
 
                     // ==================== DELIVERY AGENT ====================
-                    auth.requestMatchers("/api/delivery/**").hasRole("DELIVERY_AGENT");
-                    auth.requestMatchers("/api/orders/delivery/**").hasRole("DELIVERY_AGENT");
+                    auth.requestMatchers(V1 + "/delivery/**").hasRole("DELIVERY_AGENT");
+                    auth.requestMatchers(V1 + "/orders/delivery/**").hasRole("DELIVERY_AGENT");
 
                     // ==================== ADMIN ====================
-                    auth.requestMatchers("/api/admin/**").hasRole("ADMIN");
-                    auth.requestMatchers(HttpMethod.POST, "/api/coupons").hasAnyRole("ADMIN", "RESTAURANT_OWNER");
-                    auth.requestMatchers(HttpMethod.PUT, "/api/coupons/**").hasRole("ADMIN");
-                    auth.requestMatchers(HttpMethod.DELETE, "/api/coupons/**").hasRole("ADMIN");
+                    auth.requestMatchers(V1 + "/admin/**").hasRole("ADMIN");
+                    auth.requestMatchers(HttpMethod.POST, V1 + "/coupons").hasAnyRole("ADMIN", "RESTAURANT_OWNER");
+                    auth.requestMatchers(HttpMethod.PUT, V1 + "/coupons/**").hasRole("ADMIN");
+                    auth.requestMatchers(HttpMethod.DELETE, V1 + "/coupons/**").hasRole("ADMIN");
+
+                    // WebSocket handshake (JWT validated in interceptor)
+                    auth.requestMatchers("/ws/**", "/ws-native/**").permitAll();
+
+                    // Live order streams (SSE)
+                    auth.requestMatchers(V1 + "/orders/stream/kitchen/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(V1 + "/orders/stream/rider").hasRole("DELIVERY_AGENT");
+                    auth.requestMatchers(V1 + "/orders/stream/customer/**").hasRole("CUSTOMER");
 
                     // ==================== ALL OTHERS ====================
                     auth.anyRequest().authenticated();
@@ -118,6 +142,7 @@ public class SecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .authenticationProvider(authenticationProvider())
+                .addFilterBefore(prometheusAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(requestLoggingFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

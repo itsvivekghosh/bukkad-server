@@ -1,6 +1,5 @@
-#!/bin/bash
-
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -13,165 +12,110 @@ error() { echo -e "${RED}[$(date '+%H:%M:%S')] $1${NC}"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+K8S_DIR="${PROJECT_DIR}/k8s"
+IMAGE_TAG="${IMAGE_TAG:-bhukkad-server:latest}"
+CLEAN_DEPLOY="${CLEAN_DEPLOY:-false}"
+SKIP_BUILD="${SKIP_BUILD:-false}"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options]
+
+Options:
+  --clean          Delete existing resources before apply
+  --skip-build     Skip Maven/Docker build (reuse local image)
+  --tag <image>    Image tag (default: bhukkad-server:latest)
+  -h, --help       Show help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --clean) CLEAN_DEPLOY=true; shift ;;
+    --skip-build) SKIP_BUILD=true; shift ;;
+    --tag) IMAGE_TAG="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) error "Unknown option: $1" ;;
+  esac
+done
+
+command -v kubectl >/dev/null 2>&1 || error "kubectl not found"
+command -v docker >/dev/null 2>&1 || error "docker not found"
 
 echo ""
 echo "================================================"
 echo "  Bhukkad - Kubernetes Deployment"
 echo "================================================"
-echo ""
 
-# Check tools
-command -v kubectl >/dev/null 2>&1 || error "kubectl not found. Install: brew install kubectl"
-command -v docker >/dev/null 2>&1 || error "docker not found"
-log "Tools found"
-
-# Check cluster
-log "Checking cluster..."
 if ! kubectl cluster-info >/dev/null 2>&1; then
-    warn "Cluster not reachable. Trying to start minikube..."
-    if command -v minikube &>/dev/null; then
-        minikube start --cpus=4 --memory=8192 --driver=docker
-        minikube addons enable ingress
-        minikube addons enable metrics-server
-    else
-        error "No cluster available. Install minikube: brew install minikube"
-    fi
-fi
-log "Cluster is reachable"
-
-# Set docker env for minikube
-if command -v minikube &>/dev/null; then
-    log "Setting minikube docker env..."
-    eval $(minikube docker-env)
+  if command -v minikube >/dev/null 2>&1; then
+    warn "Cluster unreachable; starting minikube..."
+    minikube start --cpus=4 --memory=8192 --driver=docker
+    minikube addons enable ingress
+    minikube addons enable metrics-server
+  else
+    error "No reachable cluster. Start minikube or point kubeconfig to a cluster."
+  fi
 fi
 
-# Build JAR
-log "Building JAR..."
-cd "$PROJECT_DIR"
-mvn clean package -DskipTests -q
-log "JAR built"
-
-# Build Docker image
-log "Building Docker image..."
-docker build -t bhukkad-server:latest -f docker/Dockerfile .
-log "Docker image built"
-
-# Load image (for minikube)
-if command -v minikube &>/dev/null; then
-    log "Loading image into minikube..."
-    minikube image load bhukkad-server:latest 2>/dev/null || true
+if command -v minikube >/dev/null 2>&1 && minikube status >/dev/null 2>&1; then
+  log "Using minikube docker daemon"
+  eval "$(minikube docker-env)"
 fi
 
-# Delete existing deployment (clean start)
-log "Cleaning old deployment..."
-kubectl delete -k k8s/ --ignore-not-found=true 2>/dev/null || true
-sleep 5
-
-# Apply manifests
-log "Applying Kubernetes manifests..."
-kubectl apply -k k8s/
-
-# Wait for MySQL
-log "Waiting for MySQL (up to 3 min)..."
-for i in $(seq 1 60); do
-    STATUS=$(kubectl get pods -n bhukkad -l component=mysql -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Pending")
-    READY=$(kubectl get pods -n bhukkad -l component=mysql -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
-    if [ "$STATUS" = "Running" ] && [ "$READY" = "true" ]; then
-        log "MySQL is ready!"
-        break
-    fi
-    if [ $i -eq 60 ]; then
-        warn "MySQL taking long. Checking logs..."
-        kubectl logs -n bhukkad -l component=mysql --tail=20 2>/dev/null
-    fi
-    echo -n "."
-    sleep 3
-done
-echo ""
-
-# Wait for Redis
-log "Waiting for Redis..."
-for i in $(seq 1 30); do
-    READY=$(kubectl get pods -n bhukkad -l component=redis -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
-    if [ "$READY" = "true" ]; then
-        log "Redis is ready!"
-        break
-    fi
-    echo -n "."
-    sleep 2
-done
-echo ""
-
-# Wait for App
-log "Waiting for Application (up to 5 min)..."
-for i in $(seq 1 100); do
-    STATUS=$(kubectl get pods -n bhukkad -l component=api -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Pending")
-    READY=$(kubectl get pods -n bhukkad -l component=api -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
-
-    if [ "$STATUS" = "Running" ] && [ "$READY" = "true" ]; then
-        log "Application is ready!"
-        break
-    fi
-
-    # Check for errors
-    if [ "$STATUS" = "CrashLoopBackOff" ] || [ "$STATUS" = "Error" ]; then
-        warn "App pod has errors. Checking logs..."
-        kubectl logs -n bhukkad -l component=api --tail=30 2>/dev/null
-        echo ""
-        warn "Checking init container logs..."
-        POD_NAME=$(kubectl get pod -n bhukkad -l component=api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        kubectl logs -n bhukkad "$POD_NAME" -c wait-for-mysql --tail=10 2>/dev/null
-        break
-    fi
-
-    echo -n "."
-    sleep 3
-done
-echo ""
-
-# Final status
-echo ""
-log "=== Deployment Status ==="
-echo ""
-kubectl get all -n bhukkad
-echo ""
-
-# Check if app is responding
-log "Testing health endpoint..."
-kubectl port-forward -n bhukkad svc/bhukkad-app 9090:8080 &
-PF_PID=$!
-sleep 5
-
-HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/api/health/ping 2>/dev/null || echo "000")
-kill $PF_PID 2>/dev/null || true
-
-if [ "$HEALTH" = "200" ]; then
-    log "Health check PASSED!"
+if [[ "$SKIP_BUILD" != "true" ]]; then
+  export DOCKER_BUILDKIT=1
+  log "Building application image (${IMAGE_TAG})..."
+  docker build \
+    --file "${PROJECT_DIR}/docker/Dockerfile" \
+    --tag "${IMAGE_TAG}" \
+    --build-arg BUILDKIT_INLINE_CACHE=1 \
+    "${PROJECT_DIR}"
 else
-    warn "Health check returned: $HEALTH"
-    warn "App might still be starting. Check logs:"
-    warn "kubectl logs -n bhukkad -l component=api -f"
+  log "Skipping image build"
 fi
 
-echo ""
-echo "================================================"
-echo "  Access Commands:"
-echo ""
-echo "  # Port forward app"
-echo "  kubectl port-forward -n bhukkad svc/bhukkad-app 8080:8080"
-echo ""
-echo "  # Port forward nginx"
-echo "  kubectl port-forward -n bhukkad svc/bhukkad-nginx 80:80"
-echo ""
-echo "  # View app logs"
-echo "  kubectl logs -n bhukkad -l component=api -f"
-echo ""
-echo "  # Test"
-echo "  curl http://localhost:8080/api/health/ping"
-echo ""
-echo "  # Status"
-echo "  ./k8s/scripts/status.sh"
-echo ""
-echo "  # Destroy"
-echo "  ./k8s/scripts/destroy.sh"
-echo "================================================"
+if [[ "$CLEAN_DEPLOY" == "true" ]]; then
+  warn "Cleaning previous deployment..."
+  kubectl delete -k "${K8S_DIR}" --ignore-not-found=true || true
+  kubectl wait --for=delete namespace/bhukkad --timeout=120s 2>/dev/null || true
+fi
+
+log "Applying manifests..."
+kubectl apply -k "${K8S_DIR}"
+
+log "Waiting for data stores..."
+kubectl rollout status deployment/bhukkad-mysql -n bhukkad --timeout=300s
+kubectl rollout status deployment/bhukkad-redis -n bhukkad --timeout=180s
+
+log "Rolling out API..."
+kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=600s
+kubectl rollout status deployment/bhukkad-nginx -n bhukkad --timeout=180s || true
+
+log "Deployment status"
+kubectl get pods,svc,hpa -n bhukkad
+
+log "Health check via port-forward..."
+kubectl port-forward -n bhukkad svc/bhukkad-app 19090:8080 >/tmp/bhukkad-pf.log 2>&1 &
+PF_PID=$!
+trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
+sleep 3
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:19090/api/v1/health/ping || echo "000")
+kill ${PF_PID} 2>/dev/null || true
+trap - EXIT
+
+if [[ "$HTTP_CODE" == "200" ]]; then
+  log "Health check passed"
+else
+  warn "Health check returned ${HTTP_CODE}. Inspect logs: kubectl logs -n bhukkad -l component=api --tail=50"
+fi
+
+cat <<EOF
+
+Access:
+  kubectl port-forward -n bhukkad svc/bhukkad-app 8080:8080
+  curl http://localhost:8080/api/v1/health/ping
+
+Status:  ${K8S_DIR}/scripts/status.sh
+Destroy: ${K8S_DIR}/scripts/destroy.sh
+EOF

@@ -1,8 +1,10 @@
 package com.bhukkad.service;
 
+import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
 import com.bhukkad.dto.response.MenuCategoryResponse;
+import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
 
 import java.util.List;
@@ -26,4 +28,6 @@ public interface MenuService {
     List<MenuItemResponse> getBestsellers(Long restaurantId);
     List<MenuItemResponse> getRecommended(Long restaurantId);
     List<MenuItemResponse> searchMenuItems(String keyword);
+
+    MenuImageUploadResponse createMenuItemImageUploadUrl(Long menuItemId, MenuImageUploadRequest request);
 }

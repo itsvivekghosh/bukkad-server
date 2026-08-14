@@ -9,6 +9,7 @@ import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;
+import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.repository.ReviewRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.ReviewService;
@@ -20,11 +21,13 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class ReviewServiceImpl implements ReviewService {
 
     private final ReviewRepository reviewRepository;
     private final OrderRepository orderRepository;
     private final CustomerRepository customerRepository;
+    private final RestaurantRepository restaurantRepository;
     private final SecurityUtils securityUtils;
 
     @Override
@@ -34,7 +37,7 @@ public class ReviewServiceImpl implements ReviewService {
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
 
-        Order order = orderRepository.findById(request.getOrderId())
+        Order order = orderRepository.findByIdWithDetails(request.getOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
         // Validate order belongs to customer
@@ -72,25 +75,25 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     public List<Review> getRestaurantReviews(Long restaurantId) {
-        return reviewRepository.findByRestaurantIdOrderByCreatedAtDesc(restaurantId);
+        return reviewRepository.findByRestaurantIdWithDetails(restaurantId);
     }
 
     @Override
     public List<Review> getCustomerReviews() {
         Long customerId = securityUtils.getCurrentUserId();
-        return reviewRepository.findByCustomerId(customerId);
+        return reviewRepository.findByCustomerIdWithDetails(customerId);
     }
 
     @Override
     public Review getReviewByOrderId(Long orderId) {
-        return reviewRepository.findByOrderId(orderId)
+        return reviewRepository.findByOrderIdWithDetails(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
     }
 
     @Override
     @Transactional
     public void deleteReview(Long reviewId) {
-        Review review = reviewRepository.findById(reviewId)
+        Review review = reviewRepository.findByIdWithDetails(reviewId)
                 .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
 
         if (!review.getCustomer().getId().equals(securityUtils.getCurrentUserId())) {
@@ -110,5 +113,6 @@ public class ReviewServiceImpl implements ReviewService {
 
         restaurant.setAverageRating(averageRating != null ? averageRating : 0.0);
         restaurant.setTotalReviews(totalReviews.intValue());
+        restaurantRepository.save(restaurant);
     }
 }

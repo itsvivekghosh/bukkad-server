@@ -15,8 +15,10 @@ import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AuthTokenService;
 import com.bhukkad.security.JwtTokenProvider;
 import com.bhukkad.service.AuthService;
+import com.bhukkad.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,15 +26,18 @@ import org.slf4j.MDC;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Duration;
 
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
+    private static final Duration RESET_TOKEN_TTL = Duration.ofMinutes(30);
 
     private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
@@ -42,9 +47,10 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthenticationManager authenticationManager;
     private final SecurityEventLogger securityEventLogger;
+    private final AuthTokenService authTokenService;
+    private final NotificationService notificationService;
 
     @Override
-    @Transactional
     public AuthResponse register(RegisterRequest request) {
         log.info("Registration attempt | Email: {} | Role: {}", request.getEmail(), request.getRole());
 
@@ -101,10 +107,9 @@ public class AuthServiceImpl implements AuthService {
         MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
         MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
 
-        String token = generateToken(user);
+        AuthResponse response = issueTokenPair(user);
         securityEventLogger.logRegistration(user.getId(), user.getEmail(), user.getRole().name());
-
-        return buildAuthResponse(user, token);
+        return response;
     }
 
     @Override
@@ -127,10 +132,9 @@ public class AuthServiceImpl implements AuthService {
             MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
             MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
 
-            String token = generateToken(user);
+            AuthResponse response = issueTokenPair(user);
             securityEventLogger.logLoginSuccess(user.getId(), user.getEmail(), user.getRole().name());
-
-            return buildAuthResponse(user, token);
+            return response;
 
         } catch (BadCredentialsException e) {
             securityEventLogger.logLoginFailure(request.getEmail(), "Invalid credentials");
@@ -139,22 +143,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    @Transactional
     public void verifyEmail(String email, String token) {
-        User user;
-
-        if (token != null && !token.isEmpty()) {
-            try {
-                String tokenEmail = jwtTokenProvider.extractUsername(token);
-                if (!email.equals(tokenEmail)) {
-                    throw new UnauthorizedException("Token does not match email");
-                }
-            } catch (Exception e) {
-                log.warn("Token validation failed for email verification: {}", e.getMessage());
-            }
+        if (token == null || token.isEmpty()) {
+            throw new BusinessException("Token is required");
         }
 
-        user = userRepository.findByEmail(email)
+        String tokenEmail = jwtTokenProvider.extractUsername(token);
+        if (!email.equals(tokenEmail)) {
+            throw new UnauthorizedException("Token does not match email");
+        }
+        if (!jwtTokenProvider.validateToken(token)) {
+            throw new UnauthorizedException("Invalid verification token");
+        }
+
+        User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
         if (user.getEmailVerified()) {
@@ -170,22 +172,30 @@ public class AuthServiceImpl implements AuthService {
     public void forgotPassword(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
+
+        String resetToken = authTokenService.createPasswordResetToken(email, RESET_TOKEN_TTL);
+        notificationService.sendPasswordReset(email, resetToken);
         log.info("Password reset requested | UserId: {} | Email: {}", user.getId(), email);
     }
 
     @Override
-    @Transactional
     public void resetPassword(String token, String newPassword) {
         if (token == null || token.isEmpty()) {
             throw new BusinessException("Token is required");
         }
 
-        String email = jwtTokenProvider.extractUsername(token);
+        String email = authTokenService.validatePasswordResetToken(token);
+        if (email == null) {
+            throw new BusinessException("Invalid or expired reset token");
+        }
+
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+        authTokenService.consumePasswordResetToken(token);
+        authTokenService.revokeAllRefreshTokens(user.getId());
 
         securityEventLogger.logPasswordChange(user.getId(), email);
     }
@@ -195,6 +205,9 @@ public class AuthServiceImpl implements AuthService {
         if (token == null || token.isEmpty()) {
             throw new BusinessException("Token is required");
         }
+        if (!jwtTokenProvider.validateToken(token) || !jwtTokenProvider.isRefreshToken(token)) {
+            throw new UnauthorizedException("Invalid refresh token");
+        }
 
         String email = jwtTokenProvider.extractUsername(token);
         User user = userRepository.findByEmail(email)
@@ -203,13 +216,15 @@ public class AuthServiceImpl implements AuthService {
         if (!user.getActive()) {
             throw new BusinessException("Account is deactivated");
         }
+        if (!authTokenService.isRefreshTokenValid(user.getId(), token)) {
+            throw new UnauthorizedException("Refresh token revoked or expired");
+        }
 
-        String newToken = generateToken(user);
-        return buildAuthResponse(user, newToken);
+        authTokenService.revokeRefreshToken(user.getId(), token);
+        return issueTokenPair(user);
     }
 
     @Override
-    @Transactional
     public void changePassword(String token, String oldPassword, String newPassword) {
         if (token == null || token.isEmpty()) {
             throw new BusinessException("Token is required");
@@ -233,6 +248,7 @@ public class AuthServiceImpl implements AuthService {
 
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+        authTokenService.revokeAllRefreshTokens(user.getId());
         securityEventLogger.logPasswordChange(user.getId(), email);
     }
 
@@ -240,33 +256,43 @@ public class AuthServiceImpl implements AuthService {
     public void logout(String token) {
         try {
             if (token != null && !token.isEmpty()) {
-                String email = jwtTokenProvider.extractUsername(token);
-                log.info("User logged out | Email: {}", email);
+                if (jwtTokenProvider.validateToken(token)) {
+                    String email = jwtTokenProvider.extractUsername(token);
+                    userRepository.findByEmail(email).ifPresent(user -> {
+                        if (jwtTokenProvider.isRefreshToken(token)) {
+                            authTokenService.revokeRefreshToken(user.getId(), token);
+                        } else {
+                            authTokenService.blacklistAccessToken(
+                                    token, jwtTokenProvider.getRemainingValidityMs(token));
+                        }
+                    });
+                    log.info("User logged out | Email: {}", email);
+                }
             } else {
                 log.info("User logged out | No token provided");
             }
         } catch (Exception e) {
-            // Logout should never fail
             log.warn("Logout - token issue: {}", e.getMessage());
         }
-        // Always successful
     }
 
-    // ==================== HELPERS ====================
+    private AuthResponse issueTokenPair(User user) {
+        UserDetails userDetails = org.springframework.security.core.userdetails.User.builder()
+                .username(user.getEmail())
+                .password(user.getPassword())
+                .authorities("ROLE_" + user.getRole().name())
+                .build();
 
-    private String generateToken(User user) {
-        return jwtTokenProvider.generateToken(
-                org.springframework.security.core.userdetails.User.builder()
-                        .username(user.getEmail())
-                        .password(user.getPassword())
-                        .authorities("ROLE_" + user.getRole().name())
-                        .build()
-        );
-    }
+        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(userDetails);
+        authTokenService.storeRefreshToken(
+                user.getId(),
+                refreshToken,
+                jwtTokenProvider.getRemainingValidityMs(refreshToken));
 
-    private AuthResponse buildAuthResponse(User user, String token) {
         return AuthResponse.builder()
-                .token(token)
+                .token(accessToken)
+                .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .userId(user.getId())
                 .email(user.getEmail())

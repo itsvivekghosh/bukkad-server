@@ -16,13 +16,18 @@ public final class CacheConstants {
     public static final String USER_PROFILE = "user-profile";
     public static final String CART = "cart";
     public static final String ORDER = "order";
+    public static final String ORDER_TRACK = "order-track";
     public static final String ORDER_LIST = "order-list";
+    public static final String KITCHEN_QUEUE = "kitchen-queue";
     public static final String REVIEW = "review";
     public static final String REVIEW_LIST = "review-list";
     public static final String COUPON = "coupon";
     public static final String COUPON_LIST = "coupon-list";
     public static final String BESTSELLER = "bestseller";
     public static final String RECOMMENDED = "recommended";
+    public static final String MENU_SEARCH = "menu-search";
+    public static final String RESTAURANT_NEARBY = "restaurant-nearby";
+    public static final String ADMIN = "admin";
 
     // Key Prefixes
     public static final String KEY_PREFIX = "bhukkad:";

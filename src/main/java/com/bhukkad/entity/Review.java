@@ -1,5 +1,6 @@
 package com.bhukkad.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -33,14 +34,27 @@ public class Review {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)
+    @JsonIgnoreProperties({"password", "hibernateLazyInitializer", "handler"})
     private Customer customer;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "restaurant_id", nullable = false)
+    @JsonIgnoreProperties({"owner", "hibernateLazyInitializer", "handler"})
     private Restaurant restaurant;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id", nullable = false)
+    @JsonIgnoreProperties({
+            "orderItems",
+            "deliveryAddress",
+            "deliveryAgent",
+            "payment",
+            "appliedCoupon",
+            "customer",
+            "restaurant",
+            "hibernateLazyInitializer",
+            "handler"
+    })
     private Order order;
 
     @Column(nullable = false)
@@ -53,7 +67,7 @@ public class Review {
 
     private Integer deliveryRating;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     private List<String> images = new ArrayList<>();
 
     @CreatedDate

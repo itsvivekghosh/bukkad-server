@@ -17,4 +17,5 @@ public interface CouponService {
     CouponResponse createCouponFromRequest(CouponRequest request);
     CouponResponse updateCoupon(Long couponId, CouponRequest request);
     void deactivateCoupon(Long couponId);
+    void recordCouponUsage(Coupon coupon);
 }

@@ -9,13 +9,21 @@ resources:
   - secrets.yaml
   - mysql/pv.yaml
   - mysql/pvc.yaml
+  - mysql/configmap.yaml
   - mysql/deployment.yaml
+  - mysql/mysql-replica.yaml
   - mysql/service.yaml
+  - redis/configmap.yaml
+  - redis/pvc.yaml
   - redis/deployment.yaml
+  - redis/redis-sentinel.yaml
   - redis/service.yaml
+  - rabbitmq/deployment.yaml
   - app/deployment.yaml
   - app/service.yaml
+  - app/pdb.yaml
   - app/hpa.yaml
+  - logging/fluent-bit-configmap.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml

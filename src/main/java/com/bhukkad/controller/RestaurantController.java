@@ -1,8 +1,12 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
+import com.bhukkad.ratelimit.RateLimited;
+import com.bhukkad.service.RestaurantAnalyticsService;
 import com.bhukkad.service.RestaurantService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -13,11 +17,12 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/restaurants")
+@RequestMapping(ApiPaths.V1_PREFIX + "/restaurants")
 @RequiredArgsConstructor
 public class RestaurantController {
 
     private final RestaurantService restaurantService;
+    private final RestaurantAnalyticsService restaurantAnalyticsService;
 
     // Public endpoints
     @GetMapping("/public")
@@ -33,8 +38,21 @@ public class RestaurantController {
     }
 
     @GetMapping("/public/search")
+    @RateLimited("search")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> searchRestaurants(@RequestParam String keyword) {
         List<RestaurantResponse> restaurants = restaurantService.searchRestaurants(keyword);
+        return ResponseEntity.ok(ApiResponse.success(restaurants));
+    }
+
+    @GetMapping("/public/nearby")
+    @RateLimited("search")
+    public ResponseEntity<ApiResponse<List<RestaurantResponse>>> findNearbyRestaurants(
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam(defaultValue = "5") double radiusKm,
+            @RequestParam(defaultValue = "20") int limit) {
+        List<RestaurantResponse> restaurants = restaurantService.findNearbyRestaurants(
+                latitude, longitude, radiusKm, limit);
         return ResponseEntity.ok(ApiResponse.success(restaurants));
     }
 
@@ -76,6 +94,15 @@ public class RestaurantController {
     public ResponseEntity<ApiResponse<Void>> deleteRestaurant(@PathVariable Long id) {
         restaurantService.deleteRestaurant(id);
         return ResponseEntity.ok(ApiResponse.success("Restaurant deleted successfully", null));
+    }
+
+    @GetMapping("/owner/{id}/analytics")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.RestaurantAnalyticsResponse>> getRestaurantAnalytics(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "30") int days) {
+        return ResponseEntity.ok(ApiResponse.success(
+                restaurantAnalyticsService.getAnalytics(id, days)));
     }
 
     @PutMapping("/owner/{id}/toggle-status")

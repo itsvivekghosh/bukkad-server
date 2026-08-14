@@ -78,6 +78,14 @@ public final class CacheKeyGenerator {
         return CacheConstants.ORDER + CacheConstants.KEY_SEPARATOR + orderId;
     }
 
+    public static String orderTrack(Long orderId) {
+        return CacheConstants.ORDER_TRACK + CacheConstants.KEY_SEPARATOR + orderId;
+    }
+
+    public static String kitchenQueue(Long restaurantId) {
+        return CacheConstants.KITCHEN_QUEUE + CacheConstants.KEY_SEPARATOR + restaurantId;
+    }
+
     public static String customerOrders(Long customerId) {
         return CacheConstants.ORDER_LIST + CacheConstants.KEY_SEPARATOR + "customer:" + customerId;
     }
@@ -98,6 +106,27 @@ public final class CacheKeyGenerator {
 
     public static String activeCoupons(Long restaurantId) {
         return CacheConstants.COUPON_LIST + CacheConstants.KEY_SEPARATOR + "restaurant:" + restaurantId;
+    }
+
+    public static String menuSearch(String keyword) {
+        return CacheConstants.MENU_SEARCH + CacheConstants.KEY_SEPARATOR + keyword.toLowerCase().trim();
+    }
+
+    public static String restaurantNearby(double latitude, double longitude, double radiusKm) {
+        return CacheConstants.RESTAURANT_NEARBY + CacheConstants.KEY_SEPARATOR
+                + latitude + ":" + longitude + ":" + radiusKm;
+    }
+
+    public static String adminDashboard() {
+        return CacheConstants.ADMIN + CacheConstants.KEY_SEPARATOR + "dashboard";
+    }
+
+    public static String adminRevenue(int days) {
+        return CacheConstants.ADMIN + CacheConstants.KEY_SEPARATOR + "revenue:" + days;
+    }
+
+    public static String adminAnalytics() {
+        return CacheConstants.ADMIN + CacheConstants.KEY_SEPARATOR + "analytics";
     }
 
     // Invalidation patterns
