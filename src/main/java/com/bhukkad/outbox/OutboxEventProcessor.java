@@ -1,5 +1,6 @@
 package com.bhukkad.outbox;
 
+import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
@@ -26,6 +27,7 @@ public class OutboxEventProcessor {
     private final OutboxEventRepository outboxEventRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final ExternalEventBridge externalEventBridge;
 
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:2000}")
     @Transactional
@@ -37,6 +39,7 @@ public class OutboxEventProcessor {
         for (OutboxEvent event : pending) {
             try {
                 publish(event);
+                externalEventBridge.forward(event);
                 event.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
                 event.setPublishedAt(LocalDateTime.now());
                 event.setLastError(null);

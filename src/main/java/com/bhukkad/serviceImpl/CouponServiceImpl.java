@@ -3,10 +3,16 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.dto.request.CouponRequest;
 import com.bhukkad.dto.response.CouponResponse;
 import com.bhukkad.entity.Coupon;
+import com.bhukkad.entity.CouponUsage;
+import com.bhukkad.entity.Customer;
+import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CouponRepository;
+import com.bhukkad.repository.CouponUsageRepository;
+import com.bhukkad.repository.CustomerRepository;
+import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.service.CouponService;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +28,9 @@ public class CouponServiceImpl implements CouponService {
 
     private final CouponRepository couponRepository;
     private final RestaurantRepository restaurantRepository;
+    private final CouponUsageRepository couponUsageRepository;
+    private final CustomerRepository customerRepository;
+    private final OrderRepository orderRepository;
 
     @Override
     public Coupon createCoupon(Coupon coupon) {
@@ -48,6 +57,11 @@ public class CouponServiceImpl implements CouponService {
 
     @Override
     public Coupon validateCoupon(String code, Double orderAmount, Long restaurantId) {
+        return validateCoupon(code, orderAmount, restaurantId, null);
+    }
+
+    @Override
+    public Coupon validateCoupon(String code, Double orderAmount, Long restaurantId, Long customerId) {
         Coupon coupon = getCouponByCode(code);
 
         if (!coupon.getActive()) throw new BusinessException("Coupon is not active");
@@ -59,6 +73,13 @@ public class CouponServiceImpl implements CouponService {
 
         if (coupon.getUsageLimit() != null && coupon.getUsedCount() >= coupon.getUsageLimit()) {
             throw new BusinessException("Coupon usage limit reached");
+        }
+
+        if (customerId != null && coupon.getPerUserLimit() != null) {
+            long userUsage = couponUsageRepository.countByCouponIdAndCustomerId(coupon.getId(), customerId);
+            if (userUsage >= coupon.getPerUserLimit()) {
+                throw new BusinessException("You have already used this coupon the maximum number of times");
+            }
         }
 
         if (coupon.getMinimumOrderAmount() != null && orderAmount < coupon.getMinimumOrderAmount()) {
@@ -97,11 +118,13 @@ public class CouponServiceImpl implements CouponService {
 
     @Override
     public CouponResponse validateAndGetResponse(String code, Double orderAmount, Long restaurantId) {
-        Coupon coupon = validateCoupon(code, orderAmount, restaurantId);
-        Double discount = calculateDiscount(coupon, orderAmount);
+        return validateAndGetResponse(code, orderAmount, restaurantId, null);
+    }
 
-        CouponResponse response = mapToResponse(coupon);
-        return response;
+    @Override
+    public CouponResponse validateAndGetResponse(String code, Double orderAmount, Long restaurantId, Long customerId) {
+        Coupon coupon = validateCoupon(code, orderAmount, restaurantId, customerId);
+        return mapToResponse(coupon);
     }
 
     @Override
@@ -163,8 +186,28 @@ public class CouponServiceImpl implements CouponService {
 
     @Override
     public void recordCouponUsage(Coupon coupon) {
+        recordCouponUsage(coupon, null, null);
+    }
+
+    @Override
+    public void recordCouponUsage(Coupon coupon, Long customerId, Long orderId) {
         coupon.setUsedCount(coupon.getUsedCount() + 1);
         couponRepository.save(coupon);
+
+        if (customerId == null) {
+            return;
+        }
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        CouponUsage usage = new CouponUsage();
+        usage.setCoupon(coupon);
+        usage.setCustomer(customer);
+        if (orderId != null) {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+            usage.setOrder(order);
+        }
+        couponUsageRepository.save(usage);
     }
 
     private CouponResponse mapToResponse(Coupon coupon) {

@@ -13,6 +13,7 @@ public interface AdminService {
     Map<String, Object> getAllRestaurants(int page, int size, Boolean active);
     void approveRestaurant(Long restaurantId);
     void suspendRestaurant(Long restaurantId);
+    void setRestaurantCommission(Long restaurantId, Double commissionPercent);
     Map<String, Object> getRevenueStats(int days);
     Map<String, Object> getAnalytics();
 }

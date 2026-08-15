@@ -307,6 +307,7 @@ public class CartServiceImpl implements CartService {
                 });
     }
 
+    @SuppressWarnings("deprecation") // legacy single-restaurant fields are populated for backward compatibility
     private CartResponse buildCartResponse(Cart cart) {
         List<CartItem> cartItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
 

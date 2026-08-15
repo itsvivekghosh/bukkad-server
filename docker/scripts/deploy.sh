@@ -53,6 +53,7 @@ resolve_container_names() {
   else
     MYSQL_CONTAINER="bhukkad-mysql-dev"
     REDIS_CONTAINER="bhukkad-redis-dev"
+    REDPANDA_CONTAINER="bhukkad-redpanda-dev"
     APP_CONTAINER="bhukkad-app-dev"
   fi
 }
@@ -109,8 +110,12 @@ else
   log "Skipping build"
 fi
 
-log "Starting infrastructure (MySQL, Redis)..."
-docker compose -f "$COMPOSE_FILE" up -d mysql redis
+log "Starting infrastructure (MySQL, Redis, Redpanda)..."
+if [[ "$PROFILE" == "dev" ]]; then
+  docker compose -f "$COMPOSE_FILE" up -d mysql redis redpanda
+else
+  docker compose -f "$COMPOSE_FILE" up -d mysql redis
+fi
 if ! wait_for_healthy "MySQL" "$MYSQL_CONTAINER" 180; then
   docker logs "$MYSQL_CONTAINER" 2>&1 | tail -25 || true
   error "MySQL failed health check. Retry with: $(basename "$0") --clean"
@@ -118,6 +123,12 @@ fi
 if ! wait_for_healthy "Redis" "$REDIS_CONTAINER" 60; then
   docker logs "$REDIS_CONTAINER" 2>&1 | tail -15 || true
   error "Redis failed health check."
+fi
+if [[ "$PROFILE" == "dev" ]]; then
+  if ! wait_for_healthy "Redpanda" "$REDPANDA_CONTAINER" 120; then
+    docker logs "$REDPANDA_CONTAINER" 2>&1 | tail -25 || true
+    error "Redpanda failed health check."
+  fi
 fi
 
 log "Starting application..."

@@ -52,6 +52,8 @@ class RestaurantServiceImplTest {
     @Mock
     private RedisCacheService cacheService;
     @Mock
+    private com.bhukkad.geo.RestaurantGeoIndexService restaurantGeoIndexService;
+    @Mock
     private AddressMapper addressMapper;
 
     @InjectMocks

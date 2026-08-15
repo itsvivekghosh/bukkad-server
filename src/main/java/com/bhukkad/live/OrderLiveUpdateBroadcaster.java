@@ -4,7 +4,9 @@ import com.bhukkad.dto.response.OrderLiveUpdate;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
+import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.entity.Order;
+import com.bhukkad.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,49 +18,50 @@ public class OrderLiveUpdateBroadcaster {
 
     private final OrderLiveRelay orderLiveRelay;
     private final OrderLiveReplayStore orderLiveReplayStore;
+    private final OrderRepository orderRepository;
+    private final OrderEtaService orderEtaService;
 
     public void broadcastStatusChange(OrderStatusChangedEvent event) {
-        OrderLiveUpdate update = OrderLiveUpdate.builder()
-                .eventType(OrderLiveUpdate.EventType.STATUS_CHANGED)
-                .orderId(event.orderId())
-                .orderNumber(event.orderNumber())
-                .customerId(event.customerId())
-                .restaurantId(event.restaurantId())
-                .deliveryAgentId(event.deliveryAgentId())
-                .previousStatus(event.previousStatus() != null ? event.previousStatus().name() : null)
-                .status(event.newStatus().name())
-                .changedAt(event.changedAt())
-                .build();
+        OrderLiveUpdate update = baseUpdate(event.orderId(), event.orderNumber(), event.customerId(),
+                event.restaurantId(), event.deliveryAgentId(), OrderLiveUpdate.EventType.STATUS_CHANGED);
+        update.setPreviousStatus(event.previousStatus() != null ? event.previousStatus().name() : null);
+        update.setStatus(event.newStatus().name());
+        update.setChangedAt(event.changedAt());
         dispatch(update);
     }
 
     public void broadcastOrderCreated(OrderCreatedEvent event) {
-        OrderLiveUpdate update = OrderLiveUpdate.builder()
-                .eventType(OrderLiveUpdate.EventType.ORDER_CREATED)
-                .orderId(event.orderId())
-                .orderNumber(event.orderNumber())
-                .customerId(event.customerId())
-                .restaurantId(event.restaurantId())
-                .previousStatus(null)
-                .status(Order.OrderStatus.PLACED.name())
-                .changedAt(event.createdAt())
-                .build();
+        OrderLiveUpdate update = baseUpdate(event.orderId(), event.orderNumber(), event.customerId(),
+                event.restaurantId(), null, OrderLiveUpdate.EventType.ORDER_CREATED);
+        update.setPreviousStatus(null);
+        update.setStatus(Order.OrderStatus.PLACED.name());
+        update.setChangedAt(event.createdAt());
         dispatch(update);
     }
 
     public void broadcastAgentAssigned(OrderAgentAssignedEvent event) {
-        OrderLiveUpdate update = OrderLiveUpdate.builder()
-                .eventType(OrderLiveUpdate.EventType.AGENT_ASSIGNED)
-                .orderId(event.orderId())
-                .orderNumber(event.orderNumber())
-                .customerId(event.customerId())
-                .restaurantId(event.restaurantId())
-                .deliveryAgentId(event.deliveryAgentId())
-                .previousStatus(event.status().name())
-                .status(event.status().name())
-                .changedAt(event.assignedAt())
-                .build();
+        OrderLiveUpdate update = baseUpdate(event.orderId(), event.orderNumber(), event.customerId(),
+                event.restaurantId(), event.deliveryAgentId(), OrderLiveUpdate.EventType.AGENT_ASSIGNED);
+        update.setPreviousStatus(event.status().name());
+        update.setStatus(event.status().name());
+        update.setChangedAt(event.assignedAt());
         dispatch(update);
+    }
+
+    private OrderLiveUpdate baseUpdate(Long orderId, String orderNumber, Long customerId, Long restaurantId,
+                                       Long agentId, OrderLiveUpdate.EventType type) {
+        OrderLiveUpdate.OrderLiveUpdateBuilder builder = OrderLiveUpdate.builder()
+                .eventType(type)
+                .orderId(orderId)
+                .orderNumber(orderNumber)
+                .customerId(customerId)
+                .restaurantId(restaurantId)
+                .deliveryAgentId(agentId);
+        orderRepository.findByIdWithDetails(orderId).ifPresent(order -> {
+            var eta = orderEtaService.computeLiveEta(order);
+            builder.liveEtaMinutes(eta.minutes()).liveEtaAt(eta.etaAt());
+        });
+        return builder.build();
     }
 
     private void dispatch(OrderLiveUpdate update) {

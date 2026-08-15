@@ -13,15 +13,15 @@
 
     <!-- Console pattern - clean, no userId/email for non-request threads -->
     <property name="CONSOLE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%cyan(${APP_NAME})] [%blue(%thread)] [%yellow(%X{traceId:--})] [%magenta(%logger{36})] - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%cyan(${APP_NAME})] [%blue(%thread)] [%yellow(%X{traceId:--})] [%green(%X{requestId:--})] [%magenta(%logger{36})] - %msg%n"/>
 
     <!-- File pattern with full context -->
     <property name="FILE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [Trace:%X{traceId:--}] [User:%X{userId:--}] [Email:%X{userEmail:--}] [IP:%X{ipAddress:--}] [%logger{36}] - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [Trace:%X{traceId:--}] [Request:%X{requestId:--}] [User:%X{userId:--}] [Email:%X{userEmail:--}] [IP:%X{ipAddress:--}] [%logger{36}] - %msg%n"/>
 
     <!-- Request log pattern with full user context -->
     <property name="REQUEST_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [Trace:%X{traceId:--}] [User:%X{userId:--}] [Email:%X{userEmail:--}] [Role:%X{userRole:--}] [IP:%X{ipAddress:--}] [%logger{36}] - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [Trace:%X{traceId:--}] [Request:%X{requestId:--}] [User:%X{userId:--}] [Email:%X{userEmail:--}] [Role:%X{userRole:--}] [IP:%X{ipAddress:--}] [%logger{36}] - %msg%n"/>
 
     <!-- ==================== CONSOLE APPENDER ==================== -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
@@ -126,6 +126,21 @@
         </rollingPolicy>
     </appender>
 
+    <!-- Alert Log -->
+    <appender name="ALERT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/alerts.log</file>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${REQUEST_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/alerts-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
     <!-- JSON Log -->
     <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/app-json.log</file>
@@ -194,6 +209,12 @@
     <logger name="SECURITY" level="DEBUG" additivity="false">
         <appender-ref ref="SECURITY_FILE"/>
         <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <logger name="ALERT" level="INFO" additivity="false">
+        <appender-ref ref="ALERT_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_JSON"/>
     </logger>
 
     <logger name="org.hibernate.SQL" level="DEBUG" additivity="false">

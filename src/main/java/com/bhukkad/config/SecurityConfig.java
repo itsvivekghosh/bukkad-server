@@ -92,6 +92,17 @@ public class SecurityConfig {
 
                     // Reviews - Public GET
                     auth.requestMatchers(HttpMethod.GET, V1 + "/reviews/restaurant/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/reviews/menu-items/**").permitAll();
+
+                    // Unified search - Public GET
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/search").permitAll();
+
+                    // Platform status - Public GET
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/platform/status").permitAll();
+
+                    // Serviceability & home feed - Public GET
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/serviceability/**").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/home/**").permitAll();
 
                     // Cache - Dev public, Prod admin
                     if (debugMode) {
@@ -107,6 +118,7 @@ public class SecurityConfig {
                     auth.requestMatchers(V1 + "/payments/orders/**").hasRole("CUSTOMER");
                     auth.requestMatchers(V1 + "/coupons/validate").hasRole("CUSTOMER");
                     auth.requestMatchers(HttpMethod.POST, V1 + "/reviews").hasRole("CUSTOMER");
+                    auth.requestMatchers(HttpMethod.POST, V1 + "/reviews/menu-items").hasRole("CUSTOMER");
                     auth.requestMatchers(HttpMethod.GET, V1 + "/reviews/my-reviews").hasRole("CUSTOMER");
                     auth.requestMatchers(HttpMethod.DELETE, V1 + "/reviews/**").hasRole("CUSTOMER");
 
@@ -134,6 +146,16 @@ public class SecurityConfig {
                     auth.requestMatchers(V1 + "/orders/stream/kitchen/**").hasRole("RESTAURANT_OWNER");
                     auth.requestMatchers(V1 + "/orders/stream/rider").hasRole("DELIVERY_AGENT");
                     auth.requestMatchers(V1 + "/orders/stream/customer/**").hasRole("CUSTOMER");
+
+                    // ==================== ERROR DISPATCH ====================
+                    // Spring MVC FORWARDs unmatched/failed requests to /error. Because Spring Boot
+                    // registers filters for the ERROR dispatcher type by default, Spring Security
+                    // re-evaluates that forward as a fresh request with an empty SecurityContext
+                    // (session policy is STATELESS and JwtAuthenticationFilter, being a
+                    // OncePerRequestFilter, has already run for the original dispatch). Without an
+                    // explicit permitAll the forward falls through to anyRequest().authenticated(),
+                    // is treated as anonymous, and the real status (404/500) is masked as 403.
+                    auth.requestMatchers("/error").permitAll();
 
                     // ==================== ALL OTHERS ====================
                     auth.anyRequest().authenticated();

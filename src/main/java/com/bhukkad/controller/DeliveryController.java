@@ -2,9 +2,14 @@ package com.bhukkad.controller;
 
 import com.bhukkad.config.ApiPaths;
 
+import com.bhukkad.dto.request.RiderLocationRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
 import com.bhukkad.dto.response.OrderResponse;
+import com.bhukkad.dto.response.RiderBatchResponse;
+import com.bhukkad.dto.response.RiderLocationResponse;
+import com.bhukkad.delivery.RiderBatchDispatchService;
+import com.bhukkad.delivery.RiderLocationService;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.service.DeliveryService;
 import com.bhukkad.service.RiderPayoutService;
@@ -23,6 +28,8 @@ public class DeliveryController {
 
     private final DeliveryService deliveryService;
     private final RiderPayoutService riderPayoutService;
+    private final RiderLocationService riderLocationService;
+    private final RiderBatchDispatchService riderBatchDispatchService;
 
     @GetMapping("/earnings/summary")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.RiderEarningsSummaryResponse>> getEarningsSummary() {
@@ -90,5 +97,32 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<OrderResponse>> rejectDelivery(@PathVariable Long orderId) {
         OrderResponse order = deliveryService.rejectDelivery(orderId);
         return ResponseEntity.ok(ApiResponse.success("Delivery rejected", order));
+    }
+
+    /** Records GPS coordinates for an active delivery (live map tracking). */
+    @PostMapping("/orders/{orderId}/location")
+    public ResponseEntity<ApiResponse<RiderLocationResponse>> updateOrderLocation(
+            @PathVariable Long orderId,
+            @RequestBody RiderLocationRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Location recorded", riderLocationService.recordLocation(orderId, request)));
+    }
+
+    /** Creates a multi-stop delivery batch from active orders (V16). */
+    @PostMapping("/batches")
+    public ResponseEntity<ApiResponse<RiderBatchResponse>> createDeliveryBatch() {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Delivery batch created", riderBatchDispatchService.createBatchFromActiveOrders()));
+    }
+
+    @GetMapping("/batches/active")
+    public ResponseEntity<ApiResponse<RiderBatchResponse>> getActiveBatch() {
+        return ResponseEntity.ok(ApiResponse.success(riderBatchDispatchService.getActiveBatch()));
+    }
+
+    @PutMapping("/batches/{batchId}/complete")
+    public ResponseEntity<ApiResponse<RiderBatchResponse>> completeBatch(@PathVariable Long batchId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Batch completed", riderBatchDispatchService.completeBatch(batchId)));
     }
 }

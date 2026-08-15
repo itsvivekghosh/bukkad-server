@@ -29,4 +29,6 @@ public class OrderLiveUpdate {
     private String previousStatus;
     private String status;
     private LocalDateTime changedAt;
+    private Integer liveEtaMinutes;
+    private LocalDateTime liveEtaAt;
 }

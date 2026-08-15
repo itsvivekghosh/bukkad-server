@@ -2,12 +2,15 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.config.NotificationProperties;
 import com.bhukkad.entity.Order;
+import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.notification.push.PushNotificationSender;
 import com.bhukkad.notification.sms.SmsSender;
 import com.bhukkad.notification.ResilientEmailSender;
+import com.bhukkad.notification.whatsapp.WhatsAppSender;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.UserRepository;
+import com.bhukkad.service.NotificationPreferenceService;
 import com.bhukkad.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +28,9 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserRepository userRepository;
     private final ResilientEmailSender resilientEmailSender;
     private final SmsSender smsSender;
+    private final WhatsAppSender whatsAppSender;
     private final PushNotificationSender pushNotificationSender;
+    private final NotificationPreferenceService notificationPreferenceService;
 
     @Override
     public void sendOrderConfirmation(Long orderId) {
@@ -54,6 +59,7 @@ public class NotificationServiceImpl implements NotificationService {
             String agentBody = "New delivery assigned: " + order.getOrderNumber();
             sendEmail(agent.getEmail(), "New delivery", agentBody);
             sendSms(agent.getPhoneNumber(), agentBody);
+            sendWhatsapp(agent.getPhoneNumber(), agentBody);
             sendPush(agent.getId(), "New delivery", agentBody);
         });
     }
@@ -78,10 +84,38 @@ public class NotificationServiceImpl implements NotificationService {
         notifyCustomer(order, "Refund processed", body);
     }
 
+    @Override
+    public void sendTestNotification(String channel, String recipient, String message) {
+        if (!StringUtils.hasText(channel) || !StringUtils.hasText(recipient)) {
+            throw new BusinessException("channel and recipient are required");
+        }
+        String body = StringUtils.hasText(message) ? message : "Bhukkad test notification";
+        switch (channel.toLowerCase()) {
+            case "email" -> sendEmail(recipient, "Bhukkad Test", body);
+            case "sms" -> sendSms(recipient, body);
+            case "whatsapp" -> sendWhatsapp(recipient, body);
+            default -> throw new BusinessException("Unsupported channel: " + channel);
+        }
+    }
+
     private void notifyCustomer(Order order, String subject, String body) {
-        sendEmail(order.getCustomer().getEmail(), subject, body);
-        sendSms(order.getCustomer().getPhoneNumber(), body);
-        sendPush(order.getCustomer().getId(), subject, body);
+        Long customerId = order.getCustomer().getId();
+        if (!notificationPreferenceService.isOrderUpdatesEnabled(customerId)) {
+            log.debug("Skipping order notification for customer {} (preferences disabled)", customerId);
+            return;
+        }
+        if (notificationPreferenceService.isEmailEnabled(customerId)) {
+            sendEmail(order.getCustomer().getEmail(), subject, body);
+        }
+        if (notificationPreferenceService.isSmsEnabled(customerId)) {
+            sendSms(order.getCustomer().getPhoneNumber(), body);
+        }
+        if (notificationPreferenceService.isWhatsappEnabled(customerId)) {
+            sendWhatsapp(order.getCustomer().getPhoneNumber(), body);
+        }
+        if (notificationPreferenceService.isPushEnabled(customerId)) {
+            sendPush(customerId, subject, body);
+        }
     }
 
     private Order findOrder(Long orderId) {
@@ -111,6 +145,17 @@ public class NotificationServiceImpl implements NotificationService {
             return;
         }
         smsSender.send(phoneNumber, body);
+    }
+
+    private void sendWhatsapp(String phoneNumber, String body) {
+        if (!notificationProperties.isEnabled() || !notificationProperties.getWhatsapp().isEnabled()) {
+            log.info("WHATSAPP | to={} | body={}", phoneNumber, body);
+            return;
+        }
+        if (!StringUtils.hasText(phoneNumber)) {
+            return;
+        }
+        whatsAppSender.send(phoneNumber, body);
     }
 
     private void sendPush(Long userId, String title, String body) {

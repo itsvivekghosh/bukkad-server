@@ -24,3 +24,39 @@ data:
     max_heap_table_size=64M
     slow_query_log=1
     long_query_time=2
+---
+# -----------------------------------------------------------------------------
+# MySQL bootstrap script, mounted at /docker-entrypoint-initdb.d/init.sql.
+#
+# This used to live in `bhukkad-config`, which the app Deployment consumes with
+# `envFrom`; `init.sql` is not a valid environment variable name, so kubelet
+# skipped it and raised an InvalidVariableNames event on every app pod. It now
+# lives in its own ConfigMap alongside my.cnf, which is only ever mounted as a
+# volume.
+#
+# The official mysql image runs this AFTER creating MYSQL_USER, so the GRANT
+# below resolves.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-mysql-init
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: mysql
+data:
+  init.sql: |
+    SET NAMES utf8mb4;
+    SET CHARACTER SET utf8mb4;
+
+    CREATE DATABASE IF NOT EXISTS bhukkad
+      CHARACTER SET utf8mb4
+      COLLATE utf8mb4_unicode_ci;
+
+    USE bhukkad;
+
+    GRANT ALL PRIVILEGES ON bhukkad.* TO 'bhukkad_user'@'%';
+    FLUSH PRIVILEGES;
+
+    SELECT 'Database initialized!' AS status;

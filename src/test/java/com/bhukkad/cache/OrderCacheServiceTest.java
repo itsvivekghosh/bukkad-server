@@ -27,11 +27,19 @@ class OrderCacheServiceTest {
     @Test
     void getTrackedOrder_delegatesToRedis() {
         OrderResponse response = OrderResponse.builder().id(1L).build();
-        when(cacheService.get(CacheKeyGenerator.orderTrack(1L), OrderResponse.class))
+        when(cacheService.get(CacheKeyGenerator.orderTrack(1L, 7L), OrderResponse.class))
                 .thenReturn(Optional.of(response));
 
-        assertTrue(orderCacheService.getTrackedOrder(1L).isPresent());
-        assertEquals(1L, orderCacheService.getTrackedOrder(1L).get().getId());
+        assertTrue(orderCacheService.getTrackedOrder(1L, 7L).isPresent());
+        assertEquals(1L, orderCacheService.getTrackedOrder(1L, 7L).get().getId());
+    }
+
+    @Test
+    void getTrackedOrder_missesWhenCustomerDiffers() {
+        when(cacheService.get(CacheKeyGenerator.orderTrack(1L, 99L), OrderResponse.class))
+                .thenReturn(Optional.empty());
+
+        assertTrue(orderCacheService.getTrackedOrder(1L, 99L).isEmpty());
     }
 
     @Test
@@ -39,9 +47,9 @@ class OrderCacheServiceTest {
         ReflectionTestUtils.setField(orderCacheService, "orderTrackTtlSeconds", 45L);
         OrderResponse response = OrderResponse.builder().id(2L).build();
 
-        orderCacheService.cacheTrackedOrder(2L, response);
+        orderCacheService.cacheTrackedOrder(2L, 7L, response);
 
-        verify(cacheService).set(CacheKeyGenerator.orderTrack(2L), response, 45L);
+        verify(cacheService).set(CacheKeyGenerator.orderTrack(2L, 7L), response, 45L);
     }
 
     @Test
@@ -49,7 +57,7 @@ class OrderCacheServiceTest {
         orderCacheService.invalidateOrder(5L, 1L, 10L);
 
         verify(cacheService).delete(CacheKeyGenerator.order(5L));
-        verify(cacheService).delete(CacheKeyGenerator.orderTrack(5L));
+        verify(cacheService).deletePattern(CacheKeyGenerator.orderTrackPattern(5L));
         verify(cacheService).deletePattern(CacheKeyGenerator.orderPattern(1L));
         verify(cacheService).delete(CacheKeyGenerator.kitchenQueue(10L));
     }
@@ -59,6 +67,6 @@ class OrderCacheServiceTest {
         orderCacheService.invalidateOrder(5L, null, null);
 
         verify(cacheService).delete(CacheKeyGenerator.order(5L));
-        verify(cacheService).delete(CacheKeyGenerator.orderTrack(5L));
+        verify(cacheService).deletePattern(CacheKeyGenerator.orderTrackPattern(5L));
     }
 }

@@ -27,4 +27,30 @@ class EnumCoverageTest {
         assertTrue(Coupon.DiscountType.values().length > 0);
         assertTrue(Address.AddressType.values().length > 0);
     }
+
+    /**
+     * V17 delivery proof. Both enums are persisted as {@code STRING}, so a rename here silently
+     * breaks reads of existing {@code order_delivery_proofs} rows; pinning the names keeps the
+     * entity and the V17 migration in agreement.
+     */
+    @Test
+    void deliveryProofEnums_valuesAndValueOf() {
+        assertEquals(4, OrderDeliveryProof.ProofType.values().length);
+        assertEquals(OrderDeliveryProof.ProofType.OTP, OrderDeliveryProof.ProofType.valueOf("OTP"));
+        assertEquals(OrderDeliveryProof.ProofType.PHOTO, OrderDeliveryProof.ProofType.valueOf("PHOTO"));
+        assertEquals(OrderDeliveryProof.ProofType.OTP_AND_PHOTO,
+                OrderDeliveryProof.ProofType.valueOf("OTP_AND_PHOTO"));
+        assertEquals(OrderDeliveryProof.ProofType.SKIPPED,
+                OrderDeliveryProof.ProofType.valueOf("SKIPPED"));
+
+        assertEquals(4, OrderDeliveryProof.ProofStatus.values().length);
+        assertEquals(OrderDeliveryProof.ProofStatus.PENDING,
+                OrderDeliveryProof.ProofStatus.valueOf("PENDING"));
+        assertEquals(OrderDeliveryProof.ProofStatus.VERIFIED,
+                OrderDeliveryProof.ProofStatus.valueOf("VERIFIED"));
+        assertEquals(OrderDeliveryProof.ProofStatus.FAILED,
+                OrderDeliveryProof.ProofStatus.valueOf("FAILED"));
+        assertEquals(OrderDeliveryProof.ProofStatus.SKIPPED,
+                OrderDeliveryProof.ProofStatus.valueOf("SKIPPED"));
+    }
 }

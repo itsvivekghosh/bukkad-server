@@ -3,6 +3,7 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.geo.RestaurantGeoIndexService;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.mapper.AddressMapper;
 import com.bhukkad.dto.response.AddressResponse;
@@ -44,6 +45,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     private final CuisineRepository cuisineRepository;
     private final SecurityUtils securityUtils;
     private final RedisCacheService cacheService;
+    private final RestaurantGeoIndexService restaurantGeoIndexService;
     private final AddressMapper addressMapper;
 
     @Value("${cache.ttl.restaurant:1800}")
@@ -138,13 +140,18 @@ public class RestaurantServiceImpl implements RestaurantService {
         String cacheKey = CacheKeyGenerator.restaurantNearby(latitude, longitude, radiusKm);
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         double safeRadius = Math.min(Math.max(radiusKm, 0.5), 50.0);
-        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () ->
-                restaurantRepository.findNearbyRestaurantIds(latitude, longitude, safeRadius, safeLimit)
-                        .stream()
-                        .map(id -> restaurantRepository.findByIdWithDetails(id).orElse(null))
-                        .filter(Objects::nonNull)
-                        .map(this::mapToResponse)
-                        .collect(Collectors.toList()));
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () -> {
+            List<Long> ids = restaurantGeoIndexService.findNearbyRestaurantIds(
+                    latitude, longitude, safeRadius, safeLimit);
+            if (ids.isEmpty()) {
+                ids = restaurantRepository.findNearbyRestaurantIds(latitude, longitude, safeRadius, safeLimit);
+            }
+            return ids.stream()
+                    .map(id -> restaurantRepository.findByIdWithDetails(id).orElse(null))
+                    .filter(Objects::nonNull)
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        });
     }
 
     @Override
@@ -207,6 +214,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         restaurant = restaurantRepository.save(restaurant);
+        restaurantGeoIndexService.indexRestaurant(restaurant);
         invalidateRestaurantCaches();
 
         return mapToResponse(restaurant);
@@ -246,6 +254,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         restaurant = restaurantRepository.save(restaurant);
+        restaurantGeoIndexService.indexRestaurant(restaurant);
 
         cacheService.delete(CacheKeyGenerator.restaurant(id));
         invalidateRestaurantCaches();

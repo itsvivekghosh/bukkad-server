@@ -1,6 +1,7 @@
 package com.bhukkad.logging;
 
 import com.bhukkad.entity.User;
+import com.bhukkad.logging.alert.AlertService;
 import com.bhukkad.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -41,13 +42,15 @@ class RequestLoggingFilterTest {
     @Mock
     private UserRepository userRepository;
     @Mock
+    private AlertService alertService;
+    @Mock
     private FilterChain filterChain;
 
     private RequestLoggingFilter filter;
 
     @BeforeEach
     void setUp() {
-        filter = new RequestLoggingFilter(userRepository);
+        filter = new RequestLoggingFilter(userRepository, alertService);
         ReflectionTestUtils.setField(filter, "debugMode", false);
         SecurityContextHolder.clearContext();
         MDC.clear();
@@ -67,7 +70,26 @@ class RequestLoggingFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         verify(filterChain).doFilter(request, response);
-        assertNull(response.getHeader("X-Trace-Id"));
+        assertNotNull(response.getHeader("X-Trace-Id"));
+        assertNotNull(response.getHeader("X-Request-Id"));
+    }
+
+    @Test
+    void propagatesInboundTraceHeaders() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        request.addHeader("X-Trace-Id", "abcd1234abcd1234");
+        request.addHeader("X-Request-Id", "req12345");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        doAnswer(inv -> {
+            ((CachedBodyHttpServletResponse) inv.getArgument(1)).setStatus(200);
+            return null;
+        }).when(filterChain).doFilter(any(), any());
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertEquals("abcd1234abcd1234", response.getHeader("X-Trace-Id"));
+        assertEquals("req12345", response.getHeader("X-Request-Id"));
     }
 
     @Test
@@ -163,7 +185,7 @@ class RequestLoggingFilterTest {
 
     @Test
     void populateUserContext_handlesAnonymousAndBrokenAuth() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/health");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/customers/profile");
         MockHttpServletResponse response = new MockHttpServletResponse();
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("anonymousUser", "x", List.of()));
@@ -287,7 +309,7 @@ class RequestLoggingFilterTest {
     void populateUserContext_unauthenticatedIsIgnored() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("user@example.com", "x"));
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/health");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/customers/profile");
         MockHttpServletResponse response = new MockHttpServletResponse();
         doAnswer(inv -> {
             ((CachedBodyHttpServletResponse) inv.getArgument(1)).setStatus(200);

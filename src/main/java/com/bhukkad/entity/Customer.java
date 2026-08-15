@@ -34,4 +34,11 @@ public class Customer extends User {
 
     @Column(name = "wallet_balance", nullable = false)
     private Double walletBalance = 0.0;
+
+    @Column(name = "referral_code", unique = true, length = 20)
+    private String referralCode;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "referred_by_customer_id")
+    private Customer referredBy;
 }

@@ -40,6 +40,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("deprecation") // legacy single-restaurant CartResponse fields are still asserted for backward compatibility
 class CartServiceImplTest {
 
     @Mock

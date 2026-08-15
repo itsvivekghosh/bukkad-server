@@ -21,13 +21,21 @@ public class RedisCacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final LocalCacheService localCacheService;
 
-    public RedisCacheService(RedisTemplate<String, Object> redisTemplate) {
+    public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
+                             LocalCacheService localCacheService) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
+        this.localCacheService = localCacheService;
     }
 
     public <T> T getOrCompute(String key, Class<T> type, long ttlSeconds, Supplier<T> supplier) {
+        Optional<T> l1 = localCacheService.get(key, type);
+        if (l1.isPresent()) {
+            return l1.get();
+        }
+
         Optional<T> cached = get(key, type);
         if (cached.isPresent()) {
             return cached.get();
@@ -43,6 +51,7 @@ public class RedisCacheService {
                 T value = supplier.get();
                 if (value != null) {
                     set(key, value, ttlSeconds);
+                    localCacheService.put(key, value);
                 }
                 return value;
             } finally {
@@ -54,6 +63,12 @@ public class RedisCacheService {
     }
 
     public <T> List<T> getListOrCompute(String key, Class<T> type, long ttlSeconds, Supplier<List<T>> supplier) {
+        @SuppressWarnings("unchecked")
+        Optional<List<T>> l1 = (Optional<List<T>>) (Optional<?>) localCacheService.get(key, List.class);
+        if (l1.isPresent()) {
+            return l1.get();
+        }
+
         Optional<List<T>> cached = getList(key, type);
         if (cached.isPresent()) {
             return cached.get();
@@ -69,6 +84,7 @@ public class RedisCacheService {
                 List<T> value = supplier.get();
                 if (value != null) {
                     set(key, value, ttlSeconds);
+                    localCacheService.put(key, value);
                 }
                 return value != null ? value : List.of();
             } finally {
@@ -140,6 +156,7 @@ public class RedisCacheService {
             if (value != null) {
                 log.debug("CACHE_HIT key={}", fullKey);
                 T result = objectMapper.convertValue(value, type);
+                localCacheService.put(key, result);
                 return Optional.of(result);
             }
 
@@ -161,6 +178,7 @@ public class RedisCacheService {
                 log.debug("CACHE_HIT key={}", fullKey);
                 List<T> result = objectMapper.convertValue(value,
                         objectMapper.getTypeFactory().constructCollectionType(List.class, type));
+                localCacheService.put(key, result);
                 return Optional.of(result);
             }
 
@@ -176,6 +194,7 @@ public class RedisCacheService {
         try {
             String fullKey = buildKey(key);
             redisTemplate.delete(fullKey);
+            localCacheService.invalidate(key);
             log.debug("CACHE_DELETE key={}", fullKey);
         } catch (Exception e) {
             log.warn("CACHE_DELETE_FAILED key={} error={}", key, e.getMessage());
@@ -289,6 +308,7 @@ public class RedisCacheService {
                 }
             }
             stats.put("keysByType", keyCounts);
+            stats.put("localCache", localCacheService.getStats());
         } catch (Exception e) {
             stats.put("error", e.getMessage());
         }

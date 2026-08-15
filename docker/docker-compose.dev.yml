@@ -65,6 +65,38 @@ services:
           cpus: "0.1"
           memory: 128M
 
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.2
+    container_name: bhukkad-redpanda-dev
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    networks:
+      - bhukkad-network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   app:
     build:
       context: ..
@@ -84,6 +116,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ""
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      APP_EVENTS_EXTERNAL_ENABLED: "true"
+      APP_EVENTS_EXTERNAL_TYPE: kafka
       SERVER_PORT: "8080"
       JWT_SECRET: "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970"
       JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
@@ -95,6 +130,8 @@ services:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redpanda:
         condition: service_healthy
     networks:
       - bhukkad-network

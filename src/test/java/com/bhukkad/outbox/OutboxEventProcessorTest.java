@@ -1,5 +1,6 @@
 package com.bhukkad.outbox;
 
+import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -31,6 +32,9 @@ class OutboxEventProcessorTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private ExternalEventBridge externalEventBridge;
+
     private ObjectMapper objectMapper;
 
     @InjectMocks
@@ -39,7 +43,8 @@ class OutboxEventProcessorTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        outboxEventProcessor = new OutboxEventProcessor(outboxEventRepository, eventPublisher, objectMapper);
+        outboxEventProcessor = new OutboxEventProcessor(
+                outboxEventRepository, eventPublisher, objectMapper, externalEventBridge);
     }
 
     @Test

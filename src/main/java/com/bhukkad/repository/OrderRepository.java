@@ -204,6 +204,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findTop10ByOrderByCreatedAtDesc();
     Page<Order> findByStatus(Order.OrderStatus status, Pageable pageable);
 
+    List<Order> findByStatusAndScheduledAtLessThanEqual(Order.OrderStatus status, LocalDateTime scheduledAt);
+
+    long countByCustomerIdAndStatus(Long customerId, Order.OrderStatus status);
+
+    @Query("SELECT COALESCE(SUM(o.totalAmount + COALESCE(o.walletAmountUsed, 0)), 0) FROM Order o " +
+            "WHERE o.customer.id = :customerId AND o.status = 'DELIVERED'")
+    Double sumDeliveredSpendByCustomerId(@Param("customerId") Long customerId);
+
     long countByRestaurantIdAndCreatedAtAfter(Long restaurantId, LocalDateTime startDate);
 
     long countByRestaurantIdAndStatusAndCreatedAtAfter(
@@ -218,4 +226,57 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "WHERE o.restaurant.id = :restaurantId AND o.createdAt >= :startDate GROUP BY o.status")
     List<Object[]> countRestaurantOrdersGroupedByStatus(@Param("restaurantId") Long restaurantId,
                                                         @Param("startDate") LocalDateTime startDate);
+
+    // ---------------------------------------------------------------------
+    // ETA accuracy (promised vs actual) — V17
+    //
+    // The promise lives in orders.estimated_delivery_at and the actual in
+    // orders.delivered_at. OrderEtaSnapshot only records the promise side, so
+    // accuracy cannot be derived from snapshots and is aggregated here instead.
+    // All three queries are served by the V17 index
+    // idx_order_eta_accuracy (delivered_at, estimated_delivery_at).
+    // ---------------------------------------------------------------------
+
+    /**
+     * Number of deliveries in the window that can be scored, i.e. completed orders
+     * that carry both a promised and an actual delivery timestamp. This is the
+     * denominator of the on-time rate.
+     *
+     * @param since window start (inclusive), compared against {@code delivered_at}
+     * @return measurable delivery count, never {@code null}
+     */
+    @Query("SELECT COUNT(o) FROM Order o " +
+            "WHERE o.status = 'DELIVERED' AND o.deliveredAt >= :since AND o.estimatedDeliveryAt IS NOT NULL")
+    long countMeasurableDeliveriesSince(@Param("since") LocalDateTime since);
+
+    /**
+     * Deliveries in the window that met or beat the promise. This is the numerator
+     * of the on-time rate; a delivery landing exactly on the promised instant counts
+     * as on time.
+     *
+     * @param since window start (inclusive), compared against {@code delivered_at}
+     * @return on-time delivery count, never {@code null}
+     */
+    @Query("SELECT COUNT(o) FROM Order o " +
+            "WHERE o.status = 'DELIVERED' AND o.deliveredAt >= :since " +
+            "AND o.estimatedDeliveryAt IS NOT NULL AND o.deliveredAt <= o.estimatedDeliveryAt")
+    long countOnTimeDeliveriesSince(@Param("since") LocalDateTime since);
+
+    /**
+     * Promised/actual timestamp pairs for late deliveries in the window, most recent
+     * first, so the caller can average the overshoot in Java.
+     *
+     * <p>Minute arithmetic is deliberately kept out of the query: JPQL has no portable
+     * {@code TIMESTAMPDIFF} and this project uses no vendor date functions anywhere.
+     * The caller passes a {@link Pageable} to bound the sample size.
+     *
+     * @param since    window start (inclusive), compared against {@code delivered_at}
+     * @param pageable sample cap and ordering slice
+     * @return rows of {@code [estimatedDeliveryAt, deliveredAt]}, both non-null
+     */
+    @Query("SELECT o.estimatedDeliveryAt, o.deliveredAt FROM Order o " +
+            "WHERE o.status = 'DELIVERED' AND o.deliveredAt >= :since " +
+            "AND o.estimatedDeliveryAt IS NOT NULL AND o.deliveredAt > o.estimatedDeliveryAt " +
+            "ORDER BY o.deliveredAt DESC")
+    List<Object[]> findLateDeliveryTimestampsSince(@Param("since") LocalDateTime since, Pageable pageable);
 }

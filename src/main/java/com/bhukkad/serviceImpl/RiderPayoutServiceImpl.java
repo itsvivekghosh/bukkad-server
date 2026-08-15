@@ -4,7 +4,10 @@ import com.bhukkad.config.RiderEarningsProperties;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.dto.response.RiderEarningsSummaryResponse;
 import com.bhukkad.dto.response.RiderPayoutResponse;
+import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RiderEarning;
+import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.RiderEarningRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.DeliveryService;
@@ -24,6 +27,7 @@ public class RiderPayoutServiceImpl implements RiderPayoutService {
     private final SecurityUtils securityUtils;
     private final DeliveryService deliveryService;
     private final RiderEarningsProperties riderEarningsProperties;
+    private final DeliveryAgentRepository deliveryAgentRepository;
 
     @Override
     public RiderEarningsSummaryResponse getEarningsSummary() {
@@ -45,6 +49,21 @@ public class RiderPayoutServiceImpl implements RiderPayoutService {
                 agentId,
                 PaginationUtils.page(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return PagedResponse.from(earningsPage.map(this::mapToResponse));
+    }
+
+    @Override
+    @Transactional
+    public int settlePendingPayouts(Long agentId) {
+        DeliveryAgent agent = deliveryAgentRepository.findById(agentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Delivery agent not found"));
+        var pending = riderEarningRepository.findByAgentIdAndStatus(agent.getId(), RiderEarning.EarningStatus.PENDING);
+        var now = java.time.LocalDateTime.now();
+        for (RiderEarning earning : pending) {
+            earning.setStatus(RiderEarning.EarningStatus.PAID);
+            earning.setPaidAt(now);
+        }
+        riderEarningRepository.saveAll(pending);
+        return pending.size();
     }
 
     private RiderPayoutResponse mapToResponse(RiderEarning earning) {

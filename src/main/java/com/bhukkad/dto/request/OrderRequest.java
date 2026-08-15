@@ -27,4 +27,10 @@ public class OrderRequest {
 
     /** Apply available wallet balance up to order total (split pay). */
     private Boolean useWallet;
+
+    /** Optional tip for the delivery rider (added to order total). */
+    private Double tipAmount;
+
+    /** Schedule order for future delivery (ISO-8601 datetime). */
+    private java.time.LocalDateTime scheduledAt;
 }

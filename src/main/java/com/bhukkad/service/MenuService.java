@@ -28,6 +28,7 @@ public interface MenuService {
     List<MenuItemResponse> getBestsellers(Long restaurantId);
     List<MenuItemResponse> getRecommended(Long restaurantId);
     List<MenuItemResponse> searchMenuItems(String keyword);
+    List<MenuItemResponse> getLowStockItems(Long restaurantId, Integer threshold);
 
     MenuImageUploadResponse createMenuItemImageUploadUrl(Long menuItemId, MenuImageUploadRequest request);
 }

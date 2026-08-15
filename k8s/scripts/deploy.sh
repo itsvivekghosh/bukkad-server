@@ -13,9 +13,12 @@ error() { echo -e "${RED}[$(date '+%H:%M:%S')] $1${NC}"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 K8S_DIR="${PROJECT_DIR}/k8s"
+MINIKUBE_OVERLAY="${K8S_DIR}/overlays/minikube"
 IMAGE_TAG="${IMAGE_TAG:-bhukkad-server:latest}"
 CLEAN_DEPLOY="${CLEAN_DEPLOY:-false}"
 SKIP_BUILD="${SKIP_BUILD:-false}"
+USE_MINIKUBE_PROFILE=false
+KUSTOMIZE_FLAGS=()
 
 usage() {
   cat <<EOF
@@ -50,7 +53,7 @@ echo "================================================"
 if ! kubectl cluster-info >/dev/null 2>&1; then
   if command -v minikube >/dev/null 2>&1; then
     warn "Cluster unreachable; starting minikube..."
-    minikube start --cpus=4 --memory=8192 --driver=docker
+    minikube start --cpus=2 --memory=4096 --driver=docker
     minikube addons enable ingress
     minikube addons enable metrics-server
   else
@@ -59,8 +62,14 @@ if ! kubectl cluster-info >/dev/null 2>&1; then
 fi
 
 if command -v minikube >/dev/null 2>&1 && minikube status >/dev/null 2>&1; then
-  log "Using minikube docker daemon"
+  USE_MINIKUBE_PROFILE=true
+  KUSTOMIZE_DIR="${MINIKUBE_OVERLAY}"
+  KUSTOMIZE_FLAGS=(--load-restrictor LoadRestrictionsNone)
+  log "Minikube detected — using low-memory overlay (1 app replica, no RabbitMQ)"
   eval "$(minikube docker-env)"
+  minikube addons enable metrics-server 2>/dev/null || true
+else
+  KUSTOMIZE_DIR="${K8S_DIR}"
 fi
 
 if [[ "$SKIP_BUILD" != "true" ]]; then
@@ -75,21 +84,34 @@ else
   log "Skipping image build"
 fi
 
+apply_manifests() {
+  kubectl kustomize "${KUSTOMIZE_FLAGS[@]}" "${KUSTOMIZE_DIR}" | kubectl apply -f -
+}
+
+delete_manifests() {
+  kubectl kustomize "${KUSTOMIZE_FLAGS[@]}" "${KUSTOMIZE_DIR}" | kubectl delete -f - --ignore-not-found=true || true
+}
+
 if [[ "$CLEAN_DEPLOY" == "true" ]]; then
   warn "Cleaning previous deployment..."
-  kubectl delete -k "${K8S_DIR}" --ignore-not-found=true || true
+  # Remove legacy RabbitMQ if switching from full profile to minikube overlay.
+  kubectl delete deployment/bhukkad-rabbitmq -n bhukkad --ignore-not-found=true || true
+  delete_manifests
   kubectl wait --for=delete namespace/bhukkad --timeout=120s 2>/dev/null || true
 fi
 
-log "Applying manifests..."
-kubectl apply -k "${K8S_DIR}"
+log "Applying manifests from ${KUSTOMIZE_DIR}..."
+apply_manifests
 
 log "Waiting for data stores..."
-kubectl rollout status deployment/bhukkad-mysql -n bhukkad --timeout=300s
-kubectl rollout status deployment/bhukkad-redis -n bhukkad --timeout=180s
+kubectl rollout status deployment/bhukkad-mysql -n bhukkad --timeout=600s
+kubectl rollout status deployment/bhukkad-redis -n bhukkad --timeout=300s
+if [[ "$USE_MINIKUBE_PROFILE" != "true" ]]; then
+  kubectl rollout status deployment/bhukkad-rabbitmq -n bhukkad --timeout=300s || true
+fi
 
 log "Rolling out API..."
-kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=600s
+kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=900s
 kubectl rollout status deployment/bhukkad-nginx -n bhukkad --timeout=180s || true
 
 log "Deployment status"

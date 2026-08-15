@@ -21,6 +21,13 @@ Welcome to the Bhukkad food-delivery backend. This folder contains onboarding an
 | [kubernetes.md](./kubernetes.md) | Minikube/cluster deploy, scaling, ingress |
 | [configuration.md](./configuration.md) | Environment variables, profiles, secrets, feature flags |
 | [api-usage.md](./api-usage.md) | Auth flow, roles, endpoints, curl examples, SSE |
+| [advanced-features.md](./advanced-features.md) | Scheduled orders, live ETA, settlements, unified search |
+| [growth-features.md](./growth-features.md) | V13: zones, membership, support, timeline, invoices, busy mode |
+| [delivery-truth.md](./delivery-truth.md) | V14: smarter ETA, zone surge, live rider map |
+| [promotions-engine.md](./promotions-engine.md) | V15: promotions engine, campaign CRUD, usage limits |
+| [scale-operations.md](./scale-operations.md) | V16: settlement automation, rider batching, dashboard 2.0 |
+| [trust-and-compliance.md](./trust-and-compliance.md) | V17: GST invoice PDFs, fraud enforcement, review moderation, delivery proof |
+| [optimizations.md](./optimizations.md) | Kafka notifications, Caffeine cache, Redis GEO, stock reservation |
 | [operations.md](./operations.md) | Tests, logs, metrics, migrations, troubleshooting |
 
 ## Quick links (running stack)

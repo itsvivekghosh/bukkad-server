@@ -1,7 +1,12 @@
 package com.bhukkad.exception;
 
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.logging.alert.AlertService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,10 +25,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 
+@ExtendWith(MockitoExtension.class)
 class GlobalExceptionHandlerTest {
 
-    private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+    @Mock
+    private AlertService alertService;
+
+    private GlobalExceptionHandler handler;
     private final WebRequest request = mock(WebRequest.class);
+
+    @BeforeEach
+    void setUp() {
+        handler = new GlobalExceptionHandler(alertService);
+    }
 
     @Test
     void handleRateLimitExceeded() {

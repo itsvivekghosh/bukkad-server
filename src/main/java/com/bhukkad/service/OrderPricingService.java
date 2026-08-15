@@ -9,6 +9,19 @@ import java.util.List;
 
 public interface OrderPricingService {
 
+    default OrderPricingResult calculate(
+            Restaurant restaurant,
+            List<CartItem> cartItems,
+            String couponCode,
+            Customer customer,
+            Integer loyaltyPointsToRedeem,
+            String paymentMethod,
+            Double walletAmountToUse,
+            Boolean useWallet) {
+        return calculate(restaurant, cartItems, couponCode, customer, loyaltyPointsToRedeem,
+                paymentMethod, walletAmountToUse, useWallet, null, null);
+    }
+
     OrderPricingResult calculate(
             Restaurant restaurant,
             List<CartItem> cartItems,
@@ -17,7 +30,9 @@ public interface OrderPricingService {
             Integer loyaltyPointsToRedeem,
             String paymentMethod,
             Double walletAmountToUse,
-            Boolean useWallet);
+            Boolean useWallet,
+            Double deliveryLatitude,
+            Double deliveryLongitude);
 
     void validateCartItems(Restaurant restaurant, List<CartItem> cartItems);
 

@@ -4,6 +4,7 @@ import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.entity.*;
+import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.*;
 import com.bhukkad.service.AdminService;
@@ -43,8 +44,9 @@ public class AdminServiceImpl implements AdminService {
     @Override
     @UseReadReplica
     @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getDashboardStats() {
-        return (Map<String, Object>) cacheService.getOrCompute(
+        return cacheService.getOrCompute(
                 CacheKeyGenerator.adminDashboard(),
                 Map.class,
                 adminDashboardTtl,
@@ -235,10 +237,24 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    @Transactional
+    public void setRestaurantCommission(Long restaurantId, Double commissionPercent) {
+        if (commissionPercent == null || commissionPercent < 0 || commissionPercent > 100) {
+            throw new BusinessException("Commission percent must be between 0 and 100");
+        }
+        Restaurant restaurant = restaurantRepository.findById(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+        restaurant.setCommissionPercent(commissionPercent);
+        restaurantRepository.save(restaurant);
+        log.info("Restaurant commission updated | restaurantId={} | percent={}", restaurantId, commissionPercent);
+    }
+
+    @Override
     @UseReadReplica
     @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getRevenueStats(int days) {
-        return (Map<String, Object>) cacheService.getOrCompute(
+        return cacheService.getOrCompute(
                 CacheKeyGenerator.adminRevenue(days),
                 Map.class,
                 adminDashboardTtl,
@@ -271,8 +287,9 @@ public class AdminServiceImpl implements AdminService {
     @Override
     @UseReadReplica
     @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getAnalytics() {
-        return (Map<String, Object>) cacheService.getOrCompute(
+        return cacheService.getOrCompute(
                 CacheKeyGenerator.adminAnalytics(),
                 Map.class,
                 adminDashboardTtl,

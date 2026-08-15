@@ -1,5 +1,6 @@
 package com.bhukkad.logging;
 
+import com.bhukkad.logging.alert.AlertService;
 import com.bhukkad.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -30,6 +31,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final AlertService alertService;
 
     @Value("${app.debug:false}")
     private boolean debugMode;
@@ -40,8 +42,9 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             "/api/v1/health", "/health"
     };
 
-    public RequestLoggingFilter(UserRepository userRepository) {
+    public RequestLoggingFilter(UserRepository userRepository, AlertService alertService) {
         this.userRepository = userRepository;
+        this.alertService = alertService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -51,7 +54,11 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
 
+        String traceId = TraceIdResolver.resolveTraceId(request);
+        String requestId = TraceIdResolver.resolveRequestId(request);
+
         if (shouldSkip(request)) {
+            attachTraceHeaders(response, traceId, requestId);
             filterChain.doFilter(request, response);
             return;
         }
@@ -60,15 +67,10 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         CachedBodyHttpServletResponse wrappedResponse = new CachedBodyHttpServletResponse(response);
 
         long startTime = System.currentTimeMillis();
-        String traceId = generateId(16);
-        String requestId = generateId(8);
 
         try {
             setMDCContext(wrappedRequest, traceId, requestId);
-
-            wrappedResponse.setHeader("X-Trace-Id", traceId);
-            wrappedResponse.setHeader("X-Request-Id", requestId);
-            wrappedResponse.setHeader("X-Timestamp", Instant.now().toString());
+            attachTraceHeaders(wrappedResponse, traceId, requestId);
 
             logIncomingRequest(wrappedRequest, traceId, requestId);
 
@@ -79,8 +81,25 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             populateUserContext();
             logCompletedRequest(wrappedRequest, wrappedResponse, duration, traceId, requestId);
             logPerformance(wrappedRequest, duration);
+            evaluateAlerts(wrappedRequest, wrappedResponse, duration);
             MDC.clear();
         }
+    }
+
+    private void attachTraceHeaders(HttpServletResponse response, String traceId, String requestId) {
+        response.setHeader(LoggingConstants.HEADER_TRACE_ID, traceId);
+        response.setHeader(LoggingConstants.HEADER_REQUEST_ID, requestId);
+        response.setHeader("X-Timestamp", Instant.now().toString());
+        response.setHeader(LoggingConstants.HEADER_EXPOSE,
+                LoggingConstants.HEADER_TRACE_ID + ", " + LoggingConstants.HEADER_REQUEST_ID + ", X-Timestamp");
+    }
+
+    private void evaluateAlerts(CachedBodyHttpServletRequest request,
+                                CachedBodyHttpServletResponse response,
+                                long duration) {
+        int status = response.getStatus();
+        alertService.alertSlowRequest(request.getMethod(), request.getRequestURI(), duration, status);
+        alertService.alertHttpError(request.getMethod(), request.getRequestURI(), status, duration);
     }
 
     // ==================== INCOMING REQUEST LOG ====================
@@ -97,7 +116,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             logMap.put("protocol", request.getProtocol());
             logMap.put("ip", getClientIpAddress(request));
 
-            // Query params
             Map<String, String[]> paramMap = request.getParameterMap();
             if (!paramMap.isEmpty()) {
                 Map<String, Object> params = new LinkedHashMap<>();
@@ -105,7 +123,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                 logMap.put("queryParams", params);
             }
 
-            // Headers - only in debug mode for dev
             if (debugMode) {
                 logMap.put("url", request.getRequestURL().toString());
                 Map<String, String> headers = new LinkedHashMap<>();
@@ -119,7 +136,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                 logMap.put("headers", headers);
             }
 
-            // Body
             String body = request.getBody();
             String contentType = request.getContentType();
             if (body != null && !body.isEmpty()) {
@@ -138,8 +154,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             log.info(objectMapper.writeValueAsString(logMap));
 
         } catch (Exception e) {
-            log.info("HTTP_REQUEST_RECEIVED method={} uri={} ip={}",
-                    request.getMethod(), request.getRequestURI(), getClientIpAddress(request));
+            log.info("HTTP_REQUEST_RECEIVED traceId={} requestId={} method={} uri={} ip={}",
+                    traceId, requestId, request.getMethod(), request.getRequestURI(), getClientIpAddress(request));
         }
     }
 
@@ -160,7 +176,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             logMap.put("statusText", getStatusText(response.getStatus()));
             logMap.put("durationMs", duration);
 
-            // User context
             String userId = MDC.get(LoggingConstants.USER_ID);
             String email = MDC.get(LoggingConstants.USER_EMAIL);
             String role = MDC.get(LoggingConstants.USER_ROLE);
@@ -168,7 +183,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             if (email != null) logMap.put("email", email);
             if (role != null) logMap.put("role", role);
 
-            // Headers - only in debug mode
             if (debugMode) {
                 Map<String, String> headers = new LinkedHashMap<>();
                 for (String name : response.getHeaderNames()) {
@@ -177,7 +191,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                 if (!headers.isEmpty()) logMap.put("headers", headers);
             }
 
-            // Body
             String body = response.getBody();
             String contentType = response.getContentType();
             if (body != null && !body.isEmpty()) {
@@ -193,7 +206,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                 }
             }
 
-            // Performance
             if (duration > 3000) logMap.put("perfLevel", "CRITICAL");
             else if (duration > 1000) logMap.put("perfLevel", "SLOW");
             else if (duration > 500) logMap.put("perfLevel", "MODERATE");
@@ -206,8 +218,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             else log.info(json);
 
         } catch (Exception e) {
-            log.info("HTTP_REQUEST_COMPLETED method={} uri={} status={} duration={}ms",
-                    request.getMethod(), request.getRequestURI(), response.getStatus(), duration);
+            log.info("HTTP_REQUEST_COMPLETED traceId={} requestId={} method={} uri={} status={} duration={}ms",
+                    traceId, requestId, request.getMethod(), request.getRequestURI(), response.getStatus(), duration);
         }
     }
 
@@ -250,6 +262,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             perf.put("uri", request.getRequestURI());
             perf.put("durationMs", duration);
             perf.put("traceId", MDC.get(LoggingConstants.TRACE_ID));
+            perf.put("requestId", MDC.get(LoggingConstants.REQUEST_ID));
             String userId = MDC.get(LoggingConstants.USER_ID);
             if (userId != null) perf.put("userId", userId);
 
@@ -258,7 +271,10 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             else if (duration > 500) { perf.put("level", "MODERATE"); perfLogger.info(objectMapper.writeValueAsString(perf)); }
             else { perf.put("level", "FAST"); perfLogger.debug(objectMapper.writeValueAsString(perf)); }
         } catch (Exception e) {
-            perfLogger.debug("PERF {} {} {}ms", request.getMethod(), request.getRequestURI(), duration);
+            perfLogger.debug("PERF traceId={} requestId={} {} {} {}ms",
+                    MDC.get(LoggingConstants.TRACE_ID),
+                    MDC.get(LoggingConstants.REQUEST_ID),
+                    request.getMethod(), request.getRequestURI(), duration);
         }
     }
 
@@ -277,10 +293,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         for (String p : SKIP_PATTERNS) { if (uri.contains(p)) return true; }
         return false;
-    }
-
-    private String generateId(int len) {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, len);
     }
 
     private String getStatusText(int code) {

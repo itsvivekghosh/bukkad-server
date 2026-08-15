@@ -55,4 +55,7 @@ public class MenuItemRequest {
     private Set<String> tags;
 
     private List<CustomizationOptionRequest> customizationOptions;
+
+    /** NULL = unlimited stock */
+    private Integer stockQuantity;
 }

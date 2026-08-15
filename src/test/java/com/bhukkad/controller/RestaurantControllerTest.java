@@ -1,9 +1,12 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.dto.request.RestaurantRequest;
+import com.bhukkad.dto.request.ReviewResponseRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
+import com.bhukkad.entity.Review;
 import com.bhukkad.service.RestaurantService;
+import com.bhukkad.service.ReviewService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,6 +25,10 @@ class RestaurantControllerTest {
 
     @Mock
     private RestaurantService restaurantService;
+
+    /** Backs the V17 owner-response endpoint; the other tests never touch it. */
+    @Mock
+    private ReviewService reviewService;
 
     @InjectMocks
     private RestaurantController restaurantController;
@@ -127,5 +134,25 @@ class RestaurantControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Restaurant status updated", response.getBody().getMessage());
         verify(restaurantService).toggleRestaurantStatus(1L, false);
+    }
+
+    /**
+     * V17 review moderation: the owner reply endpoint forwards the validated body text to
+     * {@link ReviewService#respondToReview(Long, String)} and echoes the saved review back.
+     * Ownership enforcement lives in the service, so nothing about it is asserted here.
+     */
+    @Test
+    void respondToReview_returnsUpdatedReview() {
+        ReviewResponseRequest request = new ReviewResponseRequest();
+        request.setResponse("Thanks for the feedback!");
+        Review review = new Review();
+        when(reviewService.respondToReview(7L, "Thanks for the feedback!")).thenReturn(review);
+
+        ResponseEntity<ApiResponse<Review>> response = restaurantController.respondToReview(7L, request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Response added to review", response.getBody().getMessage());
+        assertSame(review, response.getBody().getData());
+        verify(reviewService).respondToReview(7L, "Thanks for the feedback!");
     }
 }

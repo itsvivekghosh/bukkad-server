@@ -78,8 +78,22 @@ public final class CacheKeyGenerator {
         return CacheConstants.ORDER + CacheConstants.KEY_SEPARATOR + orderId;
     }
 
-    public static String orderTrack(Long orderId) {
-        return CacheConstants.ORDER_TRACK + CacheConstants.KEY_SEPARATOR + orderId;
+    /**
+     * Key for a live order-tracking snapshot.
+     * <p>
+     * The key is scoped by <em>both</em> order and customer. Scoping by customer is a
+     * security requirement, not an optimisation: the tracking payload is only ever
+     * served to the order's owner, so a key shared across users would let a cached
+     * entry written for the owner be returned to a different caller on a subsequent
+     * request (an IDOR through the cache) even though the service performs an
+     * ownership check on the database path.
+     *
+     * @param orderId    the order being tracked
+     * @param customerId the authenticated customer the snapshot was rendered for
+     */
+    public static String orderTrack(Long orderId, Long customerId) {
+        return CacheConstants.ORDER_TRACK + CacheConstants.KEY_SEPARATOR
+                + orderId + ":customer:" + customerId;
     }
 
     public static String kitchenQueue(Long restaurantId) {
@@ -129,6 +143,43 @@ public final class CacheKeyGenerator {
         return CacheConstants.ADMIN + CacheConstants.KEY_SEPARATOR + "analytics";
     }
 
+    // Home feed keys
+
+    /**
+     * Key for the active promo banner carousel shown on the customer home feed.
+     * Global (not user-scoped) because banner eligibility is not personalised.
+     */
+    public static String homeFeedBanners() {
+        return CacheConstants.HOME_FEED + CacheConstants.KEY_SEPARATOR + "banners";
+    }
+
+    /**
+     * Key for the active promotion campaign list shown on the customer home feed.
+     */
+    public static String homeFeedCampaigns() {
+        return CacheConstants.HOME_FEED + CacheConstants.KEY_SEPARATOR + "campaigns";
+    }
+
+    /**
+     * Key for the active membership plan catalogue shown on the customer home feed.
+     */
+    public static String homeFeedMembershipPlans() {
+        return CacheConstants.HOME_FEED + CacheConstants.KEY_SEPARATOR + "membership-plans";
+    }
+
+    // Serviceability keys
+
+    /**
+     * Key for a delivery serviceability verdict. Every input that can change the
+     * verdict is part of the key: the restaurant, the drop coordinates and the
+     * cart subtotal (which drives free-delivery thresholds and fee slabs).
+     * Coordinates are concatenated raw, mirroring {@link #restaurantNearby(double, double, double)}.
+     */
+    public static String serviceability(Long restaurantId, double latitude, double longitude, double subtotal) {
+        return CacheConstants.SERVICEABILITY + CacheConstants.KEY_SEPARATOR
+                + "restaurant:" + restaurantId + ":" + latitude + ":" + longitude + ":" + subtotal;
+    }
+
     // Invalidation patterns
     public static String restaurantPattern() {
         return CacheConstants.RESTAURANT;
@@ -140,5 +191,16 @@ public final class CacheKeyGenerator {
 
     public static String orderPattern(Long customerId) {
         return CacheConstants.ORDER_LIST + CacheConstants.KEY_SEPARATOR + "customer:" + customerId;
+    }
+
+    /**
+     * Invalidation pattern matching every customer-scoped tracking snapshot of one
+     * order. Required because {@link #orderTrack(Long, Long)} embeds the customer id,
+     * so an exact-key delete would no longer clear the owner's entry on status change.
+     *
+     * @param orderId the order whose tracking snapshots should be evicted
+     */
+    public static String orderTrackPattern(Long orderId) {
+        return CacheConstants.ORDER_TRACK + CacheConstants.KEY_SEPARATOR + orderId + ":";
     }
 }

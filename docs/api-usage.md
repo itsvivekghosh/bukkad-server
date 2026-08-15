@@ -78,12 +78,19 @@ Authorization: Bearer <accessToken>
 |--------|------|-------------|
 | GET | `/api/v1/health/ping` | Liveness ping |
 | GET | `/api/v1/health` | Basic health |
+| GET | `/api/v1/platform/status` | Kafka, cache, GEO, stock, notification flags |
+| GET | `/api/v1/serviceability/check` | Zone serviceability + delivery fee estimate |
+| GET | `/api/v1/home/banners` | Home feed promo banners |
+| GET | `/api/v1/home/campaigns` | Active promotion campaigns |
+| GET | `/api/v1/home/membership-plans` | Membership plans |
+| GET | `/api/v1/home/feed` | Combined home feed |
 | POST | `/api/v1/auth/register` | Register |
 | POST | `/api/v1/auth/login` | Login |
 | GET | `/api/v1/restaurants/public` | List restaurants |
 | GET | `/api/v1/restaurants/public/{id}` | Restaurant detail |
 | GET | `/api/v1/restaurants/public/search` | Search |
 | GET | `/api/v1/restaurants/public/nearby` | Geo search |
+| GET | `/api/v1/search` | Unified restaurant + menu search |
 | GET | `/api/v1/menu/items/**` | Menu (GET only) |
 | GET | `/api/v1/cuisines/**` | Cuisines |
 | GET | `/api/v1/reviews/restaurant/{id}` | Restaurant reviews |
@@ -98,6 +105,9 @@ Legacy `/api/**` URLs are rewritten to `/api/v1/**`.
 ```http
 GET  /api/v1/customers/profile
 PUT  /api/v1/customers/profile?fullName=...
+GET  /api/v1/customers/orders/stats
+GET  /api/v1/customers/notification-preferences
+PUT  /api/v1/customers/notification-preferences   # email, sms, whatsapp, push, orderUpdates, promotions
 POST /api/v1/customers/addresses
 GET  /api/v1/customers/addresses
 ```
@@ -132,9 +142,15 @@ Content-Type: application/json
   "walletAmountToUse": 50,
   "useWallet": true,
   "specialInstructions": "No onions",
-  "contactlessDelivery": false
+  "contactlessDelivery": false,
+  "tipAmount": 20.0,
+  "scheduledAt": "2026-08-15T14:30:00"
 }
 ```
+
+**Scheduled orders:** Set `scheduledAt` (ISO-8601) at least 30 minutes ahead. Order starts in `SCHEDULED` status until auto-dispatched.
+
+**Rider tip:** Optional `tipAmount` is added to the order total.
 
 **Payment methods:** `CASH_ON_DELIVERY`, `UPI`, `CREDIT_CARD`, `DEBIT_CARD`, `WALLET`, `NET_BANKING` (also `COD` → COD).
 
@@ -146,8 +162,17 @@ Content-Type: application/json
 
 ```http
 GET /api/v1/orders/customer/{orderId}
+GET /api/v1/orders/customer/track/{orderId}
 GET /api/v1/orders/customer/{orderId}/track
 ```
+
+`track` returns `liveEtaMinutes` and `liveEtaAt` recalculated from order status and rider location.
+Both track URI forms are mapped to the same handler; `/customer/track/{orderId}` is canonical and
+`/customer/{orderId}/track` is kept as a compatibility alias.
+
+Ownership is enforced server-side and the tracking cache entry is scoped to the requesting customer,
+so tracking another customer's order returns `401` rather than that customer's data. Track is rate
+limited (bucket `order-track`); exceeding it returns `429` with `Retry-After`.
 
 ### 5. Live SSE (customer)
 
@@ -189,6 +214,7 @@ POST /api/v1/restaurants/owner
 GET  /api/v1/restaurants/owner/my-restaurants
 PUT  /api/v1/restaurants/owner/{id}
 GET  /api/v1/restaurants/owner/{id}/analytics?days=30
+GET  /api/v1/restaurants/owner/{id}/settlements?page=0&size=20
 
 POST /api/v1/menu/categories
 POST /api/v1/menu/items
@@ -211,6 +237,13 @@ POST /api/v1/delivery/{orderId}/reject
 PUT  /api/v1/orders/delivery/{orderId}/status?status=OUT_FOR_DELIVERY
 PUT  /api/v1/orders/delivery/{orderId}/delivered
 
+# Delivery proof of handover (V17). The OTP plaintext is sent to the customer by SMS
+# and is never returned by any endpoint, so proof/verify needs the code from the customer.
+POST /api/v1/orders/delivery/{orderId}/proof/otp         # issue or resend the handover OTP
+POST /api/v1/orders/delivery/{orderId}/proof/verify      # { "otpCode": "123456", "recipientName": "...", "photoKey?": "...", "captureLatitude?": 0.0, "captureLongitude?": 0.0, "notes?": "..." }
+POST /api/v1/orders/delivery/{orderId}/proof/photo-url   # presigned upload target for the handover photo
+GET  /api/v1/orders/delivery/{orderId}/proof             # current proof state (no OTP field)
+
 GET  /api/v1/delivery/earnings/summary
 GET  /api/v1/delivery/earnings?page=0&size=20
 
@@ -222,7 +255,38 @@ GET  /api/v1/orders/stream/rider   # SSE
 ```http
 GET /api/v1/admin/dashboard
 GET /api/v1/admin/analytics
+PUT /api/v1/admin/agents/{agentId}/settle-payouts
+PUT /api/v1/admin/restaurants/{restaurantId}/settle-payouts
+PUT /api/v1/admin/restaurants/{restaurantId}/commission?percent=12.5
+POST /api/v1/admin/notifications/test   # body: { "channel": "email|sms|whatsapp", "recipient": "...", "message": "..." }
+# Review moderation (V17). PENDING and REJECTED reviews are hidden from public reads
+# and excluded from aggregate restaurant ratings.
+GET /api/v1/admin/reviews/moderation?status=PENDING          # status is optional
+PUT /api/v1/admin/reviews/{reviewId}/moderate?status=APPROVED # status is required: APPROVED | REJECTED | PENDING
 # Cache management (ADMIN only, or public if app.debug=true)
+```
+
+See [advanced-features.md](./advanced-features.md) for referrals, batch checkout, scheduled orders, and settlements.
+
+See [growth-features.md](./growth-features.md) for V13: serviceability, membership, support tickets, order timeline, invoices, and busy mode.
+
+See [delivery-truth.md](./delivery-truth.md), [promotions-engine.md](./promotions-engine.md), and [scale-operations.md](./scale-operations.md) for V14–V16 features.
+
+See [trust-and-compliance.md](./trust-and-compliance.md) for V17: GST invoice PDFs, fraud enforcement, review moderation, delivery proof, ETA accuracy, and read-path caching.
+
+### Growth endpoints (customer)
+
+```http
+GET  /api/v1/customers/wallet/transactions?page=0&size=20
+GET  /api/v1/customers/membership/plans
+GET  /api/v1/customers/membership/status
+POST /api/v1/customers/membership/subscribe   # { "planId": 1 }
+POST /api/v1/customers/support/tickets        # { "category", "subject", "description", "orderId?" }
+GET  /api/v1/customers/support/tickets
+GET  /api/v1/orders/{orderId}/timeline
+GET  /api/v1/orders/{orderId}/invoice
+GET  /api/v1/orders/{orderId}/invoice/pdf     # application/pdf; CUSTOMER, RESTAURANT_OWNER, or ADMIN
+GET  /api/v1/orders/{orderId}/rider-location
 ```
 
 ## Payments webhook (Razorpay)

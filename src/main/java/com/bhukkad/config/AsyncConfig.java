@@ -1,5 +1,6 @@
 package com.bhukkad.config;
 
+import com.bhukkad.logging.MdcTaskDecorator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,6 +31,7 @@ public class AsyncConfig {
         executor.setMaxPoolSize(orderMaxPoolSize);
         executor.setQueueCapacity(orderQueueCapacity);
         executor.setThreadNamePrefix("order-async-");
+        executor.setTaskDecorator(new MdcTaskDecorator());
         executor.initialize();
         return executor;
     }

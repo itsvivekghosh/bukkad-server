@@ -14,11 +14,19 @@ public final class LoggingConstants {
     public static final String IP_ADDRESS = "ipAddress";
     public static final String TIMESTAMP = "timestamp";
 
+    // HTTP headers
+    public static final String HEADER_TRACE_ID = "X-Trace-Id";
+    public static final String HEADER_REQUEST_ID = "X-Request-Id";
+    public static final String HEADER_CORRELATION_ID = "X-Correlation-Id";
+    public static final String HEADER_TRACEPARENT = "traceparent";
+    public static final String HEADER_EXPOSE = "Access-Control-Expose-Headers";
+
     // Logger Names
     public static final String PERFORMANCE_LOGGER = "PERFORMANCE";
     public static final String SECURITY_LOGGER = "SECURITY";
     public static final String ORDER_LOGGER = "ORDER";
     public static final String PAYMENT_LOGGER = "PAYMENT";
+    public static final String ALERT_LOGGER = "ALERT";
 
     // Log Events
     public static final String EVENT_USER_LOGIN = "USER_LOGIN";

@@ -27,12 +27,16 @@ public class OrderResponse {
     private Double taxAmount;
     private Double discountAmount;
     private Double totalAmount;
+    private Double tipAmount;
     private String paymentMethod;
     private String paymentStatus;
     private String specialInstructions;
     private Boolean contactlessDelivery;
     private Integer estimatedDeliveryTime;
     private LocalDateTime estimatedDeliveryAt;
+    private LocalDateTime scheduledAt;
+    private Integer liveEtaMinutes;
+    private LocalDateTime liveEtaAt;
     private LocalDateTime deliveredAt;
     private LocalDateTime createdAt;
     private DeliveryAgentResponse deliveryAgent;

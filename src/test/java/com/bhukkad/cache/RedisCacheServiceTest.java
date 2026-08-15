@@ -33,6 +33,8 @@ class RedisCacheServiceTest {
     private ValueOperations<String, Object> valueOperations;
     @Mock
     private HashOperations<String, Object, Object> hashOperations;
+    @Mock
+    private LocalCacheService localCacheService;
 
     private RedisCacheService service;
 
@@ -40,7 +42,8 @@ class RedisCacheServiceTest {
     void setUp() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
-        service = new RedisCacheService(redisTemplate);
+        when(localCacheService.isEnabled()).thenReturn(false);
+        service = new RedisCacheService(redisTemplate, localCacheService);
     }
 
     @Test

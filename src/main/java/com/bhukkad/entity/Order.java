@@ -87,6 +87,9 @@ public class Order {
     @Column(nullable = false)
     private Double walletAmountUsed = 0.0;
 
+    @Column(nullable = false)
+    private Double tipAmount = 0.0;
+
     @ManyToOne
     @JoinColumn(name = "coupon_id")
     private Coupon appliedCoupon;
@@ -102,7 +105,19 @@ public class Order {
 
     private LocalDateTime estimatedDeliveryAt;
 
+    private LocalDateTime scheduledAt;
+
+    private Integer liveEtaMinutes;
+
+    private LocalDateTime liveEtaAt;
+
     private LocalDateTime deliveredAt;
+
+    /** Reason provided when the order was cancelled. */
+    private String cancellationReason;
+
+    /** Role or actor that cancelled the order (e.g. CUSTOMER, ADMIN). */
+    private String cancelledBy;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)
@@ -116,7 +131,7 @@ public class Order {
     private Long version = 0L;
 
     public enum OrderStatus {
-        PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP,
+        SCHEDULED, PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP,
         OUT_FOR_DELIVERY, DELIVERED, CANCELLED, REFUNDED
     }
 }

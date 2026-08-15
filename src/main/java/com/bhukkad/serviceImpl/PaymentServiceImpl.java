@@ -10,6 +10,8 @@ import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.idempotency.IdempotencyService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
+import com.bhukkad.payment.strategy.PaymentContext;
+import com.bhukkad.payment.strategy.PaymentStrategyFactory;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.PaymentRepository;
 import com.bhukkad.security.SecurityUtils;
@@ -42,6 +44,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentGateway paymentGateway;
     private final PaymentProperties paymentProperties;
+    private final PaymentStrategyFactory paymentStrategyFactory;
     private final IdempotencyService idempotencyService;
     private final SecurityUtils securityUtils;
     private final NotificationService notificationService;
@@ -109,7 +112,6 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         if (payment.getPaymentMethod() == Payment.PaymentMethod.CASH_ON_DELIVERY) {
-            payment.setStatus(Payment.PaymentStatus.PENDING);
             return paymentRepository.save(payment);
         }
 
@@ -124,37 +126,19 @@ public class PaymentServiceImpl implements PaymentService {
             return payment;
         }
 
-        if (requiresGateway(payment.getPaymentMethod())) {
-            if (!StringUtils.hasText(payment.getGatewayOrderId())) {
-                throw new BusinessException("Gateway order not created for payment");
-            }
-            PaymentGateway.GatewayPaymentResult result = paymentGateway.capturePayment(
-                    PaymentGateway.GatewayCaptureRequest.builder()
-                            .gatewayOrderId(payment.getGatewayOrderId())
-                            .amount(payment.getGatewayAmount())
-                            .idempotencyKey(idempotencyKey)
-                            .build());
-            payment.setGatewayPaymentId(result.gatewayPaymentId());
-            payment.setTransactionId(result.transactionId());
-            payment.setPaymentGatewayResponse(result.rawResponse());
-            payment.setStatus(result.success()
-                    ? Payment.PaymentStatus.COMPLETED
-                    : Payment.PaymentStatus.FAILED);
-            if (result.success()) {
-                payment.setCompletedAt(LocalDateTime.now());
-            }
-            payment = paymentRepository.save(payment);
-            if (!result.success()) {
-                throw new BusinessException("Payment failed");
-            }
-            cachePaymentResult(idempotencyKey, payment);
-            return payment;
+        PaymentContext context = new PaymentContext(
+                payment.getOrder(), payment, idempotencyKey,
+                payment.getGatewayAmount() != null ? payment.getGatewayAmount() : 0.0
+        );
+
+        var strategy = paymentStrategyFactory.getStrategy(payment.getPaymentMethod());
+        payment = strategy.process(context);
+        payment = paymentRepository.save(payment);
+
+        if (payment.getStatus() == Payment.PaymentStatus.FAILED) {
+            throw new BusinessException("Payment failed");
         }
 
-        payment.setTransactionId("TXN-" + paymentId);
-        payment.setStatus(Payment.PaymentStatus.COMPLETED);
-        payment.setCompletedAt(LocalDateTime.now());
-        payment = paymentRepository.save(payment);
         cachePaymentResult(idempotencyKey, payment);
         return payment;
     }

@@ -1,5 +1,6 @@
 package com.bhukkad.event;
 
+import com.bhukkad.config.ExternalEventsProperties;
 import com.bhukkad.live.OrderLiveUpdateBroadcaster;
 import com.bhukkad.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ public class OrderEventListener {
 
     private final OrderLiveUpdateBroadcaster liveUpdateBroadcaster;
     private final NotificationService notificationService;
+    private final ExternalEventsProperties externalEventsProperties;
 
     @Async("orderTaskExecutor")
     @EventListener
@@ -26,7 +28,9 @@ public class OrderEventListener {
                 event.newStatus(),
                 event.restaurantId());
         liveUpdateBroadcaster.broadcastStatusChange(event);
-        notificationService.sendOrderStatusUpdate(event.orderId(), event.newStatus().name());
+        if (shouldDispatchDirectNotifications()) {
+            notificationService.sendOrderStatusUpdate(event.orderId(), event.newStatus().name());
+        }
     }
 
     @Async("orderTaskExecutor")
@@ -35,7 +39,9 @@ public class OrderEventListener {
         log.info("ORDER_CREATED | orderId={} | orderNumber={} | restaurantId={}",
                 event.orderId(), event.orderNumber(), event.restaurantId());
         liveUpdateBroadcaster.broadcastOrderCreated(event);
-        notificationService.sendOrderConfirmation(event.orderId());
+        if (shouldDispatchDirectNotifications()) {
+            notificationService.sendOrderConfirmation(event.orderId());
+        }
     }
 
     @Async("orderTaskExecutor")
@@ -44,6 +50,12 @@ public class OrderEventListener {
         log.info("ORDER_AGENT_ASSIGNED | orderId={} | orderNumber={} | agentId={}",
                 event.orderId(), event.orderNumber(), event.deliveryAgentId());
         liveUpdateBroadcaster.broadcastAgentAssigned(event);
-        notificationService.sendDeliveryAssignment(event.orderId(), event.deliveryAgentId());
+        if (shouldDispatchDirectNotifications()) {
+            notificationService.sendDeliveryAssignment(event.orderId(), event.deliveryAgentId());
+        }
+    }
+
+    private boolean shouldDispatchDirectNotifications() {
+        return !externalEventsProperties.isKafkaEnabled();
     }
 }

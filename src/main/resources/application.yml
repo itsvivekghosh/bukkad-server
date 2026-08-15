@@ -44,7 +44,7 @@ spring:
         format_sql: true
         use_sql_comments: true
         jdbc:
-          batch_size: 20
+          batch_size: 50
           fetch_size: 50
         order_inserts: true
         order_updates: true
@@ -122,6 +122,42 @@ app:
       cart-mutation:
         limit: 40
         window-seconds: 60
+      # Registration is unauthenticated, so this bucket is the per-source cap on
+      # account creation. Kept above the fraud thresholds below on purpose: the rate
+      # limiter smooths bursts, the fraud check is what blocks sustained abuse.
+      auth-register:
+        limit: 10
+        window-seconds: 60
+
+  # Abuse detection for credential and checkout endpoints.
+  #
+  # Counting is scoped per event type and per dimension (source IP, device
+  # fingerprint), which is what catches an attacker cycling through many distinct
+  # accounts - each one individually under its own rate limit.
+  #
+  # Rollout guidance: deploy with blocking-enabled=false first. The service then logs
+  # FRAUD_WOULD_BLOCK instead of throwing, so the real traffic distribution can be
+  # observed and the thresholds tuned before any customer is turned away.
+  fraud:
+    enabled: ${FRAUD_DETECTION_ENABLED:true}
+    blocking-enabled: ${FRAUD_BLOCKING_ENABLED:true}
+    # Sliding detection window, in minutes, applied to every threshold below.
+    window-minutes: 60
+    # Value sent back in the Retry-After header on a 429.
+    retry-after-seconds: 300
+    # Applied to any event type with no explicit entry in `thresholds`.
+    default-threshold: 20
+    # A value of 0 disables that dimension for that event type.
+    thresholds:
+      auth-register:
+        per-ip: 10
+        per-device: 5
+      auth-login:
+        per-ip: 40
+        per-device: 25
+      order-create:
+        per-ip: 25
+        per-device: 15
 
   cluster:
     live-relay:
@@ -175,6 +211,13 @@ app:
         account-sid: ${TWILIO_ACCOUNT_SID:}
         auth-token: ${TWILIO_AUTH_TOKEN:}
         from-number: ${TWILIO_FROM_NUMBER:}
+    whatsapp:
+      enabled: false
+      provider: log
+      twilio:
+        account-sid: ${TWILIO_ACCOUNT_SID:}
+        auth-token: ${TWILIO_AUTH_TOKEN:}
+        whatsapp-from-number: ${TWILIO_WHATSAPP_FROM_NUMBER:}
     push:
       enabled: false
       provider: log
@@ -185,14 +228,96 @@ app:
   wallet:
     allow-direct-top-up: false
 
+  referral:
+    enabled: true
+    bonus-amount: 50.0
+    referee-bonus-amount: 25.0
+
+  scheduled-orders:
+    minimum-lead-minutes: 30
+    max-days-ahead: 7
+    dispatch-interval-ms: 60000
+
+  settlement:
+    commission-percent: 15.0
+    auto-settle-enabled: true
+    min-pending-amount: 100.0
+    auto-settle-cron: "0 0 2 * * *"
+
+  delivery-truth:
+    avg-speed-km-per-min: 0.6
+    pickup-buffer-minutes: 8
+    confidence-band-minutes: 5
+    record-snapshots: true
+
+  inventory:
+    low-stock-threshold: 10
+    stock-reservation:
+      enabled: true
+      reservation-ttl-seconds: 900
+
+  cache:
+    local:
+      enabled: true
+      max-size: 5000
+      ttl-seconds: 60
+
+  geo:
+    redis-geo-enabled: true
+    restaurants-geo-key: restaurants:geo
+
+  events:
+    external:
+      enabled: false
+      type: log
+      kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        platform-topic: bhukkad.platform.events
+        consumer-group: bhukkad-platform-consumer
+
   monitoring:
     prometheus:
       require-auth: true
       bearer-token: ${PROMETHEUS_BEARER_TOKEN:}
 
+  alerting:
+    enabled: true
+    dedup-window-seconds: 60
+    slow-request:
+      warning-threshold-ms: 1000
+      critical-threshold-ms: 3000
+    http-error:
+      alert-on-4xx: true
+      alert-on-5xx: true
+    webhook:
+      enabled: false
+      url: ${ALERT_WEBHOOK_URL:}
+      secret: ${ALERT_WEBHOOK_SECRET:}
+
   delivery:
     earnings:
       per-delivery: 30.0
+    # Delivery proof: the rider must capture evidence of handover (a 6-digit OTP the
+    # customer reads out, optionally plus a photo) before an order can be marked
+    # DELIVERED. Backs the "order never arrived" dispute flow.
+    proof:
+      # Master switch. When false the OTP/photo endpoints reject outright and no proof
+      # rows are written.
+      enabled: ${DELIVERY_PROOF_ENABLED:true}
+      # Enforcement is deliberately OFF at ship time. Turning this on makes a verified
+      # proof mandatory for the DELIVERED transition, which would strand every order
+      # already out for delivery without one. Flip it only once riders are on a build
+      # that captures proof, and prefer a low-traffic window.
+      enforced: ${DELIVERY_PROOF_ENFORCED:false}
+      # OTP lifetime. Long enough to survive a lift with no signal, short enough that a
+      # code overheard earlier in the day is useless.
+      otp-expiry-minutes: ${DELIVERY_PROOF_OTP_EXPIRY_MINUTES:10}
+      # Wrong guesses allowed per issued code. Exhausting them marks the proof FAILED;
+      # only a freshly issued code restores the allowance.
+      max-otp-attempts: ${DELIVERY_PROOF_MAX_OTP_ATTEMPTS:5}
+      # Minimum gap between resends, so a rider tapping "resend" cannot bill us for a
+      # burst of SMS or spam the customer.
+      otp-resend-cooldown-seconds: ${DELIVERY_PROOF_OTP_RESEND_COOLDOWN_SECONDS:60}
 
 resilience4j:
   circuitbreaker:
@@ -256,6 +381,10 @@ cache:
     coupon: 3600
     search: 300
     admin-dashboard: 60
+    # Home feed and serviceability are read-heavy and cheap to recompute, so they
+    # use short TTLs to keep promo/zone edits visible within a minute.
+    home-feed: 60
+    serviceability: 60
 
 logging:
   level:

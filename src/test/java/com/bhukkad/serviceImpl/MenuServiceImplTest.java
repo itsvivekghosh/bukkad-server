@@ -69,6 +69,10 @@ class MenuServiceImplTest {
     private MenuImageService menuImageService;
     @Mock
     private ImageStorageProperties imageStorageProperties;
+    @Mock
+    private com.bhukkad.config.InventoryProperties inventoryProperties;
+    @Mock
+    private com.bhukkad.inventory.StockReservationService stockReservationService;
 
     @InjectMocks
     private MenuServiceImpl menuService;

@@ -433,6 +433,21 @@ curl -s -X GET "$BASE/api/v1/orders/customer/${orderId}" \
 curl -s -X GET "$BASE/api/v1/orders/customer/track/${orderId}" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Order Timeline
+```bash
+curl -s -X GET "$BASE/api/v1/orders/${orderId}/timeline" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Order Invoice
+```bash
+curl -s -X GET "$BASE/api/v1/orders/${orderId}/invoice" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Download Invoice PDF
+```bash
+curl -s -X GET "$BASE/api/v1/orders/${orderId}/invoice/pdf" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 ### Reorder
 ```bash
 curl -s -X POST "$BASE/api/v1/orders/customer/${orderId}/reorder" \
@@ -712,6 +727,35 @@ curl -s -X GET "$BASE/api/v1/orders/number/${orderNumber}" \
 curl -s -X PUT "$BASE/api/v1/orders/delivery/${orderId}/picked-up" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Issue Delivery Proof OTP
+```bash
+curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/otp" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Delivery Proof Photo URL
+```bash
+curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/photo-url" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "contentType": "image/jpeg"
+}'
+```
+### Verify Delivery Proof
+```bash
+curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/verify" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "otpCode": "123456",
+  "photoKey": "${deliveryProofPhotoKey}"
+}'
+```
+### Get Delivery Proof
+```bash
+curl -s -X GET "$BASE/api/v1/orders/delivery/${orderId}/proof" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 ### Mark Delivered
 ```bash
 curl -s -X PUT "$BASE/api/v1/orders/delivery/${orderId}/delivered" \
@@ -832,6 +876,26 @@ curl -s -X PUT "$BASE/api/v1/coupons/${couponId}" \
 curl -s -X DELETE "$BASE/api/v1/coupons/${couponId}" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Review Moderation Queue
+```bash
+curl -s -X GET "$BASE/api/v1/admin/reviews/moderation" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Review Moderation Pending
+```bash
+curl -s -X GET "$BASE/api/v1/admin/reviews/moderation?status=PENDING" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Moderate Review Approve
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/reviews/${reviewId}/moderate?status=APPROVED" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Moderate Review Reject
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/reviews/${reviewId}/moderate?status=REJECTED" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 
 ## 08 - Cache
 ### Cache Stats
@@ -880,6 +944,51 @@ curl -s -X POST "$BASE/api/v1/payments/webhooks/razorpay" \
   "event": "payment.captured",
   "payload": {}
 }'
+```
+
+## 10 - Trust & Compliance (V17)
+### Issue Delivery Proof OTP
+```bash
+curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/otp" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Delivery Proof Photo URL
+```bash
+curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/photo-url" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "contentType": "image/jpeg"
+}'
+```
+### Verify Delivery Proof
+```bash
+curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/verify" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "otpCode": "123456"
+}'
+```
+### Get Delivery Proof
+```bash
+curl -s -X GET "$BASE/api/v1/orders/delivery/${orderId}/proof" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Download Invoice PDF
+```bash
+curl -s -X GET "$BASE/api/v1/orders/${orderId}/invoice/pdf" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Review Moderation Queue
+```bash
+curl -s -X GET "$BASE/api/v1/admin/reviews/moderation" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Moderate Review
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/reviews/${reviewId}/moderate?status=APPROVED" \
+  -H 'Authorization: Bearer $TOKEN'
 ```
 
 ## 99 - E2E Flow (run in order)

@@ -29,4 +29,6 @@ public interface CustomerService {
 
     CustomerProfileResponse getProfile();
     CustomerResponse updateProfile(String fullName, String phoneNumber, String profileImageUrl);
+
+    com.bhukkad.dto.response.CustomerOrderStatsResponse getOrderStats();
 }

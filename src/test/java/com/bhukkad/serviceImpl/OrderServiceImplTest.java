@@ -31,8 +31,16 @@ import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;
+import com.bhukkad.delivery.DeliveryProofService;
 import com.bhukkad.delivery.RiderDispatchService;
 import com.bhukkad.delivery.RiderEarningService;
+import com.bhukkad.delivery.OrderEtaService;
+import com.bhukkad.order.ScheduledOrderValidator;
+import com.bhukkad.invoice.OrderInvoiceService;
+import com.bhukkad.restaurant.RestaurantBusyService;
+import com.bhukkad.timeline.OrderTimelineService;
+import com.bhukkad.settlement.RestaurantSettlementService;
+import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.wallet.WalletService;
 import com.bhukkad.idempotency.OrderIdempotencyService;
 import com.bhukkad.metrics.OrderMetrics;
@@ -109,6 +117,24 @@ class OrderServiceImplTest {
     private WalletService walletService;
     @Mock
     private RiderEarningService riderEarningService;
+    @Mock
+    private MenuItemRepository menuItemRepository;
+    @Mock
+    private ScheduledOrderValidator scheduledOrderValidator;
+    @Mock
+    private OrderEtaService orderEtaService;
+    @Mock
+    private RestaurantSettlementService restaurantSettlementService;
+    @Mock
+    private com.bhukkad.inventory.StockReservationService stockReservationService;
+    @Mock
+    private OrderTimelineService orderTimelineService;
+    @Mock
+    private OrderInvoiceService orderInvoiceService;
+    @Mock
+    private RestaurantBusyService restaurantBusyService;
+    @Mock
+    private DeliveryProofService deliveryProofService;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -119,6 +145,18 @@ class OrderServiceImplTest {
         lenient().doNothing().when(orderEventPublisher).publishCreated(any());
         lenient().doNothing().when(orderEventPublisher).publishAgentAssigned(any());
         lenient().doNothing().when(orderCacheService).invalidateOrder(anyLong(), any(), any());
+        lenient().doNothing().when(orderEtaService).applyLiveEta(any(Order.class));
+        lenient().doNothing().when(scheduledOrderValidator).validateScheduledAt(any());
+        lenient().when(scheduledOrderValidator.isScheduledOrder(any())).thenReturn(false);
+        lenient().doNothing().when(restaurantSettlementService).recordSettlementForDeliveredOrder(any(Order.class));
+        lenient().doNothing().when(stockReservationService).reserveStock(anyList());
+        lenient().doNothing().when(restaurantBusyService).assertAcceptingOrders(anyLong());
+        lenient().when(orderTimelineService.recordEvent(anyLong(), any(), any(), any(), any(), any()))
+                .thenReturn(null);
+        lenient().when(orderInvoiceService.generateOnDelivery(any(Order.class))).thenReturn(null);
+        lenient().doNothing().when(stockReservationService).releaseStock(anyList());
+        lenient().doNothing().when(stockReservationService).syncStock(any(MenuItem.class));
+        lenient().when(stockReservationService.isEnabled()).thenReturn(false);
         lenient().when(orderMapper.toResponse(any(Order.class))).thenAnswer(inv -> {
             Order order = inv.getArgument(0);
             Payment payment = order.getPayment();
@@ -232,7 +270,7 @@ class OrderServiceImplTest {
         when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
         when(cartItemRepository.findByCartIdWithMenuItem(cart.getId())).thenReturn(cartItems);
         when(addressRepository.findByIdWithCustomer(20L)).thenReturn(Optional.of(address));
-        when(orderPricingService.calculate(any(), anyList(), any(), any(), any(), any(), any(), any()))
+        when(orderPricingService.calculate(any(), anyList(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new OrderPricingService.OrderPricingResult(
                         200.0, 40.0, 10.0, 0.0, 0.0, 0, 0.0, 250.0, 250.0, null));
 
@@ -515,7 +553,8 @@ class OrderServiceImplTest {
     @Test
     void trackOrder_cacheHit_returnsWithoutDbLookup() {
         OrderResponse cached = OrderResponse.builder().id(8L).status("PLACED").build();
-        when(orderCacheService.getTrackedOrder(8L)).thenReturn(Optional.of(cached));
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        when(orderCacheService.getTrackedOrder(8L, 1L)).thenReturn(Optional.of(cached));
 
         OrderResponse response = orderService.trackOrder(8L);
 
@@ -660,7 +699,8 @@ class OrderServiceImplTest {
     @Test
     void trackOrder_usesCacheWhenPresent() {
         OrderResponse cached = OrderResponse.builder().id(8L).status("OUT_FOR_DELIVERY").build();
-        when(orderCacheService.getTrackedOrder(8L)).thenReturn(Optional.of(cached));
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        when(orderCacheService.getTrackedOrder(8L, 1L)).thenReturn(Optional.of(cached));
 
         OrderResponse response = orderService.trackOrder(8L);
 
@@ -671,15 +711,29 @@ class OrderServiceImplTest {
     @Test
     void trackOrder_delegatesToGetOrderById() {
         Order order = detailedOrder(8L, Order.OrderStatus.OUT_FOR_DELIVERY);
-        when(orderCacheService.getTrackedOrder(8L)).thenReturn(Optional.empty());
-        when(orderRepository.findByIdWithDetails(8L)).thenReturn(Optional.of(order));
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        when(orderCacheService.getTrackedOrder(8L, 1L)).thenReturn(Optional.empty());
+        when(orderRepository.findByIdWithDetails(8L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.trackOrder(8L);
 
         assertEquals(8L, response.getId());
         assertEquals("OUT_FOR_DELIVERY", response.getStatus());
-        verify(orderCacheService).cacheTrackedOrder(eq(8L), any(OrderResponse.class));
+        verify(orderEtaService).applyLiveEta(order);
+        verify(orderCacheService).cacheTrackedOrder(eq(8L), eq(1L), any(OrderResponse.class));
+    }
+
+    @Test
+    void trackOrder_nonOwner_throwsAndDoesNotCache() {
+        Order order = detailedOrder(8L, Order.OrderStatus.OUT_FOR_DELIVERY);
+        when(securityUtils.getCurrentUserId()).thenReturn(99L);
+        when(orderCacheService.getTrackedOrder(8L, 99L)).thenReturn(Optional.empty());
+        when(orderRepository.findByIdWithDetails(8L)).thenReturn(Optional.of(order));
+
+        assertThrows(UnauthorizedException.class, () -> orderService.trackOrder(8L));
+
+        verify(orderCacheService, never()).cacheTrackedOrder(any(), any(), any());
+        verify(orderEtaService, never()).applyLiveEta(any());
     }
 
     // ==================== helpers ====================

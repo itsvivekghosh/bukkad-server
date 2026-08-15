@@ -4,6 +4,7 @@ import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.service.AuthService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +22,15 @@ class AuthControllerTest {
 
     @Mock
     private AuthService authService;
+
+    /**
+     * V17 fraud enforcement: {@code register} and {@code login} call
+     * {@link FraudDetectionService#checkAndBlock(Long, String)} before delegating to
+     * {@link AuthService}, so the mock must exist even though the default no-op return is
+     * exactly the "not blocked" path these tests want. The remaining endpoints never reach it.
+     */
+    @Mock
+    private FraudDetectionService fraudDetectionService;
 
     @InjectMocks
     private AuthController authController;

@@ -29,7 +29,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -64,7 +64,7 @@ NUMERIC_JSON_KEYS = frozenset({
     "latitude", "longitude", "price", "originalPrice", "minimumOrderAmount",
     "deliveryFee", "maximumDiscountAmount", "discountValue", "preparationTime",
     "calories", "rating", "foodRating", "deliveryRating", "averageDeliveryTime",
-    "freeDeliveryAbove",
+    "freeDeliveryAbove", "tipAmount", "stockQuantity",
 })
 
 GREEN = "\033[0;32m"
@@ -294,6 +294,8 @@ def run_test(
     body_key = spec.get("body_key")
     if body_key and body_key in BODY_TEMPLATES:
         body_obj = resolve_value(BODY_TEMPLATES[body_key], state)
+        if body_key == "scheduled_order":
+            body_obj["scheduledAt"] = (datetime.now() + timedelta(minutes=35)).strftime("%Y-%m-%dT%H:%M:%S")
         body_bytes = json.dumps(body_obj).encode("utf-8")
 
     start = time.perf_counter()
@@ -516,6 +518,30 @@ def create_cancel_order(
     run_test(order_spec, base_url, state, timeout, verbose=False)
 
 
+def refill_cart_for_order_tests(
+    base_url: str,
+    state: RunState,
+    timeout: int,
+) -> None:
+    """Re-add items after the main order flow empties the cart."""
+    if not state.vars.get("menu_item_id"):
+        return
+    run_test(
+        {
+            "name": "_setup_refill_cart",
+            "method": "POST",
+            "path": "/api/v1/cart/add",
+            "auth": "customer",
+            "body_key": "cart_add",
+            "expected": [200],
+        },
+        base_url,
+        state,
+        timeout,
+        verbose=False,
+    )
+
+
 def write_markdown_report(results: list[TestResult], path: Path, base_url: str) -> None:
     passed = sum(1 for r in results if r.passed and not r.skipped)
     failed = sum(1 for r in results if not r.passed and not r.skipped)
@@ -660,6 +686,9 @@ def main() -> int:
         if group != current_group:
             print_section(group)
             current_group = group
+
+        if spec["name"] in ("Batch Checkout", "Create Scheduled Order"):
+            refill_cart_for_order_tests(args.base_url, state, args.timeout)
 
         result = run_test(spec, args.base_url, state, args.timeout, args.verbose)
         state.results.append(result)

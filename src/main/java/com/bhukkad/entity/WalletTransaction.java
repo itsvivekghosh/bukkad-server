@@ -48,6 +48,6 @@ public class WalletTransaction {
     private LocalDateTime createdAt;
 
     public enum TransactionType {
-        TOP_UP, ORDER_DEBIT, ORDER_REFUND, ADJUSTMENT
+        TOP_UP, ORDER_DEBIT, ORDER_REFUND, ADJUSTMENT, REFERRAL_BONUS
     }
 }

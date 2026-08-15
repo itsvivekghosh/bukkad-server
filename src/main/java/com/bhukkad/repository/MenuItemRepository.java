@@ -62,5 +62,13 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
             """, nativeQuery = true)
     List<MenuItem> fullTextSearch(@Param("keyword") String keyword);
 
+    @Query("SELECT m FROM MenuItem m " +
+            "JOIN FETCH m.category c " +
+            "WHERE c.restaurant.id = :restaurantId AND m.available = true " +
+            "AND m.stockQuantity IS NOT NULL AND m.stockQuantity <= :threshold " +
+            "ORDER BY m.stockQuantity ASC, m.name")
+    List<MenuItem> findLowStockByRestaurant(@Param("restaurantId") Long restaurantId,
+                                            @Param("threshold") int threshold);
+
     int countByCategoryId(Long categoryId);
 }

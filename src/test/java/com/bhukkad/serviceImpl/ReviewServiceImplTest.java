@@ -4,10 +4,12 @@ import com.bhukkad.dto.request.ReviewRequest;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
+import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.Review;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerRepository;
+import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.repository.ReviewRepository;
@@ -36,6 +38,8 @@ class ReviewServiceImplTest {
     private CustomerRepository customerRepository;
     @Mock
     private RestaurantRepository restaurantRepository;
+    @Mock
+    private DeliveryAgentRepository deliveryAgentRepository;
     @Mock
     private SecurityUtils securityUtils;
 
@@ -117,8 +121,10 @@ class ReviewServiceImplTest {
             saved.setId(77L);
             return saved;
         });
-        when(reviewRepository.getAverageRatingByRestaurant(30L)).thenReturn(4.5);
-        when(reviewRepository.countByRestaurant(30L)).thenReturn(8L);
+        when(reviewRepository.getAverageRatingByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(4.5);
+        when(reviewRepository.countByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(8L);
 
         ReviewRequest request = reviewRequest(10L);
         Review result = reviewService.createReview(request);
@@ -151,8 +157,10 @@ class ReviewServiceImplTest {
         when(orderRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(order));
         when(reviewRepository.findByOrderId(10L)).thenReturn(Optional.empty());
         when(reviewRepository.save(any(Review.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(reviewRepository.getAverageRatingByRestaurant(30L)).thenReturn(null);
-        when(reviewRepository.countByRestaurant(30L)).thenReturn(0L);
+        when(reviewRepository.getAverageRatingByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(null);
+        when(reviewRepository.countByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(0L);
 
         reviewService.createReview(reviewRequest(10L));
 
@@ -164,9 +172,10 @@ class ReviewServiceImplTest {
     // ==================== reads ====================
 
     @Test
-    void getRestaurantReviews_delegatesToRepository() {
+    void getRestaurantReviews_returnsOnlyApprovedReviews() {
         List<Review> reviews = List.of(new Review());
-        when(reviewRepository.findByRestaurantIdWithDetails(30L)).thenReturn(reviews);
+        when(reviewRepository.findByRestaurantIdAndModerationStatusWithDetails(
+                30L, Review.ModerationStatus.APPROVED)).thenReturn(reviews);
 
         assertSame(reviews, reviewService.getRestaurantReviews(30L));
     }
@@ -227,8 +236,10 @@ class ReviewServiceImplTest {
         review.setRestaurant(restaurant);
         when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
-        when(reviewRepository.getAverageRatingByRestaurant(30L)).thenReturn(3.2);
-        when(reviewRepository.countByRestaurant(30L)).thenReturn(3L);
+        when(reviewRepository.getAverageRatingByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(3.2);
+        when(reviewRepository.countByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(3L);
 
         reviewService.deleteReview(4L);
 
@@ -249,14 +260,130 @@ class ReviewServiceImplTest {
         review.setRestaurant(restaurant);
         when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
-        when(reviewRepository.getAverageRatingByRestaurant(30L)).thenReturn(null);
-        when(reviewRepository.countByRestaurant(30L)).thenReturn(0L);
+        when(reviewRepository.getAverageRatingByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(null);
+        when(reviewRepository.countByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(0L);
 
         reviewService.deleteReview(4L);
 
         assertEquals(0.0, restaurant.getAverageRating());
         assertEquals(0, restaurant.getTotalReviews());
         verify(restaurantRepository).save(restaurant);
+    }
+
+    // ==================== moderation (V17) ====================
+
+    @Test
+    void getModerationQueue_nullStatus_defaultsToPending() {
+        List<Review> reviews = List.of(new Review());
+        when(reviewRepository.findByModerationStatusWithDetails(Review.ModerationStatus.PENDING))
+                .thenReturn(reviews);
+
+        assertSame(reviews, reviewService.getModerationQueue(null));
+    }
+
+    @Test
+    void getModerationQueue_explicitStatus_isPassedThrough() {
+        List<Review> reviews = List.of(new Review());
+        when(reviewRepository.findByModerationStatusWithDetails(Review.ModerationStatus.REJECTED))
+                .thenReturn(reviews);
+
+        assertSame(reviews, reviewService.getModerationQueue(Review.ModerationStatus.REJECTED));
+    }
+
+    @Test
+    void moderateReview_nullStatus_throwsBusinessException() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> reviewService.moderateReview(4L, null));
+        assertEquals("Moderation status is required", ex.getMessage());
+        verify(reviewRepository, never()).save(any());
+    }
+
+    @Test
+    void moderateReview_notFound_throws() {
+        when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> reviewService.moderateReview(4L, Review.ModerationStatus.APPROVED));
+    }
+
+    @Test
+    void moderateReview_reject_hidesReviewAndRecalculatesRatingFromApprovedOnly() {
+        Restaurant restaurant = restaurant(30L);
+        restaurant.setAverageRating(4.0);
+        restaurant.setTotalReviews(2);
+        Review review = new Review();
+        review.setId(4L);
+        review.setRestaurant(restaurant);
+        review.setModerationStatus(Review.ModerationStatus.APPROVED);
+        when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
+        when(reviewRepository.save(review)).thenReturn(review);
+        when(reviewRepository.getAverageRatingByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(3.0);
+        when(reviewRepository.countByRestaurantAndStatus(30L, Review.ModerationStatus.APPROVED))
+                .thenReturn(1L);
+
+        Review result = reviewService.moderateReview(4L, Review.ModerationStatus.REJECTED);
+
+        assertEquals(Review.ModerationStatus.REJECTED, result.getModerationStatus());
+        assertEquals(3.0, restaurant.getAverageRating());
+        assertEquals(1, restaurant.getTotalReviews());
+        verify(restaurantRepository).save(restaurant);
+    }
+
+    // ==================== respondToReview (V17) ====================
+
+    @Test
+    void respondToReview_owner_savesTrimmedResponse() {
+        Restaurant restaurant = restaurantWithOwner(30L, 9L);
+        Review review = new Review();
+        review.setId(4L);
+        review.setRestaurant(restaurant);
+        when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(reviewRepository.save(review)).thenReturn(review);
+
+        Review result = reviewService.respondToReview(4L, "  Thanks for the feedback!  ");
+
+        assertEquals("Thanks for the feedback!", result.getOwnerResponse());
+    }
+
+    @Test
+    void respondToReview_blankResponse_clearsStoredResponse() {
+        Restaurant restaurant = restaurantWithOwner(30L, 9L);
+        Review review = new Review();
+        review.setRestaurant(restaurant);
+        review.setOwnerResponse("old reply");
+        when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(reviewRepository.save(review)).thenReturn(review);
+
+        assertNull(reviewService.respondToReview(4L, "   ").getOwnerResponse());
+    }
+
+    @Test
+    void respondToReview_notOwner_throwsBusinessException() {
+        Restaurant restaurant = restaurantWithOwner(30L, 9L);
+        Review review = new Review();
+        review.setRestaurant(restaurant);
+        when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
+        when(securityUtils.getCurrentUserId()).thenReturn(11L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> reviewService.respondToReview(4L, "reply"));
+        assertEquals("You can only respond to reviews of your own restaurant", ex.getMessage());
+        verify(reviewRepository, never()).save(any());
+    }
+
+    @Test
+    void respondToReview_restaurantWithoutOwner_throwsBusinessException() {
+        Review review = new Review();
+        review.setRestaurant(restaurant(30L));
+        when(reviewRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(review));
+
+        assertThrows(BusinessException.class, () -> reviewService.respondToReview(4L, "reply"));
+        verify(reviewRepository, never()).save(any());
     }
 
     // ==================== helpers ====================
@@ -285,6 +412,15 @@ class ReviewServiceImplTest {
         restaurant.setName("Spice Hub");
         restaurant.setAverageRating(0.0);
         restaurant.setTotalReviews(0);
+        return restaurant;
+    }
+
+    /** Restaurant whose owner id is what {@code respondToReview} compares the caller against. */
+    private Restaurant restaurantWithOwner(Long id, Long ownerId) {
+        Restaurant restaurant = restaurant(id);
+        RestaurantOwner owner = new RestaurantOwner();
+        owner.setId(ownerId);
+        restaurant.setOwner(owner);
         return restaurant;
     }
 

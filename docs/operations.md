@@ -27,7 +27,47 @@ mvn compile -q
 | dev | `logs/bhukkad-dev.log` | DEBUG for `com.bhukkad` |
 | prod | `logs/bhukkad-prod.log` | INFO for app, WARN for framework |
 
-Structured categories: `ORDER`, `PAYMENT`, `SECURITY`, `PERFORMANCE`.
+Structured categories: `ORDER`, `PAYMENT`, `SECURITY`, `PERFORMANCE`, `ALERT`.
+
+### Request tracing
+
+Every API response includes:
+
+| Header | Description |
+|--------|-------------|
+| `X-Trace-Id` | 16-char distributed trace ID (propagated from inbound `X-Trace-Id`, `X-Correlation-Id`, or W3C `traceparent`) |
+| `X-Request-Id` | 8-char per-request ID (propagated from `X-Request-Id`) |
+| `X-Timestamp` | Response timestamp (UTC) |
+
+`ApiResponse` JSON bodies also include `traceId` and `requestId` fields for client-side correlation.
+
+Log patterns include both IDs in console, file, and JSON (`logs/app-json.log`) output via MDC.
+
+```bash
+# Find all logs for a trace
+grep "abcd1234abcd1234" logs/bhukkad-system.log logs/alerts.log
+
+# Check response headers
+curl -si http://localhost:8080/api/v1/health/ping | grep -i x-trace
+```
+
+### Alerting
+
+Operational alerts are written to `logs/alerts.log` (logger `ALERT`) for:
+
+- Slow requests (warning ≥1s, critical ≥3s)
+- HTTP 4xx/5xx responses
+- Unhandled exceptions
+- Auth failures (401/403)
+
+Optional webhook (Slack/Discord/PagerDuty-compatible JSON POST):
+
+```yaml
+app.alerting.webhook.enabled: true
+app.alerting.webhook.url: https://hooks.example.com/alert
+```
+
+Configure thresholds under `app.alerting.*` in `application.yml`.
 
 ### Docker
 

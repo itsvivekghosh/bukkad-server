@@ -136,4 +136,13 @@ public class MenuController {
         List<MenuItemResponse> menuItems = menuService.searchMenuItems(keyword);
         return ResponseEntity.ok(ApiResponse.success(menuItems));
     }
+
+    @GetMapping("/items/restaurant/{restaurantId}/low-stock")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getLowStockItems(
+            @PathVariable Long restaurantId,
+            @RequestParam(required = false) Integer threshold) {
+        List<MenuItemResponse> items = menuService.getLowStockItems(restaurantId, threshold);
+        return ResponseEntity.ok(ApiResponse.success(items));
+    }
 }

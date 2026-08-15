@@ -2,12 +2,22 @@ package com.bhukkad.controller;
 
 import com.bhukkad.config.ApiPaths;
 
+import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
+import com.bhukkad.dto.request.ReviewResponseRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
+import com.bhukkad.entity.Review;
 import com.bhukkad.ratelimit.RateLimited;
+import com.bhukkad.dto.response.PagedResponse;
+import com.bhukkad.dto.response.RestaurantSettlementResponse;
+import com.bhukkad.dto.response.RestaurantDashboardResponse;
+import com.bhukkad.restaurant.RestaurantBusyService;
+import com.bhukkad.restaurant.RestaurantDashboardService;
 import com.bhukkad.service.RestaurantAnalyticsService;
 import com.bhukkad.service.RestaurantService;
+import com.bhukkad.service.ReviewService;
+import com.bhukkad.settlement.RestaurantSettlementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +33,10 @@ public class RestaurantController {
 
     private final RestaurantService restaurantService;
     private final RestaurantAnalyticsService restaurantAnalyticsService;
+    private final RestaurantSettlementService restaurantSettlementService;
+    private final RestaurantBusyService restaurantBusyService;
+    private final RestaurantDashboardService restaurantDashboardService;
+    private final ReviewService reviewService;
 
     // Public endpoints
     @GetMapping("/public")
@@ -112,5 +126,63 @@ public class RestaurantController {
             @RequestParam Boolean isOpen) {
         restaurantService.toggleRestaurantStatus(id, isOpen);
         return ResponseEntity.ok(ApiResponse.success("Restaurant status updated", null));
+    }
+
+    @GetMapping("/owner/{id}/settlements")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<PagedResponse<RestaurantSettlementResponse>>> getSettlements(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                restaurantSettlementService.getRestaurantSettlements(id, page, size)));
+    }
+
+    /** Enables busy mode to throttle incoming orders during peak hours. */
+    @PutMapping("/owner/{id}/busy-mode")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<Void>> enableBusyMode(
+            @PathVariable Long id,
+            @RequestBody RestaurantBusyModeRequest request) {
+        restaurantBusyService.setBusyMode(id, request);
+        return ResponseEntity.ok(ApiResponse.success("Busy mode enabled", null));
+    }
+
+    /** Disables busy mode and restores normal order acceptance. */
+    @DeleteMapping("/owner/{id}/busy-mode")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<Void>> disableBusyMode(@PathVariable Long id) {
+        restaurantBusyService.clearBusyMode(id);
+        return ResponseEntity.ok(ApiResponse.success("Busy mode cleared", null));
+    }
+
+    /** Restaurant dashboard 2.0 with analytics, settlements, and ops status (V16). */
+    @GetMapping("/owner/{id}/dashboard")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<RestaurantDashboardResponse>> getDashboard(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "30") int days) {
+        return ResponseEntity.ok(ApiResponse.success(restaurantDashboardService.getDashboard(id, days)));
+    }
+
+    /**
+     * Publishes (or clears) the restaurant owner's public reply to a customer review (V17).
+     *
+     * <p>Ownership is enforced in {@code ReviewServiceImpl.respondToReview}: the review's
+     * restaurant owner must match the authenticated user, otherwise a {@code BusinessException}
+     * (HTTP 400) is raised. Sending a blank body is rejected by {@code @NotBlank}; to remove an
+     * existing reply the review must be re-moderated by an admin.
+     *
+     * @param reviewId review being replied to
+     * @param request  reply text, max 2000 characters
+     * @return the updated review including {@code ownerResponse}
+     */
+    @PostMapping("/owner/reviews/{reviewId}/response")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<Review>> respondToReview(
+            @PathVariable Long reviewId,
+            @Valid @RequestBody ReviewResponseRequest request) {
+        Review review = reviewService.respondToReview(reviewId, request.getResponse());
+        return ResponseEntity.ok(ApiResponse.success("Response added to review", review));
     }
 }

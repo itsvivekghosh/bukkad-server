@@ -10,6 +10,7 @@ public class NotificationProperties {
     private boolean enabled = true;
     private Email email = new Email();
     private Sms sms = new Sms();
+    private Whatsapp whatsapp = new Whatsapp();
     private Push push = new Push();
 
     @Data
@@ -30,6 +31,14 @@ public class NotificationProperties {
         private String accountSid = "";
         private String authToken = "";
         private String fromNumber = "";
+        private String whatsappFromNumber = "";
+    }
+
+    @Data
+    public static class Whatsapp {
+        private boolean enabled = false;
+        private String provider = "log";
+        private Twilio twilio = new Twilio();
     }
 
     @Data

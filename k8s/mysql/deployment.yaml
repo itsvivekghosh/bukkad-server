@@ -95,9 +95,11 @@ spec:
         - name: mysql-data
           persistentVolumeClaim:
             claimName: bhukkad-mysql-pvc
+        # init.sql now lives in its own ConfigMap (k8s/mysql/configmap.yaml).
+        # It must NOT sit in bhukkad-config, which the app consumes via envFrom.
         - name: init-sql
           configMap:
-            name: bhukkad-config
+            name: bhukkad-mysql-init
             items:
               - key: init.sql
                 path: init.sql

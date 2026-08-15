@@ -42,7 +42,7 @@ class CacheKeyGeneratorTest {
         assertEquals("user-profile:7", CacheKeyGenerator.userProfile(7L));
         assertEquals("cart:7", CacheKeyGenerator.cart(7L));
         assertEquals("order:15", CacheKeyGenerator.order(15L));
-        assertEquals("order-track:15", CacheKeyGenerator.orderTrack(15L));
+        assertEquals("order-track:15:customer:7", CacheKeyGenerator.orderTrack(15L, 7L));
         assertEquals("kitchen-queue:4", CacheKeyGenerator.kitchenQueue(4L));
         assertEquals("order-list:customer:7", CacheKeyGenerator.customerOrders(7L));
         assertEquals("order-list:restaurant:4", CacheKeyGenerator.restaurantOrders(4L));
@@ -52,10 +52,22 @@ class CacheKeyGeneratorTest {
     }
 
     @Test
+    void homeFeedAndServiceabilityKeys() {
+        assertEquals("home-feed:banners", CacheKeyGenerator.homeFeedBanners());
+        assertEquals("home-feed:campaigns", CacheKeyGenerator.homeFeedCampaigns());
+        assertEquals("home-feed:membership-plans", CacheKeyGenerator.homeFeedMembershipPlans());
+        assertEquals("serviceability:restaurant:4:12.9:77.6:250.0",
+                CacheKeyGenerator.serviceability(4L, 12.9, 77.6, 250.0));
+        assertEquals("serviceability:restaurant:4:0.0:0.0:0.0",
+                CacheKeyGenerator.serviceability(4L, 0.0, 0.0, 0.0));
+    }
+
+    @Test
     void invalidationPatterns() {
         assertEquals("restaurant", CacheKeyGenerator.restaurantPattern());
         assertEquals("menu-item:*restaurant:4", CacheKeyGenerator.menuItemPattern(4L));
         assertEquals("order-list:customer:7", CacheKeyGenerator.orderPattern(7L));
+        assertEquals("order-track:15:", CacheKeyGenerator.orderTrackPattern(15L));
     }
 
     @Test

@@ -7,7 +7,17 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties({
         MonitoringProperties.class,
         WalletProperties.class,
-        RiderEarningsProperties.class
+        RiderEarningsProperties.class,
+        ReferralProperties.class,
+        SettlementProperties.class,
+        ScheduledOrderProperties.class,
+        ExternalEventsProperties.class,
+        InventoryProperties.class,
+        LocalCacheProperties.class,
+        GeoIndexProperties.class,
+        StockReservationProperties.class,
+        AlertingProperties.class,
+        DeliveryTruthProperties.class
 })
 public class PlatformEnhancementsConfig {
 }

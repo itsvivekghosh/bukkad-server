@@ -3,10 +3,12 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.response.AddressResponse;
+import com.bhukkad.dto.response.CustomerOrderStatsResponse;
 import com.bhukkad.dto.response.CustomerProfileResponse;
 import com.bhukkad.dto.response.CustomerResponse;
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Customer;
+import com.bhukkad.entity.Order;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
@@ -194,6 +196,24 @@ public class CustomerServiceImpl implements CustomerService {
     @UseReadReplica
     public Integer getLoyaltyPoints() {
         return getCurrentCustomer().getLoyaltyPoints();
+    }
+
+    @Override
+    @UseReadReplica
+    public CustomerOrderStatsResponse getOrderStats() {
+        Customer customer = getCurrentCustomer();
+        long customerId = customer.getId();
+        long total = orderRepository.countByCustomerId(customerId);
+        long delivered = orderRepository.countByCustomerIdAndStatus(customerId, Order.OrderStatus.DELIVERED);
+        long cancelled = orderRepository.countByCustomerIdAndStatus(customerId, Order.OrderStatus.CANCELLED);
+        Double spent = orderRepository.sumDeliveredSpendByCustomerId(customerId);
+        return CustomerOrderStatsResponse.builder()
+                .totalOrders(total)
+                .deliveredOrders(delivered)
+                .cancelledOrders(cancelled)
+                .totalSpent(spent != null ? spent : 0.0)
+                .loyaltyPoints(customer.getLoyaltyPoints())
+                .build();
     }
 
     @Override

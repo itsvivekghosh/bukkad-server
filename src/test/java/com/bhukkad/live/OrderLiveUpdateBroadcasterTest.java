@@ -1,10 +1,12 @@
 package com.bhukkad.live;
 
 import com.bhukkad.dto.response.OrderLiveUpdate;
+import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.entity.Order;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
+import com.bhukkad.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -12,8 +14,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,8 +30,19 @@ class OrderLiveUpdateBroadcasterTest {
     @Mock
     private OrderLiveReplayStore orderLiveReplayStore;
 
+    @Mock
+    private OrderRepository orderRepository;
+
+    @Mock
+    private OrderEtaService orderEtaService;
+
     @InjectMocks
     private OrderLiveUpdateBroadcaster broadcaster;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        when(orderRepository.findByIdWithDetails(anyLong())).thenReturn(Optional.empty());
+    }
 
     @Test
     void broadcastStatusChange_publishesToRelay() {

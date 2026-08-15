@@ -3,6 +3,7 @@ package com.bhukkad.controller;
 import com.bhukkad.dto.request.CouponRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.CouponResponse;
+import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CouponService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +23,9 @@ class CouponControllerTest {
 
     @Mock
     private CouponService couponService;
+
+    @Mock
+    private SecurityUtils securityUtils;
 
     @InjectMocks
     private CouponController couponController;
@@ -51,7 +55,8 @@ class CouponControllerTest {
     @Test
     void validateCoupon_returnsCoupon() {
         CouponResponse coupon = new CouponResponse();
-        when(couponService.validateAndGetResponse("SAVE10", 500.0, 1L)).thenReturn(coupon);
+        when(securityUtils.getCurrentUserId()).thenReturn(99L);
+        when(couponService.validateAndGetResponse("SAVE10", 500.0, 1L, 99L)).thenReturn(coupon);
 
         ResponseEntity<ApiResponse<CouponResponse>> response =
                 couponController.validateCoupon("SAVE10", 500.0, 1L);

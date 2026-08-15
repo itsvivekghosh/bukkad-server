@@ -19,9 +19,16 @@ class OrderEventListenerTest {
     private OrderLiveUpdateBroadcaster liveUpdateBroadcaster;
     @Mock
     private com.bhukkad.service.NotificationService notificationService;
+    @Mock
+    private com.bhukkad.config.ExternalEventsProperties externalEventsProperties;
 
     @InjectMocks
     private OrderEventListener listener;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient().when(externalEventsProperties.isKafkaEnabled()).thenReturn(false);
+    }
 
     @Test
     void onOrderStatusChanged_broadcastsLiveUpdate() {

@@ -30,6 +30,8 @@ class CacheConstantsTest {
         assertEquals("coupon-list", CacheConstants.COUPON_LIST);
         assertEquals("bestseller", CacheConstants.BESTSELLER);
         assertEquals("recommended", CacheConstants.RECOMMENDED);
+        assertEquals("home-feed", CacheConstants.HOME_FEED);
+        assertEquals("serviceability", CacheConstants.SERVICEABILITY);
     }
 
     @Test

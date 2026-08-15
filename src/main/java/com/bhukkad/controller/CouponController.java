@@ -6,6 +6,7 @@ import com.bhukkad.dto.request.CouponRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.CouponResponse;
 import com.bhukkad.service.CouponService;
+import com.bhukkad.security.SecurityUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import java.util.List;
 public class CouponController {
 
     private final CouponService couponService;
+    private final SecurityUtils securityUtils;
 
     @GetMapping("/active")
     public ResponseEntity<ApiResponse<List<CouponResponse>>> getActiveCoupons(
@@ -34,7 +36,8 @@ public class CouponController {
             @RequestParam String code,
             @RequestParam Double orderAmount,
             @RequestParam(required = false) Long restaurantId) {
-        CouponResponse coupon = couponService.validateAndGetResponse(code, orderAmount, restaurantId);
+        CouponResponse coupon = couponService.validateAndGetResponse(
+                code, orderAmount, restaurantId, securityUtils.getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success("Coupon is valid", coupon));
     }
 

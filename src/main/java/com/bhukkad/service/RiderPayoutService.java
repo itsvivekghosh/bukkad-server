@@ -7,4 +7,5 @@ import com.bhukkad.dto.response.PagedResponse;
 public interface RiderPayoutService {
     RiderEarningsSummaryResponse getEarningsSummary();
     PagedResponse<RiderPayoutResponse> getPayoutHistory(int page, int size);
+    int settlePendingPayouts(Long agentId);
 }

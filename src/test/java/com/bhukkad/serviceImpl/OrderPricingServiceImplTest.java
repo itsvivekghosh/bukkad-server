@@ -7,7 +7,12 @@ import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.dto.response.MembershipStatusResponse;
+import com.bhukkad.membership.MembershipService;
+import com.bhukkad.promotion.PromotionEngineService;
 import com.bhukkad.service.CouponService;
+import com.bhukkad.zone.DeliveryZoneService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,7 +23,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,8 +36,25 @@ class OrderPricingServiceImplTest {
     @Mock
     private CouponService couponService;
 
+    @Mock
+    private DeliveryZoneService deliveryZoneService;
+
+    @Mock
+    private MembershipService membershipService;
+
+    @Mock
+    private PromotionEngineService promotionEngineService;
+
     @InjectMocks
     private OrderPricingServiceImpl orderPricingService;
+
+    @BeforeEach
+    void setUpMembershipAndCampaigns() {
+        lenient().when(membershipService.getActiveMembership(anyLong()))
+                .thenReturn(MembershipStatusResponse.builder().active(false).build());
+        lenient().when(promotionEngineService.evaluateBestDiscount(any(), any(), anyDouble()))
+                .thenReturn(PromotionEngineService.PromotionDiscountResult.none());
+    }
 
     @Test
     void calculate_appliesTaxDeliveryAndCoupon() {
@@ -37,7 +63,7 @@ class OrderPricingServiceImplTest {
         Coupon coupon = new Coupon();
         coupon.setCode("SAVE10");
 
-        when(couponService.validateCoupon("SAVE10", 200.0, 10L)).thenReturn(coupon);
+        when(couponService.validateCoupon(eq("SAVE10"), eq(200.0), eq(10L), eq(1L))).thenReturn(coupon);
         when(couponService.calculateDiscount(coupon, 200.0)).thenReturn(20.0);
 
         var result = orderPricingService.calculate(restaurant, List.of(item), "SAVE10", customer(), null, "UPI", null, null);
@@ -84,6 +110,7 @@ class OrderPricingServiceImplTest {
 
     private Customer customer() {
         Customer customer = new Customer();
+        customer.setId(1L);
         customer.setLoyaltyPoints(100);
         customer.setWalletBalance(1000.0);
         return customer;

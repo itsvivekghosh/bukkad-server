@@ -3,12 +3,21 @@ package com.bhukkad.controller;
 import com.bhukkad.config.ApiPaths;
 
 import com.bhukkad.dto.request.AddressRequest;
+import com.bhukkad.dto.request.NotificationPreferenceRequest;
 import com.bhukkad.dto.response.AddressResponse;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.CustomerOrderStatsResponse;
 import com.bhukkad.dto.response.CustomerProfileResponse;
 import com.bhukkad.dto.response.CustomerResponse;
+import com.bhukkad.dto.response.FavoriteRestaurantResponse;
+import com.bhukkad.dto.response.NotificationPreferenceResponse;
+import com.bhukkad.dto.response.ReferralInfoResponse;
+import com.bhukkad.referral.ReferralService;
+import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CustomerService;
 import com.bhukkad.service.DeviceTokenService;
+import com.bhukkad.service.FavoriteService;
+import com.bhukkad.service.NotificationPreferenceService;
 import com.bhukkad.wallet.WalletTopUpService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
@@ -28,6 +37,10 @@ public class CustomerController {
     private final CustomerService customerService;
     private final WalletTopUpService walletTopUpService;
     private final DeviceTokenService deviceTokenService;
+    private final FavoriteService favoriteService;
+    private final ReferralService referralService;
+    private final SecurityUtils securityUtils;
+    private final NotificationPreferenceService notificationPreferenceService;
 
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<CustomerProfileResponse>> getProfile() {
@@ -131,5 +144,49 @@ public class CustomerController {
     public ResponseEntity<ApiResponse<Integer>> getLoyaltyPoints() {
         Integer points = customerService.getLoyaltyPoints();
         return ResponseEntity.ok(ApiResponse.success(points));
+    }
+
+    @GetMapping("/referral")
+    public ResponseEntity<ApiResponse<ReferralInfoResponse>> getReferralInfo() {
+        ReferralInfoResponse info = referralService.getReferralInfo(securityUtils.getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(info));
+    }
+
+    @GetMapping("/favorites")
+    public ResponseEntity<ApiResponse<List<FavoriteRestaurantResponse>>> getFavorites() {
+        return ResponseEntity.ok(ApiResponse.success(favoriteService.listFavorites()));
+    }
+
+    @PostMapping("/favorites/{restaurantId}")
+    public ResponseEntity<ApiResponse<FavoriteRestaurantResponse>> addFavorite(
+            @PathVariable @Positive Long restaurantId) {
+        FavoriteRestaurantResponse favorite = favoriteService.addFavorite(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success("Restaurant added to favorites", favorite));
+    }
+
+    @DeleteMapping("/favorites/{restaurantId}")
+    public ResponseEntity<ApiResponse<Void>> removeFavorite(@PathVariable @Positive Long restaurantId) {
+        favoriteService.removeFavorite(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success("Restaurant removed from favorites", null));
+    }
+
+    @GetMapping("/orders/stats")
+    public ResponseEntity<ApiResponse<CustomerOrderStatsResponse>> getOrderStats() {
+        return ResponseEntity.ok(ApiResponse.success(customerService.getOrderStats()));
+    }
+
+    @GetMapping("/notification-preferences")
+    public ResponseEntity<ApiResponse<NotificationPreferenceResponse>> getNotificationPreferences() {
+        NotificationPreferenceResponse prefs = notificationPreferenceService.getPreferences(
+                securityUtils.getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(prefs));
+    }
+
+    @PutMapping("/notification-preferences")
+    public ResponseEntity<ApiResponse<NotificationPreferenceResponse>> updateNotificationPreferences(
+            @RequestBody NotificationPreferenceRequest request) {
+        NotificationPreferenceResponse prefs = notificationPreferenceService.updatePreferences(
+                securityUtils.getCurrentUserId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Preferences updated", prefs));
     }
 }

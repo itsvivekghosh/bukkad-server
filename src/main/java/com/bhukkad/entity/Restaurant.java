@@ -99,6 +99,9 @@ public class Restaurant {
 
     private Double freeDeliveryAbove;
 
+    /** Platform commission override (%). Null uses global default. */
+    private Double commissionPercent;
+
     @Column(nullable = false)
     private Boolean isPureVeg = false;
 
@@ -107,6 +110,14 @@ public class Restaurant {
 
     @Column(length = 50)
     private String fssaiNumber;
+
+    @Column(nullable = false)
+    private Boolean busyMode = false;
+
+    private LocalDateTime busyUntil;
+
+    @Column(nullable = false)
+    private Integer extraPrepMinutes = 0;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)

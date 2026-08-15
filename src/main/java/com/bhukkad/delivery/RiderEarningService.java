@@ -25,7 +25,9 @@ public class RiderEarningService {
         RiderEarning earning = new RiderEarning();
         earning.setAgent(agent);
         earning.setOrder(order);
-        earning.setAmount(PriceCalculator.roundToTwoDecimals(riderEarningsProperties.getPerDelivery()));
+        earning.setAmount(PriceCalculator.roundToTwoDecimals(
+                riderEarningsProperties.getPerDelivery()
+                        + (order.getTipAmount() != null ? order.getTipAmount() : 0.0)));
         earning.setStatus(RiderEarning.EarningStatus.PENDING);
         riderEarningRepository.save(earning);
     }

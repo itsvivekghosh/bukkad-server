@@ -2,14 +2,26 @@ package com.bhukkad.util;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RequestUtilsTest {
 
+    /**
+     * {@link RequestUtils} is a static-utility holder, so its only constructor is private and
+     * must stay that way. Invoking it reflectively keeps the line covered without reopening the
+     * class for instantiation.
+     */
     @Test
-    void constructor_isInvoked() {
-        new RequestUtils();
+    void constructor_isPrivateAndInvocable() throws Exception {
+        Constructor<RequestUtils> constructor = RequestUtils.class.getDeclaredConstructor();
+        assertTrue(Modifier.isPrivate(constructor.getModifiers()));
+        constructor.setAccessible(true);
+        constructor.newInstance();
     }
 
     @Test

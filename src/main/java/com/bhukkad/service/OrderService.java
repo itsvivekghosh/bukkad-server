@@ -1,6 +1,8 @@
 package com.bhukkad.service;
 
+import com.bhukkad.dto.request.BatchOrderRequest;
 import com.bhukkad.dto.request.OrderRequest;
+import com.bhukkad.dto.response.BatchOrderResponse;
 import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.dto.response.OrderSummaryResponse;
@@ -11,6 +13,7 @@ import java.util.List;
 
 public interface OrderService {
     OrderResponse createOrder(OrderRequest request, String idempotencyKey);
+    BatchOrderResponse createBatchOrders(BatchOrderRequest request, String idempotencyKey);
     OrderResponse getOrderById(Long id);
     OrderResponse getOrderByNumber(String orderNumber);
     PagedResponse<OrderSummaryResponse> getCustomerOrders(int page, int size);

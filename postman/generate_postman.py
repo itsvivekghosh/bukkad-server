@@ -227,6 +227,10 @@ def build_collection():
         req("My Orders Cursor", "GET", "/api/v1/orders/customer/my-orders/cursor?size=20", auth=True),
         req("Order By ID", "GET", "/api/v1/orders/customer/{{orderId}}", auth=True),
         req("Track Order", "GET", "/api/v1/orders/customer/track/{{orderId}}", auth=True),
+        req("Order Timeline", "GET", "/api/v1/orders/{{orderId}}/timeline", auth=True),
+        req("Order Invoice", "GET", "/api/v1/orders/{{orderId}}/invoice", auth=True),
+        req("Download Invoice PDF", "GET", "/api/v1/orders/{{orderId}}/invoice/pdf", auth=True,
+            tests="pm.test('PDF download',()=>{pm.expect(pm.response.code).to.eql(200);pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf');});"),
         req("Reorder", "POST", "/api/v1/orders/customer/{{orderId}}/reorder", auth=True),
         req("Cancel Order", "PUT", "/api/v1/orders/customer/{{orderId}}/cancel?reason=Changed mind", auth=True),
         req("Payment For Order", "GET", "/api/v1/payments/orders/{{orderId}}", auth=True),
@@ -297,6 +301,14 @@ def build_collection():
         req("My Deliveries Cursor", "GET", "/api/v1/orders/delivery/my-deliveries/cursor?size=20", auth=True),
         req("Order By Number", "GET", "/api/v1/orders/number/{{orderNumber}}", auth=True),
         req("Mark Picked Up", "PUT", "/api/v1/orders/delivery/{{orderId}}/picked-up", auth=True),
+        req("Issue Delivery Proof OTP", "POST", "/api/v1/orders/delivery/{{orderId}}/proof/otp", auth=True),
+        req("Delivery Proof Photo URL", "POST", "/api/v1/orders/delivery/{{orderId}}/proof/photo-url", auth=True,
+            body={"contentType": "image/jpeg"},
+            tests=API_TESTS + "\nconst d=pm.response.json().data;if(d&&d.photoKey)pm.environment.set('deliveryProofPhotoKey',String(d.photoKey));"),
+        req("Verify Delivery Proof", "POST", "/api/v1/orders/delivery/{{orderId}}/proof/verify", auth=True,
+            body={"otpCode": "123456", "photoKey": "{{deliveryProofPhotoKey}}"},
+            tests="pm.test('verify response',()=>pm.expect(pm.response.code).to.be.oneOf([200,400]));"),
+        req("Get Delivery Proof", "GET", "/api/v1/orders/delivery/{{orderId}}/proof", auth=True),
         req("Mark Delivered", "PUT", "/api/v1/orders/delivery/{{orderId}}/delivered", auth=True),
         req("Earnings Summary", "GET", "/api/v1/delivery/earnings/summary", auth=True),
         req("Earnings History", "GET", "/api/v1/delivery/earnings?page=0&size=20", auth=True),
@@ -326,6 +338,10 @@ def build_collection():
             body={"code": "SAVE10", "discountType": "PERCENTAGE", "discountValue": 15,
                   "minOrderAmount": 200, "maxDiscount": 150, "usageLimit": 100}),
         req("Delete Coupon", "DELETE", "/api/v1/coupons/{{couponId}}", auth=True),
+        req("Review Moderation Queue", "GET", "/api/v1/admin/reviews/moderation", auth=True),
+        req("Review Moderation Pending", "GET", "/api/v1/admin/reviews/moderation?status=PENDING", auth=True),
+        req("Moderate Review Approve", "PUT", "/api/v1/admin/reviews/{{reviewId}}/moderate?status=APPROVED", auth=True),
+        req("Moderate Review Reject", "PUT", "/api/v1/admin/reviews/{{reviewId}}/moderate?status=REJECTED", auth=True),
     ]
     items.append(folder("07 - Admin", admin))
 
@@ -352,6 +368,24 @@ def build_collection():
             tests="pm.test('signature or processing',()=>pm.expect(pm.response.code).to.be.oneOf([200,400,500]));"),
     ]
     items.append(folder("09 - Streams & Webhooks", streams))
+
+    # --- V17 Trust & Compliance ---
+    trust_v17 = [
+        req("Issue Delivery Proof OTP", "POST", "/api/v1/orders/delivery/{{orderId}}/proof/otp", auth=True),
+        req("Delivery Proof Photo URL", "POST", "/api/v1/orders/delivery/{{orderId}}/proof/photo-url", auth=True,
+            body={"contentType": "image/jpeg"}),
+        req("Verify Delivery Proof", "POST", "/api/v1/orders/delivery/{{orderId}}/proof/verify", auth=True,
+            body={"otpCode": "123456"},
+            tests="pm.test('wrong OTP rejected or idempotent',()=>pm.expect(pm.response.code).to.be.oneOf([200,400]));"),
+        req("Get Delivery Proof", "GET", "/api/v1/orders/delivery/{{orderId}}/proof", auth=True),
+        req("Download Invoice PDF", "GET", "/api/v1/orders/{{orderId}}/invoice/pdf", auth=True,
+            tests="pm.test('PDF',()=>{pm.expect(pm.response.code).to.eql(200);pm.expect(pm.response.headers.get('Content-Type')).to.include('application/pdf');});"),
+        req("Review Moderation Queue", "GET", "/api/v1/admin/reviews/moderation", auth=True),
+        req("Moderate Review", "PUT", "/api/v1/admin/reviews/{{reviewId}}/moderate?status=APPROVED", auth=True),
+    ]
+    items.append(folder("10 - Trust & Compliance (V17)", trust_v17,
+                        "GST invoice PDFs, delivery proof OTP/photo, review moderation. "
+                        "Login as agent for proof endpoints, customer for invoice PDF, admin for moderation."))
 
     # --- E2E Flow (ordered) ---
     e2e_tests = """\
@@ -423,6 +457,7 @@ def build_environment(name, base_url, suffix=""):
             {"key": "razorpaySignature", "value": "", "enabled": True},
             {"key": "resetToken", "value": "", "enabled": True},
             {"key": "reviewId", "value": "1", "enabled": True},
+            {"key": "deliveryProofPhotoKey", "value": "", "enabled": True},
             {"key": "couponId", "value": "1", "enabled": True},
         ],
         "_postman_variable_scope": "environment",

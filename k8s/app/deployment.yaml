@@ -27,6 +27,7 @@ spec:
         prometheus.io/path: "/actuator/prometheus"
         prometheus.io/port: "8080"
     spec:
+      serviceAccountName: bhukkad-app
       terminationGracePeriodSeconds: 45
       securityContext:
         runAsNonRoot: true
@@ -96,6 +97,16 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: JWT_REFRESH_EXPIRATION
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: RABBITMQ_PASSWORD
             - name: JAVA_OPTS
               value: >-
                 -XX:+UseContainerSupport
@@ -115,9 +126,9 @@ spec:
             httpGet:
               path: /api/v1/health/ping
               port: http
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 36
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness

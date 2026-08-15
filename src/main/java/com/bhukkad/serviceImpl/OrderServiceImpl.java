@@ -4,9 +4,13 @@ import com.bhukkad.cache.OrderCacheService;
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.delivery.DeliveryProofService;
+import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.delivery.RiderDispatchService;
 import com.bhukkad.delivery.RiderEarningService;
+import com.bhukkad.dto.request.BatchOrderRequest;
 import com.bhukkad.dto.request.OrderRequest;
+import com.bhukkad.dto.response.BatchOrderResponse;
 import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.OrderItemResponse;
 import com.bhukkad.dto.response.OrderResponse;
@@ -23,6 +27,7 @@ import com.bhukkad.entity.OrderItem;
 import com.bhukkad.entity.Payment;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.User;
+import com.bhukkad.inventory.StockReservationService;
 import com.bhukkad.idempotency.OrderIdempotencyService;
 import com.bhukkad.mapper.OrderMapper;
 import com.bhukkad.service.DeliveryService;
@@ -34,15 +39,22 @@ import com.bhukkad.repository.CartItemRepository;
 import com.bhukkad.repository.CartRepository;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
+import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;
+import com.bhukkad.invoice.OrderInvoiceService;
+import com.bhukkad.restaurant.RestaurantBusyService;
+import com.bhukkad.timeline.OrderTimelineService;
+import com.bhukkad.order.ScheduledOrderValidator;
+import com.bhukkad.settlement.RestaurantSettlementService;
 import com.bhukkad.service.CouponService;
 import com.bhukkad.service.OrderPricingService;
 import com.bhukkad.service.OrderService;
 import com.bhukkad.service.PaymentService;
 import com.bhukkad.util.Constants;
 import com.bhukkad.util.CursorUtils;
+import com.bhukkad.util.DateTimeUtils;
 import com.bhukkad.util.PaginationUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,7 +76,9 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -110,6 +124,15 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMetrics orderMetrics;
     private final WalletService walletService;
     private final RiderEarningService riderEarningService;
+    private final MenuItemRepository menuItemRepository;
+    private final ScheduledOrderValidator scheduledOrderValidator;
+    private final OrderEtaService orderEtaService;
+    private final DeliveryProofService deliveryProofService;
+    private final RestaurantSettlementService restaurantSettlementService;
+    private final StockReservationService stockReservationService;
+    private final OrderTimelineService orderTimelineService;
+    private final OrderInvoiceService orderInvoiceService;
+    private final RestaurantBusyService restaurantBusyService;
 
     @Value("${cache.ttl.kitchen-queue:15}")
     private long kitchenQueueTtlSeconds;
@@ -137,6 +160,65 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    @Override
+    @Transactional
+    public BatchOrderResponse createBatchOrders(BatchOrderRequest request, String idempotencyKey) {
+        Long customerId = securityUtils.getCurrentUserId();
+        Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
+                .orElseThrow(() -> new BusinessException("Cart is empty"));
+        List<CartItem> allItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
+        if (allItems.isEmpty()) {
+            throw new BusinessException("Cart is empty");
+        }
+
+        Map<Long, List<CartItem>> byRestaurant = groupCartItemsByRestaurant(allItems);
+        double cartSubtotal = allItems.stream()
+                .mapToDouble(item -> PriceCalculator.calculateSubtotal(
+                        item.getMenuItem().getPrice(), item.getQuantity()))
+                .sum();
+        double totalTip = request.getTipAmount() != null ? Math.max(0, request.getTipAmount()) : 0.0;
+
+        List<OrderResponse> orders = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        int successCount = 0;
+        int failureCount = 0;
+
+        for (Map.Entry<Long, List<CartItem>> entry : byRestaurant.entrySet()) {
+            Long restaurantId = entry.getKey();
+            double groupSubtotal = entry.getValue().stream()
+                    .mapToDouble(item -> PriceCalculator.calculateSubtotal(
+                            item.getMenuItem().getPrice(), item.getQuantity()))
+                    .sum();
+            double groupTip = cartSubtotal > 0
+                    ? PriceCalculator.roundToTwoDecimals(totalTip * (groupSubtotal / cartSubtotal))
+                    : 0.0;
+
+            OrderRequest orderRequest = new OrderRequest();
+            orderRequest.setRestaurantId(restaurantId);
+            orderRequest.setDeliveryAddressId(request.getDeliveryAddressId());
+            orderRequest.setSpecialInstructions(request.getSpecialInstructions());
+            orderRequest.setContactlessDelivery(request.getContactlessDelivery());
+            orderRequest.setPaymentMethod(request.getPaymentMethod());
+            orderRequest.setTipAmount(groupTip);
+
+            try {
+                OrderResponse response = doCreateOrder(orderRequest, null, customerId);
+                orders.add(response);
+                successCount++;
+            } catch (RuntimeException ex) {
+                errors.add("Restaurant " + restaurantId + ": " + ex.getMessage());
+                failureCount++;
+            }
+        }
+
+        return BatchOrderResponse.builder()
+                .orders(orders)
+                .successCount(successCount)
+                .failureCount(failureCount)
+                .errors(errors)
+                .build();
+    }
+
     private OrderResponse doCreateOrder(OrderRequest request, String idempotencyKey, Long customerId) {
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
@@ -149,6 +231,13 @@ public class OrderServiceImpl implements OrderService {
         }
         if (!Boolean.TRUE.equals(restaurant.getIsOpen())) {
             throw new BusinessException("Restaurant is currently closed");
+        }
+        restaurantBusyService.assertAcceptingOrders(restaurant.getId());
+        scheduledOrderValidator.validateScheduledAt(request.getScheduledAt());
+        boolean scheduled = scheduledOrderValidator.isScheduledOrder(request.getScheduledAt());
+        if (!scheduled && restaurant.getOpeningTime() != null && restaurant.getClosingTime() != null
+                && !DateTimeUtils.isRestaurantOpen(restaurant.getOpeningTime(), restaurant.getClosingTime())) {
+            throw new BusinessException("Restaurant is closed at this time");
         }
 
         Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
@@ -166,6 +255,8 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderPricingService.validateCartItems(restaurant, cartItems);
+        stockReservationService.reserveStock(cartItems);
+        boolean stockReserved = stockReservationService.isEnabled();
 
         Address address = addressRepository.findByIdWithCustomer(request.getDeliveryAddressId())
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
@@ -174,6 +265,7 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("Delivery address does not belong to customer");
         }
 
+        try {
         OrderPricingService.OrderPricingResult pricing = orderPricingService.calculate(
                 restaurant,
                 cartItems,
@@ -182,21 +274,27 @@ public class OrderServiceImpl implements OrderService {
                 request.getLoyaltyPointsToRedeem(),
                 request.getPaymentMethod(),
                 request.getWalletAmountToUse(),
-                request.getUseWallet());
+                request.getUseWallet(),
+                address.getLatitude(),
+                address.getLongitude());
 
         Order order = new Order();
         order.setOrderNumber(generateOrderNumber());
         order.setCustomer(customer);
         order.setRestaurant(restaurant);
         order.setDeliveryAddress(address);
-        order.setStatus(Order.OrderStatus.PLACED);
+        order.setStatus(scheduled ? Order.OrderStatus.SCHEDULED : Order.OrderStatus.PLACED);
+        order.setScheduledAt(scheduled ? request.getScheduledAt() : null);
         order.setSpecialInstructions(request.getSpecialInstructions());
         order.setContactlessDelivery(Boolean.TRUE.equals(request.getContactlessDelivery()));
         order.setSubtotal(pricing.subtotal());
         order.setDeliveryFee(pricing.deliveryFee());
         order.setTaxAmount(pricing.taxAmount());
         order.setDiscountAmount(pricing.discountAmount());
-        order.setTotalAmount(pricing.totalAmount());
+        double tipAmount = request.getTipAmount() != null ? Math.max(0, request.getTipAmount()) : 0.0;
+        tipAmount = PriceCalculator.roundToTwoDecimals(tipAmount);
+        order.setTipAmount(tipAmount);
+        order.setTotalAmount(PriceCalculator.roundToTwoDecimals(pricing.totalAmount() + tipAmount));
         order.setLoyaltyPointsRedeemed(pricing.loyaltyPointsRedeemed());
         order.setWalletAmountUsed(pricing.walletAmountUsed());
         order.setAppliedCoupon(pricing.appliedCoupon());
@@ -209,7 +307,12 @@ public class OrderServiceImpl implements OrderService {
 
         order.setOrderItems(buildOrderItems(order, cartItems));
 
+        orderEtaService.applyLiveEta(order);
         order = saveOrder(order);
+        recordTimelineEvent(order.getId(), "ORDER_PLACED", order.getStatus().name(),
+                "Order placed successfully", customerId, User.UserRole.CUSTOMER.name());
+        decrementStock(cartItems);
+        cartItems.forEach(item -> stockReservationService.syncStock(item.getMenuItem()));
 
         if (pricing.loyaltyPointsRedeemed() > 0) {
             customer.setLoyaltyPoints(customer.getLoyaltyPoints() - pricing.loyaltyPointsRedeemed());
@@ -226,7 +329,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (pricing.appliedCoupon() != null) {
-            couponService.recordCouponUsage(pricing.appliedCoupon());
+            couponService.recordCouponUsage(pricing.appliedCoupon(), customerId, order.getId());
         }
 
         String paymentMethod = normalizePaymentMethod(request.getPaymentMethod());
@@ -249,6 +352,12 @@ public class OrderServiceImpl implements OrderService {
         OrderResponse response = orderMapper.toResponse(order);
         orderIdempotencyService.completeOrderCreate(idempotencyKey, response);
         return response;
+        } catch (RuntimeException ex) {
+            if (stockReserved) {
+                stockReservationService.releaseStock(cartItems);
+            }
+            throw ex;
+        }
     }
 
     @Override
@@ -374,6 +483,9 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("Order cannot be cancelled in its current status");
         }
 
+        order.setCancellationReason(reason);
+        order.setCancelledBy(User.UserRole.CUSTOMER.name());
+
         OrderResponse response = saveWithStatusChange(order, Order.OrderStatus.CANCELLED);
 
         Customer customer = order.getCustomer();
@@ -475,11 +587,14 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse markOrderDelivered(Long orderId) {
         Order order = findOrderOrThrow(orderId);
         verifyDeliveryAgentOwnsOrder(order);
+        // Gate before any mutation: once the status flips to DELIVERED the loyalty points, rider
+        // earning and restaurant settlement all fire, and none of those are cheap to unwind. The
+        // check is a no-op unless app.delivery.proof.enforced is true.
+        deliveryProofService.assertProofSatisfied(order);
 
         Order.OrderStatus previousStatus = order.getStatus();
         order.setStatus(Order.OrderStatus.DELIVERED);
         order.setDeliveredAt(LocalDateTime.now());
-        order = saveOrder(order);
 
         Customer customer = order.getCustomer();
         int earnedPoints = PriceCalculator.calculateLoyaltyPoints(order.getTotalAmount());
@@ -493,21 +608,50 @@ public class OrderServiceImpl implements OrderService {
             riderEarningService.recordDeliveryEarning(order, agent);
         }
 
+        restaurantSettlementService.recordSettlementForDeliveredOrder(order);
+        orderEtaService.applyLiveEta(order);
+        order = saveOrder(order);
+
+        recordTimelineEvent(order.getId(), "ORDER_DELIVERED", Order.OrderStatus.DELIVERED.name(),
+                "Order delivered successfully", order.getDeliveryAgent() != null
+                        ? order.getDeliveryAgent().getId() : null,
+                User.UserRole.DELIVERY_AGENT.name());
+        orderInvoiceService.generateOnDelivery(order);
+
         publishAndInvalidate(order, previousStatus);
         orderMetrics.orderDelivered();
         return orderMapper.toResponse(order);
     }
 
+    /**
+     * Returns a live tracking snapshot of an order for the authenticated customer.
+     *
+     * <p>Access is restricted to the order's owner. Both the cache read and the
+     * database read are customer-scoped: the cache key embeds the caller's id so a
+     * snapshot rendered for the owner can never be served to another customer, and
+     * on a cache miss {@link #verifyCustomerOwnsOrder(Order)} rejects non-owners with
+     * an {@code UnauthorizedException}. The order is loaded with
+     * {@link #findOrderOrThrow(Long)} because the ownership check dereferences the
+     * LAZY customer association and {@code spring.jpa.open-in-view} is disabled.
+     *
+     * @param orderId the order to track
+     * @return the tracking snapshot including live ETA
+     */
     @Override
-    @UseReadReplica
+    @Transactional(readOnly = false)
     public OrderResponse trackOrder(Long orderId) {
-        var cached = orderCacheService.getTrackedOrder(orderId);
+        Long customerId = securityUtils.getCurrentUserId();
+
+        var cached = orderCacheService.getTrackedOrder(orderId, customerId);
         if (cached.isPresent()) {
             return cached.get();
         }
 
-        OrderResponse response = getOrderById(orderId);
-        orderCacheService.cacheTrackedOrder(orderId, response);
+        Order order = findOrderOrThrow(orderId);
+        verifyCustomerOwnsOrder(order);
+        orderEtaService.applyLiveEta(order);
+        OrderResponse response = orderMapper.toResponse(order);
+        orderCacheService.cacheTrackedOrder(orderId, customerId, response);
         return response;
     }
 
@@ -536,9 +680,38 @@ public class OrderServiceImpl implements OrderService {
     private OrderResponse saveWithStatusChange(Order order, Order.OrderStatus newStatus) {
         Order.OrderStatus previousStatus = order.getStatus();
         order.setStatus(newStatus);
+        orderEtaService.applyLiveEta(order);
         order = saveOrder(order);
+        recordTimelineEvent(order.getId(), "STATUS_CHANGE", newStatus.name(),
+                "Order status changed from " + previousStatus + " to " + newStatus,
+                resolveActorId(), resolveActorRole());
         publishAndInvalidate(order, previousStatus);
         return orderMapper.toResponse(order);
+    }
+
+    private void recordTimelineEvent(Long orderId, String eventType, String status, String message,
+                                     Long actorId, String actorRole) {
+        try {
+            orderTimelineService.recordEvent(orderId, eventType, status, message, actorId, actorRole);
+        } catch (Exception ex) {
+            log.warn("Failed to record order timeline event | orderId={} | type={}", orderId, eventType, ex);
+        }
+    }
+
+    private Long resolveActorId() {
+        try {
+            return securityUtils.getCurrentUserId();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String resolveActorRole() {
+        try {
+            return securityUtils.getCurrentUser().getRole().name();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private void publishAndInvalidate(Order order, Order.OrderStatus previousStatus) {
@@ -598,6 +771,33 @@ public class OrderServiceImpl implements OrderService {
 
     private String generateOrderNumber() {
         return "ORD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+
+    private Map<Long, List<CartItem>> groupCartItemsByRestaurant(List<CartItem> cartItems) {
+        Map<Long, List<CartItem>> grouped = new LinkedHashMap<>();
+        for (CartItem item : cartItems) {
+            Long restaurantId = item.getMenuItem().getCategory().getRestaurant().getId();
+            grouped.computeIfAbsent(restaurantId, id -> new ArrayList<>()).add(item);
+        }
+        return grouped;
+    }
+
+    private void decrementStock(List<CartItem> cartItems) {
+        for (CartItem cartItem : cartItems) {
+            MenuItem menuItem = cartItem.getMenuItem();
+            if (menuItem.getStockQuantity() == null) {
+                continue;
+            }
+            int remaining = menuItem.getStockQuantity() - cartItem.getQuantity();
+            if (remaining < 0) {
+                throw new BusinessException("Insufficient stock for: " + menuItem.getName());
+            }
+            menuItem.setStockQuantity(remaining);
+            if (remaining == 0) {
+                menuItem.setAvailable(false);
+            }
+            menuItemRepository.save(menuItem);
+        }
     }
 
     private List<OrderItem> buildOrderItems(Order order, List<CartItem> cartItems) {

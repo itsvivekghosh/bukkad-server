@@ -165,6 +165,14 @@ public class OrderSseStreamService {
         sendHeartbeatToAll(customerStreams);
     }
 
+    public int activeConnectionCount() {
+        return countStreams(kitchenStreams) + countStreams(riderStreams) + countStreams(customerStreams);
+    }
+
+    private int countStreams(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
+        return streams.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
+    }
+
     private void sendHeartbeatToAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
         for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
             sendHeartbeat(emitters);

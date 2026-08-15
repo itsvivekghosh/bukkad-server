@@ -2,6 +2,8 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.config.InventoryProperties;
+import com.bhukkad.inventory.StockReservationService;
 import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuCategoryRequest;
@@ -48,6 +50,8 @@ public class MenuServiceImpl implements MenuService {
     private final MenuItemMapper menuItemMapper;
     private final MenuImageService menuImageService;
     private final ImageStorageProperties imageStorageProperties;
+    private final InventoryProperties inventoryProperties;
+    private final StockReservationService stockReservationService;
 
     @Value("${cache.ttl.menu-item:900}")
     private long menuItemTtl;
@@ -201,6 +205,18 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
+    public List<MenuItemResponse> getLowStockItems(Long restaurantId, Integer threshold) {
+        Restaurant restaurant = restaurantRepository.findById(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+        verifyOwnership(restaurant);
+        int effectiveThreshold = threshold != null ? threshold : inventoryProperties.getLowStockThreshold();
+        return menuItemRepository.findLowStockByRestaurant(restaurantId, effectiveThreshold)
+                .stream()
+                .map(menuItemMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     @Transactional
     public MenuItemResponse createMenuItem(MenuItemRequest request) {
         MenuCategory category = menuCategoryRepository.findByIdWithRestaurant(request.getCategoryId())
@@ -214,6 +230,7 @@ public class MenuServiceImpl implements MenuService {
         mapRequestToMenuItem(request, menuItem);
 
         menuItem = menuItemRepository.save(menuItem);
+        stockReservationService.syncStock(menuItem);
         invalidateMenuCaches(category.getRestaurant().getId());
 
         return menuItemMapper.toResponse(menuItem);
@@ -231,6 +248,7 @@ public class MenuServiceImpl implements MenuService {
         mapRequestToMenuItem(request, menuItem);
 
         menuItem = menuItemRepository.save(menuItem);
+        stockReservationService.syncStock(menuItem);
 
         cacheService.delete(CacheKeyGenerator.menuItem(id));
         invalidateMenuCaches(menuItem.getCategory().getRestaurant().getId());
@@ -324,6 +342,7 @@ public class MenuServiceImpl implements MenuService {
         if (request.getPreparationTime() != null) menuItem.setPreparationTime(request.getPreparationTime());
         if (request.getCalories() != null) menuItem.setCalories(request.getCalories());
         if (request.getServingSize() != null) menuItem.setServingSize(request.getServingSize());
+        if (request.getStockQuantity() != null) menuItem.setStockQuantity(request.getStockQuantity());
 
         // ElementCollections - replace entirely
         if (request.getIngredients() != null) {
