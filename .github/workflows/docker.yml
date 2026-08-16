@@ -11,6 +11,10 @@ permissions:
   packages: write
   actions: write
 
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-push:
     name: Build and Push Docker Image
@@ -158,6 +162,8 @@ jobs:
           echo "Container started: $CONTAINER_NAME with image: $APP_IMAGE"
           SCRIPT
           chmod +x docker-deploy.sh
+          echo "docker-deploy.sh content:"
+          ls -la docker-deploy.sh
 
       - name: Upload deployment script
         uses: actions/upload-artifact@v5
