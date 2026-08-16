@@ -25,16 +25,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+      - name: Download deployment script
+        uses: actions/download-artifact@v5
         with:
-          version: 'v1.29.0'
+          name: docker-deploy-script
+          path: ./deploy
 
-      - name: Write kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
 
       - name: Determine image tag
         id: image
@@ -45,20 +45,66 @@ jobs:
             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set image in Kubernetes deployment
+      - name: Deploy to staging VM
         run: |
-          kubectl set image deployment/bhukkad-app \
-            bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:${{ steps.image.outputs.tag }} \
-            -n bhukkad
+          echo "Deploying image tag: ${{ steps.image.outputs.tag }}"
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ./deploy/docker-deploy.sh \
+            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
+            "chmod +x /tmp/docker-deploy.sh && \
+            IMAGE_TAG=${{ steps.image.outputs.tag }} \
+            SPRING_PROFILES_ACTIVE=staging \
+            DB_HOST=${{ secrets.STAGING_DB_HOST }} \
+            DB_PORT=${{ secrets.STAGING_DB_PORT }} \
+            DB_NAME=${{ secrets.STAGING_DB_NAME }} \
+            DB_USERNAME=${{ secrets.STAGING_DB_USERNAME }} \
+            DB_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }} \
+            DB_URL=${{ secrets.STAGING_DB_URL }} \
+            REDIS_HOST=${{ secrets.STAGING_REDIS_HOST }} \
+            REDIS_PORT=${{ secrets.STAGING_REDIS_PORT }} \
+            REDIS_PASSWORD=${{ secrets.STAGING_REDIS_PASSWORD }} \
+            JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }} \
+            JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }} \
+            JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }} \
+            RAZORPAY_ENABLED=${{ secrets.RAZORPAY_ENABLED }} \
+            RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }} \
+            RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }} \
+            RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }} \
+            NOTIFICATION_EMAIL_ENABLED=${{ secrets.NOTIFICATION_EMAIL_ENABLED }} \
+            NOTIFICATION_EMAIL_FROM=${{ secrets.NOTIFICATION_EMAIL_FROM }} \
+            STOMP_BROKER_TYPE=${{ secrets.STOMP_BROKER_TYPE }} \
+            RABBITMQ_HOST=${{ secrets.RABBITMQ_HOST }} \
+            RABBITMQ_STOMP_PORT=${{ secrets.RABBITMQ_STOMP_PORT }} \
+            RABBITMQ_USERNAME=${{ secrets.RABBITMQ_USERNAME }} \
+            RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }} \
+            LIVE_RELAY_ENABLED=${{ secrets.LIVE_RELAY_ENABLED }} \
+            LIVE_RELAY_CHANNEL=${{ secrets.LIVE_RELAY_CHANNEL }} \
+            DB_REPLICA_ENABLED=${{ secrets.DB_REPLICA_ENABLED }} \
+            DB_REPLICA_URL=${{ secrets.DB_REPLICA_URL }} \
+            DB_REPLICA_USERNAME=${{ secrets.DB_REPLICA_USERNAME }} \
+            DB_REPLICA_PASSWORD=${{ secrets.DB_REPLICA_PASSWORD }} \
+            PAYMENT_PROVIDER=${{ secrets.PAYMENT_PROVIDER }} \
+            PROMETHEUS_USERNAME=${{ secrets.PROMETHEUS_USERNAME }} \
+            PROMETHEUS_PASSWORD=${{ secrets.PROMETHEUS_PASSWORD }} \
+            /tmp/docker-deploy.sh"
 
-      - name: Wait for rollout
+      - name: Wait for container to start
         run: |
-          kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=300s
-
-      - name: Verify deployment
-        run: |
-          kubectl get pods -n bhukkad -l app=bhukkad,component=api
-          kubectl describe deployment/bhukkad-app -n bhukkad
+          echo "Waiting for container to start..."
+          for i in $(seq 1 30); do
+            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
+              "curl -sf http://localhost:8080/api/v1/health/ping -o /dev/null"; then
+              echo "Container is healthy"
+              exit 0
+            fi
+            echo "Attempt $i: container not ready yet..."
+            sleep 5
+          done
+          echo "Container failed to become healthy"
+          exit 1
 
       - name: Run smoke tests
         run: |
