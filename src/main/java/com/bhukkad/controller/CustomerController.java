@@ -129,8 +129,8 @@ public class CustomerController {
     }
 
     @DeleteMapping("/device-tokens")
-    public ResponseEntity<ApiResponse<Void>> unregisterDeviceToken(@RequestParam String token) {
-        deviceTokenService.unregisterToken(token);
+    public ResponseEntity<ApiResponse<Void>> unregisterDeviceToken(@RequestBody com.bhukkad.dto.request.DeviceTokenRequest request) {
+        deviceTokenService.unregisterToken(request.getToken());
         return ResponseEntity.ok(ApiResponse.success("Device token removed", null));
     }
 

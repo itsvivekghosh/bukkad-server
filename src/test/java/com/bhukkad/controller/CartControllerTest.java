@@ -14,9 +14,11 @@ import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class CartControllerTest {
+public class CartControllerTest {
 
     @Mock
     private CartService cartService;

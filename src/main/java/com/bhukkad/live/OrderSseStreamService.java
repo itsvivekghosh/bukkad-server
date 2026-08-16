@@ -19,6 +19,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @RequiredArgsConstructor
 public class OrderSseStreamService {
 
+    private static final long DEFAULT_TIMEOUT = 60_000L; // 60 seconds
+
     private final OrderLiveReplayStore replayStore;
 
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
@@ -67,13 +69,13 @@ public class OrderSseStreamService {
         broadcast(customerStreams.get(orderId), update);
     }
 
-    private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
-                                 Long key,
-                                 String channel,
-                                 String replayStreamKey,
-                                 String lastEventId,
-                                 Object snapshot) {
-        SseEmitter emitter = new SseEmitter(0L);
+private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+                                  Long key,
+                                  String channel,
+                                  String replayStreamKey,
+                                  String lastEventId,
+                                  Object snapshot) {
+        SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
         streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>()).add(emitter);
 
         Runnable cleanup = () -> remove(streams, key, emitter);
@@ -131,7 +133,7 @@ public class OrderSseStreamService {
             try {
                 sendUpdate(emitter, update);
             } catch (Exception e) {
-                emitters.remove(emitter);
+                removeAndCompleteEmitter(emitter);
                 log.debug("SSE emitter removed after send failure: {}", e.getMessage());
             }
         }
@@ -147,14 +149,24 @@ public class OrderSseStreamService {
         emitter.send(event);
     }
 
-    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
-                        Long key,
-                        SseEmitter emitter) {
+private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+                         Long key,
+                         SseEmitter emitter) {
         CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
         if (emitters != null) {
             emitters.remove(emitter);
             if (emitters.isEmpty()) {
                 streams.remove(key, emitters);
+            }
+        }
+    }
+
+    private void removeAndCompleteEmitter(SseEmitter emitter) {
+        if (emitter != null) {
+            try {
+                emitter.complete();
+            } catch (Exception ignored) {
+                // emitter may already be closed
             }
         }
     }
@@ -187,7 +199,7 @@ public class OrderSseStreamService {
             try {
                 emitter.send(SseEmitter.event().comment("heartbeat"));
             } catch (IOException e) {
-                emitters.remove(emitter);
+                removeAndCompleteEmitter(emitter);
             }
         }
     }

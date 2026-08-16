@@ -12,6 +12,9 @@ import java.util.List;
 @Repository
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 
+    @Query("SELECT COUNT(oi) FROM OrderItem oi WHERE oi.menuItem.id = :menuItemId")
+    long countByMenuItemId(@Param("menuItemId") Long menuItemId);
+
     @Query("SELECT oi.menuItem.id, oi.menuItem.name, SUM(oi.quantity), SUM(oi.price * oi.quantity) " +
             "FROM OrderItem oi JOIN oi.order o " +
             "WHERE o.restaurant.id = :restaurantId AND o.status = 'DELIVERED' AND o.createdAt >= :startDate " +

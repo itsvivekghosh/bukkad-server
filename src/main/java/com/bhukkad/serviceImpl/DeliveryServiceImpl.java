@@ -64,7 +64,7 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     @Transactional
-    public DeliveryAgent updateProfile(Long id, DeliveryAgent updates) {
+    public DeliveryAgentResponse updateProfile(Long id, DeliveryAgent updates) {
         DeliveryAgent agent = getOwnedAgent(id);
 
         if (StringUtils.hasText(updates.getFullName())) {
@@ -83,7 +83,8 @@ public class DeliveryServiceImpl implements DeliveryService {
             agent.setLicenseNumber(updates.getLicenseNumber());
         }
 
-        return deliveryAgentRepository.save(agent);
+        deliveryAgentRepository.save(agent);
+        return mapToResponse(agent);
     }
 
     @Override

@@ -17,6 +17,7 @@ import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.service.CouponService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -95,10 +96,19 @@ public class CouponServiceImpl implements CouponService {
 
     @Override
     public Double calculateDiscount(Coupon coupon, Double orderAmount) {
+        if (orderAmount == null) {
+            orderAmount = 0.0;
+        }
         double discount;
         if (coupon.getDiscountType() == Coupon.DiscountType.PERCENTAGE) {
+            if (coupon.getDiscountValue() == null) {
+                return 0.0;
+            }
             discount = (orderAmount * coupon.getDiscountValue()) / 100;
         } else {
+            if (coupon.getDiscountValue() == null) {
+                return 0.0;
+            }
             discount = coupon.getDiscountValue();
         }
 
@@ -106,7 +116,8 @@ public class CouponServiceImpl implements CouponService {
             discount = coupon.getMaximumDiscountAmount();
         }
 
-        return discount;
+        // Ensure discount doesn't go below zero
+        return Math.max(0.0, discount);
     }
 
     @Override
@@ -128,6 +139,7 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
+    @Transactional
     public CouponResponse createCouponFromRequest(CouponRequest request) {
         if (couponRepository.findByCode(request.getCode()).isPresent()) {
             throw new BusinessException("Coupon code already exists");
@@ -158,6 +170,7 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
+    @Transactional
     public CouponResponse updateCoupon(Long couponId, CouponRequest request) {
         Coupon coupon = couponRepository.findByIdWithRestaurant(couponId)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));

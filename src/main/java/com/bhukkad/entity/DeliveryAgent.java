@@ -1,5 +1,6 @@
 package com.bhukkad.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -40,6 +41,7 @@ public class DeliveryAgent extends User {
 
     private Double currentLongitude;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "deliveryAgent")
     private List<Order> deliveries = new ArrayList<>();
 

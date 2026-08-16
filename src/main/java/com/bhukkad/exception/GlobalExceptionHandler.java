@@ -14,10 +14,14 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.http.MediaType;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -76,7 +80,9 @@ public class GlobalExceptionHandler {
             ResourceNotFoundException ex, WebRequest request) {
         log.warn("ResourceNotFound | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
-        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.NOT_FOUND);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
     }
 
     @ExceptionHandler(BusinessException.class)
@@ -84,7 +90,9 @@ public class GlobalExceptionHandler {
             BusinessException ex, WebRequest request) {
         log.warn("BusinessException | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
-        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.BAD_REQUEST);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
     }
 
     @ExceptionHandler(UnauthorizedException.class)
@@ -93,7 +101,9 @@ public class GlobalExceptionHandler {
         log.warn("Unauthorized | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         alertService.alertHttpError("UNKNOWN", "unauthorized", 401, 0);
-        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.UNAUTHORIZED);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -148,6 +158,16 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotAcceptable(
+            HttpMediaTypeNotAcceptableException ex, WebRequest request) {
+        log.warn("MediaTypeNotAcceptable | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Media type not acceptable for this endpoint"));
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Void>> handleRuntimeException(
             RuntimeException ex, WebRequest request) {
@@ -169,6 +189,7 @@ public class GlobalExceptionHandler {
         log.error("UnexpectedException | type={} | traceId={} | requestId={}",
                 ex.getClass().getSimpleName(),
                 TraceContext.getTraceId(), TraceContext.getRequestId());
+        log.error("UnexpectedException message={}", ex.getMessage(), ex);
         alertService.alertException("GlobalExceptionHandler", "Unexpected error", ex);
         return new ResponseEntity<>(
                 buildError("An unexpected error occurred. Please try again later."),

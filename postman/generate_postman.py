@@ -70,7 +70,7 @@ def uid():
 
 def req(name, method, path, *, folder_auth=None, body=None, query=None,
         headers=None, auth=False, no_auth=False, tests=None, prerequest=None,
-        description="", role=None):
+        description="", role=None, response=None):
     url_raw = "{{baseUrl}}" + path
     if query:
         qs = "&".join(f"{k}={v}" for k, v in query)
@@ -169,8 +169,10 @@ def build_collection():
         req("Recommended", "GET", "/api/v1/menu/items/restaurant/{{restaurantId}}/recommended", no_auth=True),
         req("Search Menu", "GET", "/api/v1/menu/items/search?keyword=biryani&restaurantId={{restaurantId}}", no_auth=True),
         req("Categories By Restaurant", "GET", "/api/v1/menu/categories/restaurant/{{restaurantId}}", no_auth=True),
+        req("Low Stock Items", "GET", "/api/v1/menu/items/restaurant/{{restaurantId}}/low-stock", no_auth=True),
         req("Active Coupons", "GET", "/api/v1/coupons/active", no_auth=True),
         req("Restaurant Reviews", "GET", "/api/v1/reviews/restaurant/{{restaurantId}}", no_auth=True),
+        req("Menu Item Ratings", "GET", "/api/v1/reviews/menu-items/{{menuItemId}}", no_auth=True),
     ]
     items.append(folder("03 - Public", public))
 
@@ -187,21 +189,45 @@ def build_collection():
     }
     customer = [
         req("Get Profile", "GET", "/api/v1/customers/profile", auth=True),
+        req("Get Profile By ID", "GET", "/api/v1/customers/profile/{{userId}}", auth=True),
         req("Update Profile", "PUT", "/api/v1/customers/profile?fullName=Updated Name", auth=True),
         req("Add Address", "POST", "/api/v1/customers/addresses", auth=True, body=address_body,
             tests=API_TESTS + "\nif(pm.response.json().data&&pm.response.json().data.id)pm.environment.set('addressId',String(pm.response.json().data.id));"),
         req("List Addresses", "GET", "/api/v1/customers/addresses", auth=True),
         req("Set Default Address", "PUT", "/api/v1/customers/addresses/{{addressId}}/set-default", auth=True),
         req("Wallet Balance", "GET", "/api/v1/customers/wallet/balance", auth=True),
+        req("Wallet Transactions", "GET", "/api/v1/customers/wallet/transactions?page=0&size=20", auth=True),
         req("Loyalty Points", "GET", "/api/v1/customers/loyalty-points", auth=True),
         req("Wallet Top-Up Initiate", "POST", "/api/v1/customers/wallet/top-up?amount=100", auth=True,
             headers=[{"key": "Idempotency-Key", "value": "{{idempotencyKey}}"}]),
+        req("Add Money to Wallet", "POST", "/api/v1/customers/wallet/add-money?amount=500", auth=True),
         req("Register Device Token", "POST", "/api/v1/customers/device-tokens", auth=True,
             body={"token": "fcm-device-token-sample", "platform": "ANDROID"}),
         req("Unregister Device Token", "DELETE", "/api/v1/customers/device-tokens?token=fcm-device-token-sample", auth=True),
         req("Update Address", "PUT", "/api/v1/customers/addresses/{{addressId}}", auth=True, body=address_body),
         req("Delete Address", "DELETE", "/api/v1/customers/addresses/{{addressId}}", auth=True),
         req("Delete Account", "DELETE", "/api/v1/customers/account", auth=True),
+        # Referral
+        req("Get Referral Info", "GET", "/api/v1/customers/referral", auth=True),
+        # Favorites
+        req("List Favorites", "GET", "/api/v1/customers/favorites", auth=True),
+        req("Add Favorite", "POST", "/api/v1/customers/favorites/{{restaurantId}}", auth=True),
+        req("Remove Favorite", "DELETE", "/api/v1/customers/favorites/{{restaurantId}}", auth=True),
+        # Order Stats
+        req("Order Stats", "GET", "/api/v1/customers/orders/stats", auth=True),
+        # Notification Preferences
+        req("Get Notification Preferences", "GET", "/api/v1/customers/notification-preferences", auth=True),
+        req("Update Notification Preferences", "PUT", "/api/v1/customers/notification-preferences", auth=True,
+            body={"emailEnabled": True, "smsEnabled": True, "pushEnabled": True, "whatsappEnabled": False, "orderUpdates": True, "promotions": True, "recommendations": True}),
+        # Support Tickets
+        req("Create Support Ticket", "POST", "/api/v1/customers/support/tickets", auth=True,
+            body={"subject": "Order issue", "description": "My order was delayed", "category": "DELIVERY"}),
+        req("List Support Tickets", "GET", "/api/v1/customers/support/tickets", auth=True),
+        # Membership
+        req("List Membership Plans", "GET", "/api/v1/customers/membership/plans", auth=True),
+        req("Get Membership Status", "GET", "/api/v1/customers/membership/status", auth=True),
+        req("Subscribe Membership", "POST", "/api/v1/customers/membership/subscribe", auth=True,
+            body={"planId": 1}),
         req("Get Cart", "GET", "/api/v1/cart", auth=True),
         req("Add To Cart", "POST", "/api/v1/cart/add", auth=True,
             body={"menuItemId": "{{menuItemId}}", "quantity": 2, "specialInstructions": "less spicy"},
@@ -223,10 +249,14 @@ def build_collection():
             body={"restaurantId": "{{restaurantId}}", "deliveryAddressId": "{{addressId}}", "paymentMethod": "UPI"},
             tests="pm.test('202 Accepted',()=>pm.expect(pm.response.code).to.eql(202));\nif(pm.response.json().data&&pm.response.json().data.jobId)pm.environment.set('jobId',pm.response.json().data.jobId);"),
         req("Get Create Job", "GET", "/api/v1/orders/customer/create/jobs/{{jobId}}", auth=True),
+        req("Create Batch Orders", "POST", "/api/v1/orders/customer/create-batch", auth=True,
+            headers=[{"key": "Idempotency-Key", "value": "{{idempotencyKey}}"}],
+            body={"orders": [{"restaurantId": "{{restaurantId}}", "deliveryAddressId": "{{addressId}}", "paymentMethod": "CASH_ON_DELIVERY", "items": [{"menuItemId": "{{menuItemId}}", "quantity": 1}]}]}),
         req("My Orders", "GET", "/api/v1/orders/customer/my-orders?page=0&size=20", auth=True),
         req("My Orders Cursor", "GET", "/api/v1/orders/customer/my-orders/cursor?size=20", auth=True),
         req("Order By ID", "GET", "/api/v1/orders/customer/{{orderId}}", auth=True),
         req("Track Order", "GET", "/api/v1/orders/customer/track/{{orderId}}", auth=True),
+        req("Rider Location", "GET", "/api/v1/orders/{{orderId}}/rider-location", auth=True),
         req("Order Timeline", "GET", "/api/v1/orders/{{orderId}}/timeline", auth=True),
         req("Order Invoice", "GET", "/api/v1/orders/{{orderId}}/invoice", auth=True),
         req("Download Invoice PDF", "GET", "/api/v1/orders/{{orderId}}/invoice/pdf", auth=True,
@@ -237,6 +267,8 @@ def build_collection():
         req("Validate Coupon", "GET", "/api/v1/coupons/validate?code={{couponCode}}&subtotal=500&restaurantId={{restaurantId}}", auth=True),
         req("Create Review", "POST", "/api/v1/reviews", auth=True,
             body={"orderId": "{{orderId}}", "rating": 5, "comment": "Great food!"}),
+        req("Rate Menu Item", "POST", "/api/v1/reviews/menu-items", auth=True,
+            body={"menuItemId": "{{menuItemId}}", "rating": 5, "comment": "Delicious!"}),
         req("My Reviews", "GET", "/api/v1/reviews/my-reviews", auth=True),
         req("Review By Order", "GET", "/api/v1/reviews/order/{{orderId}}", auth=True),
         req("Delete Review", "DELETE", "/api/v1/reviews/{{reviewId}}", auth=True),
@@ -263,6 +295,17 @@ def build_collection():
         req("Delete Restaurant", "DELETE", "/api/v1/restaurants/owner/{{restaurantId}}", auth=True),
         req("Toggle Open", "PUT", "/api/v1/restaurants/owner/{{restaurantId}}/toggle-status?isOpen=true", auth=True),
         req("Restaurant Analytics", "GET", "/api/v1/restaurants/owner/{{restaurantId}}/analytics?days=30", auth=True),
+        # Settlements
+        req("Restaurant Settlements", "GET", "/api/v1/restaurants/owner/{{restaurantId}}/settlements?page=0&size=20", auth=True),
+        # Busy Mode
+        req("Enable Busy Mode", "PUT", "/api/v1/restaurants/owner/{{restaurantId}}/busy-mode", auth=True,
+            body={"enabled": True, "message": "High order volume", "estimatedDelayMinutes": 30}),
+        req("Disable Busy Mode", "DELETE", "/api/v1/restaurants/owner/{{restaurantId}}/busy-mode", auth=True),
+        # Dashboard 2.0
+        req("Restaurant Dashboard", "GET", "/api/v1/restaurants/owner/{{restaurantId}}/dashboard?days=30", auth=True),
+        # Review Response
+        req("Respond to Review", "POST", "/api/v1/restaurants/owner/reviews/{{reviewId}}/response", auth=True,
+            body={"response": "Thank you for your feedback!"}),
         req("Create Category", "POST", "/api/v1/menu/categories?restaurantId={{restaurantId}}", auth=True,
             body={"name": "Main Course", "description": "Mains", "displayOrder": 1},
             tests=API_TESTS + "\nif(pm.response.json().data&&pm.response.json().data.id)pm.environment.set('categoryId',String(pm.response.json().data.id));"),
@@ -314,6 +357,13 @@ def build_collection():
         req("Earnings History", "GET", "/api/v1/delivery/earnings?page=0&size=20", auth=True),
         req("Delivery History", "GET", "/api/v1/delivery/delivery-history", auth=True),
         req("Reject Delivery", "POST", "/api/v1/delivery/{{orderId}}/reject", auth=True),
+        # Location tracking
+        req("Update Order Location", "POST", "/api/v1/delivery/orders/{{orderId}}/location", auth=True,
+            body={"latitude": 12.97, "longitude": 77.59}),
+        # Batch dispatch
+        req("Create Delivery Batch", "POST", "/api/v1/delivery/batches", auth=True),
+        req("Get Active Batch", "GET", "/api/v1/delivery/batches/active", auth=True),
+        req("Complete Batch", "PUT", "/api/v1/delivery/batches/{{batchId}}/complete", auth=True),
     ]
     items.append(folder("06 - Delivery Agent", agent))
 
@@ -331,6 +381,7 @@ def build_collection():
         req("Verify Agent", "PUT", "/api/v1/admin/agents/{{agentId}}/verify", auth=True),
         req("Approve Restaurant", "PUT", "/api/v1/admin/restaurants/{{restaurantId}}/approve", auth=True),
         req("Suspend Restaurant", "PUT", "/api/v1/admin/restaurants/{{restaurantId}}/suspend", auth=True),
+        req("Set Restaurant Commission", "PUT", "/api/v1/admin/restaurants/{{restaurantId}}/commission?percent=20", auth=True),
         req("Create Coupon", "POST", "/api/v1/coupons", auth=True,
             body={"code": "SAVE10", "discountType": "PERCENTAGE", "discountValue": 10,
                   "minOrderAmount": 200, "maxDiscount": 100, "usageLimit": 100}),
@@ -338,6 +389,12 @@ def build_collection():
             body={"code": "SAVE10", "discountType": "PERCENTAGE", "discountValue": 15,
                   "minOrderAmount": 200, "maxDiscount": 150, "usageLimit": 100}),
         req("Delete Coupon", "DELETE", "/api/v1/coupons/{{couponId}}", auth=True),
+        # Support Tickets (Admin)
+        req("List All Support Tickets", "GET", "/api/v1/admin/support/tickets", auth=True),
+        req("Update Ticket Status", "PUT", "/api/v1/admin/support/tickets/{{ticketId}}/status?status=RESOLVED&resolutionNotes=Issue resolved", auth=True),
+        # Notifications
+        req("Send Test Notification", "POST", "/api/v1/admin/notifications/test", auth=True,
+            body={"channel": "EMAIL", "recipient": "test@example.com", "message": "Test notification"}),
         req("Review Moderation Queue", "GET", "/api/v1/admin/reviews/moderation", auth=True),
         req("Review Moderation Pending", "GET", "/api/v1/admin/reviews/moderation?status=PENDING", auth=True),
         req("Moderate Review Approve", "PUT", "/api/v1/admin/reviews/{{reviewId}}/moderate?status=APPROVED", auth=True),
@@ -353,6 +410,39 @@ def build_collection():
     ]
     items.append(folder("08 - Cache", cache_ops))
 
+    # --- Home Feed (Public) ---
+    home_feed = [
+        req("Get Banners", "GET", "/api/v1/home/banners", no_auth=True),
+        req("Get Campaigns", "GET", "/api/v1/home/campaigns", no_auth=True),
+        req("Get Home Feed (Composed)", "GET", "/api/v1/home/feed", no_auth=True),
+        req("Get Membership Plans", "GET", "/api/v1/home/membership-plans", no_auth=True),
+    ]
+    items.append(folder("09 - Home Feed (Public)", home_feed))
+
+    # --- Search (Public) ---
+    search = [
+        req("Unified Search", "GET", "/api/v1/search?keyword=biryani", no_auth=True),
+    ]
+    items.append(folder("10 - Search (Public)", search))
+
+    # --- Serviceability (Public) ---
+    serviceability = [
+        req("Check Serviceability", "GET", "/api/v1/serviceability/check?restaurantId={{restaurantId}}&latitude=12.97&longitude=77.59&subtotal=500", no_auth=True),
+    ]
+    items.append(folder("11 - Serviceability (Public)", serviceability))
+
+    # --- Platform (Info) ---
+    platform = [
+        req("Platform Status", "GET", "/api/v1/platform/status", no_auth=True),
+    ]
+    items.append(folder("12 - Platform (Info)", platform))
+
+    # --- Delivery Truth ---
+    delivery_truth = [
+        req("Order ETA Detail", "GET", "/api/v1/delivery-truth/orders/{{orderId}}/eta", auth=True),
+    ]
+    items.append(folder("13 - Delivery Truth (ETA)", delivery_truth))
+
     # --- Streams & Webhooks ---
     streams = [
         req("SSE Customer Order", "GET", "/api/v1/orders/stream/customer/{{orderId}}", auth=True,
@@ -367,7 +457,7 @@ def build_collection():
             headers=[{"key": "X-Razorpay-Signature", "value": "{{razorpaySignature}}"}],
             tests="pm.test('signature or processing',()=>pm.expect(pm.response.code).to.be.oneOf([200,400,500]));"),
     ]
-    items.append(folder("09 - Streams & Webhooks", streams))
+    items.append(folder("14 - Streams & Webhooks", streams))
 
     # --- V17 Trust & Compliance ---
     trust_v17 = [
@@ -383,9 +473,38 @@ def build_collection():
         req("Review Moderation Queue", "GET", "/api/v1/admin/reviews/moderation", auth=True),
         req("Moderate Review", "PUT", "/api/v1/admin/reviews/{{reviewId}}/moderate?status=APPROVED", auth=True),
     ]
-    items.append(folder("10 - Trust & Compliance (V17)", trust_v17,
+    items.append(folder("15 - Trust & Compliance (V17)", trust_v17,
                         "GST invoice PDFs, delivery proof OTP/photo, review moderation. "
                         "Login as agent for proof endpoints, customer for invoice PDF, admin for moderation."))
+
+    # --- Admin Scale (V14-V16) ---
+    admin_scale = [
+        # Delivery Zones
+        req("List Delivery Zones", "GET", "/api/v1/admin/zones", auth=True),
+        req("Create Delivery Zone", "POST", "/api/v1/admin/zones", auth=True,
+            body={"name": "Zone 1", "polygon": {"type": "Polygon", "coordinates": [[[77.5, 12.9], [77.6, 12.9], [77.6, 13.0], [77.5, 13.0], [77.5, 12.9]]]}, "deliveryFee": 30, "minOrderAmount": 100, "isActive": True}),
+        req("Update Delivery Zone", "PUT", "/api/v1/admin/zones/{{zoneId}}", auth=True,
+            body={"name": "Zone 1 Updated", "polygon": {"type": "Polygon", "coordinates": [[[77.5, 12.9], [77.6, 12.9], [77.6, 13.0], [77.5, 13.0], [77.5, 12.9]]]}, "deliveryFee": 40, "minOrderAmount": 150, "isActive": True}),
+        req("Delete Delivery Zone", "DELETE", "/api/v1/admin/zones/{{zoneId}}", auth=True),
+        # Promotions - Campaigns
+        req("List Promotion Campaigns", "GET", "/api/v1/admin/promotions/campaigns", auth=True),
+        req("Create Promotion Campaign", "POST", "/api/v1/admin/promotions/campaigns", auth=True,
+            body={"name": "Summer Sale", "description": "Summer discount", "discountType": "PERCENTAGE", "discountValue": 20, "minOrderAmount": 200, "maxDiscount": 100, "startsAt": "2026-06-01T00:00:00", "endsAt": "2026-08-31T23:59:59", "usageLimit": 1000, "applicableRestaurantIds": [1]}),
+        req("Update Promotion Campaign", "PUT", "/api/v1/admin/promotions/campaigns/{{campaignId}}", auth=True,
+            body={"name": "Summer Sale", "description": "Summer discount", "discountType": "PERCENTAGE", "discountValue": 25, "minOrderAmount": 200, "maxDiscount": 150, "startsAt": "2026-06-01T00:00:00", "endsAt": "2026-08-31T23:59:59", "usageLimit": 1000, "applicableRestaurantIds": [1]}),
+        req("Deactivate Promotion Campaign", "DELETE", "/api/v1/admin/promotions/campaigns/{{campaignId}}", auth=True),
+        # Promotions - Banners
+        req("List Promo Banners", "GET", "/api/v1/admin/promotions/banners", auth=True),
+        req("Create Promo Banner", "POST", "/api/v1/admin/promotions/banners", auth=True,
+            body={"imageUrl": "https://example.com/banner.jpg", "targetUrl": "https://example.com", "displayOrder": 1, "startsAt": "2026-06-01T00:00:00", "endsAt": "2026-08-31T23:59:59", "isActive": True}),
+        req("Update Promo Banner", "PUT", "/api/v1/admin/promotions/banners/{{bannerId}}", auth=True,
+            body={"imageUrl": "https://example.com/banner2.jpg", "targetUrl": "https://example.com", "displayOrder": 1, "startsAt": "2026-06-01T00:00:00", "endsAt": "2026-08-31T23:59:59", "isActive": True}),
+        # Settlement & Operations
+        req("Operations Dashboard", "GET", "/api/v1/admin/operations-dashboard", auth=True),
+        req("Trigger Settlement Run", "POST", "/api/v1/admin/settlements/run", auth=True),
+    ]
+    items.append(folder("16 - Admin Scale (V14-V16)", admin_scale,
+                        "Delivery zones, promotion campaigns/banners, settlement automation, operations dashboard."))
 
     # --- E2E Flow (ordered) ---
     e2e_tests = """\
@@ -459,6 +578,11 @@ def build_environment(name, base_url, suffix=""):
             {"key": "reviewId", "value": "1", "enabled": True},
             {"key": "deliveryProofPhotoKey", "value": "", "enabled": True},
             {"key": "couponId", "value": "1", "enabled": True},
+            {"key": "zoneId", "value": "1", "enabled": True},
+            {"key": "campaignId", "value": "1", "enabled": True},
+            {"key": "bannerId", "value": "1", "enabled": True},
+            {"key": "ticketId", "value": "1", "enabled": True},
+            {"key": "batchId", "value": "1", "enabled": True},
         ],
         "_postman_variable_scope": "environment",
     }

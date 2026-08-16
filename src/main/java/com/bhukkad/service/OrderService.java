@@ -9,6 +9,7 @@ import com.bhukkad.dto.response.OrderSummaryResponse;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.entity.Order;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface OrderService {
@@ -22,6 +23,11 @@ public interface OrderService {
     CursorPagedResponse<OrderSummaryResponse> getRestaurantOrdersByCursor(Long restaurantId, String cursor, int size);
     PagedResponse<OrderSummaryResponse> getDeliveryAgentOrders(Long agentId, int page, int size);
     CursorPagedResponse<OrderSummaryResponse> getDeliveryAgentOrdersByCursor(Long agentId, String cursor, int size);
+
+    // Scheduled order management
+    PagedResponse<OrderSummaryResponse> getCustomerScheduledOrders(int page, int size);
+    CursorPagedResponse<OrderSummaryResponse> getCustomerScheduledOrdersByCursor(String cursor, int size);
+    OrderResponse cancelScheduledOrder(Long orderId, String reason);
 
     // Order status management
     OrderResponse updateOrderStatus(Long orderId, Order.OrderStatus status);

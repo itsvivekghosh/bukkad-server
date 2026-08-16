@@ -17,7 +17,10 @@ import org.springframework.context.annotation.Configuration;
         GeoIndexProperties.class,
         StockReservationProperties.class,
         AlertingProperties.class,
-        DeliveryTruthProperties.class
+        DeliveryTruthProperties.class,
+        CommissionTierProperties.class,
+        DynamicPricingProperties.class,
+        GiftCardProperties.class
 })
 public class PlatformEnhancementsConfig {
 }

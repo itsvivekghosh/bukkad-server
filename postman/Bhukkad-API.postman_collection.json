@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "fe5fab68-0ced-4eb3-8e6c-ac0160590076",
+    "_postman_id": "66037dc0-b5e8-4f80-a74a-18a1534c7cb4",
     "name": "Bhukkad API v1",
     "description": "Complete Bhukkad food-delivery backend collection.\n\n**Setup:** Import environment, run `02 - Auth > Login Customer`, then other folders.\n\nTokens auto-save to `accessToken`. Collection pre-request injects Bearer auth.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -1365,6 +1365,41 @@
           ]
         },
         {
+          "name": "Low Stock Items",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/menu/items/restaurant/{{restaurantId}}/low-stock",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Active Coupons",
           "request": {
             "method": "GET",
@@ -1433,6 +1468,41 @@
               }
             }
           ]
+        },
+        {
+          "name": "Menu Item Ratings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/reviews/menu-items/{{menuItemId}}",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1446,6 +1516,42 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/customers/profile",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Profile By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/profile/{{userId}}",
             "description": "",
             "auth": {
               "type": "bearer",
@@ -1668,6 +1774,42 @@
           ]
         },
         {
+          "name": "Wallet Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/wallet/transactions?page=0&size=20",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Loyalty Points",
           "request": {
             "method": "GET",
@@ -1714,6 +1856,42 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/customers/wallet/top-up?amount=100",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add Money to Wallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/wallet/add-money?amount=500",
             "description": "",
             "auth": {
               "type": "bearer",
@@ -1913,6 +2091,465 @@
             "header": [],
             "url": "{{baseUrl}}/api/v1/customers/account",
             "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Referral Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/referral",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Favorites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/favorites",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add Favorite",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/favorites/{{restaurantId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove Favorite",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/favorites/{{restaurantId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/orders/stats",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Notification Preferences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/notification-preferences",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Notification Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/customers/notification-preferences",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emailEnabled\": true,\n  \"smsEnabled\": true,\n  \"pushEnabled\": true,\n  \"whatsappEnabled\": false,\n  \"orderUpdates\": true,\n  \"promotions\": true,\n  \"recommendations\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Support Ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/customers/support/tickets",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Order issue\",\n  \"description\": \"My order was delayed\",\n  \"category\": \"DELIVERY\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Support Tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/support/tickets",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Membership Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/membership/plans",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Membership Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/customers/membership/status",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Subscribe Membership",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/customers/membership/subscribe",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planId\": 1\n}"
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -2347,6 +2984,55 @@
           ]
         },
         {
+          "name": "Create Batch Orders",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/customer/create-batch",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orders\": [\n    {\n      \"restaurantId\": \"{{restaurantId}}\",\n      \"deliveryAddressId\": \"{{addressId}}\",\n      \"paymentMethod\": \"CASH_ON_DELIVERY\",\n      \"items\": [\n        {\n          \"menuItemId\": \"{{menuItemId}}\",\n          \"quantity\": 1\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "My Orders",
           "request": {
             "method": "GET",
@@ -2460,6 +3146,42 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/orders/customer/track/{{orderId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rider Location",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/rider-location",
             "description": "",
             "auth": {
               "type": "bearer",
@@ -2752,6 +3474,51 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"rating\": 5,\n  \"comment\": \"Great food!\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rate Menu Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reviews/menu-items",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"menuItemId\": \"{{menuItemId}}\",\n  \"rating\": 5,\n  \"comment\": \"Delicious!\"\n}"
             },
             "auth": {
               "type": "bearer",
@@ -3139,6 +3906,204 @@
             "header": [],
             "url": "{{baseUrl}}/api/v1/restaurants/owner/{{restaurantId}}/analytics?days=30",
             "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restaurant Settlements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/restaurants/owner/{{restaurantId}}/settlements?page=0&size=20",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Enable Busy Mode",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/restaurants/owner/{{restaurantId}}/busy-mode",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"message\": \"High order volume\",\n  \"estimatedDelayMinutes\": 30\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Disable Busy Mode",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/restaurants/owner/{{restaurantId}}/busy-mode",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restaurant Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/restaurants/owner/{{restaurantId}}/dashboard?days=30",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Respond to Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/restaurants/owner/reviews/{{reviewId}}/response",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"response\": \"Thank you for your feedback!\"\n}"
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -4425,6 +5390,159 @@
               }
             }
           ]
+        },
+        {
+          "name": "Update Order Location",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/delivery/orders/{{orderId}}/location",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 12.97,\n  \"longitude\": 77.59\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Delivery Batch",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/delivery/batches",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Active Batch",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/delivery/batches/active",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Complete Batch",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/delivery/batches/{{batchId}}/complete",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -4865,6 +5983,42 @@
           ]
         },
         {
+          "name": "Set Restaurant Commission",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/restaurants/{{restaurantId}}/commission?percent=20",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create Coupon",
           "request": {
             "method": "POST",
@@ -4961,6 +6115,123 @@
             "header": [],
             "url": "{{baseUrl}}/api/v1/coupons/{{couponId}}",
             "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List All Support Tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/support/tickets",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Ticket Status",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/support/tickets/{{ticketId}}/status?status=RESOLVED&resolutionNotes=Issue resolved",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send Test Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/notifications/test",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel\": \"EMAIL\",\n  \"recipient\": \"test@example.com\",\n  \"message\": \"Test notification\"\n}"
+            },
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -5286,7 +6557,318 @@
       ]
     },
     {
-      "name": "09 - Streams & Webhooks",
+      "name": "09 - Home Feed (Public)",
+      "description": "",
+      "item": [
+        {
+          "name": "Get Banners",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/home/banners",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Campaigns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/home/campaigns",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Home Feed (Composed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/home/feed",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Membership Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/home/membership-plans",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 - Search (Public)",
+      "description": "",
+      "item": [
+        {
+          "name": "Unified Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/search?keyword=biryani",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "11 - Serviceability (Public)",
+      "description": "",
+      "item": [
+        {
+          "name": "Check Serviceability",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/serviceability/check?restaurantId={{restaurantId}}&latitude=12.97&longitude=77.59&subtotal=500",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "12 - Platform (Info)",
+      "description": "",
+      "item": [
+        {
+          "name": "Platform Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/platform/status",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('noAuth', 'true');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "13 - Delivery Truth (ETA)",
+      "description": "",
+      "item": [
+        {
+          "name": "Order ETA Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/delivery-truth/orders/{{orderId}}/eta",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "14 - Streams & Webhooks",
       "description": "",
       "item": [
         {
@@ -5453,7 +7035,7 @@
       ]
     },
     {
-      "name": "10 - Trust & Compliance (V17)",
+      "name": "15 - Trust & Compliance (V17)",
       "description": "GST invoice PDFs, delivery proof OTP/photo, review moderation. Login as agent for proof endpoints, customer for invoice PDF, admin for moderation.",
       "item": [
         {
@@ -5686,6 +7268,534 @@
             "method": "PUT",
             "header": [],
             "url": "{{baseUrl}}/api/v1/admin/reviews/{{reviewId}}/moderate?status=APPROVED",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "16 - Admin Scale (V14-V16)",
+      "description": "Delivery zones, promotion campaigns/banners, settlement automation, operations dashboard.",
+      "item": [
+        {
+          "name": "List Delivery Zones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/zones",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Delivery Zone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/zones",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Zone 1\",\n  \"polygon\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          77.5,\n          12.9\n        ],\n        [\n          77.6,\n          12.9\n        ],\n        [\n          77.6,\n          13.0\n        ],\n        [\n          77.5,\n          13.0\n        ],\n        [\n          77.5,\n          12.9\n        ]\n      ]\n    ]\n  },\n  \"deliveryFee\": 30,\n  \"minOrderAmount\": 100,\n  \"isActive\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Delivery Zone",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/zones/{{zoneId}}",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Zone 1 Updated\",\n  \"polygon\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          77.5,\n          12.9\n        ],\n        [\n          77.6,\n          12.9\n        ],\n        [\n          77.6,\n          13.0\n        ],\n        [\n          77.5,\n          13.0\n        ],\n        [\n          77.5,\n          12.9\n        ]\n      ]\n    ]\n  },\n  \"deliveryFee\": 40,\n  \"minOrderAmount\": 150,\n  \"isActive\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Delivery Zone",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/zones/{{zoneId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Promotion Campaigns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/campaigns",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Promotion Campaign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/campaigns",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Summer Sale\",\n  \"description\": \"Summer discount\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 20,\n  \"minOrderAmount\": 200,\n  \"maxDiscount\": 100,\n  \"startsAt\": \"2026-06-01T00:00:00\",\n  \"endsAt\": \"2026-08-31T23:59:59\",\n  \"usageLimit\": 1000,\n  \"applicableRestaurantIds\": [\n    1\n  ]\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Promotion Campaign",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/campaigns/{{campaignId}}",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Summer Sale\",\n  \"description\": \"Summer discount\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 25,\n  \"minOrderAmount\": 200,\n  \"maxDiscount\": 150,\n  \"startsAt\": \"2026-06-01T00:00:00\",\n  \"endsAt\": \"2026-08-31T23:59:59\",\n  \"usageLimit\": 1000,\n  \"applicableRestaurantIds\": [\n    1\n  ]\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate Promotion Campaign",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/campaigns/{{campaignId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Promo Banners",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/banners",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Promo Banner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/banners",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"imageUrl\": \"https://example.com/banner.jpg\",\n  \"targetUrl\": \"https://example.com\",\n  \"displayOrder\": 1,\n  \"startsAt\": \"2026-06-01T00:00:00\",\n  \"endsAt\": \"2026-08-31T23:59:59\",\n  \"isActive\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Promo Banner",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/promotions/banners/{{bannerId}}",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"imageUrl\": \"https://example.com/banner2.jpg\",\n  \"targetUrl\": \"https://example.com\",\n  \"displayOrder\": 1,\n  \"startsAt\": \"2026-06-01T00:00:00\",\n  \"endsAt\": \"2026-08-31T23:59:59\",\n  \"isActive\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Operations Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/operations-dashboard",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 2xx', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]));",
+                  "const json = pm.response.json();",
+                  "pm.test('success envelope', () => {",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trigger Settlement Run",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/settlements/run",
             "description": "",
             "auth": {
               "type": "bearer",

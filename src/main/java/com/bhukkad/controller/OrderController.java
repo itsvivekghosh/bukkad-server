@@ -29,12 +29,16 @@ import com.bhukkad.service.OrderService;
 import com.bhukkad.util.PaginationUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/orders")
@@ -90,6 +94,34 @@ public class OrderController {
         }
         OrderResponse order = orderService.createOrder(request, idempotencyKey);
         return ResponseEntity.ok(ApiResponse.success("Order placed successfully", order));
+    }
+
+    @GetMapping("/customer/scheduled-orders")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyScheduledOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PagedResponse<OrderSummaryResponse> orders = orderService.getCustomerScheduledOrders(page, size);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    @GetMapping("/customer/scheduled-orders/cursor")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyScheduledOrdersByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                orderService.getCustomerScheduledOrdersByCursor(cursor, size);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    @PutMapping("/customer/scheduled-orders/{orderId}/cancel")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<OrderResponse>> cancelScheduledOrder(
+            @PathVariable Long orderId,
+            @RequestParam String reason) {
+        OrderResponse order = orderService.cancelScheduledOrder(orderId, reason);
+        return ResponseEntity.ok(ApiResponse.success("Scheduled order cancelled successfully", order));
     }
 
     @PostMapping("/customer/create-batch")
@@ -165,6 +197,36 @@ public class OrderController {
             @PathVariable Long orderId) {
         ReorderResponse response = cartService.reorderFromOrder(orderId);
         return ResponseEntity.ok(ApiResponse.success("Items added to cart", response));
+    }
+
+    private String exportOrdersToCsv(List<OrderSummaryResponse> orders) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Order Number,Customer,Restaurant,Status,Total,Date\n");
+        for (OrderSummaryResponse order : orders) {
+            sb.append(order.getOrderNumber()).append(",");
+            sb.append(order.getCustomerName()).append(",");
+            sb.append(order.getRestaurantName()).append(",");
+            sb.append(order.getStatus()).append(",");
+            sb.append(order.getTotalAmount()).append(",");
+            sb.append(order.getCreatedAt().toString()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    @GetMapping("/customer/export/orders")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<byte[]> exportOrderHistory(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        Long customerId = securityUtils.getCurrentUserId();
+        PagedResponse<OrderSummaryResponse> pagedOrders = orderService.getCustomerOrders(page, size);
+        String csv = exportOrdersToCsv(pagedOrders.getItems());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentDispositionFormData("attachment", "bhukkad-orders-" + LocalDate.now() + ".csv");
+        headers.setContentType(MediaType.parseMediaType("text/csv;charset=UTF-8"));
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(csv.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @PutMapping("/customer/{orderId}/cancel")

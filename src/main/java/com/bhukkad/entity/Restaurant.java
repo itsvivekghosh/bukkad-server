@@ -57,7 +57,7 @@ public class Restaurant {
     private Address address;
 
     @JsonIgnore
-    @ManyToMany(fetch = FetchType.LAZY)
+    @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "restaurant_cuisines",
             joinColumns = @JoinColumn(name = "restaurant_id"),
@@ -130,6 +130,9 @@ public class Restaurant {
     @CollectionTable(name = "restaurant_features", joinColumns = @JoinColumn(name = "restaurant_id"))
     @Column(name = "feature", length = 100)
     private Set<String> features = new HashSet<>();
+
+    @Column(length = 100)
+    private String virtualBrandName;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "restaurant_gallery", joinColumns = @JoinColumn(name = "restaurant_id"))

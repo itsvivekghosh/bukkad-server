@@ -1,5 +1,9 @@
 package com.bhukkad.cache;
 
+import com.bhukkad.entity.MenuItem;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 public final class CacheKeyGenerator {
 
     private CacheKeyGenerator() {}
@@ -124,6 +128,13 @@ public final class CacheKeyGenerator {
 
     public static String menuSearch(String keyword) {
         return CacheConstants.MENU_SEARCH + CacheConstants.KEY_SEPARATOR + keyword.toLowerCase().trim();
+    }
+
+    public static String menuItemsByDiet(Long restaurantId, MenuItem.FoodType foodType, Set<String> excludeAllergens, MenuItem.SpiceLevel maxSpiceLevel) {
+        String allergensPart = (excludeAllergens == null || excludeAllergens.isEmpty()) ? "none" : excludeAllergens.stream().sorted().collect(Collectors.joining(","));
+        String foodTypePart = foodType != null ? foodType.name() : "any";
+        String spicePart = maxSpiceLevel != null ? maxSpiceLevel.name() : "any";
+        return CacheConstants.MENU_ITEM_LIST + CacheConstants.KEY_SEPARATOR + "diet:" + restaurantId + ":" + foodTypePart + ":" + allergensPart + ":" + spicePart;
     }
 
     public static String restaurantNearby(double latitude, double longitude, double radiusKm) {

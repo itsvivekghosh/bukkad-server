@@ -35,4 +35,5 @@ public class RestaurantResponse {
     private Boolean isPureVeg;
     private Set<String> foodTypes;
     private Set<String> features;
+    private String virtualBrandName;
 }

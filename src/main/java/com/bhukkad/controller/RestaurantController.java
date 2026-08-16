@@ -1,7 +1,7 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.config.ApiPaths;
-
+import com.bhukkad.cache.http.HttpCacheSupport;
 import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.dto.request.ReviewResponseRequest;
@@ -20,10 +20,13 @@ import com.bhukkad.service.ReviewService;
 import com.bhukkad.settlement.RestaurantSettlementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -37,18 +40,46 @@ public class RestaurantController {
     private final RestaurantBusyService restaurantBusyService;
     private final RestaurantDashboardService restaurantDashboardService;
     private final ReviewService reviewService;
+    private final HttpCacheSupport httpCacheSupport;
 
     // Public endpoints
     @GetMapping("/public")
-    public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getAllRestaurants() {
+    public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getAllRestaurants(
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
+            @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince) {
         List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants();
-        return ResponseEntity.ok(ApiResponse.success(restaurants));
+        ApiResponse<List<RestaurantResponse>> body = ApiResponse.success(restaurants);
+
+        HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
+                com.bhukkad.cache.CacheKeyGenerator.restaurantList(),
+                body.toString());
+        String etag = headers.getETag();
+
+        if (httpCacheSupport.isNotModified(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304).build();
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @GetMapping("/public/{id}")
-    public ResponseEntity<ApiResponse<RestaurantResponse>> getRestaurantById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<RestaurantResponse>> getRestaurantById(
+            @PathVariable Long id,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
+            @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince) {
         RestaurantResponse restaurant = restaurantService.getRestaurantById(id);
-        return ResponseEntity.ok(ApiResponse.success(restaurant));
+        ApiResponse<RestaurantResponse> body = ApiResponse.success(restaurant);
+
+        HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
+                com.bhukkad.cache.CacheKeyGenerator.restaurant(id),
+                body.toString());
+        String etag = headers.getETag();
+
+        if (httpCacheSupport.isNotModified(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304).build();
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @GetMapping("/public/search")

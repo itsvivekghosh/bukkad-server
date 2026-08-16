@@ -1,5 +1,6 @@
 package com.bhukkad.live;
 
+import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.ResourceNotFoundException;
@@ -21,7 +22,7 @@ public class OrderLiveAccessService {
             return false;
         }
         Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId).orElse(null);
-        return restaurant != null && restaurant.getOwner().getId().equals(user.getId());
+        return restaurant != null && restaurant.getOwner() != null && restaurant.getOwner().getId().equals(user.getId());
     }
 
     public boolean canSubscribeRider(User user, Long agentId) {
@@ -38,13 +39,25 @@ public class OrderLiveAccessService {
     }
 
     public void verifyKitchenAccess(User user, Long restaurantId) {
-        if (!canSubscribeKitchen(user, restaurantId)) {
+        if (user.getRole() != User.UserRole.RESTAURANT_OWNER) {
+            throw new UnauthorizedException("Only restaurant owners can access kitchen stream");
+        }
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId).orElse(null);
+        if (restaurant == null) {
             throw new ResourceNotFoundException("Restaurant not found");
+        }
+        if (restaurant.getOwner() == null || !restaurant.getOwner().getId().equals(user.getId())) {
+            throw new UnauthorizedException("You don't own this restaurant");
         }
     }
 
     public void verifyCustomerAccess(User user, Long orderId) {
-        if (!canSubscribeCustomer(user, orderId)) {
+        if (user.getRole() != User.UserRole.CUSTOMER) {
+            throw new UnauthorizedException("Only customers can access order stream");
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+        if (!order.getCustomer().getId().equals(user.getId())) {
             throw new UnauthorizedException("You can only track your own orders");
         }
     }

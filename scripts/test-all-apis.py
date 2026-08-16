@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import secrets
 import sys
@@ -32,12 +33,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+from http.client import IncompleteRead
+from socket import timeout as SocketTimeoutError
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 # Allow running from repo root or scripts/
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api_catalog import API_CATALOG, BODY_TEMPLATES  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 AUTH_MAP = {
     "customer": "customer_token",
@@ -196,12 +201,26 @@ def http_request(
     body: bytes | None,
     timeout: int,
 ) -> tuple[int, str, dict[str, str]]:
+    is_sse = headers.get("Accept", "") == "text/event-stream"
+    # For SSE streams, use a short timeout to avoid hanging on long-lived connections
+    effective_timeout = 5 if is_sse else timeout
+
     req = Request(url, data=body, method=method.upper())
     for key, value in headers.items():
         req.add_header(key, value)
+    if body is not None and "Content-Type" not in headers:
+        req.add_header("Content-Type", "application/json")
     try:
-        with urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
+        with urlopen(req, timeout=effective_timeout) as resp:
+            try:
+                raw = resp.read().decode("utf-8", errors="replace")
+            except IncompleteRead as e:
+                # SSE streams send chunked data; partial read is fine for testing
+                partial = e.partial
+                raw = partial.decode("utf-8", errors="replace") if isinstance(partial, bytes) else str(partial or "")
+            except SocketTimeoutError:
+                # SSE streams are long-lived; a read timeout is expected and acceptable
+                raw = ""
             return resp.status, raw, dict(resp.headers)
     except HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
@@ -221,10 +240,9 @@ def run_test(
     group = spec.get("group", "General")
     description = spec.get("description", "")
     method = spec["method"]
-    path = resolve_string(spec["path"], state)
-    url = base_url.rstrip("/") + path
 
-    # Skip if required state missing
+    # Skip if required state missing (before URL construction so unresolved
+    # placeholders do not produce malformed request targets).
     for req_key in spec.get("requires", []):
         if req_key.endswith("_token"):
             if req_key not in state.tokens or not state.tokens.get(req_key):
@@ -233,7 +251,7 @@ def run_test(
                     group=group,
                     description=description,
                     method=method,
-                    url=url,
+                    url="",
                     request_headers={},
                     request_body=None,
                     status_code=None,
@@ -248,7 +266,7 @@ def run_test(
                 group=group,
                 description=description,
                 method=method,
-                url=url,
+                url="",
                 request_headers={},
                 request_body=None,
                 status_code=None,
@@ -257,6 +275,20 @@ def run_test(
                 skipped=True,
                 skip_reason=f"Missing required state: {req_key}",
             )
+
+    path = resolve_string(spec["path"], state)
+    url = base_url.rstrip("/") + path
+
+    # Append query parameters if present
+    query_params = spec.get("query")
+    if query_params:
+        resolved_query = resolve_value(query_params, state)
+        query_parts = []
+        for key, value in resolved_query.items():
+            if value is not None and str(value) != "":
+                query_parts.append(f"{key}={value}")
+        if query_parts:
+            url += "?" + "&".join(query_parts)
 
     headers: dict[str, str] = {"Accept": "application/json"}
     content_type = spec.get("content_type", "json")
@@ -304,6 +336,26 @@ def run_test(
         duration_ms = int((time.perf_counter() - start) * 1000)
         expected = spec.get("expected", [200])
         passed = status in expected
+
+        # Enhanced: Handle specific error cases for better diagnostics
+        if not passed:
+            if status == 500:
+                # Try to extract error message from response
+                try:
+                    parsed = json.loads(response_text)
+                    error_msg = parsed.get("message", "Internal Server Error")
+                    if "An unexpected error occurred" in error_msg:
+                        error_msg = f"Potential defect: {error_msg}"
+                except json.JSONDecodeError:
+                    error_msg = f"HTTP 500: {response_text[:200]}"
+                logger.warning(f"Test '{name}' returned 500: {error_msg}")
+            elif status == 400:
+                try:
+                    parsed = json.loads(response_text)
+                    error_msg = parsed.get("message", "Bad Request")
+                except json.JSONDecodeError:
+                    error_msg = f"HTTP 400: {response_text[:200]}"
+                logger.warning(f"Test '{name}' returned 400: {error_msg}")
 
         # Extract state from response
         if passed and spec.get("extract"):
@@ -451,6 +503,23 @@ def register_or_login(
     }
     result = run_test(login_spec, base_url, state, timeout, verbose=False)
     return result.passed
+
+
+def bootstrap_restaurant_id(base_url: str, state: RunState, timeout: int) -> None:
+    """Fetch the first public restaurant id for tests that need a seed restaurant."""
+    if state.vars.get("restaurant_id"):
+        return
+    spec = {
+        "name": "_bootstrap_restaurant_id",
+        "method": "GET",
+        "path": "/api/v1/restaurants/public?page=0&size=1",
+        "auth": None,
+        "expected": [200],
+        "extract": {"restaurant_id": "data.0.id"},
+    }
+    result = run_test(spec, base_url, state, timeout, verbose=False)
+    if not result.passed:
+        print(f"  {YELLOW}↳ Could not bootstrap restaurant_id — serviceability and restaurant tests may be skipped.{RESET}")
 
 
 def bootstrap_accounts(
@@ -659,6 +728,14 @@ def main() -> int:
     parser.add_argument("--no-report", action="store_true", help="Skip writing report files")
     args = parser.parse_args()
 
+    # Configure logging
+    log_level = logging.DEBUG if args.verbose else logging.WARNING
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S"
+    )
+
     state = RunState()
     state.init_defaults(args.password)
 
@@ -676,6 +753,11 @@ def main() -> int:
             args.admin_email,
             args.admin_password,
         )
+        bootstrap_restaurant_id(
+            args.base_url,
+            state,
+            args.timeout,
+        )
 
     current_group = None
     for spec in API_CATALOG:
@@ -687,7 +769,7 @@ def main() -> int:
             print_section(group)
             current_group = group
 
-        if spec["name"] in ("Batch Checkout", "Create Scheduled Order"):
+        if spec["name"] in ("Batch Checkout", "Create Scheduled Order", "Apply Coupon to Cart"):
             refill_cart_for_order_tests(args.base_url, state, args.timeout)
 
         result = run_test(spec, args.base_url, state, args.timeout, args.verbose)

@@ -232,6 +232,11 @@ curl -s -X GET "$BASE/api/v1/menu/items/search?keyword=biryani&restaurantId=${re
 curl -s -X GET "$BASE/api/v1/menu/categories/restaurant/${restaurantId}" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Low Stock Items
+```bash
+curl -s -X GET "$BASE/api/v1/menu/items/restaurant/${restaurantId}/low-stock" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 ### Active Coupons
 ```bash
 curl -s -X GET "$BASE/api/v1/coupons/active" \
@@ -242,11 +247,21 @@ curl -s -X GET "$BASE/api/v1/coupons/active" \
 curl -s -X GET "$BASE/api/v1/reviews/restaurant/${restaurantId}" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Menu Item Ratings
+```bash
+curl -s -X GET "$BASE/api/v1/reviews/menu-items/${menuItemId}" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 
 ## 04 - Customer
 ### Get Profile
 ```bash
 curl -s -X GET "$BASE/api/v1/customers/profile" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Profile By ID
+```bash
+curl -s -X GET "$BASE/api/v1/customers/profile/${userId}" \
   -H 'Authorization: Bearer $TOKEN'
 ```
 ### Update Profile
@@ -285,6 +300,11 @@ curl -s -X PUT "$BASE/api/v1/customers/addresses/${addressId}/set-default" \
 curl -s -X GET "$BASE/api/v1/customers/wallet/balance" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Wallet Transactions
+```bash
+curl -s -X GET "$BASE/api/v1/customers/wallet/transactions?page=0&size=20" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 ### Loyalty Points
 ```bash
 curl -s -X GET "$BASE/api/v1/customers/loyalty-points" \
@@ -293,6 +313,11 @@ curl -s -X GET "$BASE/api/v1/customers/loyalty-points" \
 ### Wallet Top-Up Initiate
 ```bash
 curl -s -X POST "$BASE/api/v1/customers/wallet/top-up?amount=100" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Add Money to Wallet
+```bash
+curl -s -X POST "$BASE/api/v1/customers/wallet/add-money?amount=500" \
   -H 'Authorization: Bearer $TOKEN'
 ```
 ### Register Device Token
@@ -335,6 +360,86 @@ curl -s -X DELETE "$BASE/api/v1/customers/addresses/${addressId}" \
 ```bash
 curl -s -X DELETE "$BASE/api/v1/customers/account" \
   -H 'Authorization: Bearer $TOKEN'
+```
+### Get Referral Info
+```bash
+curl -s -X GET "$BASE/api/v1/customers/referral" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### List Favorites
+```bash
+curl -s -X GET "$BASE/api/v1/customers/favorites" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Add Favorite
+```bash
+curl -s -X POST "$BASE/api/v1/customers/favorites/${restaurantId}" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Remove Favorite
+```bash
+curl -s -X DELETE "$BASE/api/v1/customers/favorites/${restaurantId}" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Order Stats
+```bash
+curl -s -X GET "$BASE/api/v1/customers/orders/stats" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Notification Preferences
+```bash
+curl -s -X GET "$BASE/api/v1/customers/notification-preferences" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Update Notification Preferences
+```bash
+curl -s -X PUT "$BASE/api/v1/customers/notification-preferences" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "emailEnabled": true,
+  "smsEnabled": true,
+  "pushEnabled": true,
+  "whatsappEnabled": false,
+  "orderUpdates": true,
+  "promotions": true,
+  "recommendations": true
+}'
+```
+### Create Support Ticket
+```bash
+curl -s -X POST "$BASE/api/v1/customers/support/tickets" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "subject": "Order issue",
+  "description": "My order was delayed",
+  "category": "DELIVERY"
+}'
+```
+### List Support Tickets
+```bash
+curl -s -X GET "$BASE/api/v1/customers/support/tickets" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### List Membership Plans
+```bash
+curl -s -X GET "$BASE/api/v1/customers/membership/plans" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Membership Status
+```bash
+curl -s -X GET "$BASE/api/v1/customers/membership/status" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Subscribe Membership
+```bash
+curl -s -X POST "$BASE/api/v1/customers/membership/subscribe" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "planId": 1
+}'
 ```
 ### Get Cart
 ```bash
@@ -413,6 +518,27 @@ curl -s -X POST "$BASE/api/v1/orders/customer/create?async=true" \
 curl -s -X GET "$BASE/api/v1/orders/customer/create/jobs/${jobId}" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Create Batch Orders
+```bash
+curl -s -X POST "$BASE/api/v1/orders/customer/create-batch" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "orders": [
+    {
+      "restaurantId": "${restaurantId}",
+      "deliveryAddressId": "${addressId}",
+      "paymentMethod": "CASH_ON_DELIVERY",
+      "items": [
+        {
+          "menuItemId": "${menuItemId}",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}'
+```
 ### My Orders
 ```bash
 curl -s -X GET "$BASE/api/v1/orders/customer/my-orders?page=0&size=20" \
@@ -431,6 +557,11 @@ curl -s -X GET "$BASE/api/v1/orders/customer/${orderId}" \
 ### Track Order
 ```bash
 curl -s -X GET "$BASE/api/v1/orders/customer/track/${orderId}" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Rider Location
+```bash
+curl -s -X GET "$BASE/api/v1/orders/${orderId}/rider-location" \
   -H 'Authorization: Bearer $TOKEN'
 ```
 ### Order Timeline
@@ -477,6 +608,17 @@ curl -s -X POST "$BASE/api/v1/reviews" \
   "orderId": "${orderId}",
   "rating": 5,
   "comment": "Great food!"
+}'
+```
+### Rate Menu Item
+```bash
+curl -s -X POST "$BASE/api/v1/reviews/menu-items" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "menuItemId": "${menuItemId}",
+  "rating": 5,
+  "comment": "Delicious!"
 }'
 ```
 ### My Reviews
@@ -570,6 +712,41 @@ curl -s -X PUT "$BASE/api/v1/restaurants/owner/${restaurantId}/toggle-status?isO
 ```bash
 curl -s -X GET "$BASE/api/v1/restaurants/owner/${restaurantId}/analytics?days=30" \
   -H 'Authorization: Bearer $TOKEN'
+```
+### Restaurant Settlements
+```bash
+curl -s -X GET "$BASE/api/v1/restaurants/owner/${restaurantId}/settlements?page=0&size=20" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Enable Busy Mode
+```bash
+curl -s -X PUT "$BASE/api/v1/restaurants/owner/${restaurantId}/busy-mode" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "enabled": true,
+  "message": "High order volume",
+  "estimatedDelayMinutes": 30
+}'
+```
+### Disable Busy Mode
+```bash
+curl -s -X DELETE "$BASE/api/v1/restaurants/owner/${restaurantId}/busy-mode" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Restaurant Dashboard
+```bash
+curl -s -X GET "$BASE/api/v1/restaurants/owner/${restaurantId}/dashboard?days=30" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Respond to Review
+```bash
+curl -s -X POST "$BASE/api/v1/restaurants/owner/reviews/${reviewId}/response" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "response": "Thank you for your feedback!"
+}'
 ```
 ### Create Category
 ```bash
@@ -781,6 +958,31 @@ curl -s -X GET "$BASE/api/v1/delivery/delivery-history" \
 curl -s -X POST "$BASE/api/v1/delivery/${orderId}/reject" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Update Order Location
+```bash
+curl -s -X POST "$BASE/api/v1/delivery/orders/${orderId}/location" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "latitude": 12.97,
+  "longitude": 77.59
+}'
+```
+### Create Delivery Batch
+```bash
+curl -s -X POST "$BASE/api/v1/delivery/batches" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Active Batch
+```bash
+curl -s -X GET "$BASE/api/v1/delivery/batches/active" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Complete Batch
+```bash
+curl -s -X PUT "$BASE/api/v1/delivery/batches/${batchId}/complete" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 
 ## 07 - Admin
 ### Dashboard
@@ -843,6 +1045,11 @@ curl -s -X PUT "$BASE/api/v1/admin/restaurants/${restaurantId}/approve" \
 curl -s -X PUT "$BASE/api/v1/admin/restaurants/${restaurantId}/suspend" \
   -H 'Authorization: Bearer $TOKEN'
 ```
+### Set Restaurant Commission
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/restaurants/${restaurantId}/commission?percent=20" \
+  -H 'Authorization: Bearer $TOKEN'
+```
 ### Create Coupon
 ```bash
 curl -s -X POST "$BASE/api/v1/coupons" \
@@ -875,6 +1082,27 @@ curl -s -X PUT "$BASE/api/v1/coupons/${couponId}" \
 ```bash
 curl -s -X DELETE "$BASE/api/v1/coupons/${couponId}" \
   -H 'Authorization: Bearer $TOKEN'
+```
+### List All Support Tickets
+```bash
+curl -s -X GET "$BASE/api/v1/admin/support/tickets" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Update Ticket Status
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/support/tickets/${ticketId}/status?status=RESOLVED&resolutionNotes=Issue resolved" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Send Test Notification
+```bash
+curl -s -X POST "$BASE/api/v1/admin/notifications/test" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "channel": "EMAIL",
+  "recipient": "test@example.com",
+  "message": "Test notification"
+}'
 ```
 ### Review Moderation Queue
 ```bash
@@ -919,7 +1147,57 @@ curl -s -X DELETE "$BASE/api/v1/cache/clear/restaurants*" \
   -H 'Authorization: Bearer $TOKEN'
 ```
 
-## 09 - Streams & Webhooks
+## 09 - Home Feed (Public)
+### Get Banners
+```bash
+curl -s -X GET "$BASE/api/v1/home/banners" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Campaigns
+```bash
+curl -s -X GET "$BASE/api/v1/home/campaigns" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Home Feed (Composed)
+```bash
+curl -s -X GET "$BASE/api/v1/home/feed" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Get Membership Plans
+```bash
+curl -s -X GET "$BASE/api/v1/home/membership-plans" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+
+## 10 - Search (Public)
+### Unified Search
+```bash
+curl -s -X GET "$BASE/api/v1/search?keyword=biryani" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+
+## 11 - Serviceability (Public)
+### Check Serviceability
+```bash
+curl -s -X GET "$BASE/api/v1/serviceability/check?restaurantId=${restaurantId}&latitude=12.97&longitude=77.59&subtotal=500" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+
+## 12 - Platform (Info)
+### Platform Status
+```bash
+curl -s -X GET "$BASE/api/v1/platform/status" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+
+## 13 - Delivery Truth (ETA)
+### Order ETA Detail
+```bash
+curl -s -X GET "$BASE/api/v1/delivery-truth/orders/${orderId}/eta" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+
+## 14 - Streams & Webhooks
 ### SSE Customer Order
 ```bash
 curl -s -X GET "$BASE/api/v1/orders/stream/customer/${orderId}" \
@@ -946,7 +1224,7 @@ curl -s -X POST "$BASE/api/v1/payments/webhooks/razorpay" \
 }'
 ```
 
-## 10 - Trust & Compliance (V17)
+## 15 - Trust & Compliance (V17)
 ### Issue Delivery Proof OTP
 ```bash
 curl -s -X POST "$BASE/api/v1/orders/delivery/${orderId}/proof/otp" \
@@ -988,6 +1266,189 @@ curl -s -X GET "$BASE/api/v1/admin/reviews/moderation" \
 ### Moderate Review
 ```bash
 curl -s -X PUT "$BASE/api/v1/admin/reviews/${reviewId}/moderate?status=APPROVED" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+
+## 16 - Admin Scale (V14-V16)
+### List Delivery Zones
+```bash
+curl -s -X GET "$BASE/api/v1/admin/zones" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Create Delivery Zone
+```bash
+curl -s -X POST "$BASE/api/v1/admin/zones" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "name": "Zone 1",
+  "polygon": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          77.5,
+          12.9
+        ],
+        [
+          77.6,
+          12.9
+        ],
+        [
+          77.6,
+          13.0
+        ],
+        [
+          77.5,
+          13.0
+        ],
+        [
+          77.5,
+          12.9
+        ]
+      ]
+    ]
+  },
+  "deliveryFee": 30,
+  "minOrderAmount": 100,
+  "isActive": true
+}'
+```
+### Update Delivery Zone
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/zones/${zoneId}" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "name": "Zone 1 Updated",
+  "polygon": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          77.5,
+          12.9
+        ],
+        [
+          77.6,
+          12.9
+        ],
+        [
+          77.6,
+          13.0
+        ],
+        [
+          77.5,
+          13.0
+        ],
+        [
+          77.5,
+          12.9
+        ]
+      ]
+    ]
+  },
+  "deliveryFee": 40,
+  "minOrderAmount": 150,
+  "isActive": true
+}'
+```
+### Delete Delivery Zone
+```bash
+curl -s -X DELETE "$BASE/api/v1/admin/zones/${zoneId}" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### List Promotion Campaigns
+```bash
+curl -s -X GET "$BASE/api/v1/admin/promotions/campaigns" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Create Promotion Campaign
+```bash
+curl -s -X POST "$BASE/api/v1/admin/promotions/campaigns" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "name": "Summer Sale",
+  "description": "Summer discount",
+  "discountType": "PERCENTAGE",
+  "discountValue": 20,
+  "minOrderAmount": 200,
+  "maxDiscount": 100,
+  "startsAt": "2026-06-01T00:00:00",
+  "endsAt": "2026-08-31T23:59:59",
+  "usageLimit": 1000,
+  "applicableRestaurantIds": [
+    1
+  ]
+}'
+```
+### Update Promotion Campaign
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/promotions/campaigns/${campaignId}" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "name": "Summer Sale",
+  "description": "Summer discount",
+  "discountType": "PERCENTAGE",
+  "discountValue": 25,
+  "minOrderAmount": 200,
+  "maxDiscount": 150,
+  "startsAt": "2026-06-01T00:00:00",
+  "endsAt": "2026-08-31T23:59:59",
+  "usageLimit": 1000,
+  "applicableRestaurantIds": [
+    1
+  ]
+}'
+```
+### Deactivate Promotion Campaign
+```bash
+curl -s -X DELETE "$BASE/api/v1/admin/promotions/campaigns/${campaignId}" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### List Promo Banners
+```bash
+curl -s -X GET "$BASE/api/v1/admin/promotions/banners" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Create Promo Banner
+```bash
+curl -s -X POST "$BASE/api/v1/admin/promotions/banners" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "imageUrl": "https://example.com/banner.jpg",
+  "targetUrl": "https://example.com",
+  "displayOrder": 1,
+  "startsAt": "2026-06-01T00:00:00",
+  "endsAt": "2026-08-31T23:59:59",
+  "isActive": true
+}'
+```
+### Update Promo Banner
+```bash
+curl -s -X PUT "$BASE/api/v1/admin/promotions/banners/${bannerId}" \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer $TOKEN' \
+  -d '{
+  "imageUrl": "https://example.com/banner2.jpg",
+  "targetUrl": "https://example.com",
+  "displayOrder": 1,
+  "startsAt": "2026-06-01T00:00:00",
+  "endsAt": "2026-08-31T23:59:59",
+  "isActive": true
+}'
+```
+### Operations Dashboard
+```bash
+curl -s -X GET "$BASE/api/v1/admin/operations-dashboard" \
+  -H 'Authorization: Bearer $TOKEN'
+```
+### Trigger Settlement Run
+```bash
+curl -s -X POST "$BASE/api/v1/admin/settlements/run" \
   -H 'Authorization: Bearer $TOKEN'
 ```
 

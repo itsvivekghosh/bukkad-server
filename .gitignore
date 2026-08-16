@@ -44,3 +44,21 @@ logs/
 
 # Target
 target/
+
+# Backup files
+*.backup
+*.backup2
+*.orig
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Windows-specific files
+mvnw.cmd

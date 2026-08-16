@@ -389,6 +389,66 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @UseReadReplica
+    public PagedResponse<OrderSummaryResponse> getCustomerScheduledOrders(int page, int size) {
+        Long customerId = securityUtils.getCurrentUserId();
+        Page<OrderSummaryResponse> orders = orderRepository.findCustomerScheduledOrderSummaries(
+                customerId,
+                PaginationUtils.page(page, size, Sort.by(Sort.Direction.ASC, "scheduledAt")));
+        return PagedResponse.from(orders);
+    }
+
+    @Override
+    @UseReadReplica
+    public CursorPagedResponse<OrderSummaryResponse> getCustomerScheduledOrdersByCursor(String cursor, int size) {
+        Long customerId = securityUtils.getCurrentUserId();
+        CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor).orElse(null);
+        int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
+        List<OrderSummaryResponse> batch = orderRepository.findCustomerScheduledOrderSummariesAfterCursor(
+                customerId,
+                orderCursor != null ? orderCursor.createdAt() : null,
+                orderCursor != null ? orderCursor.id() : null,
+                PageRequest.of(0, safeSize + 1));
+        return toCursorPage(batch, safeSize);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse cancelScheduledOrder(Long orderId, String reason) {
+        Order order = findOrderOrThrow(orderId);
+        verifyCustomerOwnsOrder(order);
+
+        if (order.getStatus() != Order.OrderStatus.SCHEDULED) {
+            throw new BusinessException("Only scheduled orders can be cancelled via this endpoint");
+        }
+
+        order.setCancellationReason(reason);
+        order.setCancelledBy(User.UserRole.CUSTOMER.name());
+
+        OrderResponse response = saveWithStatusChange(order, Order.OrderStatus.CANCELLED);
+
+        Customer customer = order.getCustomer();
+        if (order.getLoyaltyPointsRedeemed() != null && order.getLoyaltyPointsRedeemed() > 0) {
+            customer.setLoyaltyPoints(customer.getLoyaltyPoints() + order.getLoyaltyPointsRedeemed());
+            customerRepository.save(customer);
+        }
+
+        Payment payment = order.getPayment();
+        if (payment != null && payment.getStatus() == Payment.PaymentStatus.COMPLETED) {
+            try {
+                paymentService.refundPayment(payment.getId());
+            } catch (Exception ex) {
+                log.warn("Failed to refund payment for cancelled order | orderId={} | paymentId={}", order.getId(), payment != null ? payment.getId() : null, ex);
+                // Continue with cancellation even if refund fails
+            }
+        }
+
+        orderMetrics.orderCancelled();
+        log.info("Scheduled order cancelled | orderId={} | reason={}", orderId, reason);
+        return response;
+    }
+
+    @Override
+    @UseReadReplica
     public CursorPagedResponse<OrderSummaryResponse> getCustomerOrdersByCursor(String cursor, int size) {
         Long customerId = securityUtils.getCurrentUserId();
         CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor).orElse(null);
@@ -732,7 +792,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void verifyCustomerOwnsOrder(Order order) {
-        if (!order.getCustomer().getId().equals(securityUtils.getCurrentUserId())) {
+        if (order.getCustomer() == null || !order.getCustomer().getId().equals(securityUtils.getCurrentUserId())) {
             throw new UnauthorizedException("You can only access your own orders");
         }
     }

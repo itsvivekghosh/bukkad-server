@@ -14,9 +14,11 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class AdminControllerTest {
+public class AdminControllerTest {
 
     @Mock
     private AdminService adminService;

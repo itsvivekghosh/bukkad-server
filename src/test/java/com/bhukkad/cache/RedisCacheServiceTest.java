@@ -11,6 +11,8 @@ import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import com.bhukkad.cache.invalidation.DistributedCacheInvalidator;
+
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -35,6 +37,8 @@ class RedisCacheServiceTest {
     private HashOperations<String, Object, Object> hashOperations;
     @Mock
     private LocalCacheService localCacheService;
+    @Mock
+    private DistributedCacheInvalidator distributedCacheInvalidator;
 
     private RedisCacheService service;
 
@@ -43,7 +47,7 @@ class RedisCacheServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
         when(localCacheService.isEnabled()).thenReturn(false);
-        service = new RedisCacheService(redisTemplate, localCacheService);
+        service = new RedisCacheService(redisTemplate, localCacheService, distributedCacheInvalidator);
     }
 
     @Test

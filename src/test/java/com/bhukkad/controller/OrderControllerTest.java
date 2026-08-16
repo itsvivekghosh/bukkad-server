@@ -30,9 +30,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class OrderControllerTest {
+public class OrderControllerTest {
 
     @Mock
     private OrderService orderService;

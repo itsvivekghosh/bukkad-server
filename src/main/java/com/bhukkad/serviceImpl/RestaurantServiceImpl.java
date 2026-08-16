@@ -190,6 +190,8 @@ public class RestaurantServiceImpl implements RestaurantService {
 
         if (request.getFeatures() != null) restaurant.setFeatures(request.getFeatures());
 
+        if (request.getVirtualBrandName() != null) restaurant.setVirtualBrandName(request.getVirtualBrandName());
+
         // Address
         if (request.getAddress() != null) {
             Address address = new Address();
@@ -238,6 +240,8 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (request.getDeliveryFee() != null) restaurant.setDeliveryFee(request.getDeliveryFee());
         if (request.getIsPureVeg() != null) restaurant.setIsPureVeg(request.getIsPureVeg());
         if (request.getFeatures() != null) restaurant.setFeatures(request.getFeatures());
+
+        if (request.getVirtualBrandName() != null) restaurant.setVirtualBrandName(request.getVirtualBrandName());
 
         // Update address
         if (request.getAddress() != null) {
@@ -352,6 +356,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .freeDeliveryAbove(restaurant.getFreeDeliveryAbove())
                 .isPureVeg(restaurant.getIsPureVeg())
                 .features(restaurant.getFeatures())
+                .virtualBrandName(restaurant.getVirtualBrandName())
                 .build();
     }
 
@@ -392,6 +397,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .freeDeliveryAbove(restaurant.getFreeDeliveryAbove())
                 .isPureVeg(restaurant.getIsPureVeg())
                 .features(restaurant.getFeatures())
+                .virtualBrandName(restaurant.getVirtualBrandName())
                 .build();
     }
 }

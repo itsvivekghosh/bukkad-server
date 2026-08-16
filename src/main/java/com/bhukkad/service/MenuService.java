@@ -6,8 +6,10 @@ import com.bhukkad.dto.request.MenuItemRequest;
 import com.bhukkad.dto.response.MenuCategoryResponse;
 import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
+import com.bhukkad.entity.MenuItem;
 
 import java.util.List;
+import java.util.Set;
 
 public interface MenuService {
 
@@ -29,6 +31,12 @@ public interface MenuService {
     List<MenuItemResponse> getRecommended(Long restaurantId);
     List<MenuItemResponse> searchMenuItems(String keyword);
     List<MenuItemResponse> getLowStockItems(Long restaurantId, Integer threshold);
+
+    // Dietary filtering
+    List<MenuItemResponse> filterMenuItemsByDiet(Long restaurantId, MenuItem.FoodType foodType, Set<String> excludeAllergens, MenuItem.SpiceLevel maxSpiceLevel);
+    List<MenuItemResponse> getVeganItems(Long restaurantId);
+    List<MenuItemResponse> getVegetarianItems(Long restaurantId);
+    List<MenuItemResponse> getGlutenFreeItems(Long restaurantId);
 
     MenuImageUploadResponse createMenuItemImageUploadUrl(Long menuItemId, MenuImageUploadRequest request);
 }

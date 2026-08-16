@@ -15,9 +15,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class OrderLiveStreamControllerTest {
+public class OrderLiveStreamControllerTest {
 
     @Mock
     private OrderSseStreamService sseStreamService;
