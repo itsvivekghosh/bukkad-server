@@ -91,7 +91,6 @@ jobs:
         with:
           name: docker-deploy-script
           path: ./deploy
-          repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
