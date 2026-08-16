@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   deploy:
@@ -18,7 +19,7 @@ jobs:
       url: https://staging.bhukkad.com
 
     if: |
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'deploy') ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' ||
       github.event_name == 'workflow_dispatch'
 
     steps:
@@ -26,10 +27,24 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download deployment script
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
         uses: actions/download-artifact@v5
         with:
           name: docker-deploy-script
           path: ./deploy
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ignore-not-found: true
+
+      - name: Ensure deployment script exists
+        run: |
+          mkdir -p deploy
+          if [ ! -f ./deploy/docker-deploy.sh ]; then
+            echo "Using repository deployment script (download unavailable or workflow_dispatch)"
+            cp scripts/docker-deploy.sh deploy/docker-deploy.sh
+          fi
+          chmod +x deploy/docker-deploy.sh
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
