@@ -91,6 +91,9 @@ jobs:
         with:
           name: docker-deploy-script
           path: ./deploy
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
