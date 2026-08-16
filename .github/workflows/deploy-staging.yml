@@ -80,7 +80,7 @@ jobs:
             REDIS_PASSWORD=${{ secrets.STAGING_REDIS_PASSWORD }} \
             JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }} \
             JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }} \
-            JWT_REFRESH_EXPIRATION=${{ secrets.STAGING_JWT_REFRESH_EXPIRATION }} \
+            JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }} \
             RAZORPAY_ENABLED=${{ secrets.RAZORPAY_ENABLED }} \
             RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }} \
             RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }} \
