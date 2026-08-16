@@ -1,9 +1,9 @@
 name: Docker Image
 
 on:
-  push:
-    branches:
-      - deploy
+  workflow_run:
+    workflows: ["Build Artifact"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
