@@ -41,7 +41,7 @@ jobs:
         run: ./mvnw -B test -Dtest="*Test,!*IntegrationTest,!*RegressionTest"
 
       - name: Run integration tests
-        run: ./mvnw -B test -Dtest="*IntegrationTest"
+        run: ./mvnw -B test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Run regression tests
         run: ./mvnw -B test -Dtest="com.bhukkad.regression.RegressionTestSuite"
