@@ -117,6 +117,10 @@ jobs:
             sleep 5
           done
           echo "Container failed to become healthy"
+          echo "=== Container status ==="
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
+            "docker ps -a --filter name=bhukkad-app --format '{{.Image}} {{.Status}}' && echo '---' && docker logs bhukkad-app 2>&1 | tail -50"
           exit 1
 
       - name: Run smoke tests
