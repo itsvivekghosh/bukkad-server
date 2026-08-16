@@ -59,7 +59,7 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Get staging image tag
+      - name: Get staging Image Tag
         id: image
         run: |
           TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
