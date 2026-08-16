@@ -47,7 +47,6 @@ jobs:
 
       - name: Set image in Kubernetes deployment
         run: |
-          kubectl config use-context staging
           kubectl set image deployment/bhukkad-app \
             bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:${{ steps.image.outputs.tag }} \
             -n bhukkad
