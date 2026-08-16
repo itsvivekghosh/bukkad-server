@@ -54,12 +54,16 @@ jobs:
           fi
 
       - name: Deploy to staging VM
+        env:
+          SSH_AUTH_SOCK: ${{ env.SSH_AUTH_SOCK }}
         run: |
           echo "Deploying image tag: ${{ steps.image.outputs.tag }}"
           scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o IdentityAgent="${SSH_AUTH_SOCK}" \
             ./deploy/docker-deploy.sh \
             "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o IdentityAgent="${SSH_AUTH_SOCK}" \
             "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
             "chmod +x /tmp/docker-deploy.sh && \
             IMAGE_TAG=${{ steps.image.outputs.tag }} \
@@ -99,10 +103,13 @@ jobs:
             /tmp/docker-deploy.sh"
 
       - name: Wait for container to start
+        env:
+          SSH_AUTH_SOCK: ${{ env.SSH_AUTH_SOCK }}
         run: |
           echo "Waiting for container to start..."
           for i in $(seq 1 30); do
             if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o IdentityAgent="${SSH_AUTH_SOCK}" \
               "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
               "curl -sf http://localhost:8080/api/v1/health/ping -o /dev/null"; then
               echo "Container is healthy"

@@ -109,12 +109,16 @@ jobs:
           fi
 
       - name: Deploy to production VM
+        env:
+          SSH_AUTH_SOCK: ${{ env.SSH_AUTH_SOCK }}
         run: |
           echo "Deploying image tag: ${{ steps.tag.outputs.tag }}"
           scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o IdentityAgent="${SSH_AUTH_SOCK}" \
             ./deploy/docker-deploy.sh \
             "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}:/tmp/docker-deploy.sh"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o IdentityAgent="${SSH_AUTH_SOCK}" \
             "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}" \
             "chmod +x /tmp/docker-deploy.sh && \
             IMAGE_TAG=${{ steps.tag.outputs.tag }} \
@@ -154,10 +158,13 @@ jobs:
             /tmp/docker-deploy.sh"
 
       - name: Wait for container to start
+        env:
+          SSH_AUTH_SOCK: ${{ env.SSH_AUTH_SOCK }}
         run: |
           echo "Waiting for container to start..."
           for i in $(seq 1 30); do
             if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o IdentityAgent="${SSH_AUTH_SOCK}" \
               "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}" \
               "curl -sf http://localhost:8080/api/v1/health/ping -o /dev/null"; then
               echo "Container is healthy"
@@ -170,9 +177,12 @@ jobs:
           exit 1
 
       - name: Verify production deployment
+        env:
+          SSH_AUTH_SOCK: ${{ env.SSH_AUTH_SOCK }}
         run: |
           echo "Verifying production deployment..."
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o IdentityAgent="${SSH_AUTH_SOCK}" \
             "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_SSH_HOST }}" \
             "docker ps -a --filter name=bhukkad-app --format '{{.Image}} {{.Status}}'"
 
