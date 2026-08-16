@@ -62,45 +62,52 @@ jobs:
           scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             ./deploy/docker-deploy.sh \
             "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
-          # Make script executable and run it
+          # Build env file on local machine using printf to safely handle special chars
+          printf 'IMAGE_TAG=%s\n' "${{ steps.image.outputs.tag }}" > /tmp/deploy-env.txt
+          printf 'SPRING_PROFILES_ACTIVE=%s\n' "staging" >> /tmp/deploy-env.txt
+          printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" >> /tmp/deploy-env.txt
+          printf 'DB_PORT=%s\n' "${{ secrets.STAGING_DB_PORT }}" >> /tmp/deploy-env.txt
+          printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/deploy-env.txt
+          printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/deploy-env.txt
+          printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
+          printf 'REDIS_PORT=%s\n' "${{ secrets.STAGING_REDIS_PORT }}" >> /tmp/deploy-env.txt
+          printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'JWT_SECRET=%s\n' "${{ secrets.STAGING_JWT_SECRET }}" >> /tmp/deploy-env.txt
+          printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}" >> /tmp/deploy-env.txt
+          printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_ENABLED=%s\n' "${{ secrets.RAZORPAY_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_KEY_ID=%s\n' "${{ secrets.RAZORPAY_KEY_ID }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_KEY_SECRET=%s\n' "${{ secrets.RAZORPAY_KEY_SECRET }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_WEBHOOK_SECRET=%s\n' "${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" >> /tmp/deploy-env.txt
+          printf 'NOTIFICATION_EMAIL_ENABLED=%s\n' "${{ secrets.NOTIFICATION_EMAIL_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'NOTIFICATION_EMAIL_FROM=%s\n' "${{ secrets.NOTIFICATION_EMAIL_FROM }}" >> /tmp/deploy-env.txt
+          printf 'STOMP_BROKER_TYPE=%s\n' "${{ secrets.STOMP_BROKER_TYPE }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_HOST=%s\n' "${{ secrets.RABBITMQ_HOST }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_STOMP_PORT=%s\n' "${{ secrets.RABBITMQ_STOMP_PORT }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_USERNAME=%s\n' "${{ secrets.RABBITMQ_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_PASSWORD=%s\n' "${{ secrets.RABBITMQ_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'LIVE_RELAY_ENABLED=%s\n' "${{ secrets.LIVE_RELAY_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'LIVE_RELAY_CHANNEL=%s\n' "${{ secrets.LIVE_RELAY_CHANNEL }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_ENABLED=%s\n' "${{ secrets.DB_REPLICA_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_URL=%s\n' "${{ secrets.DB_REPLICA_URL }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_USERNAME=%s\n' "${{ secrets.STAGING_DB_REPLICA_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_PASSWORD=%s\n' "${{ secrets.STAGING_DB_REPLICA_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'PAYMENT_PROVIDER=%s\n' "${{ secrets.PAYMENT_PROVIDER }}" >> /tmp/deploy-env.txt
+          printf 'PROMETHEUS_USERNAME=%s\n' "${{ secrets.PROMETHEUS_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
+          # Copy env file to remote (base64 to avoid any character issues during transfer)
+          base64 /tmp/deploy-env.txt | \
+            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
+              "base64 -d > /tmp/deploy-env.txt && chmod 600 /tmp/deploy-env.txt"
+          # Run deploy on remote with env file
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
             "chmod 755 /tmp/docker-deploy.sh && \
             ls -la /tmp/docker-deploy.sh && \
-            IMAGE_TAG='${{ steps.image.outputs.tag }}' \
-            SPRING_PROFILES_ACTIVE='staging' \
-            DB_HOST='${{ secrets.STAGING_DB_HOST }}' \
-            DB_PORT='${{ secrets.STAGING_DB_PORT }}' \
-            DB_NAME='${{ secrets.STAGING_DB_NAME }}' \
-            DB_USERNAME='${{ secrets.STAGING_DB_USERNAME }}' \
-            DB_PASSWORD='${{ secrets.STAGING_DB_PASSWORD }}' \
-            DB_URL='${{ secrets.STAGING_DB_URL }}' \
-            REDIS_HOST='${{ secrets.STAGING_REDIS_HOST }}' \
-            REDIS_PORT='${{ secrets.STAGING_REDIS_PORT }}' \
-            REDIS_PASSWORD='${{ secrets.STAGING_REDIS_PASSWORD }}' \
-            JWT_SECRET='${{ secrets.STAGING_JWT_SECRET }}' \
-            JWT_EXPIRATION='${{ secrets.JWT_EXPIRATION }}' \
-            JWT_REFRESH_EXPIRATION='${{ secrets.JWT_REFRESH_EXPIRATION }}' \
-            RAZORPAY_ENABLED='${{ secrets.RAZORPAY_ENABLED }}' \
-            RAZORPAY_KEY_ID='${{ secrets.RAZORPAY_KEY_ID }}' \
-            RAZORPAY_KEY_SECRET='${{ secrets.RAZORPAY_KEY_SECRET }}' \
-            RAZORPAY_WEBHOOK_SECRET='${{ secrets.RAZORPAY_WEBHOOK_SECRET }}' \
-            NOTIFICATION_EMAIL_ENABLED='${{ secrets.NOTIFICATION_EMAIL_ENABLED }}' \
-            NOTIFICATION_EMAIL_FROM='${{ secrets.NOTIFICATION_EMAIL_FROM }}' \
-            STOMP_BROKER_TYPE='${{ secrets.STOMP_BROKER_TYPE }}' \
-            RABBITMQ_HOST='${{ secrets.RABBITMQ_HOST }}' \
-            RABBITMQ_STOMP_PORT='${{ secrets.RABBITMQ_STOMP_PORT }}' \
-            RABBITMQ_USERNAME='${{ secrets.RABBITMQ_USERNAME }}' \
-            RABBITMQ_PASSWORD='${{ secrets.RABBITMQ_PASSWORD }}' \
-            LIVE_RELAY_ENABLED='${{ secrets.LIVE_RELAY_ENABLED }}' \
-            LIVE_RELAY_CHANNEL='${{ secrets.LIVE_RELAY_CHANNEL }}' \
-            DB_REPLICA_ENABLED='${{ secrets.DB_REPLICA_ENABLED }}' \
-            DB_REPLICA_URL='${{ secrets.DB_REPLICA_URL }}' \
-            DB_REPLICA_USERNAME='${{ secrets.STAGING_DB_REPLICA_USERNAME }}' \
-            DB_REPLICA_PASSWORD='${{ secrets.STAGING_DB_REPLICA_PASSWORD }}' \
-            PAYMENT_PROVIDER='${{ secrets.PAYMENT_PROVIDER }}' \
-            PROMETHEUS_USERNAME='${{ secrets.PROMETHEUS_USERNAME }}' \
-            PROMETHEUS_PASSWORD='${{ secrets.PROMETHEUS_PASSWORD }}' \
+            set -a && source /tmp/deploy-env.txt && set +a && \
             bash /tmp/docker-deploy.sh"
 
       - name: Wait for container to start
