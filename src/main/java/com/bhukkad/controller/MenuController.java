@@ -1,7 +1,7 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.config.ApiPaths;
-
+import com.bhukkad.cache.http.HttpCacheSupport;
 import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
@@ -9,15 +9,18 @@ import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.MenuCategoryResponse;
 import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
+import com.bhukkad.entity.MenuItem;
 import com.bhukkad.ratelimit.RateLimited;
 import com.bhukkad.service.MenuService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/menu")
@@ -25,6 +28,7 @@ import java.util.List;
 public class MenuController {
 
     private final MenuService menuService;
+    private final HttpCacheSupport httpCacheSupport;
 
     // Category endpoints
     @PostMapping("/categories")
@@ -37,9 +41,22 @@ public class MenuController {
     }
 
     @GetMapping("/categories/restaurant/{restaurantId}")
-    public ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> getCategoriesByRestaurant(@PathVariable Long restaurantId) {
+    public ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> getCategoriesByRestaurant(
+            @PathVariable Long restaurantId,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         List<MenuCategoryResponse> categories = menuService.getCategoriesByRestaurant(restaurantId);
-        return ResponseEntity.ok(ApiResponse.success(categories));
+        ApiResponse<List<MenuCategoryResponse>> body = ApiResponse.success(categories);
+
+        HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
+                com.bhukkad.cache.CacheKeyGenerator.menuCategoriesByRestaurant(restaurantId),
+                body.toString());
+        String etag = headers.getETag();
+
+        if (httpCacheSupport.isNotModified(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304).build();
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @PutMapping("/categories/{categoryId}")
@@ -67,21 +84,60 @@ public class MenuController {
     }
 
     @GetMapping("/items/{id}")
-    public ResponseEntity<ApiResponse<MenuItemResponse>> getMenuItemById(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<MenuItemResponse>> getMenuItemById(
+            @PathVariable Long id,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         MenuItemResponse menuItem = menuService.getMenuItemById(id);
-        return ResponseEntity.ok(ApiResponse.success(menuItem));
+        ApiResponse<MenuItemResponse> body = ApiResponse.success(menuItem);
+
+        HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
+                com.bhukkad.cache.CacheKeyGenerator.menuItem(id),
+                body.toString());
+        String etag = headers.getETag();
+
+        if (httpCacheSupport.isNotModified(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304).build();
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @GetMapping("/items/category/{categoryId}")
-    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByCategory(@PathVariable Long categoryId) {
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByCategory(
+            @PathVariable Long categoryId,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         List<MenuItemResponse> menuItems = menuService.getMenuItemsByCategory(categoryId);
-        return ResponseEntity.ok(ApiResponse.success(menuItems));
+        ApiResponse<List<MenuItemResponse>> body = ApiResponse.success(menuItems);
+
+        HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
+                com.bhukkad.cache.CacheKeyGenerator.menuItemsByCategory(categoryId),
+                body.toString());
+        String etag = headers.getETag();
+
+        if (httpCacheSupport.isNotModified(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304).build();
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @GetMapping("/items/restaurant/{restaurantId}")
-    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByRestaurant(@PathVariable Long restaurantId) {
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByRestaurant(
+            @PathVariable Long restaurantId,
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         List<MenuItemResponse> menuItems = menuService.getMenuItemsByRestaurant(restaurantId);
-        return ResponseEntity.ok(ApiResponse.success(menuItems));
+        ApiResponse<List<MenuItemResponse>> body = ApiResponse.success(menuItems);
+
+        HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
+                com.bhukkad.cache.CacheKeyGenerator.menuItemsByRestaurant(restaurantId),
+                body.toString());
+        String etag = headers.getETag();
+
+        if (httpCacheSupport.isNotModified(ifNoneMatch, etag)) {
+            return ResponseEntity.status(304).build();
+        }
+
+        return ResponseEntity.ok().headers(headers).body(body);
     }
 
     @PutMapping("/items/{id}")

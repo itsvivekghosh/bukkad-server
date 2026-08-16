@@ -6,6 +6,7 @@ import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.MenuCategoryResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.service.MenuService;
+import com.bhukkad.cache.http.HttpCacheSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,12 +19,17 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class MenuControllerTest {
+public class MenuControllerTest {
 
     @Mock
     private MenuService menuService;
+
+    @Mock
+    private HttpCacheSupport httpCacheSupport;
 
     @InjectMocks
     private MenuController menuController;
@@ -45,9 +51,10 @@ class MenuControllerTest {
     void getCategoriesByRestaurant_returnsList() {
         List<MenuCategoryResponse> categories = List.of(new MenuCategoryResponse());
         when(menuService.getCategoriesByRestaurant(1L)).thenReturn(categories);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
         ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> response =
-                menuController.getCategoriesByRestaurant(1L);
+                menuController.getCategoriesByRestaurant(1L, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(categories, response.getBody().getData());
@@ -92,8 +99,9 @@ class MenuControllerTest {
     void getMenuItemById_returnsItem() {
         MenuItemResponse item = new MenuItemResponse();
         when(menuService.getMenuItemById(9L)).thenReturn(item);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
-        ResponseEntity<ApiResponse<MenuItemResponse>> response = menuController.getMenuItemById(9L);
+        ResponseEntity<ApiResponse<MenuItemResponse>> response = menuController.getMenuItemById(9L, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(item, response.getBody().getData());
@@ -103,9 +111,10 @@ class MenuControllerTest {
     void getMenuItemsByCategory_returnsList() {
         List<MenuItemResponse> items = List.of(new MenuItemResponse());
         when(menuService.getMenuItemsByCategory(3L)).thenReturn(items);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
         ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
-                menuController.getMenuItemsByCategory(3L);
+                menuController.getMenuItemsByCategory(3L, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(items, response.getBody().getData());
@@ -115,9 +124,10 @@ class MenuControllerTest {
     void getMenuItemsByRestaurant_returnsList() {
         List<MenuItemResponse> items = List.of(new MenuItemResponse());
         when(menuService.getMenuItemsByRestaurant(1L)).thenReturn(items);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
         ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
-                menuController.getMenuItemsByRestaurant(1L);
+                menuController.getMenuItemsByRestaurant(1L, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(items, response.getBody().getData());

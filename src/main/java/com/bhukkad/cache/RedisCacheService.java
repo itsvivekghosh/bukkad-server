@@ -1,5 +1,7 @@
 package com.bhukkad.cache;
 
+import com.bhukkad.cache.event.CacheInvalidatedEvent;
+import com.bhukkad.cache.invalidation.DistributedCacheInvalidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +13,10 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
+/**
+ * Extended Redis cache service that publishes invalidation events for
+ * distributed cache coherence across multiple application instances.
+ */
 @Service
 public class RedisCacheService {
 
@@ -22,13 +28,18 @@ public class RedisCacheService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
     private final LocalCacheService localCacheService;
+    private final DistributedCacheInvalidator distributedInvalidator;
 
     public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
-                             LocalCacheService localCacheService) {
+                             LocalCacheService localCacheService,
+                             DistributedCacheInvalidator distributedInvalidator) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.localCacheService = localCacheService;
+        this.distributedInvalidator = distributedInvalidator;
     }
+
+    // ==================== CACHE-ASIDE READ PATH ====================
 
     public <T> T getOrCompute(String key, Class<T> type, long ttlSeconds, Supplier<T> supplier) {
         Optional<T> l1 = localCacheService.get(key, type);
@@ -95,45 +106,50 @@ public class RedisCacheService {
         return waitForList(key, type, supplier);
     }
 
-    private boolean tryAcquireLock(String lockKey) {
+    // ==================== INVALIDATION (WITH DISTRIBUTED PUBLISH) ====================
+
+    public void delete(String key) {
+        String cacheName = extractCacheName(key);
         try {
-            return Boolean.TRUE.equals(redisTemplate.opsForValue()
-                    .setIfAbsent(buildKey(lockKey), "1", Duration.ofSeconds(10)));
+            String fullKey = buildKey(key);
+            redisTemplate.delete(fullKey);
+            localCacheService.invalidate(key);
+            log.debug("CACHE_DELETE key={}", fullKey);
         } catch (Exception e) {
-            log.warn("CACHE_LOCK_FAILED key={} error={}", lockKey, e.getMessage());
-            return false;
+            log.warn("CACHE_DELETE_FAILED key={} error={}", key, e.getMessage());
+        } finally {
+            publishInvalidation(cacheName, key, false);
         }
     }
 
-    private <T> T waitForValue(String key, Class<T> type, Supplier<T> supplier) {
-        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
-            sleepBackoff(attempt);
-            Optional<T> cached = get(key, type);
-            if (cached.isPresent()) {
-                return cached.get();
-            }
-        }
-        return supplier.get();
-    }
-
-    private <T> List<T> waitForList(String key, Class<T> type, Supplier<List<T>> supplier) {
-        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
-            sleepBackoff(attempt);
-            Optional<List<T>> cached = getList(key, type);
-            if (cached.isPresent()) {
-                return cached.get();
-            }
-        }
-        List<T> value = supplier.get();
-        return value != null ? value : List.of();
-    }
-
-    private void sleepBackoff(int attempt) {
+    public void deletePattern(String pattern) {
+        String cacheName = extractCacheName(pattern);
         try {
-            Thread.sleep(LOCK_WAIT_BASE_MS * (attempt + 1L));
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
+            String fullPattern = buildKey(pattern) + "*";
+            Set<String> keys = redisTemplate.keys(fullPattern);
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+                log.debug("CACHE_DELETE_PATTERN pattern={} count={}", fullPattern, keys.size());
+            }
+        } catch (Exception e) {
+            log.warn("CACHE_DELETE_PATTERN_FAILED pattern={} error={}", pattern, e.getMessage());
+        } finally {
+            publishInvalidation(cacheName, pattern, true);
         }
+    }
+
+    private void publishInvalidation(String cacheName, String key, boolean pattern) {
+        if (distributedInvalidator != null) {
+            distributedInvalidator.publishInvalidation(cacheName, key, pattern);
+        }
+    }
+
+    private String extractCacheName(String keyOrPattern) {
+        String clean = keyOrPattern.startsWith(CacheConstants.KEY_PREFIX)
+                ? keyOrPattern.substring(CacheConstants.KEY_PREFIX.length())
+                : keyOrPattern;
+        int sep = clean.indexOf(CacheConstants.KEY_SEPARATOR);
+        return sep > 0 ? clean.substring(0, sep) : clean;
     }
 
     // ==================== BASIC OPERATIONS ====================
@@ -187,30 +203,6 @@ public class RedisCacheService {
         } catch (Exception e) {
             log.warn("CACHE_GET_LIST_FAILED key={} error={}", key, e.getMessage());
             return Optional.empty();
-        }
-    }
-
-    public void delete(String key) {
-        try {
-            String fullKey = buildKey(key);
-            redisTemplate.delete(fullKey);
-            localCacheService.invalidate(key);
-            log.debug("CACHE_DELETE key={}", fullKey);
-        } catch (Exception e) {
-            log.warn("CACHE_DELETE_FAILED key={} error={}", key, e.getMessage());
-        }
-    }
-
-    public void deletePattern(String pattern) {
-        try {
-            String fullPattern = buildKey(pattern) + "*";
-            Set<String> keys = redisTemplate.keys(fullPattern);
-            if (keys != null && !keys.isEmpty()) {
-                redisTemplate.delete(keys);
-                log.debug("CACHE_DELETE_PATTERN pattern={} count={}", fullPattern, keys.size());
-            }
-        } catch (Exception e) {
-            log.warn("CACHE_DELETE_PATTERN_FAILED pattern={} error={}", pattern, e.getMessage());
         }
     }
 
@@ -299,7 +291,6 @@ public class RedisCacheService {
             Set<String> keys = redisTemplate.keys("bhukkad:*");
             stats.put("totalKeys", keys != null ? keys.size() : 0);
 
-            // Count by prefix
             Map<String, Integer> keyCounts = new HashMap<>();
             if (keys != null) {
                 for (String key : keys) {
@@ -315,7 +306,48 @@ public class RedisCacheService {
         return stats;
     }
 
-    // ==================== KEY BUILDER ====================
+    // ==================== HELPERS ====================
+
+    private boolean tryAcquireLock(String lockKey) {
+        try {
+            return Boolean.TRUE.equals(redisTemplate.opsForValue()
+                    .setIfAbsent(buildKey(lockKey), "1", Duration.ofSeconds(10)));
+        } catch (Exception e) {
+            log.warn("CACHE_LOCK_FAILED key={} error={}", lockKey, e.getMessage());
+            return false;
+        }
+    }
+
+    private <T> T waitForValue(String key, Class<T> type, Supplier<T> supplier) {
+        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
+            sleepBackoff(attempt);
+            Optional<T> cached = get(key, type);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        }
+        return supplier.get();
+    }
+
+    private <T> List<T> waitForList(String key, Class<T> type, Supplier<List<T>> supplier) {
+        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
+            sleepBackoff(attempt);
+            Optional<List<T>> cached = getList(key, type);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        }
+        List<T> value = supplier.get();
+        return value != null ? value : List.of();
+    }
+
+    private void sleepBackoff(int attempt) {
+        try {
+            Thread.sleep(LOCK_WAIT_BASE_MS * (attempt + 1L));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private String buildKey(String key) {
         if (key.startsWith(CacheConstants.KEY_PREFIX)) return key;

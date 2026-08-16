@@ -1,0 +1,61 @@
+name: API Regression Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'  # Every night at 3 AM IST
+
+permissions:
+  contents: read
+
+jobs:
+  api-test:
+    name: API Regression Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Start infrastructure
+        run: |
+          docker compose -f docker/docker-compose.dev.yml up -d mysql redis
+          sleep 30
+
+      - name: Build application
+        run: ./mvnw -B package -DskipTests
+
+      - name: Start application
+        run: |
+          java -jar target/*.jar &
+          sleep 60
+
+      - name: Run API tests
+        run: python3 scripts/test-all-apis.py --skip-bootstrap --no-report
+        env:
+          BASE_URL: http://localhost:8080
+
+      - name: Upload API test report
+        uses: actions/upload-artifact@v5
+        with:
+          name: api-test-report
+          path: scripts/reports/
+          retention-days: 30
+        if: always()
+
+      - name: Stop application
+        if: always()
+        run: |
+          pkill -f "bhukkad-delivery-system" || true
+          docker compose -f docker/docker-compose.dev.yml down || true

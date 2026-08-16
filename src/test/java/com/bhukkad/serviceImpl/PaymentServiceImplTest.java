@@ -8,6 +8,8 @@ import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.idempotency.IdempotencyService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
+import com.bhukkad.payment.strategy.PaymentStrategyFactory;
+import com.bhukkad.payment.strategy.PaymentStrategy;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.PaymentRepository;
@@ -22,6 +24,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,6 +61,10 @@ class PaymentServiceImplTest {
     private WalletService walletService;
     @Mock
     private WalletTopUpService walletTopUpService;
+    @Mock
+    private PaymentStrategyFactory paymentStrategyFactory;
+    @Mock
+    private PaymentStrategy paymentStrategy;
 
     @InjectMocks
     private PaymentServiceImpl paymentService;
@@ -152,7 +159,13 @@ class PaymentServiceImplTest {
         Payment pending = payment(Payment.PaymentStatus.PENDING);
         pending.setGatewayAmount(250.0);
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(pending));
-        when(paymentRepository.save(pending)).thenReturn(pending);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentStrategyFactory.getStrategy(Payment.PaymentMethod.UPI)).thenReturn(paymentStrategy);
+
+        Payment completed = payment(Payment.PaymentStatus.COMPLETED);
+        completed.setTransactionId("TXN-1");
+        completed.setCompletedAt(LocalDateTime.of(2024, 1, 1, 0, 0));
+        when(paymentStrategy.process(any(com.bhukkad.payment.strategy.PaymentContext.class))).thenReturn(completed);
 
         Payment result = paymentService.processPayment(1L, null);
 

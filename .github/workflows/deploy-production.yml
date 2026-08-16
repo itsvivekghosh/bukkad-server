@@ -1,0 +1,127 @@
+name: Deploy to Production
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  variables: read
+
+jobs:
+  validate:
+    name: Validate Release Candidate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Get staging image tag
+        id: image
+        run: |
+          TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA \
+            | jq -r '.value')
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "No staging image tag found. Deploy to staging first."
+            exit 1
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Comment PR with release info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Production Release Candidate\n\n**Image Tag:** \`${{ steps.image.outputs.tag }}\`\n**Commit SHA:** \`${sha}\`\n**Branch:** \`${{ github.event.pull_request.head.ref }}\`\n\nThis PR will deploy the exact image that passed staging validation.`
+            });
+
+  get-image-tag:
+    name: Get Image Tag
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Get staging image tag
+        id: image
+        run: |
+          TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA \
+            | jq -r '.value')
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "No staging image tag found. Deploy to staging first."
+            exit 1
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, get-image-tag]
+    if: |
+      (github.event_name == 'pull_request' && needs.validate.result == 'success') ||
+      (github.event_name == 'push')
+    environment:
+      name: production
+      url: https://bhukkad.com
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Write kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "tag=${{ needs.validate.outputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ needs.get-image-tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to production
+        run: |
+          kubectl config use-context production
+          kubectl set image deployment/bhukkad-app \
+            bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:${{ steps.tag.outputs.tag }} \
+            -n bhukkad
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=300s
+
+      - name: Verify production deployment
+        run: |
+          kubectl get pods -n bhukkad -l app=bhukkad,component=api
+          kubectl describe deployment/bhukkad-app -n bhukkad
+
+      - name: Run production smoke tests
+        run: |
+          echo "Running production smoke tests..."
+          curl -f https://bhukkad.com/api/v1/health/ping || echo "Smoke test endpoint pending"

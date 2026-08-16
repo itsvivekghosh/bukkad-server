@@ -43,6 +43,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "WHERE o.orderNumber = :orderNumber")
     Optional<Order> findByOrderNumberWithDetails(@Param("orderNumber") String orderNumber);
 
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.deliveryAddress.id = :addressId")
+    long countByDeliveryAddressId(@Param("addressId") Long addressId);
+
+    @Query(value = "SELECT COUNT(*) FROM orders WHERE delivery_address_id = :addressId", nativeQuery = true)
+    long existsByDeliveryAddressId(@Param("addressId") Long addressId);
+
     @Query("SELECT DISTINCT o FROM Order o " +
             "JOIN FETCH o.customer " +
             "JOIN FETCH o.restaurant r " +
@@ -153,6 +159,24 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             Pageable pageable);
 
     @Query(SUMMARY_SELECT +
+            "WHERE o.customer.id = :customerId " +
+            "AND o.status = 'SCHEDULED' " +
+            "ORDER BY o.scheduledAt ASC, o.createdAt ASC")
+    Page<OrderSummaryResponse> findCustomerScheduledOrderSummaries(@Param("customerId") Long customerId, Pageable pageable);
+
+    @Query(SUMMARY_SELECT +
+            "WHERE o.customer.id = :customerId " +
+            "AND o.status = 'SCHEDULED' " +
+            "AND (:cursorCreatedAt IS NULL OR o.scheduledAt < :cursorCreatedAt " +
+            "OR (o.scheduledAt = :cursorCreatedAt AND o.id < :cursorId)) " +
+            "ORDER BY o.scheduledAt ASC, o.id ASC")
+    List<OrderSummaryResponse> findCustomerScheduledOrderSummariesAfterCursor(
+            @Param("customerId") Long customerId,
+            @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable);
+
+    @Query(SUMMARY_SELECT +
             "WHERE o.restaurant.id = :restaurantId " +
             "AND (:cursorCreatedAt IS NULL OR o.createdAt < :cursorCreatedAt " +
             "OR (o.createdAt = :cursorCreatedAt AND o.id < :cursorId)) " +
@@ -211,6 +235,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT COALESCE(SUM(o.totalAmount + COALESCE(o.walletAmountUsed, 0)), 0) FROM Order o " +
             "WHERE o.customer.id = :customerId AND o.status = 'DELIVERED'")
     Double sumDeliveredSpendByCustomerId(@Param("customerId") Long customerId);
+
+    long countByRestaurantId(Long restaurantId);
 
     long countByRestaurantIdAndCreatedAtAfter(Long restaurantId, LocalDateTime startDate);
 

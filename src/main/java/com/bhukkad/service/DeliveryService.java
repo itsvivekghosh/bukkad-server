@@ -10,7 +10,7 @@ public interface DeliveryService {
     DeliveryAgentResponse getProfile();
     DeliveryAgent getDeliveryAgentById(Long id);
     DeliveryAgent getCurrentDeliveryAgent();
-    DeliveryAgent updateProfile(Long id, DeliveryAgent agent);
+    DeliveryAgentResponse updateProfile(Long id, DeliveryAgent agent);
 
     // Availability
     void toggleAvailability(Boolean available);

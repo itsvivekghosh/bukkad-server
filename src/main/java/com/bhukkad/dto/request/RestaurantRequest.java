@@ -49,4 +49,6 @@ public class RestaurantRequest {
     private String licenseNumber;
 
     private String fssaiNumber;
+
+    private String virtualBrandName;
 }

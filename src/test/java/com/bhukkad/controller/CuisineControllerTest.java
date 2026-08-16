@@ -16,9 +16,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class CuisineControllerTest {
+public class CuisineControllerTest {
 
     @Mock
     private CuisineRepository cuisineRepository;

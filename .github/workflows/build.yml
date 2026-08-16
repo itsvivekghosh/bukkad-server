@@ -1,0 +1,59 @@
+name: Build Artifact
+
+on:
+  push:
+    branches: [ deploy ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Run tests and quality gates
+        run: ./mvnw -B clean verify
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: bhukkad-delivery-system
+          path: target/*.jar
+          retention-days: 30
+
+      - name: Upload JaCoCo HTML report
+        uses: actions/upload-artifact@v5
+        with:
+          name: jacoco-report-deploy
+          path: target/site/jacoco/
+          retention-days: 30
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-reports-deploy
+          path: target/surefire-reports/
+          retention-days: 30

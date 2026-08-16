@@ -198,7 +198,12 @@ public class CartServiceImpl implements CartService {
         double subtotal = calculateSubtotal(cartItems);
         Long restaurantId = cart.getRestaurant() != null ? cart.getRestaurant().getId() : null;
 
-        couponService.validateCoupon(couponCode, subtotal, restaurantId);
+        try {
+            couponService.validateCoupon(couponCode, subtotal, restaurantId);
+        } catch (Exception ex) {
+            // Re-throw as BusinessException for consistent API error handling
+            throw new BusinessException("Invalid coupon: " + ex.getMessage());
+        }
 
         return buildCartResponse(cart);
     }

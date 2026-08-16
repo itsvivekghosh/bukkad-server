@@ -8,6 +8,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
+import java.util.Set;
 
 @Entity
 @Table(name = "users", indexes = {
@@ -63,6 +64,14 @@ public class User {
 
     @Column(length = 500)
     private String profileImageUrl;
+
+    @Column(name = "referrer_id")
+    private Long referrerId;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_referral_codes", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "code", length = 20, unique = true)
+    private Set<String> referralCodes;
 
     public enum UserRole {
         CUSTOMER, RESTAURANT_OWNER, DELIVERY_AGENT, ADMIN

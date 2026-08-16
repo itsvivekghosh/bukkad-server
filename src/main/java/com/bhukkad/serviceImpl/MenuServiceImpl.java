@@ -14,11 +14,13 @@ import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
+import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.mapper.MenuItemMapper;
 import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
+import com.bhukkad.repository.OrderItemRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.MenuService;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.dao.DataAccessException;
 
 @Slf4j
 @Service
@@ -52,6 +55,7 @@ public class MenuServiceImpl implements MenuService {
     private final ImageStorageProperties imageStorageProperties;
     private final InventoryProperties inventoryProperties;
     private final StockReservationService stockReservationService;
+    private final OrderItemRepository orderItemRepository;
 
     @Value("${cache.ttl.menu-item:900}")
     private long menuItemTtl;
@@ -114,14 +118,24 @@ public class MenuServiceImpl implements MenuService {
         return mapToCategoryResponse(category);
     }
 
-    @Override
+@Override
     @Transactional
     public void deleteCategory(Long categoryId) {
         MenuCategory category = menuCategoryRepository.findByIdWithRestaurant(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         verifyOwnership(category.getRestaurant());
-        menuCategoryRepository.delete(category);
+
+        long itemCount = menuItemRepository.countByCategoryId(categoryId);
+        if (itemCount > 0) {
+            throw new BusinessException("Cannot delete category because it contains menu items");
+        }
+
+        try {
+            menuCategoryRepository.delete(category);
+        } catch (DataAccessException e) {
+            throw new BusinessException("Cannot delete category due to dependencies: " + e.getMostSpecificCause().getMessage());
+        }
         cacheService.deletePattern("menu-category");
         cacheService.deletePattern("menu-item");
     }
@@ -256,7 +270,7 @@ public class MenuServiceImpl implements MenuService {
         return menuItemMapper.toResponse(menuItem);
     }
 
-    @Override
+@Override
     @Transactional
     public void deleteMenuItem(Long id) {
         MenuItem menuItem = menuItemRepository.findByIdWithDetails(id)
@@ -265,7 +279,16 @@ public class MenuServiceImpl implements MenuService {
         Long restaurantId = menuItem.getCategory().getRestaurant().getId();
         verifyOwnership(menuItem.getCategory().getRestaurant());
 
-        menuItemRepository.delete(menuItem);
+        long orderItemCount = orderItemRepository.countByMenuItemId(id);
+        if (orderItemCount > 0) {
+            throw new BusinessException("Cannot delete menu item because it is used in existing orders");
+        }
+
+        try {
+            menuItemRepository.delete(menuItem);
+        } catch (DataAccessException e) {
+            throw new BusinessException("Cannot delete menu item due to dependencies: " + e.getMostSpecificCause().getMessage());
+        }
 
         cacheService.delete(CacheKeyGenerator.menuItem(id));
         invalidateMenuCaches(restaurantId);
@@ -277,13 +300,22 @@ public class MenuServiceImpl implements MenuService {
         MenuItem menuItem = menuItemRepository.findByIdWithDetails(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
 
-        verifyOwnership(menuItem.getCategory().getRestaurant());
+        if (menuItem.getCategory() == null) {
+            throw new ResourceNotFoundException("Menu item category not found");
+        }
+
+        Restaurant restaurant = menuItem.getCategory().getRestaurant();
+        if (restaurant == null) {
+            throw new ResourceNotFoundException("Restaurant not found for menu item");
+        }
+
+        verifyOwnership(restaurant);
 
         menuItem.setAvailable(available);
         menuItemRepository.save(menuItem);
 
         cacheService.delete(CacheKeyGenerator.menuItem(itemId));
-        invalidateMenuCaches(menuItem.getCategory().getRestaurant().getId());
+        invalidateMenuCaches(restaurant.getId());
     }
 
     @Override
@@ -307,7 +339,7 @@ public class MenuServiceImpl implements MenuService {
     // ==================== HELPERS ====================
 
     private void verifyOwnership(Restaurant restaurant) {
-        if (!restaurant.getOwner().getId().equals(securityUtils.getCurrentUserId())) {
+        if (restaurant.getOwner() == null || !restaurant.getOwner().getId().equals(securityUtils.getCurrentUserId())) {
             throw new UnauthorizedException("You don't own this restaurant");
         }
     }
@@ -390,5 +422,43 @@ public class MenuServiceImpl implements MenuService {
                 .active(category.getActive())
                 .itemCount(itemCount)
                 .build();
+    }
+
+    // ==================== DIETARY FILTERING ====================
+
+    @Override
+    @UseReadReplica
+    public List<MenuItemResponse> filterMenuItemsByDiet(Long restaurantId, MenuItem.FoodType foodType, Set<String> excludeAllergens, MenuItem.SpiceLevel maxSpiceLevel) {
+        String cacheKey = CacheKeyGenerator.menuItemsByDiet(restaurantId, foodType, excludeAllergens, maxSpiceLevel);
+        return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, searchTtl, () -> {
+            List<MenuItem> items = menuItemRepository.findByRestaurantIdWithDetails(restaurantId);
+            return items.stream()
+                    .filter(item -> foodType == null || item.getFoodType() == foodType)
+                    .filter(item -> excludeAllergens == null || excludeAllergens.isEmpty() || 
+                            item.getAllergens() == null || 
+                            item.getAllergens().stream().noneMatch(excludeAllergens::contains))
+                    .filter(item -> maxSpiceLevel == null || item.getSpiceLevel() == null || 
+                            item.getSpiceLevel().ordinal() <= maxSpiceLevel.ordinal())
+                    .map(menuItemMapper::toResponse)
+                    .collect(Collectors.toList());
+        });
+    }
+
+    @Override
+    @UseReadReplica
+    public List<MenuItemResponse> getVeganItems(Long restaurantId) {
+        return filterMenuItemsByDiet(restaurantId, MenuItem.FoodType.VEGAN, null, null);
+    }
+
+    @Override
+    @UseReadReplica
+    public List<MenuItemResponse> getVegetarianItems(Long restaurantId) {
+        return filterMenuItemsByDiet(restaurantId, MenuItem.FoodType.VEG, null, null);
+    }
+
+    @Override
+    @UseReadReplica
+    public List<MenuItemResponse> getGlutenFreeItems(Long restaurantId) {
+        return filterMenuItemsByDiet(restaurantId, null, Set.of("gluten", "wheat"), null);
     }
 }

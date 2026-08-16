@@ -1,0 +1,10 @@
+-- V19: Database optimizations — schema already applied manually
+--
+-- The materialized view tables (restaurant_ratings_summary,
+-- restaurant_order_stats) and covering indexes on orders were already
+-- present in the database before this migration was tracked by Flyway.
+-- This version is intentionally a no-op so Flyway can advance the schema
+-- history without attempting to recreate existing objects.
+--
+-- If partitioning is still desired, implement it in a follow-up migration
+-- using pt-online-schema-change or gh-ost.

@@ -38,7 +38,6 @@ spring:
     open-in-view: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
         type:
           prefer_native_enum_types: false
         format_sql: true
@@ -86,15 +85,56 @@ app:
     kitchen-queue-default-limit: 50
     order-list-default-size: 20
     order-list-max-size: 100
+  scheduled-orders:
+    scheduler-interval-ms: 60000
+    minimum-lead-minutes: 30
+    max-days-ahead: 7
+    dispatch-interval-ms: 60000
+  dynamic-pricing:
+    min-price: 10.0
+    max-surge-percent: 50.0
+    max-rules-per-restaurant: 10
+  inventory:
+    low-stock-threshold: 10
+    alert-check-interval-ms: 300000
+    stock-reservation:
+      enabled: true
+      reservation-ttl-seconds: 900
+  db:
+    materialized-view-refresh-ms: 300000
+
+  commission:
+    default-rate: 15.0
+    tiers:
+      - name: "Bronze"
+        min-orders: 0
+        max-orders: 100
+        commission-percent: 15.0
+        description: "Standard commission rate for new restaurants"
+      - name: "Silver"
+        min-orders: 100
+        max-orders: 500
+        commission-percent: 12.0
+        description: "Discounted rate for restaurants with 100+ orders"
+      - name: "Gold"
+        min-orders: 500
+        max-orders: 2000
+        commission-percent: 10.0
+        description: "Preferred rate for high-volume restaurants"
+      - name: "Platinum"
+        min-orders: 2000
+        max-orders: 999999.0
+        commission-percent: 8.0
+        description: "Best rate for top-performing restaurants"
   jwt:
-    secret: ${JWT_SECRET:}
+    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
     expiration: 86400000
     refresh-expiration: 604800000
   outbox:
     poll-interval-ms: 2000
   datasource:
     read-replica:
-      enabled: false
+      enabled: true
       url: ${DB_REPLICA_URL:}
       username: ${DB_REPLICA_USERNAME:}
       password: ${DB_REPLICA_PASSWORD:}
@@ -233,11 +273,6 @@ app:
     bonus-amount: 50.0
     referee-bonus-amount: 25.0
 
-  scheduled-orders:
-    minimum-lead-minutes: 30
-    max-days-ahead: 7
-    dispatch-interval-ms: 60000
-
   settlement:
     commission-percent: 15.0
     auto-settle-enabled: true
@@ -249,12 +284,6 @@ app:
     pickup-buffer-minutes: 8
     confidence-band-minutes: 5
     record-snapshots: true
-
-  inventory:
-    low-stock-threshold: 10
-    stock-reservation:
-      enabled: true
-      reservation-ttl-seconds: 900
 
   cache:
     local:

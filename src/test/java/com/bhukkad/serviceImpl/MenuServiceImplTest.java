@@ -73,6 +73,8 @@ class MenuServiceImplTest {
     private com.bhukkad.config.InventoryProperties inventoryProperties;
     @Mock
     private com.bhukkad.inventory.StockReservationService stockReservationService;
+    @Mock
+    private com.bhukkad.repository.OrderItemRepository orderItemRepository;
 
     @InjectMocks
     private MenuServiceImpl menuService;
@@ -600,6 +602,7 @@ class MenuServiceImplTest {
         MenuItem item = fullMenuItem(1L);
         when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
         when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(orderItemRepository.countByMenuItemId(1L)).thenReturn(0L);
 
         menuService.deleteMenuItem(1L);
 

@@ -18,6 +18,7 @@ import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.config.WalletProperties;
 import com.bhukkad.entity.WalletTransaction;
+import org.springframework.dao.DataAccessException;
 import com.bhukkad.wallet.WalletService;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CustomerService;
@@ -140,7 +141,16 @@ public class CustomerServiceImpl implements CustomerService {
             throw new UnauthorizedException("Not your address");
         }
 
-        addressRepository.delete(address);
+        long orderCount = orderRepository.countByDeliveryAddressId(addressId);
+        if (orderCount > 0) {
+            throw new BusinessException("Cannot delete address because it is used in existing orders");
+        }
+
+        try {
+            addressRepository.delete(address);
+        } catch (DataAccessException e) {
+            throw new BusinessException("Cannot delete address due to dependencies: " + e.getMostSpecificCause().getMessage());
+        }
     }
 
     @Override
@@ -267,6 +277,11 @@ public class CustomerServiceImpl implements CustomerService {
                 .walletBalance(customer.getWalletBalance())
                 .role(customer.getRole().name())
                 .createdAt(customer.getCreatedAt() != null ? customer.getCreatedAt().toString() : null)
+                .addresses(addressRepository
+                        .findByCustomerId(customer.getId())
+                        .stream()
+                        .map(this::mapToAddressResponse)
+                        .collect(Collectors.toList()))
                 .build();
     }
 

@@ -49,8 +49,8 @@ public class DeliveryController {
     }
 
     @PutMapping("/profile")
-    public ResponseEntity<ApiResponse<DeliveryAgent>> updateProfile(@RequestBody DeliveryAgent agent) {
-        DeliveryAgent updatedAgent = deliveryService.updateProfile(
+    public ResponseEntity<ApiResponse<DeliveryAgentResponse>> updateProfile(@RequestBody DeliveryAgent agent) {
+        DeliveryAgentResponse updatedAgent = deliveryService.updateProfile(
                 deliveryService.getCurrentDeliveryAgent().getId(), agent);
         return ResponseEntity.ok(ApiResponse.success("Profile updated successfully", updatedAgent));
     }

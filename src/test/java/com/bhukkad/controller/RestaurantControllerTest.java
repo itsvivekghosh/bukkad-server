@@ -7,11 +7,13 @@ import com.bhukkad.dto.response.RestaurantResponse;
 import com.bhukkad.entity.Review;
 import com.bhukkad.service.RestaurantService;
 import com.bhukkad.service.ReviewService;
+import com.bhukkad.cache.http.HttpCacheSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -20,8 +22,12 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import static org.springframework.http.HttpHeaders.IF_NONE_MATCH;
+import org.junit.jupiter.api.Tag;
+
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class RestaurantControllerTest {
+public class RestaurantControllerTest {
 
     @Mock
     private RestaurantService restaurantService;
@@ -30,6 +36,9 @@ class RestaurantControllerTest {
     @Mock
     private ReviewService reviewService;
 
+    @Mock
+    private HttpCacheSupport httpCacheSupport;
+
     @InjectMocks
     private RestaurantController restaurantController;
 
@@ -37,8 +46,9 @@ class RestaurantControllerTest {
     void getAllRestaurants_returnsActiveRestaurants() {
         List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
         when(restaurantService.getAllActiveRestaurants()).thenReturn(restaurants);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
-        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants();
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(restaurants, response.getBody().getData());
@@ -49,8 +59,9 @@ class RestaurantControllerTest {
     void getRestaurantById_returnsRestaurant() {
         RestaurantResponse restaurant = new RestaurantResponse();
         when(restaurantService.getRestaurantById(1L)).thenReturn(restaurant);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
-        ResponseEntity<ApiResponse<RestaurantResponse>> response = restaurantController.getRestaurantById(1L);
+        ResponseEntity<ApiResponse<RestaurantResponse>> response = restaurantController.getRestaurantById(1L, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(restaurant, response.getBody().getData());

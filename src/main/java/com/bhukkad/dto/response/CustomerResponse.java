@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -21,4 +23,5 @@ public class CustomerResponse {
     private Double walletBalance;
     private String role;
     private String createdAt;
+    private List<AddressResponse> addresses;
 }

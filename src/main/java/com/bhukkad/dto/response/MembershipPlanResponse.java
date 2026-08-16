@@ -12,4 +12,8 @@ public class MembershipPlanResponse {
     private Double pricePerMonth;
     private Boolean freeDelivery;
     private Double discountPercent;
+    private Integer tierLevel;
+    private Double maxDiscountPercent;
+    private Double referralBonusPercent;
+    private Integer referralMaxPerMonth;
 }

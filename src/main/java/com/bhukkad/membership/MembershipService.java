@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Manages Bhukkad membership plans, subscriptions, and order discounts.
@@ -91,7 +92,7 @@ public class MembershipService {
     }
 
     /**
-     * Applies membership discount to an order subtotal.
+     * Applies membership discount to an order subtotal based on plan tier.
      *
      * @param customerId customer identifier
      * @param subtotal   order subtotal before discount
@@ -100,14 +101,67 @@ public class MembershipService {
     public double applyMembershipDiscount(Long customerId, double subtotal) {
         return customerMembershipRepository.findActiveMembership(customerId, LocalDateTime.now())
                 .map(membership -> {
-                    Double percent = membership.getPlan().getDiscountPercent();
-                    if (percent == null || percent <= 0) {
-                        return 0.0;
+                    MembershipPlan plan = membership.getPlan();
+                    double percent = plan.getDiscountPercent();
+                    
+                    // Apply tier max discount if configured
+                    if (plan.getMaxDiscountPercent() != null && percent > plan.getMaxDiscountPercent()) {
+                        percent = plan.getMaxDiscountPercent();
                     }
+                    
                     return PriceCalculator.roundToTwoDecimals(
                             PriceCalculator.calculateDiscount(subtotal, percent));
                 })
                 .orElse(0.0);
+    }
+
+    /**
+     * Adds referral bonus points/credits to a referrer's account.
+     *
+     * @param referrerId      customer who made the referral
+     * @param newCustomerId  customer who was referred
+     * @return true if bonus was added successfully
+     */
+    @Transactional
+    public boolean addReferralBonus(Long referrerId, Long newCustomerId) {
+        Customer referrer = customerRepository.findById(referrerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Referrer not found"));
+        Customer newCustomer = customerRepository.findById(newCustomerId)
+                .orElseThrow(() -> new ResourceNotFoundException("New customer not found"));
+
+        // Check if new customer is not already referred by this referrer
+        if (newCustomer.getReferrerId() != null && newCustomer.getReferrerId().equals(referrerId)) {
+            return false; // Already referred by this person
+        }
+
+        MembershipPlan plan = membershipPlanRepository.findFirstByIsActiveTrueOrderByIdAsc();
+        if (plan == null) {
+            throw new ResourceNotFoundException("Active membership plan not found");
+        }
+
+        double referralBonus = plan.getReferralBonusPercent();
+        if (referralBonus <= 0) {
+            return false; // No referral bonus configured
+        }
+
+        // Check monthly limit
+        long referralsThisMonth = customerMembershipRepository.countReferralsByReferrerThisMonth(
+                referrerId, LocalDateTime.now().withDayOfMonth(1));
+
+        if (referralBonus > 0 && referralsThisMonth >= plan.getReferralMaxPerMonth()) {
+            return false; // Monthly limit reached
+        }
+
+        // Add loyalty points to referrer
+        referrer.setLoyaltyPoints(referrer.getLoyaltyPoints() + 50); // 50 points per referral
+
+        customerRepository.save(referrer);
+
+        // Mark new customer as referred
+        newCustomer.setReferrerId(referrerId);
+        customerRepository.save(newCustomer);
+
+        return true;
     }
 
     private MembershipPlanResponse toPlanResponse(MembershipPlan plan) {
@@ -118,6 +172,10 @@ public class MembershipService {
                 .pricePerMonth(plan.getPricePerMonth())
                 .freeDelivery(plan.getFreeDelivery())
                 .discountPercent(plan.getDiscountPercent())
+                .tierLevel(plan.getTierLevel())
+                .maxDiscountPercent(plan.getMaxDiscountPercent())
+                .referralBonusPercent(plan.getReferralBonusPercent())
+                .referralMaxPerMonth(plan.getReferralMaxPerMonth())
                 .build();
     }
 
@@ -131,6 +189,7 @@ public class MembershipService {
                 .status(membership.getStatus().name())
                 .freeDelivery(plan.getFreeDelivery())
                 .discountPercent(plan.getDiscountPercent())
+                .tierLevel(plan.getTierLevel())
                 .startsAt(membership.getStartsAt() != null ? membership.getStartsAt().toString() : null)
                 .endsAt(membership.getEndsAt() != null ? membership.getEndsAt().toString() : null)
                 .build();

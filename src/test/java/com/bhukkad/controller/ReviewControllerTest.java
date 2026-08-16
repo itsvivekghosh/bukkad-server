@@ -16,9 +16,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class ReviewControllerTest {
+public class ReviewControllerTest {
 
     @Mock
     private ReviewService reviewService;

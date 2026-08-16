@@ -24,9 +24,11 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class HealthControllerTest {
+public class HealthControllerTest {
 
     @Mock
     private DataSource writeDataSource;

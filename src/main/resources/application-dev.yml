@@ -6,12 +6,12 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       pool-name: BhukkadDevPool
-      maximum-pool-size: 5
-      minimum-idle: 2
-      connection-timeout: 60000
+      maximum-pool-size: 10
+      minimum-idle: 3
+      connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
-      initialization-fail-timeout: -1
+      leak-detection-threshold: 60000
       connection-test-query: SELECT 1
 
   data:
@@ -30,15 +30,25 @@ spring:
   jpa:
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
-        use_sql_comments: true
+        format_sql: false
+        use_sql_comments: false
 
   devtools:
     restart:
       enabled: true
+
+  mail:
+    host: localhost
+    port: 25
+    # No real mail server in local dev; JavaMailSender bean is created but sends will fail.
+
+  jwt:
+    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+    expiration: ${JWT_EXPIRATION:86400000}
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
 server:
   port: ${SERVER_PORT:8080}
@@ -60,8 +70,8 @@ logging:
     com.bhukkad.logging: DEBUG
     org.springframework.web: INFO
     org.springframework.security: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
     PERFORMANCE: DEBUG
     ORDER: DEBUG
     PAYMENT: DEBUG
@@ -87,15 +97,8 @@ app:
   monitoring:
     prometheus:
       require-auth: false
-  jwt:
-    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-    expiration: ${JWT_EXPIRATION:86400000}
-    refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
 
-# ============================================================
-# Actuator
-# ============================================================
 
 management:
   endpoints:

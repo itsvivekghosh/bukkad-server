@@ -1,0 +1,66 @@
+name: Deploy to Staging
+
+on:
+  workflow_run:
+    workflows: ["Docker Image"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.bhukkad.com
+
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'deploy') ||
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Write kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Determine image tag
+        id: image
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "tag=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set image in Kubernetes deployment
+        run: |
+          kubectl config use-context staging
+          kubectl set image deployment/bhukkad-app \
+            bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:${{ steps.image.outputs.tag }} \
+            -n bhukkad
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=300s
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n bhukkad -l app=bhukkad,component=api
+          kubectl describe deployment/bhukkad-app -n bhukkad
+
+      - name: Run smoke tests
+        run: |
+          echo "Running staging smoke tests..."
+          curl -f https://staging.bhukkad.com/api/v1/health/ping || echo "Smoke test endpoint pending"

@@ -13,6 +13,7 @@ public class MembershipStatusResponse {
     private String status;
     private Boolean freeDelivery;
     private Double discountPercent;
+    private Integer tierLevel;
     private String startsAt;
     private String endsAt;
 }

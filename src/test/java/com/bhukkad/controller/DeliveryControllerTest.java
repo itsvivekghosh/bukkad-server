@@ -17,9 +17,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.Tag;
 
+@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-class DeliveryControllerTest {
+public class DeliveryControllerTest {
 
     @Mock
     private DeliveryService deliveryService;
@@ -44,13 +46,12 @@ class DeliveryControllerTest {
         DeliveryAgent current = new DeliveryAgent();
         current.setId(8L);
         DeliveryAgent payload = new DeliveryAgent();
-        DeliveryAgent updated = new DeliveryAgent();
-        updated.setId(8L);
+        DeliveryAgentResponse updated = DeliveryAgentResponse.builder().id(8L).build();
 
         when(deliveryService.getCurrentDeliveryAgent()).thenReturn(current);
         when(deliveryService.updateProfile(8L, payload)).thenReturn(updated);
 
-        ResponseEntity<ApiResponse<DeliveryAgent>> response = deliveryController.updateProfile(payload);
+        ResponseEntity<ApiResponse<DeliveryAgentResponse>> response = deliveryController.updateProfile(payload);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Profile updated successfully", response.getBody().getMessage());

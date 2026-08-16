@@ -4,6 +4,7 @@ import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.OrderCacheService;
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.dto.request.OrderRequest;
+import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.dto.response.OrderSummaryResponse;
 import com.bhukkad.dto.response.PagedResponse;
@@ -70,6 +71,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -692,6 +694,142 @@ class OrderServiceImplTest {
 
         assertThrows(UnauthorizedException.class,
                 () -> orderService.updateDeliveryStatus(1L, Order.OrderStatus.OUT_FOR_DELIVERY));
+    }
+
+    // ==================== scheduled orders ====================
+
+    @Test
+    void getCustomerScheduledOrders_returnsPagedScheduledOrders() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        OrderSummaryResponse summary = new OrderSummaryResponse(
+                10L, "ORD-SCHED123", 1L, "Ada Lovelace", 5L, "Cafe Aroma",
+                Order.OrderStatus.SCHEDULED, 150.0, "No onions",
+                LocalDateTime.of(2026, 8, 15, 12, 0),
+                LocalDateTime.of(2026, 8, 15, 12, 30));
+        Page<OrderSummaryResponse> page = new PageImpl<>(List.of(summary));
+        when(orderRepository.findCustomerScheduledOrderSummaries(eq(1L), any(Pageable.class))).thenReturn(page);
+
+        PagedResponse<OrderSummaryResponse> result = orderService.getCustomerScheduledOrders(0, 20);
+
+        assertEquals(1, result.getItems().size());
+        assertEquals(Order.OrderStatus.SCHEDULED.name(), result.getItems().get(0).getStatus());
+        assertEquals("No onions", result.getItems().get(0).getSpecialInstructions());
+        verify(orderRepository).findCustomerScheduledOrderSummaries(eq(1L), any(Pageable.class));
+    }
+
+    @Test
+    void getCustomerScheduledOrdersByCursor_returnsCursorPagedScheduledOrders() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        OrderSummaryResponse summary = new OrderSummaryResponse(
+                10L, "ORD-SCHED123", 1L, "Ada Lovelace", 5L, "Cafe Aroma",
+                Order.OrderStatus.SCHEDULED, 150.0, "No onions",
+                LocalDateTime.of(2026, 8, 15, 12, 0),
+                LocalDateTime.of(2026, 8, 15, 12, 30));
+        when(orderRepository.findCustomerScheduledOrderSummariesAfterCursor(
+                eq(1L), any(), any(), any(Pageable.class)))
+                .thenReturn(List.of(summary));
+
+        CursorPagedResponse<OrderSummaryResponse> result = orderService.getCustomerScheduledOrdersByCursor(null, 20);
+
+        assertEquals(1, result.getItems().size());
+        assertEquals(Order.OrderStatus.SCHEDULED.name(), result.getItems().get(0).getStatus());
+        verify(orderRepository).findCustomerScheduledOrderSummariesAfterCursor(
+                eq(1L), any(), any(), any(Pageable.class));
+    }
+
+    @Test
+    void cancelScheduledOrder_notFound_throws() {
+        when(orderRepository.findByIdWithDetails(5L)).thenReturn(Optional.empty());
+        assertThrows(ResourceNotFoundException.class,
+                () -> orderService.cancelScheduledOrder(5L, "changed mind"));
+    }
+
+    @Test
+    void cancelScheduledOrder_notOwner_throws() {
+        Order order = scheduledOrder(1L, customer(2L, "Bob"));
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+
+        assertThrows(UnauthorizedException.class, () -> orderService.cancelScheduledOrder(1L, "changed mind"));
+    }
+
+    @Test
+    void cancelScheduledOrder_notScheduledStatus_throws() {
+        Order order = detailedOrder(1L, Order.OrderStatus.PLACED);
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> orderService.cancelScheduledOrder(1L, "changed mind"));
+        assertEquals("Only scheduled orders can be cancelled via this endpoint", ex.getMessage());
+    }
+
+    @Test
+    void cancelScheduledOrder_success_refundsAndRestoresPoints() {
+        Customer customer = customer(1L, "Ada");
+        customer.setLoyaltyPoints(50);
+        Order order = scheduledOrder(1L, customer);
+        order.setLoyaltyPointsRedeemed(20);
+        order.setTotalAmount(200.0);
+
+        Payment payment = new Payment();
+        payment.setPaymentMethod(Payment.PaymentMethod.CASH_ON_DELIVERY);
+        payment.setStatus(Payment.PaymentStatus.COMPLETED);
+        order.setPayment(payment);
+
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        when(orderRepository.save(any(Order.class))).thenReturn(order);
+        when(customerRepository.save(customer)).thenReturn(customer);
+
+        OrderResponse response = orderService.cancelScheduledOrder(1L, "changed mind");
+
+        assertEquals(Order.OrderStatus.CANCELLED, order.getStatus());
+        assertEquals("CANCELLED", response.getStatus());
+        assertEquals("changed mind", order.getCancellationReason());
+        assertEquals(User.UserRole.CUSTOMER.name(), order.getCancelledBy());
+        assertEquals(70, customer.getLoyaltyPoints()); // 50 + 20 restored
+        verify(paymentService).refundPayment(payment.getId());
+        verify(orderEventPublisher).publishStatusChange(any(), any());
+    }
+
+    @Test
+    void cancelScheduledOrder_pendingPayment_noRefund() {
+        Customer customer = customer(1L, "Ada");
+        Order order = scheduledOrder(1L, customer);
+        Payment payment = new Payment();
+        payment.setPaymentMethod(Payment.PaymentMethod.CASH_ON_DELIVERY);
+        payment.setStatus(Payment.PaymentStatus.PENDING);
+        order.setPayment(payment);
+
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        when(orderRepository.save(any(Order.class))).thenReturn(order);
+
+        OrderResponse response = orderService.cancelScheduledOrder(1L, "changed mind");
+
+        assertEquals(Order.OrderStatus.CANCELLED, order.getStatus());
+        verify(paymentService, never()).refundPayment(anyLong());
+    }
+
+    // ==================== helpers ====================
+
+    private Order scheduledOrder(Long id, Customer customer) {
+        Order order = new Order();
+        order.setId(id);
+        order.setOrderNumber("ORD-SCHED123");
+        order.setCustomer(customer);
+        order.setRestaurant(restaurant(5L, "Cafe Aroma"));
+        order.setDeliveryAddress(address(20L, customer));
+        order.setStatus(Order.OrderStatus.SCHEDULED);
+        order.setScheduledAt(LocalDateTime.now().plusHours(2));
+        order.setSubtotal(100.0);
+        order.setDeliveryFee(20.0);
+        order.setTaxAmount(10.0);
+        order.setTotalAmount(130.0);
+        order.setCreatedAt(LocalDateTime.of(2026, 8, 15, 10, 0));
+        order.setSpecialInstructions("No onions");
+        return order;
     }
 
     // ==================== trackOrder ====================
