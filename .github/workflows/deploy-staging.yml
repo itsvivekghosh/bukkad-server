@@ -58,12 +58,15 @@ jobs:
       - name: Deploy to staging VM
         run: |
           echo "Deploying image tag: ${{ steps.image.outputs.tag }}"
+          # Copy the deployment script
           scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             ./deploy/docker-deploy.sh \
             "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
+          # Make script executable and run it
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-            "chmod +x /tmp/docker-deploy.sh && \
+            "chmod 755 /tmp/docker-deploy.sh && \
+            ls -la /tmp/docker-deploy.sh && \
             IMAGE_TAG=${{ steps.image.outputs.tag }} \
             SPRING_PROFILES_ACTIVE=staging \
             DB_HOST=${{ secrets.STAGING_DB_HOST }} \
@@ -77,7 +80,7 @@ jobs:
             REDIS_PASSWORD=${{ secrets.STAGING_REDIS_PASSWORD }} \
             JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }} \
             JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }} \
-            JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }} \
+            JWT_REFRESH_EXPIRATION=${{ secrets.STAGING_JWT_REFRESH_EXPIRATION }} \
             RAZORPAY_ENABLED=${{ secrets.RAZORPAY_ENABLED }} \
             RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }} \
             RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }} \
@@ -93,12 +96,12 @@ jobs:
             LIVE_RELAY_CHANNEL=${{ secrets.LIVE_RELAY_CHANNEL }} \
             DB_REPLICA_ENABLED=${{ secrets.DB_REPLICA_ENABLED }} \
             DB_REPLICA_URL=${{ secrets.DB_REPLICA_URL }} \
-            DB_REPLICA_USERNAME=${{ secrets.DB_REPLICA_USERNAME }} \
-            DB_REPLICA_PASSWORD=${{ secrets.DB_REPLICA_PASSWORD }} \
+            DB_REPLICA_USERNAME=${{ secrets.STAGING_DB_REPLICA_USERNAME }} \
+            DB_REPLICA_PASSWORD=${{ secrets.STAGING_DB_REPLICA_PASSWORD }} \
             PAYMENT_PROVIDER=${{ secrets.PAYMENT_PROVIDER }} \
             PROMETHEUS_USERNAME=${{ secrets.PROMETHEUS_USERNAME }} \
             PROMETHEUS_PASSWORD=${{ secrets.PROMETHEUS_PASSWORD }} \
-            /tmp/docker-deploy.sh"
+            bash /tmp/docker-deploy.sh"
 
       - name: Wait for container to start
         run: |
