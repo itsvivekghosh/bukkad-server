@@ -44,12 +44,6 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # Debug: verify the key file was created and has content
-          ls -la ~/.ssh/id_ed25519
-          KEY_SIZE=$(wc -c < ~/.ssh/id_ed25519)
-          echo "SSH key file size: $KEY_SIZE bytes"
-          head -1 ~/.ssh/id_ed25519
-          tail -1 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Determine image tag
