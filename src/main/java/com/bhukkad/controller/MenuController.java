@@ -1,11 +1,15 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
+import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.MenuCategoryResponse;
+import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
-import com.bhukkad.entity.MenuCategory;
+import com.bhukkad.ratelimit.RateLimited;
 import com.bhukkad.service.MenuService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/menu")
+@RequestMapping(ApiPaths.V1_PREFIX + "/menu")
 @RequiredArgsConstructor
 public class MenuController {
 
@@ -27,7 +31,7 @@ public class MenuController {
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
     public ResponseEntity<ApiResponse<MenuCategoryResponse>> createCategory(
             @RequestParam Long restaurantId,
-            @RequestBody MenuCategoryRequest category) {
+            @Valid @RequestBody MenuCategoryRequest category) {
         MenuCategoryResponse createdCategory = menuService.createCategory(restaurantId, category);
         return ResponseEntity.ok(ApiResponse.success("Category created successfully", createdCategory));
     }
@@ -42,7 +46,7 @@ public class MenuController {
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
     public ResponseEntity<ApiResponse<MenuCategoryResponse>> updateCategory(
             @PathVariable Long categoryId,
-            @RequestBody MenuCategoryRequest category) {
+            @Valid @RequestBody MenuCategoryRequest category) {
         MenuCategoryResponse updatedCategory = menuService.updateCategory(categoryId, category);
         return ResponseEntity.ok(ApiResponse.success("Category updated successfully", updatedCategory));
     }
@@ -117,9 +121,28 @@ public class MenuController {
         return ResponseEntity.ok(ApiResponse.success(recommended));
     }
 
+    @PostMapping("/items/{id}/image/upload-url")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<MenuImageUploadResponse>> createMenuItemImageUploadUrl(
+            @PathVariable Long id,
+            @Valid @RequestBody MenuImageUploadRequest request) {
+        MenuImageUploadResponse response = menuService.createMenuItemImageUploadUrl(id, request);
+        return ResponseEntity.ok(ApiResponse.success("Upload URL created", response));
+    }
+
     @GetMapping("/items/search")
+    @RateLimited("search")
     public ResponseEntity<ApiResponse<List<MenuItemResponse>>> searchMenuItems(@RequestParam String keyword) {
         List<MenuItemResponse> menuItems = menuService.searchMenuItems(keyword);
         return ResponseEntity.ok(ApiResponse.success(menuItems));
+    }
+
+    @GetMapping("/items/restaurant/{restaurantId}/low-stock")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getLowStockItems(
+            @PathVariable Long restaurantId,
+            @RequestParam(required = false) Integer threshold) {
+        List<MenuItemResponse> items = menuService.getLowStockItems(restaurantId, threshold);
+        return ResponseEntity.ok(ApiResponse.success(items));
     }
 }

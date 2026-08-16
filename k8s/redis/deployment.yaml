@@ -12,6 +12,8 @@ spec:
     matchLabels:
       app: bhukkad
       component: redis
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
@@ -24,38 +26,70 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          # The app is always given REDIS_PASSWORD (spring.data.redis.password),
+          # so the server MUST require the same password -- otherwise Lettuce
+          # sends AUTH to a passwordless server, the `redis` health indicator
+          # fails, and since the readiness group is `readinessState,db,redis`
+          # every app pod stays NotReady forever.
+          #
+          # requirepass is injected on the command line rather than baked into
+          # redis.conf so the secret is never stored in a ConfigMap. `sh -c` is
+          # required for $REDIS_PASSWORD expansion.
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
           command:
-            - redis-server
-            - --appendonly
-            - "yes"
-            - --maxmemory
-            - 256mb
-            - --maxmemory-policy
-            - allkeys-lru
+            - sh
+            - -c
+            - exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD"
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
               memory: 512Mi
+          # Probes must authenticate now that requirepass is set: an
+          # unauthenticated PING replies NOAUTH, which would fail every probe.
+          # `grep -q PONG` makes the probe independent of redis-cli exit codes.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             exec:
               command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 15
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
             periodSeconds: 10
+            timeoutSeconds: 3
           readinessProbe:
             exec:
               command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 5
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
             periodSeconds: 5
+            timeoutSeconds: 3
           volumeMounts:
             - name: redis-data
               mountPath: /data
+            - name: redis-config
+              mountPath: /etc/redis/redis.conf
+              subPath: redis.conf
       volumes:
         - name: redis-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: bhukkad-redis-pvc
+        - name: redis-config
+          configMap:
+            name: bhukkad-redis-config

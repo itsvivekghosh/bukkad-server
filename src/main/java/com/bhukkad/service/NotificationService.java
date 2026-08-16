@@ -6,4 +6,7 @@ public interface NotificationService {
     void sendDeliveryAssignment(Long orderId, Long agentId);
     void sendEmailVerification(String email, String token);
     void sendPasswordReset(String email, String token);
+    void sendPaymentRefunded(Long orderId, Double amount);
+
+    void sendTestNotification(String channel, String recipient, String message);
 }

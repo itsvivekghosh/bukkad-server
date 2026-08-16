@@ -9,18 +9,131 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 @Service
 public class RedisCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisCacheService.class);
+    private static final String LOCK_PREFIX = "cache-lock:";
+    private static final int LOCK_WAIT_RETRIES = 8;
+    private static final long LOCK_WAIT_BASE_MS = 50L;
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final LocalCacheService localCacheService;
 
-    public RedisCacheService(RedisTemplate<String, Object> redisTemplate) {
+    public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
+                             LocalCacheService localCacheService) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
+        this.localCacheService = localCacheService;
+    }
+
+    public <T> T getOrCompute(String key, Class<T> type, long ttlSeconds, Supplier<T> supplier) {
+        Optional<T> l1 = localCacheService.get(key, type);
+        if (l1.isPresent()) {
+            return l1.get();
+        }
+
+        Optional<T> cached = get(key, type);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+
+        String lockKey = LOCK_PREFIX + key;
+        if (tryAcquireLock(lockKey)) {
+            try {
+                cached = get(key, type);
+                if (cached.isPresent()) {
+                    return cached.get();
+                }
+                T value = supplier.get();
+                if (value != null) {
+                    set(key, value, ttlSeconds);
+                    localCacheService.put(key, value);
+                }
+                return value;
+            } finally {
+                delete(lockKey);
+            }
+        }
+
+        return waitForValue(key, type, supplier);
+    }
+
+    public <T> List<T> getListOrCompute(String key, Class<T> type, long ttlSeconds, Supplier<List<T>> supplier) {
+        @SuppressWarnings("unchecked")
+        Optional<List<T>> l1 = (Optional<List<T>>) (Optional<?>) localCacheService.get(key, List.class);
+        if (l1.isPresent()) {
+            return l1.get();
+        }
+
+        Optional<List<T>> cached = getList(key, type);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+
+        String lockKey = LOCK_PREFIX + key;
+        if (tryAcquireLock(lockKey)) {
+            try {
+                cached = getList(key, type);
+                if (cached.isPresent()) {
+                    return cached.get();
+                }
+                List<T> value = supplier.get();
+                if (value != null) {
+                    set(key, value, ttlSeconds);
+                    localCacheService.put(key, value);
+                }
+                return value != null ? value : List.of();
+            } finally {
+                delete(lockKey);
+            }
+        }
+
+        return waitForList(key, type, supplier);
+    }
+
+    private boolean tryAcquireLock(String lockKey) {
+        try {
+            return Boolean.TRUE.equals(redisTemplate.opsForValue()
+                    .setIfAbsent(buildKey(lockKey), "1", Duration.ofSeconds(10)));
+        } catch (Exception e) {
+            log.warn("CACHE_LOCK_FAILED key={} error={}", lockKey, e.getMessage());
+            return false;
+        }
+    }
+
+    private <T> T waitForValue(String key, Class<T> type, Supplier<T> supplier) {
+        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
+            sleepBackoff(attempt);
+            Optional<T> cached = get(key, type);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        }
+        return supplier.get();
+    }
+
+    private <T> List<T> waitForList(String key, Class<T> type, Supplier<List<T>> supplier) {
+        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
+            sleepBackoff(attempt);
+            Optional<List<T>> cached = getList(key, type);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        }
+        List<T> value = supplier.get();
+        return value != null ? value : List.of();
+    }
+
+    private void sleepBackoff(int attempt) {
+        try {
+            Thread.sleep(LOCK_WAIT_BASE_MS * (attempt + 1L));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ==================== BASIC OPERATIONS ====================
@@ -43,6 +156,7 @@ public class RedisCacheService {
             if (value != null) {
                 log.debug("CACHE_HIT key={}", fullKey);
                 T result = objectMapper.convertValue(value, type);
+                localCacheService.put(key, result);
                 return Optional.of(result);
             }
 
@@ -64,6 +178,7 @@ public class RedisCacheService {
                 log.debug("CACHE_HIT key={}", fullKey);
                 List<T> result = objectMapper.convertValue(value,
                         objectMapper.getTypeFactory().constructCollectionType(List.class, type));
+                localCacheService.put(key, result);
                 return Optional.of(result);
             }
 
@@ -79,6 +194,7 @@ public class RedisCacheService {
         try {
             String fullKey = buildKey(key);
             redisTemplate.delete(fullKey);
+            localCacheService.invalidate(key);
             log.debug("CACHE_DELETE key={}", fullKey);
         } catch (Exception e) {
             log.warn("CACHE_DELETE_FAILED key={} error={}", key, e.getMessage());
@@ -192,6 +308,7 @@ public class RedisCacheService {
                 }
             }
             stats.put("keysByType", keyCounts);
+            stats.put("localCache", localCacheService.getStats());
         } catch (Exception e) {
             stats.put("error", e.getMessage());
         }

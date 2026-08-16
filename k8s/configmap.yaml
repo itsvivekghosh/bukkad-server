@@ -6,31 +6,58 @@ metadata:
   labels:
     app: bhukkad
 data:
+  # ---------------------------------------------------------------------------
   # Application Config
-  SPRING_PROFILES_ACTIVE: "dev"
+  #
+  # This ConfigMap is consumed by the app Deployment via `envFrom`, so EVERY key
+  # here must be a valid environment variable name (C_IDENTIFIER). Do not add
+  # file-style keys such as `init.sql` -- kubelet silently skips them and emits
+  # an InvalidVariableNames event. File payloads live in their own ConfigMaps
+  # (see k8s/mysql/configmap.yaml).
+  # ---------------------------------------------------------------------------
+
+  # `prod` matches APP_ENVIRONMENT below. The prod profile reads DB_URL directly
+  # (application-prod.yml), unlike the dev profile which composes the URL from
+  # DB_HOST/DB_PORT/DB_NAME -- so DB_URL MUST be supplied here.
+  SPRING_PROFILES_ACTIVE: "prod"
   SERVER_PORT: "8080"
+
+  # Primary datasource. DB_URL is what application-prod.yml actually reads;
+  # DB_HOST/DB_PORT/DB_NAME are kept for the dev profile and for tooling.
+  DB_URL: "jdbc:mysql://bhukkad-mysql:3306/bhukkad?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=UTF-8"
   DB_HOST: "bhukkad-mysql"
   DB_PORT: "3306"
   DB_NAME: "bhukkad"
+
+  # Read replica is DISABLED: k8s/mysql/mysql-replica.yaml starts a standalone
+  # MySQL on an emptyDir with no replication bootstrap (no CHANGE MASTER, no
+  # MYSQL_USER) and Flyway only migrates the primary, so routing reads there
+  # would hit an empty, schema-less database. Re-enable only after implementing
+  # real replication (StatefulSet + persistent volume + replication user).
+  DB_REPLICA_ENABLED: "false"
+  DB_REPLICA_HOST: "bhukkad-mysql-replica"
+  DB_REPLICA_PORT: "3306"
+  DB_REPLICA_URL: "jdbc:mysql://bhukkad-mysql-replica:3306/bhukkad?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+
   REDIS_HOST: "bhukkad-redis"
   REDIS_PORT: "6379"
+
+  # STOMP relay broker (RabbitMQ). Without this the app would relay to
+  # localhost:61613 and live order tracking would fail.
+  RABBITMQ_HOST: "bhukkad-rabbitmq"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_STOMP_PORT: "61613"
+
   APP_ENVIRONMENT: "production"
   APP_DEBUG: "false"
   TZ: "Asia/Kolkata"
   MYSQL_DATABASE: "bhukkad"
 
-  # MySQL Init SQL
-  init.sql: |
-    SET NAMES utf8mb4;
-    SET CHARACTER SET utf8mb4;
+  # STOMP relay defaults to the in-memory broker. Set to "rabbitmq" (and ensure
+  # RABBITMQ_* secrets are mounted) for multi-replica live order tracking.
+  STOMP_BROKER_TYPE: "simple"
 
-    CREATE DATABASE IF NOT EXISTS bhukkad
-      CHARACTER SET utf8mb4
-      COLLATE utf8mb4_unicode_ci;
-
-    USE bhukkad;
-
-    GRANT ALL PRIVILEGES ON bhukkad.* TO 'bhukkad_user'@'%';
-    FLUSH PRIVILEGES;
-
-    SELECT 'Database initialized!' AS status;
+  # Kafka/Redpanda is optional. Keep disabled unless you deploy a broker and set
+  # APP_EVENTS_EXTERNAL_TYPE=kafka plus KAFKA_BOOTSTRAP_SERVERS.
+  APP_EVENTS_EXTERNAL_ENABLED: "false"
+  APP_EVENTS_EXTERNAL_TYPE: "log"

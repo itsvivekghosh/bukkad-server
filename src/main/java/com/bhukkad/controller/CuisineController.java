@@ -1,5 +1,7 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.entity.Cuisine;
 import com.bhukkad.repository.CuisineRepository;
@@ -10,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/cuisines")
+@RequestMapping(ApiPaths.V1_PREFIX + "/cuisines")
 @RequiredArgsConstructor
 public class CuisineController {
 

@@ -87,6 +87,9 @@ public class MenuItem {
     private Double averageRating = 0.0;
     private Integer totalRatings = 0;
 
+    /** Null = unlimited stock; decremented on order placement when set. */
+    private Integer stockQuantity;
+
     @JsonIgnore
     @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<CustomizationOption> customizationOptions = new ArrayList<>();

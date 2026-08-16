@@ -4,6 +4,7 @@ services:
     image: mysql:8.0
     container_name: bhukkad-mysql-dev
     restart: unless-stopped
+    init: true
     environment:
       MYSQL_DATABASE: bhukkad
       MYSQL_ROOT_PASSWORD: root
@@ -14,36 +15,87 @@ services:
     volumes:
       - mysql_data_dev:/var/lib/mysql
       - ./mysql/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./mysql/my.cnf:/etc/mysql/conf.d/99-bhukkad.cnf:ro
     networks:
       - bhukkad-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "--password=root", "--connect-timeout=10"]
-      interval: 10s
-      timeout: 10s
-      retries: 30
-      start_period: 60s
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "--password=root", "--connect-timeout=5"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     command: >
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
 
   redis:
     image: redis:7-alpine
     container_name: bhukkad-redis-dev
     restart: unless-stopped
+    init: true
     ports:
       - "6379:6379"
     volumes:
       - redis_data_dev:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
     networks:
       - bhukkad-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 5s
-      retries: 30
+      timeout: 3s
+      retries: 20
       start_period: 10s
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.2
+    container_name: bhukkad-redpanda-dev
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    networks:
+      - bhukkad-network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   app:
     build:
@@ -51,9 +103,11 @@ services:
       dockerfile: docker/Dockerfile
     container_name: bhukkad-app-dev
     restart: on-failure
+    init: true
     environment:
-      # These override the defaults in application-dev.yml
       SPRING_PROFILES_ACTIVE: dev
+      WAIT_FOR_SERVICES: "false"
+      HEALTH_PATH: /api/v1/health/ping
       DB_HOST: mysql
       DB_PORT: "3306"
       DB_NAME: bhukkad
@@ -62,9 +116,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ""
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      APP_EVENTS_EXTERNAL_ENABLED: "true"
+      APP_EVENTS_EXTERNAL_TYPE: kafka
       SERVER_PORT: "8080"
       JWT_SECRET: "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970"
-      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport"
+      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
     ports:
       - "8080:8080"
     volumes:
@@ -74,16 +131,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      redpanda:
+        condition: service_healthy
     networks:
       - bhukkad-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health/ping"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/ping"]
+      interval: 20s
+      timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
 
   redis-commander:
+    profiles: ["tools"]
     image: ghcr.io/joeferner/redis-commander:latest
     container_name: bhukkad-redis-ui
     restart: unless-stopped
@@ -100,6 +168,7 @@ services:
       - bhukkad-network
 
   phpmyadmin:
+    profiles: ["tools"]
     image: phpmyadmin:latest
     container_name: bhukkad-phpmyadmin
     restart: unless-stopped

@@ -1,12 +1,26 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
 import com.bhukkad.dto.request.AddressRequest;
+import com.bhukkad.dto.request.NotificationPreferenceRequest;
 import com.bhukkad.dto.response.AddressResponse;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.CustomerOrderStatsResponse;
 import com.bhukkad.dto.response.CustomerProfileResponse;
 import com.bhukkad.dto.response.CustomerResponse;
+import com.bhukkad.dto.response.FavoriteRestaurantResponse;
+import com.bhukkad.dto.response.NotificationPreferenceResponse;
+import com.bhukkad.dto.response.ReferralInfoResponse;
+import com.bhukkad.referral.ReferralService;
+import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CustomerService;
+import com.bhukkad.service.DeviceTokenService;
+import com.bhukkad.service.FavoriteService;
+import com.bhukkad.service.NotificationPreferenceService;
+import com.bhukkad.wallet.WalletTopUpService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,12 +29,18 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/customers")
+@RequestMapping(ApiPaths.V1_PREFIX + "/customers")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('CUSTOMER')")
 public class CustomerController {
 
     private final CustomerService customerService;
+    private final WalletTopUpService walletTopUpService;
+    private final DeviceTokenService deviceTokenService;
+    private final FavoriteService favoriteService;
+    private final ReferralService referralService;
+    private final SecurityUtils securityUtils;
+    private final NotificationPreferenceService notificationPreferenceService;
 
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<CustomerProfileResponse>> getProfile() {
@@ -29,7 +49,8 @@ public class CustomerController {
     }
 
     @GetMapping("/profile/{profileId}")
-    public ResponseEntity<ApiResponse<CustomerProfileResponse>> getProfile(@PathVariable Long profileId) {
+    public ResponseEntity<ApiResponse<CustomerProfileResponse>> getProfileById(
+            @PathVariable @Positive Long profileId) {
         CustomerProfileResponse profile = customerService.getCustomerById(profileId);
         return ResponseEntity.ok(ApiResponse.success(profile));
     }
@@ -65,21 +86,21 @@ public class CustomerController {
 
     @PutMapping("/addresses/{addressId}")
     public ResponseEntity<ApiResponse<AddressResponse>> updateAddress(
-            @PathVariable Long addressId,
+            @PathVariable @Positive Long addressId,
             @Valid @RequestBody AddressRequest request) {
         AddressResponse address = customerService.updateAddress(addressId, request);
         return ResponseEntity.ok(ApiResponse.success("Address updated", address));
     }
 
     @DeleteMapping("/addresses/{addressId}")
-    public ResponseEntity<ApiResponse<Void>> deleteAddress(@PathVariable Long addressId) {
+    public ResponseEntity<ApiResponse<Void>> deleteAddress(@PathVariable @Positive Long addressId) {
         customerService.deleteAddress(addressId);
         return ResponseEntity.ok(ApiResponse.success("Address deleted", null));
     }
 
     @PutMapping("/addresses/{addressId}/set-default")
     public ResponseEntity<ApiResponse<AddressResponse>> setDefaultAddress(
-            @PathVariable Long addressId) {
+            @PathVariable @Positive Long addressId) {
         AddressResponse address = customerService.setDefaultAddress(addressId);
         return ResponseEntity.ok(ApiResponse.success("Default address set", address));
     }
@@ -90,8 +111,31 @@ public class CustomerController {
         return ResponseEntity.ok(ApiResponse.success(balance));
     }
 
+    @PostMapping("/wallet/top-up")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.PaymentResponse>> initiateWalletTopUp(
+            @RequestParam @Positive Double amount,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Wallet top-up initiated",
+                walletTopUpService.initiateTopUp(amount, idempotencyKey)));
+    }
+
+    @PostMapping("/device-tokens")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.DeviceTokenResponse>> registerDeviceToken(
+            @Valid @RequestBody com.bhukkad.dto.request.DeviceTokenRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Device token registered",
+                deviceTokenService.registerToken(request)));
+    }
+
+    @DeleteMapping("/device-tokens")
+    public ResponseEntity<ApiResponse<Void>> unregisterDeviceToken(@RequestParam String token) {
+        deviceTokenService.unregisterToken(token);
+        return ResponseEntity.ok(ApiResponse.success("Device token removed", null));
+    }
+
     @PostMapping("/wallet/add-money")
-    public ResponseEntity<ApiResponse<Void>> addMoneyToWallet(@RequestParam Double amount) {
+    public ResponseEntity<ApiResponse<Void>> addMoneyToWallet(@RequestParam @Positive Double amount) {
         customerService.addMoneyToWallet(amount);
         return ResponseEntity.ok(ApiResponse.success("Money added to wallet", null));
     }
@@ -100,5 +144,49 @@ public class CustomerController {
     public ResponseEntity<ApiResponse<Integer>> getLoyaltyPoints() {
         Integer points = customerService.getLoyaltyPoints();
         return ResponseEntity.ok(ApiResponse.success(points));
+    }
+
+    @GetMapping("/referral")
+    public ResponseEntity<ApiResponse<ReferralInfoResponse>> getReferralInfo() {
+        ReferralInfoResponse info = referralService.getReferralInfo(securityUtils.getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(info));
+    }
+
+    @GetMapping("/favorites")
+    public ResponseEntity<ApiResponse<List<FavoriteRestaurantResponse>>> getFavorites() {
+        return ResponseEntity.ok(ApiResponse.success(favoriteService.listFavorites()));
+    }
+
+    @PostMapping("/favorites/{restaurantId}")
+    public ResponseEntity<ApiResponse<FavoriteRestaurantResponse>> addFavorite(
+            @PathVariable @Positive Long restaurantId) {
+        FavoriteRestaurantResponse favorite = favoriteService.addFavorite(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success("Restaurant added to favorites", favorite));
+    }
+
+    @DeleteMapping("/favorites/{restaurantId}")
+    public ResponseEntity<ApiResponse<Void>> removeFavorite(@PathVariable @Positive Long restaurantId) {
+        favoriteService.removeFavorite(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success("Restaurant removed from favorites", null));
+    }
+
+    @GetMapping("/orders/stats")
+    public ResponseEntity<ApiResponse<CustomerOrderStatsResponse>> getOrderStats() {
+        return ResponseEntity.ok(ApiResponse.success(customerService.getOrderStats()));
+    }
+
+    @GetMapping("/notification-preferences")
+    public ResponseEntity<ApiResponse<NotificationPreferenceResponse>> getNotificationPreferences() {
+        NotificationPreferenceResponse prefs = notificationPreferenceService.getPreferences(
+                securityUtils.getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(prefs));
+    }
+
+    @PutMapping("/notification-preferences")
+    public ResponseEntity<ApiResponse<NotificationPreferenceResponse>> updateNotificationPreferences(
+            @RequestBody NotificationPreferenceRequest request) {
+        NotificationPreferenceResponse prefs = notificationPreferenceService.updatePreferences(
+                securityUtils.getCurrentUserId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Preferences updated", prefs));
     }
 }

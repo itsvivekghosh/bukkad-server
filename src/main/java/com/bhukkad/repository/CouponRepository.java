@@ -12,15 +12,20 @@ import java.util.Optional;
 
 @Repository
 public interface CouponRepository extends JpaRepository<Coupon, Long> {
-    Optional<Coupon> findByCode(String code);
 
-    @Query("SELECT c FROM Coupon c WHERE c.active = true AND " +
+    @Query("SELECT c FROM Coupon c LEFT JOIN FETCH c.restaurant WHERE c.code = :code")
+    Optional<Coupon> findByCode(@Param("code") String code);
+
+    @Query("SELECT c FROM Coupon c LEFT JOIN FETCH c.restaurant WHERE c.id = :id")
+    Optional<Coupon> findByIdWithRestaurant(@Param("id") Long id);
+
+    @Query("SELECT c FROM Coupon c LEFT JOIN FETCH c.restaurant WHERE c.active = true AND " +
             "c.validFrom <= :now AND c.validUntil >= :now AND " +
             "(c.restaurant.id = :restaurantId OR c.restaurant IS NULL)")
     List<Coupon> findActiveCouponsForRestaurant(@Param("restaurantId") Long restaurantId,
                                                 @Param("now") LocalDateTime now);
 
-    @Query("SELECT c FROM Coupon c WHERE c.active = true AND " +
+    @Query("SELECT c FROM Coupon c LEFT JOIN FETCH c.restaurant WHERE c.active = true AND " +
             "c.validFrom <= :now AND c.validUntil >= :now AND c.restaurant IS NULL")
     List<Coupon> findActivePlatformCoupons(@Param("now") LocalDateTime now);
 }

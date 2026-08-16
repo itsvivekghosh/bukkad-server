@@ -1,7 +1,13 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
+import com.bhukkad.dto.request.TestNotificationRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.service.AdminService;
+import com.bhukkad.service.NotificationService;
+import com.bhukkad.service.RiderPayoutService;
+import com.bhukkad.settlement.RestaurantSettlementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -10,12 +16,15 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/admin")
+@RequestMapping(ApiPaths.V1_PREFIX + "/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminController {
 
     private final AdminService adminService;
+    private final RiderPayoutService riderPayoutService;
+    private final RestaurantSettlementService restaurantSettlementService;
+    private final NotificationService notificationService;
 
     @GetMapping("/dashboard")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getDashboard() {
@@ -92,5 +101,44 @@ public class AdminController {
     @GetMapping("/analytics")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAnalytics() {
         return ResponseEntity.ok(ApiResponse.success(adminService.getAnalytics()));
+    }
+
+    @PutMapping("/agents/{agentId}/settle-payouts")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> settleAgentPayouts(@PathVariable Long agentId) {
+        int settled = riderPayoutService.settlePendingPayouts(agentId);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Rider payouts settled",
+                Map.of("agentId", agentId, "settledCount", settled)));
+    }
+
+    @PutMapping("/restaurants/{restaurantId}/settle-payouts")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> settleRestaurantPayouts(
+            @PathVariable Long restaurantId) {
+        int settled = restaurantSettlementService.settlePendingForRestaurant(restaurantId);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Restaurant settlements completed",
+                Map.of("restaurantId", restaurantId, "settledCount", settled)));
+    }
+
+    @PutMapping("/restaurants/{restaurantId}/commission")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> setRestaurantCommission(
+            @PathVariable Long restaurantId,
+            @RequestParam Double percent) {
+        adminService.setRestaurantCommission(restaurantId, percent);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Restaurant commission updated",
+                Map.of("restaurantId", restaurantId, "commissionPercent", percent)));
+    }
+
+    @PostMapping("/notifications/test")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sendTestNotification(
+            @RequestBody TestNotificationRequest request) {
+        notificationService.sendTestNotification(
+                request.getChannel(),
+                request.getRecipient(),
+                request.getMessage());
+        return ResponseEntity.ok(ApiResponse.success(
+                "Test notification dispatched",
+                Map.of("channel", request.getChannel(), "recipient", request.getRecipient())));
     }
 }

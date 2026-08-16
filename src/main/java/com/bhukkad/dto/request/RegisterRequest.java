@@ -24,4 +24,7 @@ public class RegisterRequest {
     private String phoneNumber;
 
     private User.UserRole role;
+
+    /** Optional referral code from an existing customer (CUSTOMER registration only). */
+    private String referralCode;
 }

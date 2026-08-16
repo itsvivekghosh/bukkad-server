@@ -2,8 +2,15 @@ apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: bhukkad-mysql-pv
-  namespace: bhukkad
   labels:
+    app: bhukkad
+    component: mysql
+  annotations:
+    # Optional static PV for bare-metal / single-node clusters. NOT included in
+    # kustomization.yaml — minikube and managed clouds use dynamic provisioning
+    # via storageClassName: standard on the PVC instead. Applying this PV
+    # alongside dynamic PVCs causes binding races (one PV, two claims).
+    bhukkad.dev/optional: "true"
     app: bhukkad
     component: mysql
 spec:

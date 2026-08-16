@@ -1,8 +1,8 @@
 spring:
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bhukkad}?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&autoReconnect=true&connectTimeout=60000&socketTimeout=60000
-    username: ${DB_USERNAME:vivekghosh}
-    password: ${DB_PASSWORD:Vivek@1999}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       pool-name: BhukkadDevPool
@@ -29,7 +29,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: true
     properties:
       hibernate:
@@ -75,7 +75,52 @@ logging:
 app:
   environment: development
   debug: true
+  fraud:
+    # Local dev and automated test scripts share one IP; log abuse signals without blocking.
+    blocking-enabled: false
+  bootstrap:
+    admin:
+      email: ${BOOTSTRAP_ADMIN_EMAIL:admin@bhukkad.dev}
+      password: ${BOOTSTRAP_ADMIN_PASSWORD:Admin@123456}
+  wallet:
+    allow-direct-top-up: true
+  monitoring:
+    prometheus:
+      require-auth: false
   jwt:
     secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
     expiration: ${JWT_EXPIRATION:86400000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
+
+
+# ============================================================
+# Actuator
+# ============================================================
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+  endpoint:
+    health:
+      enabled: true
+      show-details: always
+      probes:
+        enabled: true
+
+  info:
+    env:
+      enabled: true
+
+# ============================================================
+# Application Info
+# ============================================================
+
+info:
+  app:
+    name: bhukkad
+    version: ${APP_VERSION:1.0.0}
+    environment: development
+    description: Bhukkad Backend API

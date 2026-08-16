@@ -18,6 +18,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -117,6 +118,11 @@ public class RedisConfig {
     }
 
     @Bean
+    public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory connectionFactory) {
+        return new StringRedisTemplate(connectionFactory);
+    }
+
+    @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
         GenericJackson2JsonRedisSerializer jsonSerializer =
                 new GenericJackson2JsonRedisSerializer(redisObjectMapper());
@@ -147,6 +153,8 @@ public class RedisConfig {
         cacheConfigs.put("cart", defaultConfig.entryTtl(Duration.ofSeconds(cartTtl)));
         cacheConfigs.put("order", defaultConfig.entryTtl(Duration.ofSeconds(orderTtl)));
         cacheConfigs.put("order-list", defaultConfig.entryTtl(Duration.ofSeconds(orderTtl)));
+        cacheConfigs.put("order-track", defaultConfig.entryTtl(Duration.ofSeconds(30)));
+        cacheConfigs.put("kitchen-queue", defaultConfig.entryTtl(Duration.ofSeconds(15)));
         cacheConfigs.put("review", defaultConfig.entryTtl(Duration.ofSeconds(reviewTtl)));
         cacheConfigs.put("review-list", defaultConfig.entryTtl(Duration.ofSeconds(reviewTtl)));
         cacheConfigs.put("coupon", defaultConfig.entryTtl(Duration.ofSeconds(couponTtl)));

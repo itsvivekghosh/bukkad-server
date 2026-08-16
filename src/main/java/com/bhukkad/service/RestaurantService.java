@@ -16,6 +16,7 @@ public interface RestaurantService {
     // Search and filter
     List<RestaurantResponse> searchRestaurants(String keyword);
     List<RestaurantResponse> filterRestaurants(Long cuisineId, Boolean isPureVeg);
+    List<RestaurantResponse> findNearbyRestaurants(double latitude, double longitude, double radiusKm, int limit);
 
     // Status management
     void toggleRestaurantStatus(Long id, Boolean isOpen);

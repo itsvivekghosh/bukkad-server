@@ -7,20 +7,32 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - secrets.yaml
-  - mysql/pv.yaml
   - mysql/pvc.yaml
+  - mysql/configmap.yaml
   - mysql/deployment.yaml
   - mysql/service.yaml
+  # mysql-replica and redis-sentinel are kept as reference manifests but not
+  # applied: replica has no replication bootstrap and read-replica routing is
+  # disabled (DB_REPLICA_ENABLED=false); sentinel cannot monitor a password-
+  # protected Redis master and the app connects to bhukkad-redis directly.
+  - redis/configmap.yaml
+  - redis/pvc.yaml
   - redis/deployment.yaml
   - redis/service.yaml
+  - rabbitmq/deployment.yaml
+  - app/serviceaccount.yaml
   - app/deployment.yaml
   - app/service.yaml
+  - app/pdb.yaml
   - app/hpa.yaml
+  - logging/fluent-bit-configmap.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml
   - ingress.yaml
 
-commonLabels:
-  managed-by: kustomize
-  project: bhukkad
+labels:
+  - includeSelectors: true
+    pairs:
+      managed-by: kustomize
+      project: bhukkad

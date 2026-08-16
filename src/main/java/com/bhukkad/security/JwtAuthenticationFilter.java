@@ -33,6 +33,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
     private final UserRepository userRepository;
+    private final AuthTokenService authTokenService;
 
     @Override
     protected void doFilterInternal(
@@ -44,6 +45,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = getJwtFromRequest(request);
 
             if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
+                if (authTokenService.isAccessTokenBlacklisted(jwt)) {
+                    log.debug("Rejected blacklisted access token");
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                if (jwtTokenProvider.isRefreshToken(jwt)) {
+                    log.debug("Rejected refresh token used as access token");
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 String username = jwtTokenProvider.extractUsername(jwt);
 
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);

@@ -38,9 +38,6 @@ docs/
 # Tests
 src/test/
 
-# Scripts (copied separately)
-docker/scripts/
-
 # Environment files
 .env
 .env.local

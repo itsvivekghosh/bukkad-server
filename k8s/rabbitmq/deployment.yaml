@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-rabbitmq
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management
+          ports:
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 15672
+              name: management
+            - containerPort: 61613
+              name: stomp
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: RABBITMQ_USERNAME
+                  optional: true
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: RABBITMQ_PASSWORD
+                  optional: true
+          command:
+            - sh
+            - -c
+            - |
+              rabbitmq-plugins enable rabbitmq_stomp rabbitmq_web_stomp
+              docker-entrypoint.sh rabbitmq-server
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - ping
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - ping
+            periodSeconds: 20
+            timeoutSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - check_port_connectivity
+            periodSeconds: 15
+            timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-rabbitmq
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: rabbitmq
+spec:
+  type: ClusterIP
+  selector:
+    app: bhukkad
+    component: rabbitmq
+  ports:
+    - port: 5672
+      targetPort: 5672
+      name: amqp
+    - port: 61613
+      targetPort: 61613
+      name: stomp
+    - port: 15672
+      targetPort: 15672
+      name: management

@@ -1,12 +1,35 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.config.ApiPaths;
+
+import com.bhukkad.delivery.DeliveryProofService;
+import com.bhukkad.dto.request.BatchOrderRequest;
+import com.bhukkad.dto.request.DeliveryProofPhotoUploadRequest;
+import com.bhukkad.dto.request.DeliveryProofVerifyRequest;
 import com.bhukkad.dto.request.OrderRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.DeliveryProofPhotoUploadResponse;
+import com.bhukkad.dto.response.DeliveryProofResponse;
+import com.bhukkad.dto.response.BatchOrderResponse;
+import com.bhukkad.dto.response.CursorPagedResponse;
+import com.bhukkad.dto.response.OrderCreateJobResponse;
 import com.bhukkad.dto.response.OrderResponse;
+import com.bhukkad.dto.response.OrderSummaryResponse;
+import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.entity.Order;
+import com.bhukkad.fraud.FraudDetectionService;
+import com.bhukkad.fraud.FraudEventTypes;
+import com.bhukkad.ratelimit.RateLimited;
+import com.bhukkad.dto.response.ReorderResponse;
+import com.bhukkad.order.AsyncOrderCreateService;
+import com.bhukkad.order.OrderCreateJobService;
+import com.bhukkad.security.SecurityUtils;
+import com.bhukkad.service.CartService;
 import com.bhukkad.service.OrderService;
+import com.bhukkad.util.PaginationUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -14,24 +37,92 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/orders")
+@RequestMapping(ApiPaths.V1_PREFIX + "/orders")
 @RequiredArgsConstructor
 public class OrderController {
 
     private final OrderService orderService;
+    private final CartService cartService;
+    private final AsyncOrderCreateService asyncOrderCreateService;
+    private final OrderCreateJobService orderCreateJobService;
+    private final FraudDetectionService fraudDetectionService;
+    private final SecurityUtils securityUtils;
+    private final DeliveryProofService deliveryProofService;
 
+    /**
+     * Places an order, either synchronously or as a background job.
+     *
+     * <p>The abuse check is deliberately the <strong>first</strong> statement, ahead of
+     * both branches, for three reasons:
+     * <ul>
+     *   <li>The async branch hands work to an executor thread where
+     *       {@code RequestContextHolder} is empty, so the client IP and device
+     *       fingerprint are only observable here on the request thread.</li>
+     *   <li>{@code OrderServiceImpl.createOrder} short-circuits to a cached response
+     *       when the {@code Idempotency-Key} has already been seen, so a check placed
+     *       inside the service would be silently skipped on replays.</li>
+     *   <li>A block must not consume a job id or an idempotency slot; failing before
+     *       {@code createJob} keeps the caller free to retry cleanly after
+     *       {@code Retry-After} elapses.</li>
+     * </ul>
+     *
+     * <p>Unlike the auth endpoints, the customer id is known here and is recorded on
+     * the fraud event, which gives the abuse review queue an account to act on rather
+     * than just a network address.
+     *
+     * @throws com.bhukkad.exception.FraudBlockedException as 429 when the source has
+     *         exceeded the {@code order-create} threshold within the detection window
+     */
     // Customer endpoints
     @PostMapping("/customer/create")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<OrderResponse>> createOrder(@Valid @RequestBody OrderRequest request) {
-        OrderResponse order = orderService.createOrder(request);
+    public ResponseEntity<ApiResponse<?>> createOrder(
+            @Valid @RequestBody OrderRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestParam(defaultValue = "false") boolean async) {
+        fraudDetectionService.checkAndBlock(securityUtils.getCurrentUserId(), FraudEventTypes.ORDER_CREATE);
+        if (async) {
+            String jobId = orderCreateJobService.createJob(idempotencyKey);
+            asyncOrderCreateService.processOrderCreate(jobId, request, idempotencyKey);
+            OrderCreateJobResponse job = orderCreateJobService.getJob(jobId);
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(ApiResponse.success("Order accepted for processing", job));
+        }
+        OrderResponse order = orderService.createOrder(request, idempotencyKey);
         return ResponseEntity.ok(ApiResponse.success("Order placed successfully", order));
+    }
+
+    @PostMapping("/customer/create-batch")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<BatchOrderResponse>> createBatchOrders(
+            @Valid @RequestBody BatchOrderRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        BatchOrderResponse response = orderService.createBatchOrders(request, idempotencyKey);
+        return ResponseEntity.ok(ApiResponse.success("Batch orders processed", response));
+    }
+
+    @GetMapping("/customer/create/jobs/{jobId}")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<OrderCreateJobResponse>> getCreateOrderJob(@PathVariable String jobId) {
+        return ResponseEntity.ok(ApiResponse.success(orderCreateJobService.getJob(jobId)));
     }
 
     @GetMapping("/customer/my-orders")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getMyOrders() {
-        List<OrderResponse> orders = orderService.getCustomerOrders();
+    public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PagedResponse<OrderSummaryResponse> orders = orderService.getCustomerOrders(page, size);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    @GetMapping("/customer/my-orders/cursor")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyOrdersByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                orderService.getCustomerOrdersByCursor(cursor, size);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
@@ -42,11 +133,38 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(order));
     }
 
-    @GetMapping("/customer/track/{orderId}")
+    /**
+     * Returns the live tracking view of one of the caller's own orders, enriched with
+     * {@code liveEtaMinutes} / {@code liveEtaAt} recalculated from order status and rider location.
+     *
+     * <p>Two URI forms are accepted so that the historically documented suffix form keeps working:
+     * <ul>
+     *   <li>{@code GET /api/v1/orders/customer/track/{orderId}} (canonical)</li>
+     *   <li>{@code GET /api/v1/orders/customer/{orderId}/track} (documented alias)</li>
+     * </ul>
+     * Previously only the canonical form was mapped, so the documented alias fell through to
+     * Spring MVC's {@code /error} forward and surfaced as {@code 403} instead of the real status.
+     *
+     * <p>Ownership is enforced in the service layer, and the tracking cache entry is scoped to the
+     * requesting customer, so one customer can never read another customer's order.
+     *
+     * @param orderId identifier of the order to track; must belong to the authenticated customer
+     * @return the order with live ETA fields populated
+     */
+    @GetMapping({"/customer/track/{orderId}", "/customer/{orderId}/track"})
     @PreAuthorize("hasRole('CUSTOMER')")
+    @RateLimited("order-track")
     public ResponseEntity<ApiResponse<OrderResponse>> trackOrder(@PathVariable Long orderId) {
         OrderResponse order = orderService.trackOrder(orderId);
         return ResponseEntity.ok(ApiResponse.success(order));
+    }
+
+    @PostMapping("/customer/{orderId}/reorder")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<ReorderResponse>> reorder(
+            @PathVariable Long orderId) {
+        ReorderResponse response = cartService.reorderFromOrder(orderId);
+        return ResponseEntity.ok(ApiResponse.success("Items added to cart", response));
     }
 
     @PutMapping("/customer/{orderId}/cancel")
@@ -58,18 +176,44 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success("Order cancelled successfully", order));
     }
 
-    // Restaurant endpoints
+    // Restaurant / cloud kitchen endpoints
     @GetMapping("/restaurant/{restaurantId}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getRestaurantOrders(@PathVariable Long restaurantId) {
-        List<OrderResponse> orders = orderService.getRestaurantOrders(restaurantId);
+    public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getRestaurantOrders(
+            @PathVariable Long restaurantId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PagedResponse<OrderSummaryResponse> orders = orderService.getRestaurantOrders(restaurantId, page, size);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    @GetMapping("/restaurant/{restaurantId}/cursor")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getRestaurantOrdersByCursor(
+            @PathVariable Long restaurantId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                orderService.getRestaurantOrdersByCursor(restaurantId, cursor, size);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
     @GetMapping("/restaurant/{restaurantId}/pending")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getPendingOrders(@PathVariable Long restaurantId) {
-        List<OrderResponse> orders = orderService.getPendingOrdersForRestaurant(restaurantId);
+    public ResponseEntity<ApiResponse<List<OrderSummaryResponse>>> getPendingOrders(
+            @PathVariable Long restaurantId,
+            @RequestParam(defaultValue = "" + PaginationUtils.KITCHEN_QUEUE_DEFAULT_LIMIT) int limit) {
+        List<OrderSummaryResponse> orders = orderService.getPendingOrdersForRestaurant(restaurantId, limit);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    @GetMapping("/restaurant/{restaurantId}/kitchen-queue")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @RateLimited("kitchen-queue")
+    public ResponseEntity<ApiResponse<List<OrderSummaryResponse>>> getKitchenQueue(
+            @PathVariable Long restaurantId,
+            @RequestParam(defaultValue = "" + PaginationUtils.KITCHEN_QUEUE_DEFAULT_LIMIT) int limit) {
+        List<OrderSummaryResponse> orders = orderService.getKitchenActiveOrders(restaurantId, limit);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
@@ -99,9 +243,20 @@ public class OrderController {
     // Delivery agent endpoints
     @GetMapping("/delivery/my-deliveries")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getMyDeliveries() {
-        Long agentId = null; // Get from security context
-        List<OrderResponse> orders = orderService.getDeliveryAgentOrders(agentId);
+    public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyDeliveries(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PagedResponse<OrderSummaryResponse> orders = orderService.getDeliveryAgentOrders(null, page, size);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    @GetMapping("/delivery/my-deliveries/cursor")
+    @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyDeliveriesByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                orderService.getDeliveryAgentOrdersByCursor(null, cursor, size);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
@@ -117,6 +272,84 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> markOrderDelivered(@PathVariable Long orderId) {
         OrderResponse order = orderService.markOrderDelivered(orderId);
         return ResponseEntity.ok(ApiResponse.success("Order delivered successfully", order));
+    }
+
+    // ------------------------------------------------------------------
+    // Delivery proof (OTP + photo) — rider handover evidence
+    // ------------------------------------------------------------------
+    // These four endpoints exist because "delivered" was previously a single
+    // unverified button press by the rider. The proof flow records who received the
+    // order: the customer reads a 6-digit code out loud (or the rider photographs the
+    // handover), and only a verified proof lets the delivered transition through when
+    // app.delivery.proof.enforced is on.
+    //
+    // Every endpoint is rider-only AND re-checks that this specific order is assigned
+    // to the caller inside DeliveryProofService — hasRole('DELIVERY_AGENT') alone only
+    // proves the caller is *a* rider, not *this* order's rider.
+
+    /**
+     * Issues (or re-issues) the handover OTP and texts it to the customer.
+     *
+     * <p>Safe to call again: the same proof row is reused and a fresh code replaces the
+     * old one, subject to the resend cooldown. Returns 400 once the proof is already
+     * verified or the cooldown has not elapsed. The code itself is never in the
+     * response — only the customer's SMS carries it.
+     */
+    @PostMapping("/delivery/{orderId}/proof/otp")
+    @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    public ResponseEntity<ApiResponse<DeliveryProofResponse>> issueDeliveryProofOtp(@PathVariable Long orderId) {
+        DeliveryProofResponse proof = deliveryProofService.issueOtp(orderId);
+        return ResponseEntity.ok(ApiResponse.success("Delivery OTP sent to customer", proof));
+    }
+
+    /**
+     * Verifies the code the customer read out, optionally attaching a photo and
+     * recipient details.
+     *
+     * <p>A wrong code returns 400 and permanently consumes one attempt, so this cannot
+     * be brute-forced. Re-verifying an already verified order returns the existing
+     * state rather than an error, because the rider app retries on flaky networks.
+     */
+    @PostMapping("/delivery/{orderId}/proof/verify")
+    @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    public ResponseEntity<ApiResponse<DeliveryProofResponse>> verifyDeliveryProof(
+            @PathVariable Long orderId,
+            @Valid @RequestBody DeliveryProofVerifyRequest request) {
+        DeliveryProofResponse proof = deliveryProofService.verify(orderId, request);
+        return ResponseEntity.ok(ApiResponse.success("Delivery proof verified", proof));
+    }
+
+    /**
+     * Mints a presigned URL for the handover photo.
+     *
+     * <p>Bytes go straight from the rider's phone to object storage; this server never
+     * buffers the image. Nothing is persisted here — the photo joins the proof only
+     * when its key is submitted on the verify call.
+     */
+    @PostMapping("/delivery/{orderId}/proof/photo-url")
+    @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    public ResponseEntity<ApiResponse<DeliveryProofPhotoUploadResponse>> createDeliveryProofPhotoUrl(
+            @PathVariable Long orderId,
+            @Valid @RequestBody DeliveryProofPhotoUploadRequest request) {
+        DeliveryProofService.PhotoUpload upload =
+                deliveryProofService.createPhotoUploadUrl(orderId, request.getContentType());
+        DeliveryProofPhotoUploadResponse response = DeliveryProofPhotoUploadResponse.builder()
+                .uploadUrl(upload.uploadUrl())
+                .photoKey(upload.photoKey())
+                .build();
+        return ResponseEntity.ok(ApiResponse.success("Upload URL generated", response));
+    }
+
+    /**
+     * Reads the current proof state so the rider app can resume after a restart —
+     * whether a code is outstanding, how many attempts remain, and whether the
+     * delivered transition will be allowed.
+     */
+    @GetMapping("/delivery/{orderId}/proof")
+    @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    public ResponseEntity<ApiResponse<DeliveryProofResponse>> getDeliveryProof(@PathVariable Long orderId) {
+        DeliveryProofResponse proof = deliveryProofService.getForAgent(orderId);
+        return ResponseEntity.ok(ApiResponse.success(proof));
     }
 
     // Common endpoint

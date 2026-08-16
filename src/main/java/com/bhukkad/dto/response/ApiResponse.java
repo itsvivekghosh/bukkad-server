@@ -1,5 +1,6 @@
 package com.bhukkad.dto.response;
 
+import com.bhukkad.logging.TraceContext;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,12 +17,16 @@ public class ApiResponse<T> {
     private String message;
     private T data;
     private LocalDateTime timestamp;
+    private String traceId;
+    private String requestId;
 
     public static <T> ApiResponse<T> success(T data) {
         return ApiResponse.<T>builder()
                 .success(true)
                 .data(data)
                 .timestamp(LocalDateTime.now())
+                .traceId(TraceContext.getTraceId())
+                .requestId(TraceContext.getRequestId())
                 .build();
     }
 
@@ -31,6 +36,8 @@ public class ApiResponse<T> {
                 .message(message)
                 .data(data)
                 .timestamp(LocalDateTime.now())
+                .traceId(TraceContext.getTraceId())
+                .requestId(TraceContext.getRequestId())
                 .build();
     }
 
@@ -39,6 +46,8 @@ public class ApiResponse<T> {
                 .success(false)
                 .message(message)
                 .timestamp(LocalDateTime.now())
+                .traceId(TraceContext.getTraceId())
+                .requestId(TraceContext.getRequestId())
                 .build();
     }
 }

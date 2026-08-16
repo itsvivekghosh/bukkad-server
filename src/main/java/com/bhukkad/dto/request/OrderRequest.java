@@ -1,18 +1,12 @@
 package com.bhukkad.dto.request;
 
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-
-import java.util.List;
 
 @Data
 public class OrderRequest {
     @NotNull(message = "Restaurant ID is required")
     private Long restaurantId;
-
-    @NotEmpty(message = "Order items cannot be empty")
-    private List<OrderItemRequest> items;
 
     @NotNull(message = "Delivery address ID is required")
     private Long deliveryAddressId;
@@ -25,4 +19,18 @@ public class OrderRequest {
 
     @NotNull(message = "Payment method is required")
     private String paymentMethod;
+
+    private Integer loyaltyPointsToRedeem;
+
+    /** Explicit wallet amount to apply (split pay with card/UPI). */
+    private Double walletAmountToUse;
+
+    /** Apply available wallet balance up to order total (split pay). */
+    private Boolean useWallet;
+
+    /** Optional tip for the delivery rider (added to order total). */
+    private Double tipAmount;
+
+    /** Schedule order for future delivery (ISO-8601 datetime). */
+    private java.time.LocalDateTime scheduledAt;
 }

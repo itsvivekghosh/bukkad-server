@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# -----------------------------------------------------------------------------
+# Custom-metrics HPA overlay (standalone add-on, applied AFTER the base).
+#
+#   kubectl apply -k k8s/                          # base stack
+#   kubectl apply -k k8s/overlays/custom-metrics-hpa   # upgrade the HPA
+#
+# Two defects fixed here:
+#  1. This kustomization used to list `../../app/hpa-custom-metrics.yaml`, a bare
+#     file outside its own root. Kustomize refuses that ("file is not in or below
+#     '.../overlays/custom-metrics-hpa'"), so the overlay never built. The HPA now
+#     lives in this directory.
+#  2. The overlay used to create a SECOND HPA (`bhukkad-app-custom-hpa`) while the
+#     base `bhukkad-app-hpa` stayed in place. Two HPAs targeting one Deployment
+#     each compute their own desired replica count and thrash the ReplicaSet.
+#     The manifest here now reuses the base name `bhukkad-app-hpa`, so applying
+#     this overlay REPLACES the base HPA instead of racing it.
+#
+# This overlay cannot simply reference `../../` as a base: the base root (k8s/)
+# is an ancestor of this directory, which kustomize rejects as a cycle
+# ("candidate root '.../k8s' contains visited root '.../k8s/overlays/...'").
+# Keeping it standalone avoids restructuring k8s/ into base/ + overlays/ and
+# keeps `kubectl apply -k k8s/` working unchanged.
+#
+# `labels` (not the deprecated `commonLabels`) re-applies the base's stack labels
+# so the replaced HPA keeps the same metadata as every other object.
+# -----------------------------------------------------------------------------
+
+namespace: bhukkad
+
+resources:
+  - hpa-custom-metrics.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      managed-by: kustomize
+      project: bhukkad

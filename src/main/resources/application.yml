@@ -2,8 +2,15 @@ spring:
   application:
     name: bhukkad-server
 
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
   profiles:
     active: dev
+
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
   # Redis Configuration
   data:
@@ -26,19 +33,29 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: true
     open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+        type:
+          prefer_native_enum_types: false
         format_sql: true
         use_sql_comments: true
         jdbc:
-          batch_size: 20
+          batch_size: 50
           fetch_size: 50
         order_inserts: true
         order_updates: true
+        generate_statistics: false
+        query:
+          fail_on_pagination_over_collection_fetch: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
 
   jackson:
     serialization:
@@ -48,6 +65,7 @@ spring:
 
 server:
   port: 8080
+  shutdown: graceful
   error:
     include-message: always
     include-binding-errors: always
@@ -59,10 +77,293 @@ server:
 app:
   environment: local
   debug: false
+  async:
+    order:
+      core-pool-size: 4
+      max-pool-size: 16
+      queue-capacity: 200
+  cloud-kitchen:
+    kitchen-queue-default-limit: 50
+    order-list-default-size: 20
+    order-list-max-size: 100
   jwt:
-    secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    secret: ${JWT_SECRET:}
     expiration: 86400000
     refresh-expiration: 604800000
+  outbox:
+    poll-interval-ms: 2000
+  datasource:
+    read-replica:
+      enabled: false
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_REPLICA_USERNAME:}
+      password: ${DB_REPLICA_PASSWORD:}
+      hikari:
+        pool-name: BhukkadReadReplicaPool
+        maximum-pool-size: 10
+        minimum-idle: 2
+        read-only: true
+
+  rate-limit:
+    enabled: true
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 30
+        window-seconds: 60
+      auth-login:
+        limit: 10
+        window-seconds: 60
+      cart-mutation:
+        limit: 40
+        window-seconds: 60
+      # Registration is unauthenticated, so this bucket is the per-source cap on
+      # account creation. Kept above the fraud thresholds below on purpose: the rate
+      # limiter smooths bursts, the fraud check is what blocks sustained abuse.
+      auth-register:
+        limit: 10
+        window-seconds: 60
+
+  # Abuse detection for credential and checkout endpoints.
+  #
+  # Counting is scoped per event type and per dimension (source IP, device
+  # fingerprint), which is what catches an attacker cycling through many distinct
+  # accounts - each one individually under its own rate limit.
+  #
+  # Rollout guidance: deploy with blocking-enabled=false first. The service then logs
+  # FRAUD_WOULD_BLOCK instead of throwing, so the real traffic distribution can be
+  # observed and the thresholds tuned before any customer is turned away.
+  fraud:
+    enabled: ${FRAUD_DETECTION_ENABLED:true}
+    blocking-enabled: ${FRAUD_BLOCKING_ENABLED:true}
+    # Sliding detection window, in minutes, applied to every threshold below.
+    window-minutes: 60
+    # Value sent back in the Retry-After header on a 429.
+    retry-after-seconds: 300
+    # Applied to any event type with no explicit entry in `thresholds`.
+    default-threshold: 20
+    # A value of 0 disables that dimension for that event type.
+    thresholds:
+      auth-register:
+        per-ip: 10
+        per-device: 5
+      auth-login:
+        per-ip: 40
+        per-device: 25
+      order-create:
+        per-ip: 25
+        per-device: 15
+
+  cluster:
+    live-relay:
+      enabled: true
+      channel: bhukkad:live:order-updates
+
+  live:
+    sse:
+      heartbeat-interval-ms: 25000
+      replay:
+        max-events-per-stream: 200
+        ttl-seconds: 3600
+
+  stomp:
+    broker:
+      type: simple
+      rabbit:
+        host: ${RABBITMQ_HOST:localhost}
+        port: ${RABBITMQ_STOMP_PORT:61613}
+        username: ${RABBITMQ_USERNAME:guest}
+        password: ${RABBITMQ_PASSWORD:guest}
+        virtual-host: ${RABBITMQ_VHOST:/}
+
+  storage:
+    s3:
+      enabled: ${S3_ENABLED:false}
+      bucket: ${S3_BUCKET:bhukkad-menu-images}
+      region: ${AWS_REGION:ap-south-1}
+      key-prefix: menu-items
+      upload-url-expiry-seconds: 900
+      download-url-expiry-seconds: 3600
+
+  payment:
+    provider: simulated
+    razorpay:
+      enabled: false
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+      currency: INR
+
+  notification:
+    enabled: true
+    email:
+      enabled: false
+      from: noreply@bhukkad.com
+    sms:
+      enabled: false
+      provider: log
+      twilio:
+        account-sid: ${TWILIO_ACCOUNT_SID:}
+        auth-token: ${TWILIO_AUTH_TOKEN:}
+        from-number: ${TWILIO_FROM_NUMBER:}
+    whatsapp:
+      enabled: false
+      provider: log
+      twilio:
+        account-sid: ${TWILIO_ACCOUNT_SID:}
+        auth-token: ${TWILIO_AUTH_TOKEN:}
+        whatsapp-from-number: ${TWILIO_WHATSAPP_FROM_NUMBER:}
+    push:
+      enabled: false
+      provider: log
+      fcm:
+        server-key: ${FCM_SERVER_KEY:}
+        project-id: ${FCM_PROJECT_ID:}
+
+  wallet:
+    allow-direct-top-up: false
+
+  referral:
+    enabled: true
+    bonus-amount: 50.0
+    referee-bonus-amount: 25.0
+
+  scheduled-orders:
+    minimum-lead-minutes: 30
+    max-days-ahead: 7
+    dispatch-interval-ms: 60000
+
+  settlement:
+    commission-percent: 15.0
+    auto-settle-enabled: true
+    min-pending-amount: 100.0
+    auto-settle-cron: "0 0 2 * * *"
+
+  delivery-truth:
+    avg-speed-km-per-min: 0.6
+    pickup-buffer-minutes: 8
+    confidence-band-minutes: 5
+    record-snapshots: true
+
+  inventory:
+    low-stock-threshold: 10
+    stock-reservation:
+      enabled: true
+      reservation-ttl-seconds: 900
+
+  cache:
+    local:
+      enabled: true
+      max-size: 5000
+      ttl-seconds: 60
+
+  geo:
+    redis-geo-enabled: true
+    restaurants-geo-key: restaurants:geo
+
+  events:
+    external:
+      enabled: false
+      type: log
+      kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        platform-topic: bhukkad.platform.events
+        consumer-group: bhukkad-platform-consumer
+
+  monitoring:
+    prometheus:
+      require-auth: true
+      bearer-token: ${PROMETHEUS_BEARER_TOKEN:}
+
+  alerting:
+    enabled: true
+    dedup-window-seconds: 60
+    slow-request:
+      warning-threshold-ms: 1000
+      critical-threshold-ms: 3000
+    http-error:
+      alert-on-4xx: true
+      alert-on-5xx: true
+    webhook:
+      enabled: false
+      url: ${ALERT_WEBHOOK_URL:}
+      secret: ${ALERT_WEBHOOK_SECRET:}
+
+  delivery:
+    earnings:
+      per-delivery: 30.0
+    # Delivery proof: the rider must capture evidence of handover (a 6-digit OTP the
+    # customer reads out, optionally plus a photo) before an order can be marked
+    # DELIVERED. Backs the "order never arrived" dispute flow.
+    proof:
+      # Master switch. When false the OTP/photo endpoints reject outright and no proof
+      # rows are written.
+      enabled: ${DELIVERY_PROOF_ENABLED:true}
+      # Enforcement is deliberately OFF at ship time. Turning this on makes a verified
+      # proof mandatory for the DELIVERED transition, which would strand every order
+      # already out for delivery without one. Flip it only once riders are on a build
+      # that captures proof, and prefer a low-traffic window.
+      enforced: ${DELIVERY_PROOF_ENFORCED:false}
+      # OTP lifetime. Long enough to survive a lift with no signal, short enough that a
+      # code overheard earlier in the day is useless.
+      otp-expiry-minutes: ${DELIVERY_PROOF_OTP_EXPIRY_MINUTES:10}
+      # Wrong guesses allowed per issued code. Exhausting them marks the proof FAILED;
+      # only a freshly issued code restores the allowance.
+      max-otp-attempts: ${DELIVERY_PROOF_MAX_OTP_ATTEMPTS:5}
+      # Minimum gap between resends, so a rider tapping "resend" cannot bill us for a
+      # burst of SMS or spam the customer.
+      otp-resend-cooldown-seconds: ${DELIVERY_PROOF_OTP_RESEND_COOLDOWN_SECONDS:60}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentGateway:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      notificationEmail:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,redis
+  health:
+    rabbit:
+      enabled: false
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+    redis:
+      enabled: true
+    db:
+      enabled: true
 
 cache:
   ttl:
@@ -74,9 +375,16 @@ cache:
     user-profile: 3600
     cart: 1800
     order: 300
+    order-track: 30
+    kitchen-queue: 15
     review: 1800
     coupon: 3600
     search: 300
+    admin-dashboard: 60
+    # Home feed and serviceability are read-heavy and cheap to recompute, so they
+    # use short TTLs to keep promo/zone edits visible within a minute.
+    home-feed: 60
+    serviceability: 60
 
 logging:
   level:

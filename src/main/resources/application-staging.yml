@@ -1,0 +1,45 @@
+# Staging profile — mirrors production with read replica and quieter SQL logging
+
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    com.bhukkad: INFO
+  file:
+    name: logs/bhukkad-staging.log
+
+app:
+  environment: staging
+  debug: false
+  datasource:
+    read-replica:
+      enabled: ${DB_REPLICA_ENABLED:true}
+  stomp:
+    broker:
+      type: ${STOMP_BROKER_TYPE:simple}
+  events:
+    external:
+      enabled: ${EXTERNAL_EVENTS_ENABLED:false}
+      type: log
+  scheduled-orders:
+    minimum-lead-minutes: 30
+    max-days-ahead: 7
+    dispatch-interval-ms: 60000
+  settlement:
+    commission-percent: 15.0
+  monitoring:
+    prometheus:
+      require-auth: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

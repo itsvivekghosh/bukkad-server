@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Low-memory profile for local minikube (3–4 GB Docker RAM).
+# Lists base manifests individually (cannot use `resources: [../../]` — kustomize cycle).
+# Usage: kubectl apply -k k8s/overlays/minikube
+
+namespace: bhukkad
+
+resources:
+  - ../../namespace.yaml
+  - ../../configmap.yaml
+  - ../../secrets.yaml
+  - ../../mysql/pvc.yaml
+  - ../../mysql/configmap.yaml
+  - ../../mysql/deployment.yaml
+  - ../../mysql/service.yaml
+  - ../../redis/configmap.yaml
+  - ../../redis/pvc.yaml
+  - ../../redis/deployment.yaml
+  - ../../redis/service.yaml
+  # RabbitMQ omitted — STOMP_BROKER_TYPE=simple; saves ~512Mi RAM.
+  - ../../app/serviceaccount.yaml
+  - ../../app/deployment.yaml
+  - ../../app/service.yaml
+  - ../../app/pdb.yaml
+  - ../../app/hpa.yaml
+  - ../../logging/fluent-bit-configmap.yaml
+  - ../../nginx/configmap.yaml
+  - ../../nginx/deployment.yaml
+  - ../../nginx/service.yaml
+  - ../../ingress.yaml
+
+patches:
+  - path: patches/app-deployment.yaml
+  - path: patches/mysql-deployment.yaml
+  - path: patches/redis-deployment.yaml
+  - path: patches/nginx-deployment.yaml
+  - path: patches/hpa.yaml
+  - path: patches/mysql-config.yaml
+
+labels:
+  - includeSelectors: true
+    pairs:
+      managed-by: kustomize
+      project: bhukkad

@@ -2,7 +2,10 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.geo.RestaurantGeoIndexService;
 import com.bhukkad.dto.request.RestaurantRequest;
+import com.bhukkad.mapper.AddressMapper;
 import com.bhukkad.dto.response.AddressResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
 import com.bhukkad.entity.Address;
@@ -23,10 +26,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -42,6 +45,8 @@ public class RestaurantServiceImpl implements RestaurantService {
     private final CuisineRepository cuisineRepository;
     private final SecurityUtils securityUtils;
     private final RedisCacheService cacheService;
+    private final RestaurantGeoIndexService restaurantGeoIndexService;
+    private final AddressMapper addressMapper;
 
     @Value("${cache.ttl.restaurant:1800}")
     private long restaurantTtl;
@@ -53,7 +58,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     private long searchTtl;
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public RestaurantResponse getRestaurantById(Long id) {
         String cacheKey = CacheKeyGenerator.restaurant(id);
 
@@ -69,24 +74,18 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<RestaurantResponse> getAllActiveRestaurants() {
         String cacheKey = CacheKeyGenerator.restaurantList();
-
-        Optional<List<RestaurantResponse>> cached = cacheService.getList(cacheKey, RestaurantResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<RestaurantResponse> restaurants = restaurantRepository.findAllActiveWithDetails()
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, restaurants, restaurantListTtl);
-        return restaurants;
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, restaurantListTtl, () ->
+                restaurantRepository.findAllActiveWithDetails()
+                        .stream()
+                        .map(this::mapToResponse)
+                        .collect(Collectors.toList()));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<RestaurantResponse> getMyRestaurants() {
         Long ownerId = securityUtils.getCurrentUserId();
         String cacheKey = CacheKeyGenerator.restaurantsByOwner(ownerId);
@@ -104,7 +103,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<RestaurantResponse> getRestaurantsByOwner(Long ownerId) {
         return restaurantRepository.findByOwnerIdWithDetails(ownerId)
                 .stream()
@@ -113,41 +112,60 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
     public List<RestaurantResponse> searchRestaurants(String keyword) {
         String cacheKey = CacheKeyGenerator.restaurantSearch(keyword);
-
-        Optional<List<RestaurantResponse>> cached = cacheService.getList(cacheKey, RestaurantResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<RestaurantResponse> results = restaurantRepository.searchByNameWithDetails(keyword)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, results, searchTtl);
-        return results;
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () -> {
+            List<Restaurant> results;
+            try {
+                results = restaurantRepository.fullTextSearchByName(keyword.trim());
+                if (results.isEmpty()) {
+                    results = restaurantRepository.searchByNameWithDetails(keyword);
+                }
+            } catch (Exception ex) {
+                log.debug("RESTAURANT_FULLTEXT_FALLBACK | keyword={}", keyword);
+                results = restaurantRepository.searchByNameWithDetails(keyword);
+            }
+            return results.stream()
+                    .map(restaurant -> restaurantRepository.findByIdWithDetails(restaurant.getId()).orElse(restaurant))
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        });
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @UseReadReplica
+    public List<RestaurantResponse> findNearbyRestaurants(
+            double latitude, double longitude, double radiusKm, int limit) {
+        String cacheKey = CacheKeyGenerator.restaurantNearby(latitude, longitude, radiusKm);
+        int safeLimit = Math.min(Math.max(limit, 1), 50);
+        double safeRadius = Math.min(Math.max(radiusKm, 0.5), 50.0);
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () -> {
+            List<Long> ids = restaurantGeoIndexService.findNearbyRestaurantIds(
+                    latitude, longitude, safeRadius, safeLimit);
+            if (ids.isEmpty()) {
+                ids = restaurantRepository.findNearbyRestaurantIds(latitude, longitude, safeRadius, safeLimit);
+            }
+            return ids.stream()
+                    .map(id -> restaurantRepository.findByIdWithDetails(id).orElse(null))
+                    .filter(Objects::nonNull)
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        });
+    }
+
+    @Override
+    @UseReadReplica
     public List<RestaurantResponse> filterRestaurants(Long cuisineId, Boolean isPureVeg) {
         String cacheKey = CacheKeyGenerator.restaurantFilter(cuisineId, isPureVeg);
-
-        Optional<List<RestaurantResponse>> cached = cacheService.getList(cacheKey, RestaurantResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<RestaurantResponse> results = restaurantRepository.findByFilters(cuisineId, isPureVeg)
-                .stream()
-                .map(this::mapToResponseSafe)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, results, searchTtl);
-        return results;
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () ->
+                restaurantRepository.findByFilters(cuisineId, isPureVeg)
+                        .stream()
+                        .map(this::mapToResponseSafe)
+                        .collect(Collectors.toList()));
     }
 
     @Override
-    @Transactional
     public RestaurantResponse createRestaurant(RestaurantRequest request) {
         Long ownerId = securityUtils.getCurrentUserId();
 
@@ -196,13 +214,13 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         restaurant = restaurantRepository.save(restaurant);
+        restaurantGeoIndexService.indexRestaurant(restaurant);
         invalidateRestaurantCaches();
 
         return mapToResponse(restaurant);
     }
 
     @Override
-    @Transactional
     public RestaurantResponse updateRestaurant(Long id, RestaurantRequest request) {
         Restaurant restaurant = restaurantRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
@@ -236,6 +254,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         restaurant = restaurantRepository.save(restaurant);
+        restaurantGeoIndexService.indexRestaurant(restaurant);
 
         cacheService.delete(CacheKeyGenerator.restaurant(id));
         invalidateRestaurantCaches();
@@ -244,9 +263,8 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Transactional
     public void deleteRestaurant(Long id) {
-        Restaurant restaurant = restaurantRepository.findById(id)
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
         if (!restaurant.getOwner().getId().equals(securityUtils.getCurrentUserId())) {
@@ -261,9 +279,8 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @Transactional
     public void toggleRestaurantStatus(Long id, Boolean isOpen) {
-        Restaurant restaurant = restaurantRepository.findById(id)
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
         if (!restaurant.getOwner().getId().equals(securityUtils.getCurrentUserId())) {
@@ -299,7 +316,7 @@ public class RestaurantServiceImpl implements RestaurantService {
 
         try {
             if (restaurant.getAddress() != null) {
-                addressResponse = mapAddressToResponse(restaurant.getAddress());
+                addressResponse = addressMapper.toResponse(restaurant.getAddress());
             }
         } catch (Exception e) {
             log.debug("Could not load address for restaurant: {}", restaurant.getId());
@@ -339,15 +356,14 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     /**
-     * Full mapper - requires all lazy fields to be loaded
-     * Use this within @Transactional methods with JOIN FETCH queries
+     * Full mapper - requires all lazy fields to be loaded via JOIN FETCH
      */
     private RestaurantResponse mapToResponse(Restaurant restaurant) {
         AddressResponse addressResponse = null;
         Set<String> cuisineNames = new HashSet<>();
 
         if (restaurant.getAddress() != null) {
-            addressResponse = mapAddressToResponse(restaurant.getAddress());
+            addressResponse = addressMapper.toResponse(restaurant.getAddress());
         }
 
         if (restaurant.getCuisines() != null) {
@@ -376,22 +392,6 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .freeDeliveryAbove(restaurant.getFreeDeliveryAbove())
                 .isPureVeg(restaurant.getIsPureVeg())
                 .features(restaurant.getFeatures())
-                .build();
-    }
-
-    private AddressResponse mapAddressToResponse(Address address) {
-        if (address == null) return null;
-
-        return AddressResponse.builder()
-                .id(address.getId())
-                .addressLine1(address.getAddressLine1())
-                .addressLine2(address.getAddressLine2())
-                .city(address.getCity())
-                .state(address.getState())
-                .pincode(address.getPincode())
-                .landmark(address.getLandmark())
-                .latitude(address.getLatitude())
-                .longitude(address.getLongitude())
                 .build();
     }
 }

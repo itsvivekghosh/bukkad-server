@@ -1,0 +1,69 @@
+# -----------------------------------------------------------------------------
+# Custom-metrics HorizontalPodAutoscaler for the API Deployment.
+#
+# This file lives INSIDE the overlay directory on purpose. Kustomize refuses to
+# load a bare file that sits outside the kustomization root ("security; file ...
+# is not in or below ..."), so the previous location (k8s/app/) could never be
+# referenced from here.
+#
+# REQUIREMENTS: the Pods metrics below are served by the custom.metrics.k8s.io
+# API, so a Prometheus Adapter (or equivalent) must be installed and must expose
+# `http_server_requests_seconds_count_orders` and `sse_active_connections`.
+# Without an adapter the HPA reports FailedGetPodsMetric and will not scale on
+# those metrics (CPU still works).
+#
+# It deliberately reuses the BASE HPA NAME `bhukkad-app-hpa` so that applying
+# this overlay REPLACES the base autoscaler rather than adding a second one.
+# Two HPAs targeting the same Deployment each compute their own desired replica
+# count and thrash the ReplicaSet, so only one may own `bhukkad-app`.
+#
+# maxReplicas is raised 10 -> 20 and the CPU target 65% -> 70% relative to the
+# base; the memory target is dropped because scaling a JVM on RSS is unreliable
+# (the heap does not shrink), and the order-rate / SSE-connection metrics are
+# better load signals.
+# -----------------------------------------------------------------------------
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bhukkad-app-hpa
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bhukkad-app
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Pods
+      pods:
+        metric:
+          name: http_server_requests_seconds_count_orders
+        target:
+          type: AverageValue
+          averageValue: "30"
+    - type: Pods
+      pods:
+        metric:
+          name: sse_active_connections
+        target:
+          type: AverageValue
+          averageValue: "200"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300

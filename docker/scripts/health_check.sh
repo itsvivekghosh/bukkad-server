@@ -5,7 +5,7 @@
 
 HOST=${1:-localhost}
 PORT=${2:-8080}
-BASE_URL="http://${HOST}:${PORT}/api/health"
+BASE_URL="http://${HOST}:${PORT}/api/v1/health"
 
 echo "========================================="
 echo "  Bhukkad Server Health Check"

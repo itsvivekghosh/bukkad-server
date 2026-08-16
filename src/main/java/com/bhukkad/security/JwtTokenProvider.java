@@ -27,6 +27,13 @@ public class JwtTokenProvider {
     @Value("${app.jwt.expiration}")
     private long jwtExpirationMs;
 
+    @Value("${app.jwt.refresh-expiration:604800000}")
+    private long refreshExpirationMs;
+
+    public static final String TOKEN_TYPE_CLAIM = "type";
+    public static final String ACCESS_TOKEN_TYPE = "access";
+    public static final String REFRESH_TOKEN_TYPE = "refresh";
+
     /**
      * Extract username from JWT token
      */
@@ -46,15 +53,44 @@ public class JwtTokenProvider {
      * Generate JWT token for user
      */
     public String generateToken(UserDetails userDetails) {
-        return generateToken(new HashMap<>(), userDetails);
+        return generateAccessToken(userDetails);
+    }
+
+    public String generateAccessToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE);
+        return generateToken(claims, userDetails, jwtExpirationMs);
+    }
+
+    public String generateRefreshToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE);
+        return generateToken(claims, userDetails, refreshExpirationMs);
+    }
+
+    public boolean isRefreshToken(String token) {
+        try {
+            return REFRESH_TOKEN_TYPE.equals(extractClaim(token, claims -> claims.get(TOKEN_TYPE_CLAIM, String.class)));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public long getRemainingValidityMs(String token) {
+        Date expiration = extractExpiration(token);
+        return Math.max(0, expiration.getTime() - System.currentTimeMillis());
     }
 
     /**
      * Generate JWT token with extra claims
      */
     public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
+        return generateToken(extraClaims, userDetails, jwtExpirationMs);
+    }
+
+    private String generateToken(Map<String, Object> extraClaims, UserDetails userDetails, long expirationMs) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + jwtExpirationMs);
+        Date expiryDate = new Date(now.getTime() + expirationMs);
 
         return Jwts
                 .builder()

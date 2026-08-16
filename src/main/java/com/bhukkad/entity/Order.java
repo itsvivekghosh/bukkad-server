@@ -2,8 +2,11 @@ package com.bhukkad.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -27,9 +30,12 @@ import java.util.List;
         @Index(name = "idx_order_customer_created", columnList = "customer_id, createdAt"),
         @Index(name = "idx_order_restaurant_created", columnList = "restaurant_id, createdAt")
 })
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@ToString(exclude = {"customer", "restaurant", "orderItems", "deliveryAddress", "deliveryAgent", "payment", "appliedCoupon"})
+@EqualsAndHashCode(exclude = {"customer", "restaurant", "orderItems", "deliveryAddress", "deliveryAgent", "payment", "appliedCoupon"})
 @EntityListeners(AuditingEntityListener.class)
 public class Order {
 
@@ -75,6 +81,15 @@ public class Order {
     @Column(nullable = false)
     private Double totalAmount;
 
+    @Column(nullable = false)
+    private Integer loyaltyPointsRedeemed = 0;
+
+    @Column(nullable = false)
+    private Double walletAmountUsed = 0.0;
+
+    @Column(nullable = false)
+    private Double tipAmount = 0.0;
+
     @ManyToOne
     @JoinColumn(name = "coupon_id")
     private Coupon appliedCoupon;
@@ -90,7 +105,19 @@ public class Order {
 
     private LocalDateTime estimatedDeliveryAt;
 
+    private LocalDateTime scheduledAt;
+
+    private Integer liveEtaMinutes;
+
+    private LocalDateTime liveEtaAt;
+
     private LocalDateTime deliveredAt;
+
+    /** Reason provided when the order was cancelled. */
+    private String cancellationReason;
+
+    /** Role or actor that cancelled the order (e.g. CUSTOMER, ADMIN). */
+    private String cancelledBy;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)
@@ -99,8 +126,12 @@ public class Order {
     @LastModifiedDate
     private LocalDateTime updatedAt;
 
+    @Version
+    @Column(nullable = false)
+    private Long version = 0L;
+
     public enum OrderStatus {
-        PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP,
+        SCHEDULED, PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP,
         OUT_FOR_DELIVERY, DELIVERED, CANCELLED, REFUNDED
     }
 }

@@ -2,8 +2,11 @@ package com.bhukkad.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,9 +16,12 @@ import java.util.List;
         @Index(name = "idx_order_item_order", columnList = "order_id"),
         @Index(name = "idx_order_item_menu_item", columnList = "menu_item_id")
 })
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@ToString(exclude = {"order", "menuItem", "customizations"})
+@EqualsAndHashCode(exclude = {"order", "menuItem", "customizations"})
 public class OrderItem {
 
     @Id
