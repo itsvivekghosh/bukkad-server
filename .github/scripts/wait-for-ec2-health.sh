@@ -21,6 +21,8 @@ ssh "${SSH_OPTS[@]}" "$REMOTE" \
   "MAX_ATTEMPTS=${MAX_ATTEMPTS} SLEEP_SECONDS=${SLEEP_SECONDS} CONTAINER_NAME=${CONTAINER_NAME} HEALTH_URL=${HEALTH_URL} bash -s" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
+CONSECUTIVE_OK=0
+
 LOG_PID=""
 cleanup() {
   if [ -n "${LOG_PID}" ]; then
@@ -52,9 +54,14 @@ done
 for i in $(seq 1 "${MAX_ATTEMPTS}"); do
   start_log_stream
   if curl -sf "${HEALTH_URL}" -o /dev/null 2>/dev/null; then
-    echo ""
-    echo "Container is healthy after ${i} attempts"
-    exit 0
+    CONSECUTIVE_OK=$((CONSECUTIVE_OK + 1))
+    if [ "${CONSECUTIVE_OK}" -ge 3 ]; then
+      echo ""
+      echo "Container is healthy after ${i} attempts (3 consecutive successes)"
+      exit 0
+    fi
+  else
+    CONSECUTIVE_OK=0
   fi
   sleep "${SLEEP_SECONDS}"
 done
