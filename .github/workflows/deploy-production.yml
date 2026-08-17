@@ -13,6 +13,7 @@ permissions:
   actions: read
 
 env:
+  STAGING_SSH_HOST_DEFAULT: ${{ secrets.PROD_SSH_HOST }}
   APP_PORT: "8080"
 
 jobs:
@@ -72,7 +73,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
     environment:
       name: production
-      url: ${{ secrets.PROD_DOMAIN && format('https://{0}', secrets.PROD_DOMAIN) || format('http://{0}:8080', secrets.PROD_SSH_HOST) }}
+      url: ${{ secrets.PROD_SSH_HOST }}
 
     steps:
       - name: Checkout repository
@@ -110,7 +111,7 @@ jobs:
           printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}" > /tmp/deploy-env.txt
           printf 'SPRING_PROFILES_ACTIVE=%s\n' "prod" >> /tmp/deploy-env.txt
           printf 'SERVER_PORT=%s\n' "${{ env.APP_PORT }}" >> /tmp/deploy-env.txt
-          
+
           # Database configuration
           printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}" >> /tmp/deploy-env.txt
           printf 'DB_PORT=%s\n' "${{ secrets.PROD_DB_PORT }}" >> /tmp/deploy-env.txt
@@ -118,28 +119,28 @@ jobs:
           printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}" >> /tmp/deploy-env.txt
           printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'DB_URL=%s\n' "${{ secrets.PROD_DB_URL }}" >> /tmp/deploy-env.txt
-          
+
           # Redis configuration
           printf 'REDIS_HOST=%s\n' "${{ secrets.PROD_REDIS_HOST }}" >> /tmp/deploy-env.txt
           printf 'REDIS_PORT=%s\n' "${{ secrets.PROD_REDIS_PORT }}" >> /tmp/deploy-env.txt
           printf 'REDIS_PASSWORD=%s\n' "${{ secrets.PROD_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'REDIS_LOCAL=%s\n' "${{ secrets.PROD_REDIS_LOCAL }}" >> /tmp/deploy-env.txt
-          
+
           # JWT configuration
           printf 'JWT_SECRET=%s\n' "${{ secrets.PROD_JWT_SECRET }}" >> /tmp/deploy-env.txt
           printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}" >> /tmp/deploy-env.txt
           printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}" >> /tmp/deploy-env.txt
-          
+
           # Payment provider configuration
           printf 'RAZORPAY_ENABLED=%s\n' "${{ secrets.RAZORPAY_ENABLED }}" >> /tmp/deploy-env.txt
           printf 'RAZORPAY_KEY_ID=%s\n' "${{ secrets.RAZORPAY_KEY_ID }}" >> /tmp/deploy-env.txt
           printf 'RAZORPAY_KEY_SECRET=%s\n' "${{ secrets.RAZORPAY_KEY_SECRET }}" >> /tmp/deploy-env.txt
           printf 'RAZORPAY_WEBHOOK_SECRET=%s\n' "${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" >> /tmp/deploy-env.txt
-          
+
           # Email configuration
           printf 'NOTIFICATION_EMAIL_ENABLED=%s\n' "${{ secrets.NOTIFICATION_EMAIL_ENABLED }}" >> /tmp/deploy-env.txt
           printf 'NOTIFICATION_EMAIL_FROM=%s\n' "${{ secrets.NOTIFICATION_EMAIL_FROM }}" >> /tmp/deploy-env.txt
-          
+
           # Messaging configuration
           printf 'STOMP_BROKER_TYPE=%s\n' "${{ secrets.STOMP_BROKER_TYPE }}" >> /tmp/deploy-env.txt
           printf 'RABBITMQ_HOST=%s\n' "${{ secrets.RABBITMQ_HOST }}" >> /tmp/deploy-env.txt
@@ -148,18 +149,18 @@ jobs:
           printf 'RABBITMQ_PASSWORD=%s\n' "${{ secrets.RABBITMQ_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'LIVE_RELAY_ENABLED=%s\n' "${{ secrets.LIVE_RELAY_ENABLED }}" >> /tmp/deploy-env.txt
           printf 'LIVE_RELAY_CHANNEL=%s\n' "${{ secrets.LIVE_RELAY_CHANNEL }}" >> /tmp/deploy-env.txt
-          
+
           # Database replica configuration
           printf 'DB_REPLICA_ENABLED=%s\n' "${{ secrets.PROD_DB_REPLICA_ENABLED }}" >> /tmp/deploy-env.txt
           printf 'DB_REPLICA_URL=%s\n' "${{ secrets.PROD_DB_REPLICA_URL }}" >> /tmp/deploy-env.txt
           printf 'DB_REPLICA_USERNAME=%s\n' "${{ secrets.PROD_DB_REPLICA_USERNAME }}" >> /tmp/deploy-env.txt
           printf 'DB_REPLICA_PASSWORD=%s\n' "${{ secrets.PROD_DB_REPLICA_PASSWORD }}" >> /tmp/deploy-env.txt
-          
+
           # Other configuration
           printf 'PAYMENT_PROVIDER=%s\n' "${{ secrets.PAYMENT_PROVIDER }}" >> /tmp/deploy-env.txt
           printf 'PROMETHEUS_USERNAME=%s\n' "${{ secrets.PROMETHEUS_USERNAME }}" >> /tmp/deploy-env.txt
           printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
-          
+
           # Docker and registry configuration
           printf 'DOCKER_NETWORK=%s\n' "${{ secrets.PROD_DOCKER_NETWORK }}" >> /tmp/deploy-env.txt
           printf 'GHCR_TOKEN=%s\n' "${{ secrets.GITHUB_TOKEN }}" >> /tmp/deploy-env.txt
