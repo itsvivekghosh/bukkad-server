@@ -11,6 +11,10 @@ permissions:
   packages: write
   actions: write
 
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-push:
     name: Build and Push Docker Image
@@ -43,12 +47,12 @@ jobs:
 
       - name: Determine commit SHA
         id: sha
-        run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> $GITHUB_OUTPUT
+        run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
 
       - name: Set staging image tag in repository variables
         run: |
           SHA="${{ steps.sha.outputs.sha }}"
-          
+
           # Try to update existing variable with PATCH
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH \
@@ -56,7 +60,7 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA \
             -d "{\"name\":\"STAGING_IMAGE_SHA\",\"value\":\"${SHA}\"}")
-          
+
           # If PATCH returns 404 (variable doesn't exist), create it with POST
           if [ "$HTTP_CODE" = "404" ]; then
             curl -s -X POST \
@@ -96,14 +100,16 @@ jobs:
           retention-days: 14
         if: always()
 
-      - name: Copy deployment script
+      - name: Package deployment script
         run: |
-          cp scripts/docker-deploy.sh docker-deploy.sh
-          chmod +x docker-deploy.sh
+          mkdir -p artifact
+          cp docker/scripts/docker-deploy.sh artifact/docker-deploy.sh
+          chmod +x artifact/docker-deploy.sh
+          ls -la artifact/
 
       - name: Upload deployment script
         uses: actions/upload-artifact@v5
         with:
           name: docker-deploy-script
-          path: docker-deploy.sh
+          path: artifact/docker-deploy.sh
           retention-days: 7

@@ -9,7 +9,7 @@ Exercises REST endpoints in dependency order, printing and saving for each call:
   - Response status & body
   - PASS / FAIL / SKIP
 
-Script Usage:
+Usage::
   python3 scripts/test-all-apis.py
   python3 scripts/test-all-apis.py --base-url http://localhost:8080
   python3 scripts/test-all-apis.py --verbose

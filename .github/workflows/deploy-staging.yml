@@ -10,13 +10,17 @@ permissions:
   contents: read
   actions: read
 
+env:
+  STAGING_SSH_HOST_DEFAULT: ec2-3-109-121-149.ap-south-1.compute.amazonaws.com
+  APP_PORT: "8080"
+
 jobs:
   deploy:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: https://staging.bhukkad.com
+      url: http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080
 
     if: |
       github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' ||
@@ -26,102 +30,126 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Download deployment script
+      - name: Download deployment script from Docker workflow
         if: github.event_name == 'workflow_run'
-        continue-on-error: true
         uses: actions/download-artifact@v5
         with:
           name: docker-deploy-script
           path: ./deploy
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          ignore-not-found: true
 
-      - name: Ensure deployment script exists
+      - name: Use repository deployment script
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          mkdir -p deploy
-          if [ ! -f ./deploy/docker-deploy.sh ]; then
-            echo "Using repository deployment script (download unavailable or workflow_dispatch)"
-            cp scripts/docker-deploy.sh deploy/docker-deploy.sh
+          mkdir -p ./deploy
+          cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
+          chmod +x ./deploy/docker-deploy.sh
+
+      - name: Verify deployment script exists
+        run: |
+          ls -la ./deploy/
+          test -x ./deploy/docker-deploy.sh || { echo "Deployment script not found or not executable!"; exit 1; }
+
+      - name: Resolve SSH target
+        id: ssh
+        run: |
+          HOST="${{ secrets.STAGING_SSH_HOST }}"
+          if [ -z "${HOST}" ]; then
+            HOST="${{ env.STAGING_SSH_HOST_DEFAULT }}"
           fi
-          chmod +x deploy/docker-deploy.sh
+          USER="${{ secrets.STAGING_SSH_USER }}"
+          if [ -z "${USER}" ]; then
+            USER="ubuntu"
+          fi
+          echo "host=${HOST}" >> "$GITHUB_OUTPUT"
+          echo "user=${USER}" >> "$GITHUB_OUTPUT"
+          echo "SSH target: ${USER}@${HOST}"
 
       - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Determine image tag
         id: image
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "tag=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+            TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
+              | jq -r '.value // empty')
+            if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
+              TAG="${{ github.sha }}"
+            fi
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           fi
+          echo "Image tag: $(cat "$GITHUB_OUTPUT" | grep '^tag=' | cut -d= -f2-)"
 
       - name: Deploy to staging VM
         run: |
+          set -euo pipefail
           echo "Deploying image tag: ${{ steps.image.outputs.tag }}"
-          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+
+          printf 'IMAGE_TAG=%s\n' "${{ steps.image.outputs.tag }}" > /tmp/deploy-env.txt
+          printf 'SPRING_PROFILES_ACTIVE=%s\n' "staging" >> /tmp/deploy-env.txt
+          printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" >> /tmp/deploy-env.txt
+          printf 'DB_PORT=%s\n' "${{ secrets.STAGING_DB_PORT }}" >> /tmp/deploy-env.txt
+          printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/deploy-env.txt
+          printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/deploy-env.txt
+          printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
+          printf 'REDIS_PORT=%s\n' "${{ secrets.STAGING_REDIS_PORT }}" >> /tmp/deploy-env.txt
+          printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'JWT_SECRET=%s\n' "${{ secrets.STAGING_JWT_SECRET }}" >> /tmp/deploy-env.txt
+          printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}" >> /tmp/deploy-env.txt
+          printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_ENABLED=%s\n' "${{ secrets.RAZORPAY_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_KEY_ID=%s\n' "${{ secrets.RAZORPAY_KEY_ID }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_KEY_SECRET=%s\n' "${{ secrets.RAZORPAY_KEY_SECRET }}" >> /tmp/deploy-env.txt
+          printf 'RAZORPAY_WEBHOOK_SECRET=%s\n' "${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" >> /tmp/deploy-env.txt
+          printf 'NOTIFICATION_EMAIL_ENABLED=%s\n' "${{ secrets.NOTIFICATION_EMAIL_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'NOTIFICATION_EMAIL_FROM=%s\n' "${{ secrets.NOTIFICATION_EMAIL_FROM }}" >> /tmp/deploy-env.txt
+          printf 'STOMP_BROKER_TYPE=%s\n' "${{ secrets.STOMP_BROKER_TYPE }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_HOST=%s\n' "${{ secrets.RABBITMQ_HOST }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_STOMP_PORT=%s\n' "${{ secrets.RABBITMQ_STOMP_PORT }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_USERNAME=%s\n' "${{ secrets.RABBITMQ_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'RABBITMQ_PASSWORD=%s\n' "${{ secrets.RABBITMQ_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'LIVE_RELAY_ENABLED=%s\n' "${{ secrets.LIVE_RELAY_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'LIVE_RELAY_CHANNEL=%s\n' "${{ secrets.LIVE_RELAY_CHANNEL }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_ENABLED=%s\n' "${{ secrets.DB_REPLICA_ENABLED }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_URL=%s\n' "${{ secrets.DB_REPLICA_URL }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_USERNAME=%s\n' "${{ secrets.STAGING_DB_REPLICA_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'DB_REPLICA_PASSWORD=%s\n' "${{ secrets.STAGING_DB_REPLICA_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'PAYMENT_PROVIDER=%s\n' "${{ secrets.PAYMENT_PROVIDER }}" >> /tmp/deploy-env.txt
+          printf 'PROMETHEUS_USERNAME=%s\n' "${{ secrets.PROMETHEUS_USERNAME }}" >> /tmp/deploy-env.txt
+          printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
+
+          bash .github/scripts/ec2-deploy-remote.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
             ./deploy/docker-deploy.sh \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-            "chmod +x /tmp/docker-deploy.sh && \
-            IMAGE_TAG=${{ steps.image.outputs.tag }} \
-            SPRING_PROFILES_ACTIVE=staging \
-            DB_HOST=${{ secrets.STAGING_DB_HOST }} \
-            DB_PORT=${{ secrets.STAGING_DB_PORT }} \
-            DB_NAME=${{ secrets.STAGING_DB_NAME }} \
-            DB_USERNAME=${{ secrets.STAGING_DB_USERNAME }} \
-            DB_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }} \
-            DB_URL=${{ secrets.STAGING_DB_URL }} \
-            REDIS_HOST=${{ secrets.STAGING_REDIS_HOST }} \
-            REDIS_PORT=${{ secrets.STAGING_REDIS_PORT }} \
-            REDIS_PASSWORD=${{ secrets.STAGING_REDIS_PASSWORD }} \
-            JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }} \
-            JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }} \
-            JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }} \
-            RAZORPAY_ENABLED=${{ secrets.RAZORPAY_ENABLED }} \
-            RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }} \
-            RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }} \
-            RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }} \
-            NOTIFICATION_EMAIL_ENABLED=${{ secrets.NOTIFICATION_EMAIL_ENABLED }} \
-            NOTIFICATION_EMAIL_FROM=${{ secrets.NOTIFICATION_EMAIL_FROM }} \
-            STOMP_BROKER_TYPE=${{ secrets.STOMP_BROKER_TYPE }} \
-            RABBITMQ_HOST=${{ secrets.RABBITMQ_HOST }} \
-            RABBITMQ_STOMP_PORT=${{ secrets.RABBITMQ_STOMP_PORT }} \
-            RABBITMQ_USERNAME=${{ secrets.RABBITMQ_USERNAME }} \
-            RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }} \
-            LIVE_RELAY_ENABLED=${{ secrets.LIVE_RELAY_ENABLED }} \
-            LIVE_RELAY_CHANNEL=${{ secrets.LIVE_RELAY_CHANNEL }} \
-            DB_REPLICA_ENABLED=${{ secrets.DB_REPLICA_ENABLED }} \
-            DB_REPLICA_URL=${{ secrets.DB_REPLICA_URL }} \
-            DB_REPLICA_USERNAME=${{ secrets.DB_REPLICA_USERNAME }} \
-            DB_REPLICA_PASSWORD=${{ secrets.DB_REPLICA_PASSWORD }} \
-            PAYMENT_PROVIDER=${{ secrets.PAYMENT_PROVIDER }} \
-            PROMETHEUS_USERNAME=${{ secrets.PROMETHEUS_USERNAME }} \
-            PROMETHEUS_PASSWORD=${{ secrets.PROMETHEUS_PASSWORD }} \
-            /tmp/docker-deploy.sh"
+            /tmp/deploy-env.txt
 
       - name: Wait for container to start
         run: |
-          echo "Waiting for container to start..."
-          for i in $(seq 1 30); do
-            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-              "curl -sf http://localhost:8080/api/v1/health/ping -o /dev/null"; then
-              echo "Container is healthy"
-              exit 0
-            fi
-            echo "Attempt $i: container not ready yet..."
-            sleep 5
-          done
-          echo "Container failed to become healthy"
-          exit 1
+          bash .github/scripts/wait-for-ec2-health.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            60 5
 
       - name: Run smoke tests
         run: |
-          echo "Running staging smoke tests..."
-          curl -f https://staging.bhukkad.com/api/v1/health/ping || echo "Smoke test endpoint pending"
+          bash .github/scripts/ec2-smoke-test.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            /api/v1/health/ping \
+            "${{ env.APP_PORT }}"

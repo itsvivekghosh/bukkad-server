@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Deploy Bhukkad API container on a single EC2 host (staging or production).
+# Expects IMAGE_TAG and application secrets in the environment (see deploy-staging.yml).
+set -euo pipefail
+
+IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
+APP_IMAGE="ghcr.io/itsvivekghosh/bukkad-server:${IMAGE_TAG}"
+CONTAINER_NAME="bhukkad-app"
+CONTAINER_PORT="${SERVER_PORT:-8080}"
+HOST_PORT="${SERVER_PORT:-8080}"
+
+echo "Deploying ${APP_IMAGE} as ${CONTAINER_NAME}..."
+
+echo "Stopping existing container..."
+docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+echo "Pulling image..."
+docker pull "$APP_IMAGE"
+
+echo "Starting container..."
+docker run -d \
+  --name "$CONTAINER_NAME" \
+  --restart unless-stopped \
+  -p "${HOST_PORT}:${CONTAINER_PORT}" \
+  -e SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-staging}" \
+  -e SERVER_PORT="${SERVER_PORT:-8080}" \
+  -e DB_HOST="${DB_HOST:-localhost}" \
+  -e DB_PORT="${DB_PORT:-3306}" \
+  -e DB_NAME="${DB_NAME:-bhukkad}" \
+  -e DB_USERNAME="${DB_USERNAME:-}" \
+  -e DB_PASSWORD="${DB_PASSWORD:-}" \
+  -e DB_URL="${DB_URL:-}" \
+  -e REDIS_HOST="${REDIS_HOST:-localhost}" \
+  -e REDIS_PORT="${REDIS_PORT:-6379}" \
+  -e REDIS_PASSWORD="${REDIS_PASSWORD:-}" \
+  -e JWT_SECRET="${JWT_SECRET:-}" \
+  -e JWT_EXPIRATION="${JWT_EXPIRATION:-3600000}" \
+  -e JWT_REFRESH_EXPIRATION="${JWT_REFRESH_EXPIRATION:-86400000}" \
+  -e RAZORPAY_ENABLED="${RAZORPAY_ENABLED:-false}" \
+  -e RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-}" \
+  -e RAZORPAY_KEY_SECRET="${RAZORPAY_KEY_SECRET:-}" \
+  -e RAZORPAY_WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-}" \
+  -e NOTIFICATION_EMAIL_ENABLED="${NOTIFICATION_EMAIL_ENABLED:-false}" \
+  -e NOTIFICATION_EMAIL_FROM="${NOTIFICATION_EMAIL_FROM:-noreply@bhukkad.com}" \
+  -e STOMP_BROKER_TYPE="${STOMP_BROKER_TYPE:-simple}" \
+  -e RABBITMQ_HOST="${RABBITMQ_HOST:-localhost}" \
+  -e RABBITMQ_STOMP_PORT="${RABBITMQ_STOMP_PORT:-61613}" \
+  -e RABBITMQ_USERNAME="${RABBITMQ_USERNAME:-guest}" \
+  -e RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-guest}" \
+  -e LIVE_RELAY_ENABLED="${LIVE_RELAY_ENABLED:-true}" \
+  -e LIVE_RELAY_CHANNEL="${LIVE_RELAY_CHANNEL:-bhukkad:live:order-updates}" \
+  -e DB_REPLICA_ENABLED="${DB_REPLICA_ENABLED:-true}" \
+  -e DB_REPLICA_URL="${DB_REPLICA_URL:-}" \
+  -e DB_REPLICA_USERNAME="${DB_REPLICA_USERNAME:-}" \
+  -e DB_REPLICA_PASSWORD="${DB_REPLICA_PASSWORD:-}" \
+  -e PAYMENT_PROVIDER="${PAYMENT_PROVIDER:-simulated}" \
+  -e PROMETHEUS_USERNAME="${PROMETHEUS_USERNAME:-}" \
+  -e PROMETHEUS_PASSWORD="${PROMETHEUS_PASSWORD:-}" \
+  "$APP_IMAGE"
+
+echo "Container started: ${CONTAINER_NAME} with image: ${APP_IMAGE}"
