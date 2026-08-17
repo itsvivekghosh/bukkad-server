@@ -39,19 +39,19 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Use repository deployment script
-        if: github.event_name == 'workflow_dispatch'
+      - name: Prepare deployment script
         run: |
-          mkdir -p ./deploy
-          cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            mkdir -p ./deploy
+            cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
+          fi
+          if [ ! -f ./deploy/docker-deploy.sh ]; then
+            echo "Deployment script not found at ./deploy/docker-deploy.sh"
+            ls -la ./deploy/ 2>/dev/null || echo "(deploy directory missing)"
+            exit 1
+          fi
           chmod +x ./deploy/docker-deploy.sh
-
-      - name: Verify deployment script exists
-        run: |
-          ls -la ./deploy/
-          test -f ./deploy/docker-deploy.sh || { echo "Deployment script not found!"; exit 1; }
-          chmod +x ./deploy/docker-deploy.sh
-          test -x ./deploy/docker-deploy.sh || { echo "Failed to make deployment script executable!"; exit 1; }
+          ls -la ./deploy/docker-deploy.sh
 
       - name: Resolve SSH target
         id: ssh
