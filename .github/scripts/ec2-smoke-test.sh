@@ -10,7 +10,15 @@ PORT="${5:-8080}"
 MAX_ATTEMPTS="${6:-10}"
 SLEEP_SECONDS="${7:-3}"
 
-SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30)
+SSH_OPTS=(
+  -i "$SSH_KEY"
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=30
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=8
+  -o TCPKeepAlive=yes
+)
 REMOTE="${SSH_USER}@${SSH_HOST}"
 
 echo "Smoke test: http://localhost:${PORT}${HEALTH_PATH} on ${REMOTE} (up to ${MAX_ATTEMPTS} attempts)..."
