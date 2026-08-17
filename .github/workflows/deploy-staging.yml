@@ -122,6 +122,18 @@ jobs:
             "${GHCR_USER}" \
             "${{ secrets.GHCR_READ_TOKEN }}"
 
+      - name: Verify required staging secrets
+        run: |
+          missing=0
+          if [ -z "${{ secrets.STAGING_DB_HOST }}" ]; then echo "::error::Missing secret STAGING_DB_HOST"; missing=1; fi
+          if [ -z "${{ secrets.STAGING_DB_NAME }}" ]; then echo "::error::Missing secret STAGING_DB_NAME"; missing=1; fi
+          if [ -z "${{ secrets.STAGING_DB_USERNAME }}" ]; then echo "::error::Missing secret STAGING_DB_USERNAME"; missing=1; fi
+          if [ -z "${{ secrets.STAGING_DB_PASSWORD }}" ]; then echo "::error::Missing secret STAGING_DB_PASSWORD"; missing=1; fi
+          if [ -z "${{ secrets.STAGING_JWT_SECRET }}" ]; then echo "::error::Missing secret STAGING_JWT_SECRET"; missing=1; fi
+          if [ -z "${{ secrets.STAGING_REDIS_HOST }}" ]; then echo "::error::Missing secret STAGING_REDIS_HOST"; missing=1; fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Required staging secrets are configured"
+
       - name: Deploy to staging VM
         run: |
           set -euo pipefail
