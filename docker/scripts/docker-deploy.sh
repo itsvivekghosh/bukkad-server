@@ -4,13 +4,24 @@
 set -euo pipefail
 
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
-APP_IMAGE="ghcr.io/itsvivekghosh/bukkad-server:${IMAGE_TAG}"
-CONTAINER_NAME="bhukkad-app"
+GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+APP_IMAGE="${GHCR_IMAGE}:${IMAGE_TAG}"
+CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
 CONTAINER_PORT="${SERVER_PORT:-8080}"
 HOST_PORT="${SERVER_PORT:-8080}"
 DOCKER_NETWORK="${DOCKER_NETWORK:-bridge}"
+GHCR_USERNAME="${GHCR_USERNAME:-itsvivekghosh}"
 
-echo "Deploying ${APP_IMAGE} as ${CONTAINER_NAME}..."
+echo "══════════════════════════════════════════════════════════════"
+echo "  EC2 container deploy"
+echo "══════════════════════════════════════════════════════════════"
+echo "  Image      : ${APP_IMAGE}"
+echo "  Container  : ${CONTAINER_NAME}"
+echo "  Profile    : ${SPRING_PROFILES_ACTIVE:-staging}"
+echo "  Network    : ${DOCKER_NETWORK}"
+echo "  Port       : ${HOST_PORT}"
+echo "  DB host    : ${DB_HOST:-localhost}"
+echo "══════════════════════════════════════════════════════════════"
 
 # Empty values from deploy-env.txt must not override Spring defaults
 DB_HOST="${DB_HOST:-localhost}"
@@ -85,7 +96,7 @@ echo "Redis reachable from EC2 host"
 
 if [ -n "${GHCR_TOKEN:-}" ]; then
   echo "Logging in to ghcr.io..."
-  echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME:-itsvivekghosh}" --password-stdin
+  echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
 fi
 
 echo "Stopping existing container..."

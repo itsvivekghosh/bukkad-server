@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Wait for the app container health endpoint on the EC2 host (localhost from SSH session).
-# Uses short SSH sessions per poll so long waits do not hit broken-pipe disconnects.
+# Wait for the app health endpoint on EC2 (polled via SSH to localhost).
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=deploy-log.sh
+source "${SCRIPT_DIR}/deploy-log.sh"
 
 SSH_USER="${1:?SSH user required}"
 SSH_HOST="${2:?SSH host required}"
@@ -21,26 +24,21 @@ SSH_OPTS=(
   -o TCPKeepAlive=yes
 )
 REMOTE="${SSH_USER}@${SSH_HOST}"
+MAX_WAIT=$((MAX_ATTEMPTS * SLEEP_SECONDS))
 
-echo "Waiting for container health on ${REMOTE} (up to $((MAX_ATTEMPTS * SLEEP_SECONDS))s)..."
-echo "Polling with fresh logs each attempt (container: ${CONTAINER_NAME})..."
+log_section "Wait for application health"
+log_kv "Target" "${REMOTE}"
+log_kv "Container" "${CONTAINER_NAME}"
+log_kv "Health URL" "${HEALTH_URL}"
+log_kv "Max wait" "${MAX_WAIT}s (${MAX_ATTEMPTS} attempts × ${SLEEP_SECONDS}s)"
+log_kv "Success rule" "3 consecutive healthy responses"
 
 CONSECUTIVE_OK=0
 
 for i in $(seq 1 "${MAX_ATTEMPTS}"); do
-  echo ""
-  echo "=== Health check ${i}/${MAX_ATTEMPTS} ==="
-
   if ssh "${SSH_OPTS[@]}" "$REMOTE" \
     "CONTAINER_NAME=${CONTAINER_NAME} HEALTH_URL=${HEALTH_URL} bash -s" <<'REMOTE_SCRIPT'
 set -euo pipefail
-
-if docker inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
-  docker logs --tail 40 "${CONTAINER_NAME}" 2>&1 || true
-else
-  echo "(container ${CONTAINER_NAME} not found yet)"
-fi
-
 if curl -sf "${HEALTH_URL}" -o /dev/null 2>/dev/null; then
   exit 0
 fi
@@ -48,27 +46,43 @@ exit 1
 REMOTE_SCRIPT
   then
     CONSECUTIVE_OK=$((CONSECUTIVE_OK + 1))
-    echo "Health OK (${CONSECUTIVE_OK}/3 consecutive)"
+    log_info "Attempt ${i}/${MAX_ATTEMPTS}: healthy (${CONSECUTIVE_OK}/3 consecutive)"
     if [ "${CONSECUTIVE_OK}" -ge 3 ]; then
-      echo "Container is healthy after ${i} attempts (3 consecutive successes)"
+      log_ok "Application is healthy after ${i} attempts"
+      log_section_end
       exit 0
     fi
   else
     CONSECUTIVE_OK=0
-    echo "Health not ready yet"
+    if [ $((i % 6)) -eq 0 ] || [ "${i}" -eq 1 ]; then
+      log_info "Attempt ${i}/${MAX_ATTEMPTS}: not ready yet — checking container status"
+      ssh "${SSH_OPTS[@]}" "$REMOTE" \
+        "CONTAINER_NAME=${CONTAINER_NAME} bash -s" <<'REMOTE_SCRIPT' || true
+set -euo pipefail
+if docker inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+  docker ps --filter "name=${CONTAINER_NAME}" --format "  Status: {{.Status}}"
+  docker logs --tail 8 "${CONTAINER_NAME}" 2>&1 | sed 's/^/  /' || true
+else
+  echo "  Container not found yet"
+fi
+REMOTE_SCRIPT
+    else
+      log_info "Attempt ${i}/${MAX_ATTEMPTS}: not ready yet"
+    fi
   fi
 
   sleep "${SLEEP_SECONDS}"
 done
 
-echo ""
-echo "Container failed to become healthy"
+log_error "Application did not become healthy within ${MAX_WAIT}s"
+log_info "Fetching diagnostic logs from EC2..."
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
-  "CONTAINER_NAME=${CONTAINER_NAME} bash -s" <<'REMOTE_SCRIPT'
+  "CONTAINER_NAME=${CONTAINER_NAME} bash -s" <<'REMOTE_SCRIPT' || true
 set -euo pipefail
-echo "=== Container status ==="
-docker ps -a --filter "name=${CONTAINER_NAME}" --format "{{.Image}} {{.Status}}" 2>&1 || true
-echo "=== Last 80 log lines ==="
-docker logs "${CONTAINER_NAME}" 2>&1 | tail -80 || true
+echo "--- Container status ---"
+docker ps -a --filter "name=${CONTAINER_NAME}" --format "Image: {{.Image}} | Status: {{.Status}}" 2>&1 || true
+echo "--- Last 40 log lines ---"
+docker logs "${CONTAINER_NAME}" 2>&1 | tail -40 || true
 REMOTE_SCRIPT
+log_section_end
 exit 1

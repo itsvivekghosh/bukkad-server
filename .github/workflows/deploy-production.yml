@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  APP_PORT: "8080"
-
 jobs:
   get-image-tag:
     name: Get Image Tag
@@ -23,16 +20,17 @@ jobs:
       - name: Resolve production image tag
         id: image
         run: |
+          source .github/scripts/deploy-log.sh
           sudo apt-get update -qq && sudo apt-get install -y -qq jq
           TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
             | jq -r '.value // empty')
           if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
-            echo "::warning::STAGING_IMAGE_SHA not set; falling back to deploy tag"
+            log_warn "STAGING_IMAGE_SHA not set; falling back to deploy tag"
             TAG="deploy"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Production image tag: ${TAG}"
+          log_ok "Production image tag: ${TAG}"
 
   validate:
     name: Validate Release Candidate
@@ -62,10 +60,26 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     environment:
       name: production
-      url: http://${{ vars.PROD_EC2_HOST }}:8080
+      url: http://${{ vars.PROD_EC2_HOST }}:${{ vars.APP_PORT }}
+
+    env:
+      APP_PORT: ${{ vars.APP_PORT }}
+      GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
+      GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+      HEALTH_PATH: ${{ vars.HEALTH_PATH }}
+      CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: Deployment overview
+        run: |
+          source .github/scripts/deploy-log.sh
+          deploy_banner "Production" "${{ github.sha }}" "${{ needs.get-image-tag.outputs.tag }}" "${{ vars.PROD_EC2_HOST }}"
+          log_section "Configuration check"
+          check_optional_var "PROD_EC2_HOST" "${{ vars.PROD_EC2_HOST }}" "(required)"
+          check_optional_var "GHCR_IMAGE" "${{ vars.GHCR_IMAGE }}" "ghcr.io/itsvivekghosh/bukkad-server"
+          log_section_end
 
       - name: Prepare deployment script
         run: |
@@ -76,17 +90,18 @@ jobs:
       - name: Resolve SSH target
         id: ssh
         run: |
+          source .github/scripts/deploy-log.sh
           HOST="${{ secrets.PROD_SSH_HOST }}"
           HOST="${HOST:-${{ vars.PROD_EC2_HOST }}}"
           if [ -z "${HOST}" ]; then
-            echo "::error::Set PROD_SSH_HOST secret or PROD_EC2_HOST repository variable"
+            log_error "Set PROD_SSH_HOST secret or PROD_EC2_HOST variable"
             exit 1
           fi
           USER="${{ secrets.PROD_SSH_USER }}"
           USER="${USER:-ubuntu}"
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"
           echo "user=${USER}" >> "$GITHUB_OUTPUT"
-          echo "SSH target: ${USER}@${HOST}"
+          log_ok "SSH target resolved: ${USER}@${HOST}"
 
       - name: Setup SSH
         run: |
@@ -101,31 +116,39 @@ jobs:
       - name: Pre-flight SSH port
         run: bash .github/scripts/ec2-preflight-ssh.sh "${{ steps.ssh.outputs.host }}" 22 15
 
+      - name: Validate secrets
+        run: |
+          source .github/scripts/deploy-log.sh
+          log_section "Validate required secrets"
+          check_required_secret "GHCR_READ_TOKEN" "${{ secrets.GHCR_READ_TOKEN }}"
+          check_required_secret "PROD_SSH_KEY" "${{ secrets.PROD_SSH_KEY }}"
+          check_required_secret "PROD_DB_HOST" "${{ secrets.PROD_DB_HOST }}"
+          check_required_secret "PROD_DB_NAME" "${{ secrets.PROD_DB_NAME }}"
+          check_required_secret "PROD_DB_USERNAME" "${{ secrets.PROD_DB_USERNAME }}"
+          check_required_secret "PROD_DB_PASSWORD" "${{ secrets.PROD_DB_PASSWORD }}"
+          check_required_secret "PROD_JWT_SECRET" "${{ secrets.PROD_JWT_SECRET }}"
+          log_section_end
+
       - name: Deploy to production VM
         run: |
           set -euo pipefail
+          source .github/scripts/deploy-log.sh
 
+          APP_PORT="${APP_PORT:-8080}"
+          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+          GHCR_USERNAME="${GHCR_USERNAME:-itsvivekghosh}"
+          CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
           REDIS_LOCAL="${{ vars.PROD_REDIS_LOCAL }}"
           REDIS_LOCAL="${REDIS_LOCAL:-true}"
 
-          if [ -z "${{ secrets.GHCR_READ_TOKEN }}" ]; then
-            echo "::error::Missing GHCR_READ_TOKEN"
-            exit 1
-          fi
-          if [ -z "${{ secrets.PROD_SSH_KEY }}" ]; then echo "::error::Missing PROD_SSH_KEY"; exit 1; fi
-          if [ -z "${{ secrets.PROD_DB_HOST }}" ]; then echo "::error::Missing PROD_DB_HOST"; exit 1; fi
-          if [ -z "${{ secrets.PROD_DB_NAME }}" ]; then echo "::error::Missing PROD_DB_NAME"; exit 1; fi
-          if [ -z "${{ secrets.PROD_DB_USERNAME }}" ]; then echo "::error::Missing PROD_DB_USERNAME"; exit 1; fi
-          if [ -z "${{ secrets.PROD_DB_PASSWORD }}" ]; then echo "::error::Missing PROD_DB_PASSWORD"; exit 1; fi
-          if [ -z "${{ secrets.PROD_JWT_SECRET }}" ]; then echo "::error::Missing PROD_JWT_SECRET"; exit 1; fi
-
-          echo "Deploying image tag: ${{ needs.get-image-tag.outputs.tag }}"
-
           {
             printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}"
+            printf 'GHCR_IMAGE=%s\n' "${GHCR_IMAGE}"
+            printf 'GHCR_USERNAME=%s\n' "${GHCR_USERNAME}"
+            printf 'CONTAINER_NAME=%s\n' "${CONTAINER_NAME}"
             printf 'SPRING_PROFILES_ACTIVE=prod\n'
             printf 'DOCKER_NETWORK=host\n'
-            printf 'SERVER_PORT=%s\n' "${{ env.APP_PORT }}"
+            printf 'SERVER_PORT=%s\n' "${APP_PORT}"
             printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}"
             printf 'DB_PORT=%s\n' "${{ secrets.PROD_DB_PORT }}"
             printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}"
@@ -134,7 +157,6 @@ jobs:
             printf 'JWT_SECRET=%s\n' "${{ secrets.PROD_JWT_SECRET }}"
             printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}"
             printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}"
-            printf 'GHCR_USERNAME=itsvivekghosh\n'
             printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}"
             printf 'REDIS_LOCAL=%s\n' "${REDIS_LOCAL}"
           } > /tmp/deploy-env.txt
@@ -160,13 +182,28 @@ jobs:
 
       - name: Wait for healthy app
         run: |
+          APP_PORT="${{ vars.APP_PORT }}"
+          APP_PORT="${APP_PORT:-8080}"
+          HEALTH_PATH="${{ vars.HEALTH_PATH }}"
+          HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
+          CONTAINER_NAME="${{ vars.CONTAINER_NAME }}"
+          CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
           bash .github/scripts/wait-for-ec2-health.sh \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 60 5
+            ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
+            "http://localhost:${APP_PORT}${HEALTH_PATH}"
 
       - name: Deployment summary
         if: success()
         run: |
-          echo "Production deployment successful"
-          echo "Image: ghcr.io/itsvivekghosh/bukkad-server:${{ needs.get-image-tag.outputs.tag }}"
-          echo "Host: ${{ steps.ssh.outputs.host }}"
+          source .github/scripts/deploy-log.sh
+          APP_PORT="${{ vars.APP_PORT }}"
+          APP_PORT="${APP_PORT:-8080}"
+          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
+          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+          HEALTH_PATH="${{ vars.HEALTH_PATH }}"
+          HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
+          deploy_summary "Production" \
+            "${{ steps.ssh.outputs.host }}" \
+            "${GHCR_IMAGE}:${{ needs.get-image-tag.outputs.tag }}" \
+            "http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"

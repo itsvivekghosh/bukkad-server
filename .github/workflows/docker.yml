@@ -48,8 +48,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: sha
-        run: echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - id: meta
+        run: |
+          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
+          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Building and pushing: ${GHCR_IMAGE}:${GITHUB_SHA} and :deploy"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -58,8 +63,8 @@ jobs:
           file: docker/Dockerfile
           push: true
           tags: |
-            ghcr.io/itsvivekghosh/bukkad-server:${{ github.sha }}
-            ghcr.io/itsvivekghosh/bukkad-server:deploy
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:deploy
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

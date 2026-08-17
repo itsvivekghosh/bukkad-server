@@ -1,5 +1,7 @@
 # CI/CD Pipeline Documentation
 
+> **Current source of truth:** See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for up-to-date hosts, secrets/variables checklist, branch-to-pipeline map, and post-merge steps.
+
 ## Branch Strategy
 
 | Branch | Purpose | Environment |

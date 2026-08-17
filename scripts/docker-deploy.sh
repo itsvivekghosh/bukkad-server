@@ -2,8 +2,9 @@
 set -euo pipefail
 
 IMAGE_TAG="${IMAGE_TAG:-}"
-APP_IMAGE="ghcr.io/itsvivekghosh/bukkad-server:${IMAGE_TAG}"
-CONTAINER_NAME="bhukkad-app"
+GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+APP_IMAGE="${GHCR_IMAGE}:${IMAGE_TAG}"
+CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
 CONTAINER_PORT="${SERVER_PORT:-8080}"
 HOST_PORT="${SERVER_PORT:-8080}"
 

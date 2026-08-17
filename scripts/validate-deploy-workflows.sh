@@ -21,7 +21,8 @@ for script in \
   .github/scripts/ec2-preflight-ssh.sh \
   .github/scripts/ec2-flyway-repair.sh \
   .github/scripts/ec2-redis-preflight.sh \
-  .github/scripts/ec2-verify-ssh.sh; do
+  .github/scripts/ec2-verify-ssh.sh \
+  .github/scripts/deploy-log.sh; do
   if bash -n "$script"; then
     ok "bash -n $script"
   else
@@ -59,13 +60,17 @@ else
 fi
 
 echo ""
-echo "=== EC2 host configuration ==="
-if [ -f .github/deploy-hosts.env ]; then
+echo "=== Deploy configuration ==="
+if [ -f .github/deploy-config.env ]; then
+  # shellcheck source=/dev/null
+  source .github/deploy-config.env
+  ok "deploy-config.env present"
+elif [ -f .github/deploy-hosts.env ]; then
   # shellcheck source=/dev/null
   source .github/deploy-hosts.env
-  ok "deploy-hosts.env present"
+  ok "deploy-hosts.env present (legacy)"
 else
-  bad "missing .github/deploy-hosts.env"
+  bad "missing .github/deploy-config.env"
 fi
 grep -q 'vars.STAGING_EC2_HOST' .github/workflows/deploy-staging.yml \
   && ok "staging workflow uses STAGING_EC2_HOST variable" \
@@ -73,6 +78,12 @@ grep -q 'vars.STAGING_EC2_HOST' .github/workflows/deploy-staging.yml \
 grep -q 'vars.PROD_EC2_HOST' .github/workflows/deploy-production.yml \
   && ok "production workflow uses PROD_EC2_HOST variable" \
   || bad "production workflow missing PROD_EC2_HOST variable"
+grep -q 'vars.GHCR_IMAGE' .github/workflows/deploy-staging.yml \
+  && ok "staging workflow uses GHCR_IMAGE variable" \
+  || bad "staging workflow missing GHCR_IMAGE variable"
+grep -q 'vars.GHCR_IMAGE' .github/workflows/docker.yml \
+  && ok "docker workflow uses GHCR_IMAGE variable" \
+  || bad "docker workflow missing GHCR_IMAGE variable"
 if ! grep -E 'ec2-[0-9-]+\.ap-south-1\.compute\.amazonaws\.com' .github/workflows/deploy-staging.yml .github/workflows/deploy-production.yml >/dev/null 2>&1; then
   ok "no hardcoded EC2 DNS in deploy workflows"
 else
@@ -141,7 +152,7 @@ echo ""
 echo "=== Public health endpoints (optional, requires SG port 8080) ==="
 for host in "${STAGING_EC2_HOST:-}" "${PROD_EC2_HOST:-}"; do
   [ -n "${host}" ] || continue
-  url="http://${host}:${APP_PORT:-8080}/api/v1/health/ping"
+  url="http://${host}:${APP_PORT:-8080}${HEALTH_PATH:-/api/v1/health/ping}"
   code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" || echo "000")
   if [ "$code" = "200" ]; then
     ok "${url} -> HTTP ${code}"
