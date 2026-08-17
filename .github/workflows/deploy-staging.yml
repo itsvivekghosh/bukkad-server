@@ -10,7 +10,6 @@ permissions:
   contents: read
 
 env:
-  STAGING_SSH_HOST_DEFAULT: ec2-65-1-112-216.ap-south-1.compute.amazonaws.com
   APP_PORT: "8080"
 
 jobs:
@@ -19,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: http://ec2-65-1-112-216.ap-south-1.compute.amazonaws.com:8080
+      url: http://${{ vars.STAGING_EC2_HOST }}:8080
 
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -38,7 +37,11 @@ jobs:
         id: ssh
         run: |
           HOST="${{ secrets.STAGING_SSH_HOST }}"
-          HOST="${HOST:-${{ env.STAGING_SSH_HOST_DEFAULT }}}"
+          HOST="${HOST:-${{ vars.STAGING_EC2_HOST }}}"
+          if [ -z "${HOST}" ]; then
+            echo "::error::Set STAGING_SSH_HOST secret or STAGING_EC2_HOST repository variable"
+            exit 1
+          fi
           USER="${{ secrets.STAGING_SSH_USER }}"
           USER="${USER:-ubuntu}"
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"

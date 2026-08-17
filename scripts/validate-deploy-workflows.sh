@@ -20,7 +20,8 @@ for script in \
   .github/scripts/ec2-ghcr-login.sh \
   .github/scripts/ec2-preflight-ssh.sh \
   .github/scripts/ec2-flyway-repair.sh \
-  .github/scripts/ec2-redis-preflight.sh; do
+  .github/scripts/ec2-redis-preflight.sh \
+  .github/scripts/ec2-verify-ssh.sh; do
   if bash -n "$script"; then
     ok "bash -n $script"
   else
@@ -58,13 +59,25 @@ else
 fi
 
 echo ""
-echo "=== EC2 host defaults ==="
-grep -q 'ec2-65-1-112-216.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-staging.yml \
-  && ok "staging EC2 host default present" \
-  || bad "staging EC2 host default missing"
-grep -q 'ec2-13-201-21-45.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-production.yml \
-  && ok "production EC2 host default present" \
-  || bad "production EC2 host default missing"
+echo "=== EC2 host configuration ==="
+if [ -f .github/deploy-hosts.env ]; then
+  # shellcheck source=/dev/null
+  source .github/deploy-hosts.env
+  ok "deploy-hosts.env present"
+else
+  bad "missing .github/deploy-hosts.env"
+fi
+grep -q 'vars.STAGING_EC2_HOST' .github/workflows/deploy-staging.yml \
+  && ok "staging workflow uses STAGING_EC2_HOST variable" \
+  || bad "staging workflow missing STAGING_EC2_HOST variable"
+grep -q 'vars.PROD_EC2_HOST' .github/workflows/deploy-production.yml \
+  && ok "production workflow uses PROD_EC2_HOST variable" \
+  || bad "production workflow missing PROD_EC2_HOST variable"
+if ! grep -E 'ec2-[0-9-]+\.ap-south-1\.compute\.amazonaws\.com' .github/workflows/deploy-staging.yml .github/workflows/deploy-production.yml >/dev/null 2>&1; then
+  ok "no hardcoded EC2 DNS in deploy workflows"
+else
+  bad "deploy workflows still contain hardcoded EC2 DNS"
+fi
 
 echo ""
 echo "=== Workflow expression safety ==="
@@ -101,18 +114,20 @@ grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/deploy-production
 grep -q 'branches: \[ main, deploy \]' .github/workflows/docker.yml \
   && ok "docker workflow triggers on main and deploy" \
   || bad "docker workflow trigger branches missing"
-grep -q 'PROD_SSH_HOST_DEFAULT' .github/workflows/deploy-production.yml \
-  && ok "production SSH host default env present" \
-  || bad "production SSH host default env missing"
 grep -q 'GHCR_READ_TOKEN' .github/workflows/deploy-production.yml \
   && ok "production uses GHCR_READ_TOKEN" \
   || bad "production missing GHCR_READ_TOKEN"
+grep -q 'ec2-verify-ssh.sh' .github/workflows/deploy-staging.yml \
+  && ok "staging verifies SSH authentication" \
+  || bad "staging missing SSH auth verification"
+grep -q 'ec2-verify-ssh.sh' .github/workflows/deploy-production.yml \
+  && ok "production verifies SSH authentication" \
+  || bad "production missing SSH auth verification"
 
 echo ""
 echo "=== EC2 reachability (SSH port 22) ==="
-for host in \
-  ec2-65-1-112-216.ap-south-1.compute.amazonaws.com \
-  ec2-13-201-21-45.ap-south-1.compute.amazonaws.com; do
+for host in "${STAGING_EC2_HOST:-}" "${PROD_EC2_HOST:-}"; do
+  [ -n "${host}" ] || continue
   if timeout 3 bash -c "echo >/dev/tcp/${host}/22" 2>/dev/null; then
     ok "TCP 22 open on ${host} (bash /dev/tcp)"
   elif nc -z -w 3 "$host" 22 >/dev/null 2>&1; then
@@ -124,9 +139,9 @@ done
 
 echo ""
 echo "=== Public health endpoints (optional, requires SG port 8080) ==="
-for url in \
-  "http://ec2-65-1-112-216.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping" \
-  "http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping"; do
+for host in "${STAGING_EC2_HOST:-}" "${PROD_EC2_HOST:-}"; do
+  [ -n "${host}" ] || continue
+  url="http://${host}:${APP_PORT:-8080}/api/v1/health/ping"
   code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" || echo "000")
   if [ "$code" = "200" ]; then
     ok "${url} -> HTTP ${code}"

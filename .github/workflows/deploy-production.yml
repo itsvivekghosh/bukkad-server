@@ -10,7 +10,6 @@ permissions:
   contents: read
 
 env:
-  PROD_SSH_HOST_DEFAULT: ec2-13-201-21-45.ap-south-1.compute.amazonaws.com
   APP_PORT: "8080"
 
 jobs:
@@ -63,7 +62,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     environment:
       name: production
-      url: http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080
+      url: http://${{ vars.PROD_EC2_HOST }}:8080
 
     steps:
       - uses: actions/checkout@v5
@@ -78,7 +77,11 @@ jobs:
         id: ssh
         run: |
           HOST="${{ secrets.PROD_SSH_HOST }}"
-          HOST="${HOST:-${{ env.PROD_SSH_HOST_DEFAULT }}}"
+          HOST="${HOST:-${{ vars.PROD_EC2_HOST }}}"
+          if [ -z "${HOST}" ]; then
+            echo "::error::Set PROD_SSH_HOST secret or PROD_EC2_HOST repository variable"
+            exit 1
+          fi
           USER="${{ secrets.PROD_SSH_USER }}"
           USER="${USER:-ubuntu}"
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"
