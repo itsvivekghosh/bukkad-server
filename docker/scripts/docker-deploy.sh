@@ -11,6 +11,13 @@ HOST_PORT="${SERVER_PORT:-8080}"
 
 echo "Deploying ${APP_IMAGE} as ${CONTAINER_NAME}..."
 
+# Empty values from deploy-env.txt must not override Spring defaults
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-3306}"
+DB_NAME="${DB_NAME:-bhukkad}"
+REDIS_HOST="${REDIS_HOST:-localhost}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+
 if [ -n "${GHCR_TOKEN:-}" ]; then
   echo "Logging in to ghcr.io..."
   echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME:-itsvivekghosh}" --password-stdin
@@ -34,7 +41,6 @@ docker run -d \
   -e DB_NAME="${DB_NAME:-bhukkad}" \
   -e DB_USERNAME="${DB_USERNAME:-}" \
   -e DB_PASSWORD="${DB_PASSWORD:-}" \
-  -e DB_URL="${DB_URL:-}" \
   -e REDIS_HOST="${REDIS_HOST:-localhost}" \
   -e REDIS_PORT="${REDIS_PORT:-6379}" \
   -e REDIS_PASSWORD="${REDIS_PASSWORD:-}" \
