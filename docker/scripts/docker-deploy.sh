@@ -8,6 +8,7 @@ APP_IMAGE="ghcr.io/itsvivekghosh/bukkad-server:${IMAGE_TAG}"
 CONTAINER_NAME="bhukkad-app"
 CONTAINER_PORT="${SERVER_PORT:-8080}"
 HOST_PORT="${SERVER_PORT:-8080}"
+DOCKER_NETWORK="${DOCKER_NETWORK:-bridge}"
 
 echo "Deploying ${APP_IMAGE} as ${CONTAINER_NAME}..."
 
@@ -17,6 +18,21 @@ DB_PORT="${DB_PORT:-3306}"
 DB_NAME="${DB_NAME:-bhukkad}"
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
+
+if [ "${SPRING_PROFILES_ACTIVE:-}" = "staging" ] && [ "${REDIS_HOST}" = "localhost" ]; then
+  echo "WARNING: REDIS_HOST is localhost on staging — set STAGING_REDIS_HOST to your ElastiCache endpoint"
+fi
+
+echo "Checking Redis from EC2 host (${REDIS_HOST}:${REDIS_PORT})..."
+if ! getent hosts "${REDIS_HOST}" >/dev/null 2>&1; then
+  echo "ERROR: Cannot resolve REDIS_HOST=${REDIS_HOST}"
+  exit 1
+fi
+if ! timeout 10 bash -c "echo >/dev/tcp/${REDIS_HOST}/${REDIS_PORT}" 2>/dev/null; then
+  echo "ERROR: Cannot reach Redis at ${REDIS_HOST}:${REDIS_PORT} from EC2"
+  exit 1
+fi
+echo "Redis reachable from EC2 host"
 
 if [ -n "${GHCR_TOKEN:-}" ]; then
   echo "Logging in to ghcr.io..."
@@ -29,20 +45,29 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 echo "Pulling image..."
 docker pull "$APP_IMAGE"
 
+NETWORK_ARGS=()
+PORT_ARGS=(-p "${HOST_PORT}:${CONTAINER_PORT}")
+if [ "${DOCKER_NETWORK}" = "host" ]; then
+  NETWORK_ARGS=(--network host)
+  PORT_ARGS=()
+  echo "Using Docker host network (VPC DNS for Redis/RDS)"
+fi
+
 echo "Starting container..."
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
-  -p "${HOST_PORT}:${CONTAINER_PORT}" \
+  "${NETWORK_ARGS[@]}" \
+  "${PORT_ARGS[@]}" \
   -e SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-staging}" \
   -e SERVER_PORT="${SERVER_PORT:-8080}" \
-  -e DB_HOST="${DB_HOST:-localhost}" \
-  -e DB_PORT="${DB_PORT:-3306}" \
-  -e DB_NAME="${DB_NAME:-bhukkad}" \
+  -e DB_HOST="${DB_HOST}" \
+  -e DB_PORT="${DB_PORT}" \
+  -e DB_NAME="${DB_NAME}" \
   -e DB_USERNAME="${DB_USERNAME:-}" \
   -e DB_PASSWORD="${DB_PASSWORD:-}" \
-  -e REDIS_HOST="${REDIS_HOST:-localhost}" \
-  -e REDIS_PORT="${REDIS_PORT:-6379}" \
+  -e REDIS_HOST="${REDIS_HOST}" \
+  -e REDIS_PORT="${REDIS_PORT}" \
   -e REDIS_PASSWORD="${REDIS_PASSWORD:-}" \
   -e JWT_SECRET="${JWT_SECRET:-}" \
   -e JWT_EXPIRATION="${JWT_EXPIRATION:-3600000}" \

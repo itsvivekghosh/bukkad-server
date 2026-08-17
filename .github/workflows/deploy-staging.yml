@@ -165,7 +165,9 @@ jobs:
           printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/deploy-env.txt
           printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
-          printf 'REDIS_PORT=%s\n' "${{ secrets.STAGING_REDIS_PORT }}" >> /tmp/deploy-env.txt
+          REDIS_PORT="${{ secrets.STAGING_REDIS_PORT }}"
+          REDIS_PORT="${REDIS_PORT:-6379}"
+          printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
           printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'JWT_SECRET=%s\n' "${{ secrets.STAGING_JWT_SECRET }}" >> /tmp/deploy-env.txt
           printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}" >> /tmp/deploy-env.txt
@@ -192,6 +194,14 @@ jobs:
           printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'GHCR_USERNAME=%s\n' "itsvivekghosh" >> /tmp/deploy-env.txt
           printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}" >> /tmp/deploy-env.txt
+          printf 'DOCKER_NETWORK=%s\n' "host" >> /tmp/deploy-env.txt
+
+          chmod +x .github/scripts/ec2-redis-preflight.sh
+          bash .github/scripts/ec2-redis-preflight.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            /tmp/deploy-env.txt
 
           bash .github/scripts/ec2-deploy-remote.sh \
             "${{ steps.ssh.outputs.user }}" \
