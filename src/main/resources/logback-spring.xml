@@ -1,43 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <configuration scan="true" scanPeriod="30 seconds">
 
-    <!-- ==================== PROPERTIES ==================== -->
     <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="bhukkad-server"/>
 
     <property name="LOG_PATH" value="logs"/>
-    <property name="LOG_FILE" value="${LOG_PATH}/${APP_NAME}"/>
-    <property name="MAX_FILE_SIZE" value="10MB"/>
-    <property name="MAX_HISTORY" value="30"/>
+    <property name="LOG_FILE" value="${LOG_PATH}/app"/>
+    <property name="MAX_FILE_SIZE" value="20MB"/>
+    <property name="MAX_HISTORY" value="14"/>
     <property name="TOTAL_SIZE_CAP" value="1GB"/>
 
-    <!-- ==================== PATTERNS ==================== -->
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [trace:%X{traceId:--}] [req:%X{requestId:--}] [user:%X{userId:--}] [%logger{36}] - %msg%n"/>
 
-    <!-- Console pattern - clean, no userId/email for non-request threads -->
-    <property name="CONSOLE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%cyan(${APP_NAME})] [%blue(%thread)] [%yellow(%X{traceId:--})] [%green(%X{requestId:--})] [%magenta(%logger{36})] - %msg%n"/>
-
-    <!-- File pattern with full context -->
-    <property name="FILE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [Trace:%X{traceId:--}] [Request:%X{requestId:--}] [User:%X{userId:--}] [Email:%X{userEmail:--}] [IP:%X{ipAddress:--}] [%logger{36}] - %msg%n"/>
-
-    <!-- Request log pattern with full user context -->
-    <property name="REQUEST_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [Trace:%X{traceId:--}] [Request:%X{requestId:--}] [User:%X{userId:--}] [Email:%X{userEmail:--}] [Role:%X{userRole:--}] [IP:%X{ipAddress:--}] [%logger{36}] - %msg%n"/>
-
-    <!-- ==================== CONSOLE APPENDER ==================== -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${CONSOLE_PATTERN}</pattern>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%yellow(%X{traceId:--})] %logger{36} - %msg%n</pattern>
             <charset>UTF-8</charset>
         </encoder>
     </appender>
 
-    <!-- ==================== FILE APPENDERS ==================== -->
-
-    <!-- General Application Log -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_FILE}.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${FILE_PATTERN}</pattern>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
             <charset>UTF-8</charset>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
@@ -48,214 +33,36 @@
         </rollingPolicy>
     </appender>
 
-    <!-- Error Log -->
-    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/error.log</file>
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>ERROR</level>
-        </filter>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${FILE_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/error-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>500MB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- Security Log -->
-    <appender name="SECURITY_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/security.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${REQUEST_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/security-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>500MB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- Order Log -->
-    <appender name="ORDER_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/orders.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${REQUEST_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/orders-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>500MB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- Payment Log -->
-    <appender name="PAYMENT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/payments.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${REQUEST_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/payments-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>500MB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- Performance Log -->
-    <appender name="PERFORMANCE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/performance.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${REQUEST_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/performance-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>7</maxHistory>
-            <totalSizeCap>200MB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- Alert Log -->
-    <appender name="ALERT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/alerts.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${REQUEST_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/alerts-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>500MB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- JSON Log -->
-    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/app-json.log</file>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <includeMdcKeyName>traceId</includeMdcKeyName>
-            <includeMdcKeyName>userId</includeMdcKeyName>
-            <includeMdcKeyName>userEmail</includeMdcKeyName>
-            <includeMdcKeyName>userRole</includeMdcKeyName>
-            <includeMdcKeyName>requestId</includeMdcKeyName>
-            <includeMdcKeyName>requestPath</includeMdcKeyName>
-            <includeMdcKeyName>requestMethod</includeMdcKeyName>
-            <includeMdcKeyName>ipAddress</includeMdcKeyName>
-            <timeZone>UTC</timeZone>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/app-json-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
-            <maxHistory>${MAX_HISTORY}</maxHistory>
-            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
-        </rollingPolicy>
-    </appender>
-
-    <!-- ==================== ASYNC APPENDERS ==================== -->
-
     <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="FILE"/>
         <queueSize>512</queueSize>
         <discardingThreshold>0</discardingThreshold>
-        <includeCallerData>true</includeCallerData>
     </appender>
 
-    <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="JSON_FILE"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-        <includeCallerData>true</includeCallerData>
-    </appender>
+    <!-- Domain loggers (ORDER, PAYMENT, etc.) share the single app.log via additivity -->
+    <logger name="ORDER" level="INFO"/>
+    <logger name="PAYMENT" level="INFO"/>
+    <logger name="SECURITY" level="INFO"/>
+    <logger name="PERFORMANCE" level="INFO"/>
+    <logger name="ALERT" level="INFO"/>
 
-    <!-- ==================== LOGGERS ==================== -->
-
-    <logger name="com.bhukkad.logging" level="DEBUG" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="ASYNC_FILE"/>
-    </logger>
-
-    <logger name="com.bhukkad.security" level="DEBUG" additivity="false">
-        <appender-ref ref="SECURITY_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="PERFORMANCE" level="DEBUG" additivity="false">
-        <appender-ref ref="PERFORMANCE_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="ORDER" level="DEBUG" additivity="false">
-        <appender-ref ref="ORDER_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="PAYMENT" level="DEBUG" additivity="false">
-        <appender-ref ref="PAYMENT_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="SECURITY" level="DEBUG" additivity="false">
-        <appender-ref ref="SECURITY_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="ALERT" level="INFO" additivity="false">
-        <appender-ref ref="ALERT_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="ASYNC_JSON"/>
-    </logger>
-
-    <logger name="org.hibernate.SQL" level="DEBUG" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="org.springframework.web" level="INFO" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-    </logger>
-
-    <logger name="org.springframework.security" level="INFO" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="SECURITY_FILE"/>
-    </logger>
-
-    <logger name="com.bhukkad" level="DEBUG" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="ASYNC_FILE"/>
-        <appender-ref ref="ASYNC_JSON"/>
-        <appender-ref ref="ERROR_FILE"/>
-    </logger>
-
-    <!-- ==================== PROFILES ==================== -->
+    <logger name="com.bhukkad" level="DEBUG"/>
+    <logger name="com.bhukkad.logging" level="DEBUG"/>
+    <logger name="com.bhukkad.security" level="INFO"/>
+    <logger name="org.hibernate.SQL" level="DEBUG"/>
+    <logger name="org.springframework.web" level="INFO"/>
+    <logger name="org.springframework.security" level="INFO"/>
 
     <springProfile name="dev">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="ASYNC_FILE"/>
-            <appender-ref ref="ERROR_FILE"/>
         </root>
     </springProfile>
 
     <springProfile name="prod">
         <root level="INFO">
             <appender-ref ref="ASYNC_FILE"/>
-            <appender-ref ref="ASYNC_JSON"/>
-            <appender-ref ref="ERROR_FILE"/>
         </root>
     </springProfile>
 
@@ -263,7 +70,6 @@
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="ASYNC_FILE"/>
-            <appender-ref ref="ERROR_FILE"/>
         </root>
     </springProfile>
 
