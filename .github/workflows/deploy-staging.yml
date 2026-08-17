@@ -137,18 +137,19 @@ jobs:
       - name: Repair Flyway schema history (staging)
         run: |
           set -euo pipefail
-          chmod +x .github/scripts/flyway-repair-staging.sh
-          DB_URL="${{ secrets.STAGING_DB_URL }}"
-          if [ -z "${DB_URL}" ]; then
-            DB_PORT="${{ secrets.STAGING_DB_PORT }}"
-            DB_PORT="${DB_PORT:-3306}"
-            DB_URL="jdbc:mysql://${{ secrets.STAGING_DB_HOST }}:${DB_PORT}/${{ secrets.STAGING_DB_NAME }}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
-          fi
-          bash .github/scripts/flyway-repair-staging.sh \
-            "${DB_URL}" \
-            "${{ secrets.STAGING_DB_USERNAME }}" \
-            "${{ secrets.STAGING_DB_PASSWORD }}" \
-            "${PWD}/src/main/resources/db/migration"
+          chmod +x .github/scripts/ec2-flyway-repair.sh
+          printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" > /tmp/flyway-env.txt
+          printf 'DB_PORT=%s\n' "${{ secrets.STAGING_DB_PORT }}" >> /tmp/flyway-env.txt
+          printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/flyway-env.txt
+          printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/flyway-env.txt
+          printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/flyway-env.txt
+          printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
+          bash .github/scripts/ec2-flyway-repair.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            "${PWD}/src/main/resources/db/migration" \
+            /tmp/flyway-env.txt
 
       - name: Deploy to staging VM
         run: |

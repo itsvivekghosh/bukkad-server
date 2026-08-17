@@ -19,7 +19,7 @@ for script in \
   .github/scripts/ec2-smoke-test.sh \
   .github/scripts/ec2-ghcr-login.sh \
   .github/scripts/ec2-preflight-ssh.sh \
-  .github/scripts/flyway-repair-staging.sh; do
+  .github/scripts/ec2-flyway-repair.sh; do
   if bash -n "$script"; then
     ok "bash -n $script"
   else
