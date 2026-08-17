@@ -49,7 +49,9 @@ jobs:
       - name: Verify deployment script exists
         run: |
           ls -la ./deploy/
-          test -x ./deploy/docker-deploy.sh || { echo "Deployment script not found or not executable!"; exit 1; }
+          test -f ./deploy/docker-deploy.sh || { echo "Deployment script not found!"; exit 1; }
+          chmod +x ./deploy/docker-deploy.sh
+          test -x ./deploy/docker-deploy.sh || { echo "Failed to make deployment script executable!"; exit 1; }
 
       - name: Resolve SSH target
         id: ssh
