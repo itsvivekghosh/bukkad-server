@@ -69,6 +69,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Update STAGING_IMAGE_SHA variable
+        if: github.ref == 'refs/heads/deploy'
         run: |
           SHA="${{ github.sha }}"
           HTTP_CODE=$(curl -s -o /tmp/var-response.txt -w "%{http_code}" \

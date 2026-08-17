@@ -17,6 +17,8 @@ jobs:
       tag: ${{ steps.image.outputs.tag }}
 
     steps:
+      - uses: actions/checkout@v5
+
       - name: Resolve production image tag
         id: image
         run: |
@@ -60,7 +62,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     environment:
       name: production
-      url: http://${{ vars.PROD_EC2_HOST }}:${{ vars.APP_PORT }}
+      url: http://${{ vars.PROD_EC2_HOST }}:8080
 
     env:
       APP_PORT: ${{ vars.APP_PORT }}
@@ -71,6 +73,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: Set deployment defaults
+        run: |
+          {
+            echo "APP_PORT=${APP_PORT:-8080}"
+            echo "HEALTH_PATH=${HEALTH_PATH:-/api/v1/health/ping}"
+            echo "CONTAINER_NAME=${CONTAINER_NAME:-bhukkad-app}"
+            echo "GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+            echo "GHCR_USERNAME=${GHCR_USERNAME:-itsvivekghosh}"
+          } >> "$GITHUB_ENV"
 
       - name: Deployment overview
         run: |
@@ -135,12 +147,25 @@ jobs:
           set -euo pipefail
           source .github/scripts/deploy-log.sh
 
-          APP_PORT="${APP_PORT:-8080}"
-          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
-          GHCR_USERNAME="${GHCR_USERNAME:-itsvivekghosh}"
-          CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
+          DB_PORT="${{ secrets.PROD_DB_PORT }}"
+          DB_PORT="${DB_PORT:-3306}"
           REDIS_LOCAL="${{ vars.PROD_REDIS_LOCAL }}"
           REDIS_LOCAL="${REDIS_LOCAL:-true}"
+          FLYWAY_REPAIR="${{ vars.FLYWAY_REPAIR_ON_DEPLOY }}"
+          FLYWAY_REPAIR="${FLYWAY_REPAIR:-false}"
+
+          if [ "${FLYWAY_REPAIR}" = "true" ]; then
+            log_section "Flyway repair (pre-deploy)"
+            printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}" > /tmp/flyway-env.txt
+            printf 'DB_PORT=%s\n' "${DB_PORT}" >> /tmp/flyway-env.txt
+            printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}" >> /tmp/flyway-env.txt
+            printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}" >> /tmp/flyway-env.txt
+            printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}" >> /tmp/flyway-env.txt
+            bash .github/scripts/ec2.sh flyway-repair \
+              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+              ~/.ssh/id_ed25519 "${PWD}/src/main/resources/db/migration" /tmp/flyway-env.txt
+            log_section_end
+          fi
 
           {
             printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}"
@@ -151,7 +176,7 @@ jobs:
             printf 'DOCKER_NETWORK=host\n'
             printf 'SERVER_PORT=%s\n' "${APP_PORT}"
             printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}"
-            printf 'DB_PORT=%s\n' "${{ secrets.PROD_DB_PORT }}"
+            printf 'DB_PORT=%s\n' "${DB_PORT}"
             printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}"
             printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}"
             printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}"
@@ -182,12 +207,6 @@ jobs:
 
       - name: Wait for healthy app
         run: |
-          APP_PORT="${{ vars.APP_PORT }}"
-          APP_PORT="${APP_PORT:-8080}"
-          HEALTH_PATH="${{ vars.HEALTH_PATH }}"
-          HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
-          CONTAINER_NAME="${{ vars.CONTAINER_NAME }}"
-          CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
           bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
             ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
@@ -197,12 +216,6 @@ jobs:
         if: success()
         run: |
           source .github/scripts/deploy-log.sh
-          APP_PORT="${{ vars.APP_PORT }}"
-          APP_PORT="${APP_PORT:-8080}"
-          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
-          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
-          HEALTH_PATH="${{ vars.HEALTH_PATH }}"
-          HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
           deploy_summary "Production" \
             "${{ steps.ssh.outputs.host }}" \
             "${GHCR_IMAGE}:${{ needs.get-image-tag.outputs.tag }}" \

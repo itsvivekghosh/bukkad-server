@@ -78,8 +78,6 @@ logging:
     ORDER: INFO
     PAYMENT: INFO
     SECURITY: WARN
-  file:
-    name: logs/bhukkad-prod.log
 
 app:
   environment: production
