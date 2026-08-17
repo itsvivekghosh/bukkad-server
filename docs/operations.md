@@ -22,12 +22,15 @@ mvn compile -q
 
 ## Logs
 
-| Profile | File | Level |
-|---------|------|-------|
-| dev | `logs/bhukkad-dev.log` | DEBUG for `com.bhukkad` |
-| prod | `logs/bhukkad-prod.log` | INFO for app, WARN for framework |
+Single log file:
 
-Structured categories: `ORDER`, `PAYMENT`, `SECURITY`, `PERFORMANCE`, `ALERT`.
+| File | Contents |
+|------|----------|
+| `logs/app.log` | All application output (errors, orders, payments, security, alerts) |
+
+Console output is enabled in `dev` only. Production writes to `logs/app.log` only.
+
+Configuration: `src/main/resources/logback-spring.xml`
 
 ### Request tracing
 
@@ -41,11 +44,11 @@ Every API response includes:
 
 `ApiResponse` JSON bodies also include `traceId` and `requestId` fields for client-side correlation.
 
-Log patterns include both IDs in console, file, and JSON (`logs/app-json.log`) output via MDC.
+Log patterns include trace and request IDs via MDC in `logs/app.log`.
 
 ```bash
 # Find all logs for a trace
-grep "abcd1234abcd1234" logs/bhukkad-system.log logs/alerts.log
+grep "abcd1234abcd1234" logs/app.log
 
 # Check response headers
 curl -si http://localhost:8080/api/v1/health/ping | grep -i x-trace
@@ -53,7 +56,7 @@ curl -si http://localhost:8080/api/v1/health/ping | grep -i x-trace
 
 ### Alerting
 
-Operational alerts are written to `logs/alerts.log` (logger `ALERT`) for:
+Operational alerts use logger `ALERT` and are written to `logs/app.log` for:
 
 - Slow requests (warning ≥1s, critical ≥3s)
 - HTTP 4xx/5xx responses
@@ -109,11 +112,13 @@ Custom metrics include order counters (`OrderMetrics`).
 
 ## Database migrations (Flyway)
 
-Migrations live in `src/main/resources/db/migration/`.
+Single baseline: `src/main/resources/db/migration/V1__baseline_schema.sql`
+
+See [db/migration/README.md](../src/main/resources/db/migration/README.md) for details.
 
 **Rules:**
 
-- Never edit applied migration files — add a new `V5__...sql`
+- Never edit `V1` after it ships to shared environments — add `V2__your_change.sql`
 - App uses `ddl-auto: validate` — Hibernate won't alter schema
 
 ### Check migration status

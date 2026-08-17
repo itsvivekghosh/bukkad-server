@@ -14,14 +14,7 @@ bad() { echo "  ❌ $1"; FAIL=$((FAIL + 1)); }
 echo "=== Shell script syntax ==="
 for script in \
   docker/scripts/docker-deploy.sh \
-  .github/scripts/ec2-deploy-remote.sh \
-  .github/scripts/wait-for-ec2-health.sh \
-  .github/scripts/ec2-smoke-test.sh \
-  .github/scripts/ec2-ghcr-login.sh \
-  .github/scripts/ec2-preflight-ssh.sh \
-  .github/scripts/ec2-flyway-repair.sh \
-  .github/scripts/ec2-redis-preflight.sh \
-  .github/scripts/ec2-verify-ssh.sh \
+  .github/scripts/ec2.sh \
   .github/scripts/deploy-log.sh; do
   if bash -n "$script"; then
     ok "bash -n $script"
@@ -128,10 +121,10 @@ grep -q 'branches: \[ main, deploy \]' .github/workflows/docker.yml \
 grep -q 'GHCR_READ_TOKEN' .github/workflows/deploy-production.yml \
   && ok "production uses GHCR_READ_TOKEN" \
   || bad "production missing GHCR_READ_TOKEN"
-grep -q 'ec2-verify-ssh.sh' .github/workflows/deploy-staging.yml \
+grep -q 'ec2.sh verify-ssh' .github/workflows/deploy-staging.yml \
   && ok "staging verifies SSH authentication" \
   || bad "staging missing SSH auth verification"
-grep -q 'ec2-verify-ssh.sh' .github/workflows/deploy-production.yml \
+grep -q 'ec2.sh verify-ssh' .github/workflows/deploy-production.yml \
   && ok "production verifies SSH authentication" \
   || bad "production missing SSH auth verification"
 

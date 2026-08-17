@@ -83,6 +83,7 @@ jobs:
 
       - name: Prepare deployment script
         run: |
+          chmod +x .github/scripts/ec2.sh
           mkdir -p ./deploy
           cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
           chmod +x ./deploy/docker-deploy.sh
@@ -111,10 +112,10 @@ jobs:
           ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Verify SSH authentication
-        run: bash .github/scripts/ec2-verify-ssh.sh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
+        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
 
       - name: Pre-flight SSH port
-        run: bash .github/scripts/ec2-preflight-ssh.sh "${{ steps.ssh.outputs.host }}" 22 15
+        run: bash .github/scripts/ec2.sh preflight-port "${{ steps.ssh.outputs.host }}" 22 15
 
       - name: Validate secrets
         run: |
@@ -170,13 +171,12 @@ jobs:
             REDIS_PORT="${REDIS_PORT:-6379}"
             printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
             printf 'REDIS_PASSWORD=%s\n' "${{ secrets.PROD_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
-            chmod +x .github/scripts/ec2-redis-preflight.sh
-            bash .github/scripts/ec2-redis-preflight.sh \
+            bash .github/scripts/ec2.sh redis-preflight \
               "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
               ~/.ssh/id_ed25519 /tmp/deploy-env.txt
           fi
 
-          bash .github/scripts/ec2-deploy-remote.sh \
+          bash .github/scripts/ec2.sh deploy \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
             ~/.ssh/id_ed25519 ./deploy/docker-deploy.sh /tmp/deploy-env.txt
 
@@ -188,7 +188,7 @@ jobs:
           HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
           CONTAINER_NAME="${{ vars.CONTAINER_NAME }}"
           CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
-          bash .github/scripts/wait-for-ec2-health.sh \
+          bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
             ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
             "http://localhost:${APP_PORT}${HEALTH_PATH}"

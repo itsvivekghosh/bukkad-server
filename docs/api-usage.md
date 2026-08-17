@@ -268,7 +268,7 @@ PUT /api/v1/admin/reviews/{reviewId}/moderate?status=APPROVED # status is requir
 
 See [advanced-features.md](./advanced-features.md) for referrals, batch checkout, scheduled orders, and settlements.
 
-See [growth-features.md](./growth-features.md) for V13: serviceability, membership, support tickets, order timeline, invoices, and busy mode.
+See [features.md](./features.md) for V13: serviceability, membership, support tickets, order timeline, invoices, and busy mode.
 
 See [delivery-truth.md](./delivery-truth.md), [promotions-engine.md](./promotions-engine.md), and [scale-operations.md](./scale-operations.md) for V14–V16 features.
 

@@ -76,9 +76,16 @@ curl http://localhost:8080/api/v1/health/ping
 
 Open Swagger: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
 
-## Alternative: IDE + local services
+## Alternative: IDE + local MySQL/Redis (no Docker)
 
-See [local-development.md](./local-development.md) if you prefer running the JAR directly without Docker.
+1. Create database `bhukkad` and user (see `application-dev.yml` defaults).
+2. Start Redis: `redis-server` or `docker run -d -p 6379:6379 redis:7-alpine`
+3. Run: `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+4. Main class: `com.bhukkad.BackendServerApplication` (JDK 17)
+
+Flyway applies migrations on startup — see [db/migration/README.md](../src/main/resources/db/migration/README.md).
+
+Environment variables: [configuration.md](./configuration.md).
 
 ## First API calls
 
