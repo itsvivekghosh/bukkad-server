@@ -114,18 +114,18 @@ jobs:
         id: image
         run: |
           source .github/scripts/deploy-log.sh
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq
           TAG=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             TAG="${{ github.event.workflow_run.head_sha }}"
-            sudo apt-get update -qq && sudo apt-get install -y -qq jq
-            VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
-              | jq -r '.value // empty')
-            if [ -n "${VAR_TAG}" ] && [ "${#VAR_TAG}" -ge 40 ]; then
-              TAG="${VAR_TAG}"
-            fi
           else
-            TAG="${{ github.sha }}"
+            TAG="deploy"
+          fi
+          VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
+            | jq -r '.value // empty')
+          if [ -n "${VAR_TAG}" ] && [ "${VAR_TAG}" != "null" ]; then
+            TAG="${VAR_TAG}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           log_ok "Deploying image: ${GHCR_IMAGE}:${TAG}"
