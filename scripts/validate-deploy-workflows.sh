@@ -59,7 +59,7 @@ fi
 
 echo ""
 echo "=== EC2 host defaults ==="
-grep -q 'ec2-13-204-80-247.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-staging.yml \
+grep -q 'ec2-65-1-112-216.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-staging.yml \
   && ok "staging EC2 host default present" \
   || bad "staging EC2 host default missing"
 grep -q 'ec2-13-201-21-45.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-production.yml \
@@ -111,7 +111,7 @@ grep -q 'GHCR_READ_TOKEN' .github/workflows/deploy-production.yml \
 echo ""
 echo "=== EC2 reachability (SSH port 22) ==="
 for host in \
-  ec2-13-204-80-247.ap-south-1.compute.amazonaws.com \
+  ec2-65-1-112-216.ap-south-1.compute.amazonaws.com \
   ec2-13-201-21-45.ap-south-1.compute.amazonaws.com; do
   if timeout 3 bash -c "echo >/dev/tcp/${host}/22" 2>/dev/null; then
     ok "TCP 22 open on ${host} (bash /dev/tcp)"
@@ -125,7 +125,7 @@ done
 echo ""
 echo "=== Public health endpoints (optional, requires SG port 8080) ==="
 for url in \
-  "http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping" \
+  "http://ec2-65-1-112-216.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping" \
   "http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping"; do
   code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" || echo "000")
   if [ "$code" = "200" ]; then
