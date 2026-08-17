@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Deploy Bhukkad API container on a single EC2 host (staging or production).
+# Expects IMAGE_TAG and application secrets in the environment (see deploy-staging.yml).
 set -euo pipefail
 
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
@@ -14,9 +16,13 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME:-itsvivekghosh}" --password-stdin
 fi
 
+echo "Stopping existing container..."
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+echo "Pulling image..."
 docker pull "$APP_IMAGE"
 
+echo "Starting container..."
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
@@ -57,4 +63,4 @@ docker run -d \
   -e PROMETHEUS_PASSWORD="${PROMETHEUS_PASSWORD:-}" \
   "$APP_IMAGE"
 
-echo "Container started: ${CONTAINER_NAME}"
+echo "Container started: ${CONTAINER_NAME} with image: ${APP_IMAGE}"

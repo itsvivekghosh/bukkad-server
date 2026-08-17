@@ -11,6 +11,10 @@ permissions:
   packages: write
   actions: write
 
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-push:
     name: Build and Push Docker Image
@@ -104,12 +108,14 @@ jobs:
 
       - name: Package deployment script
         run: |
-          cp docker/scripts/docker-deploy.sh docker-deploy.sh
-          chmod +x docker-deploy.sh
+          mkdir -p artifact
+          cp docker/scripts/docker-deploy.sh artifact/docker-deploy.sh
+          chmod +x artifact/docker-deploy.sh
+          ls -la artifact/
 
       - name: Upload deployment script
         uses: actions/upload-artifact@v5
         with:
           name: docker-deploy-script
-          path: docker-deploy.sh
+          path: artifact/docker-deploy.sh
           retention-days: 7

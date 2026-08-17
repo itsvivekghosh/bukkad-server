@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copy docker-deploy.sh + env file to EC2 and run the deployment.
+# Used by GitHub Actions deploy workflows.
 set -euo pipefail
 
 SSH_USER="${1:?SSH user required}"

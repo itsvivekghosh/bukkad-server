@@ -150,11 +150,11 @@ Deploy to PRODUCTION
 
 ### staging
 - No manual approval required
-- URL: https://staging.bhukkad.com
+- API URL: http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080
 
 ### production
 - Required reviewers: at least 1
-- URL: https://bhukkad.com
+- API URL: http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080
 - Wait timer: 0 minutes (approval only)
 
 ## Secrets
@@ -180,6 +180,17 @@ Deploy to PRODUCTION
 
 The workflow steps **Verify GHCR PAT secret** and **Login to GHCR on staging VM** run before `docker pull`.
 
+## EC2 Hosts
+
+| Environment | EC2 DNS | API base URL (direct) |
+|-------------|---------|------------------------|
+| Staging | `ec2-13-204-80-247.ap-south-1.compute.amazonaws.com` | `http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080` |
+| Production | `ec2-13-201-21-45.ap-south-1.compute.amazonaws.com` | `http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080` |
+
+Deploy workflows health-check and smoke-test via **SSH + `localhost:8080`** on the EC2 instance. No custom domain is required.
+
+To hit the API from your browser or mobile app, open port **8080** in the EC2 security group (or put nginx on 80/443 later).
+
 ## Docker Image Tags
 
 | Tag | Purpose |
@@ -189,19 +200,17 @@ The workflow steps **Verify GHCR PAT secret** and **Login to GHCR on staging VM*
 
 ## Rollback Strategy
 
-To rollback to a previous version:
+To rollback on EC2, redeploy a previous image tag:
 
 ```bash
-kubectl config use-context staging
-kubectl set image deployment/bhukkad-app \
-  bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:<previous-sha> \
-  -n bhukkad
-
-kubectl config use-context production
-kubectl set image deployment/bhukkad-app \
-  bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:<previous-sha> \
-  -n bhukkad
+# On the target EC2 host
+export IMAGE_TAG=<previous-git-sha>
+export SPRING_PROFILES_ACTIVE=staging   # or prod
+source /tmp/deploy-env.txt              # existing env file from last deploy
+bash /tmp/docker-deploy.sh
 ```
+
+Or trigger **Deploy to Staging** / **Deploy to Production** manually in GitHub Actions after setting `STAGING_IMAGE_SHA` to the desired commit.
 
 ## Troubleshooting
 
@@ -216,9 +225,10 @@ kubectl set image deployment/bhukkad-app \
 - Review Trivy scan results for vulnerabilities
 
 ### Staging deployment fails
-- Check kubeconfig secret
-- Check Kubernetes cluster availability
-- Review pod events: `kubectl describe pod -n bhukkad`
+- Verify `STAGING_SSH_KEY` matches the EC2 key pair
+- Confirm security group allows SSH from GitHub Actions runners
+- On EC2: `docker login ghcr.io` (package read access required)
+- Check container logs: `docker logs bhukkad-app`
 
 ### Production deployment fails
 - Check production environment approval
