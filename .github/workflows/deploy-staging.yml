@@ -11,7 +11,7 @@ permissions:
   actions: read
 
 env:
-  STAGING_SSH_HOST_DEFAULT: ec2-3-109-121-149.ap-south-1.compute.amazonaws.com
+  STAGING_SSH_HOST_DEFAULT: ec2-13-204-80-247.ap-south-1.compute.amazonaws.com
   APP_PORT: "8080"
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080
+      url: http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080
 
     if: |
       github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' ||
