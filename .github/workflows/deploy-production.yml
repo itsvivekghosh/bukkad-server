@@ -72,7 +72,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
     environment:
       name: production
-      url: https://${{ secrets.PROD_DOMAIN || vars.PROD_DOMAIN || 'production.bhukkad.com' }}
+      url: ${{ secrets.PROD_DOMAIN && format('https://{0}', secrets.PROD_DOMAIN) || 'https://production.bhukkad.com' }}
 
     steps:
       - name: Checkout repository
@@ -204,4 +204,4 @@ jobs:
           echo "✅ Production deployment successful"
           echo "Image: ghcr.io/itsvivekghosh/bukkad-server:${{ needs.get-image-tag.outputs.tag }}"
           echo "Host: ${{ steps.ssh.outputs.host }}"
-          echo "URL: https://${{ secrets.PROD_DOMAIN || vars.PROD_DOMAIN || 'production.bhukkad.com' }}"
+          echo "URL: ${{ secrets.PROD_DOMAIN && format('https://{0}', secrets.PROD_DOMAIN) || 'https://production.bhukkad.com' }}"
