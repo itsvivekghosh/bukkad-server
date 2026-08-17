@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy to Staging
+    name: "🎯 Staging Deployment"
     runs-on: ubuntu-latest
     environment:
       name: staging
@@ -33,11 +33,16 @@ jobs:
       CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
 
     steps:
-      - uses: actions/checkout@v5
+      # ─────────────────────────────────────────────────────────────
+      # 📋 PHASE 1 — Checkout & configuration
+      # ─────────────────────────────────────────────────────────────
+
+      - name: "📦 Checkout repository"
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Set deployment defaults
+      - name: "⚙️ Set deployment defaults"
         run: |
           {
             echo "APP_PORT=${APP_PORT:-8080}"
@@ -47,24 +52,30 @@ jobs:
             echo "GHCR_USERNAME=${GHCR_USERNAME:-itsvivekghosh}"
           } >> "$GITHUB_ENV"
 
-      - name: Deployment overview
+      - name: "📊 Deployment overview"
         run: |
           source .github/scripts/deploy-log.sh
-          deploy_banner "Staging" "${{ github.sha }}" "pending" "${{ vars.STAGING_EC2_HOST }}"
-          log_section "Configuration check"
+          deploy_pipeline_diagram "Staging"
+          deploy_banner "Staging 🧪" "${{ github.sha }}" "pending" "${{ vars.STAGING_EC2_HOST }}"
+          log_section "🔧 Configuration check"
           check_optional_var "STAGING_EC2_HOST" "${{ vars.STAGING_EC2_HOST }}" "(required)"
           check_optional_var "GHCR_IMAGE" "${GHCR_IMAGE}" "ghcr.io/itsvivekghosh/bukkad-server"
           check_optional_var "APP_PORT" "${APP_PORT}" "8080"
           log_section_end
 
-      - name: Prepare deployment script
+      - name: "📜 Prepare deployment script"
         run: |
           chmod +x .github/scripts/ec2.sh
           mkdir -p ./deploy
           cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
           chmod +x ./deploy/docker-deploy.sh
+          echo "✅ docker-deploy.sh ready ($(wc -l < ./deploy/docker-deploy.sh) lines)"
 
-      - name: Resolve SSH target
+      # ─────────────────────────────────────────────────────────────
+      # 🔐 PHASE 2 — SSH connectivity
+      # ─────────────────────────────────────────────────────────────
+
+      - name: "🎯 Resolve SSH target"
         id: ssh
         run: |
           source .github/scripts/deploy-log.sh
@@ -80,20 +91,26 @@ jobs:
           echo "user=${USER}" >> "$GITHUB_OUTPUT"
           log_ok "SSH target resolved: ${USER}@${HOST}"
 
-      - name: Setup SSH
+      - name: "🔑 Setup SSH"
         run: |
+          echo "🔐 Configuring SSH key and known_hosts..."
           mkdir -p ~/.ssh
           echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "✅ SSH setup complete"
 
-      - name: Verify SSH authentication
+      - name: "🔍 Verify SSH authentication"
         run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
 
-      - name: Pre-flight SSH port
+      - name: "🛡️ Pre-flight SSH port"
         run: bash .github/scripts/ec2.sh preflight-port "${{ steps.ssh.outputs.host }}" 22 15
 
-      - name: Determine image tag
+      # ─────────────────────────────────────────────────────────────
+      # 🏷️ PHASE 3 — Image tag & secrets
+      # ─────────────────────────────────────────────────────────────
+
+      - name: "🏷️ Determine image tag"
         id: image
         run: |
           source .github/scripts/deploy-log.sh
@@ -113,10 +130,10 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           log_ok "Deploying image: ${GHCR_IMAGE}:${TAG}"
 
-      - name: Validate secrets
+      - name: "🔒 Validate secrets"
         run: |
           source .github/scripts/deploy-log.sh
-          log_section "Validate required secrets"
+          log_section "🔒 Validate required secrets"
           check_required_secret "GHCR_READ_TOKEN" "${{ secrets.GHCR_READ_TOKEN }}"
           check_required_secret "STAGING_DB_HOST" "${{ secrets.STAGING_DB_HOST }}"
           check_required_secret "STAGING_DB_NAME" "${{ secrets.STAGING_DB_NAME }}"
@@ -125,7 +142,11 @@ jobs:
           check_required_secret "STAGING_JWT_SECRET" "${{ secrets.STAGING_JWT_SECRET }}"
           log_section_end
 
-      - name: Deploy to staging VM
+      # ─────────────────────────────────────────────────────────────
+      # 🚀 PHASE 4 — Deploy to EC2
+      # ─────────────────────────────────────────────────────────────
+
+      - name: "🚀 Deploy to staging VM"
         run: |
           set -euo pipefail
           source .github/scripts/deploy-log.sh
@@ -138,7 +159,7 @@ jobs:
           FLYWAY_REPAIR="${FLYWAY_REPAIR:-false}"
 
           if [ "${FLYWAY_REPAIR}" = "true" ]; then
-            log_section "Flyway repair (pre-deploy)"
+            log_section "🗄️ Flyway repair (pre-deploy)"
             printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" > /tmp/flyway-env.txt
             printf 'DB_PORT=%s\n' "${DB_PORT}" >> /tmp/flyway-env.txt
             printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/flyway-env.txt
@@ -189,18 +210,48 @@ jobs:
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
             ~/.ssh/id_ed25519 ./deploy/docker-deploy.sh /tmp/deploy-env.txt
 
-      - name: Wait for healthy app
+      # ─────────────────────────────────────────────────────────────
+      # 🏥 PHASE 5 — Health check & smoke test
+      # ─────────────────────────────────────────────────────────────
+
+      - name: "🏥 Wait for healthy app"
         run: |
           bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
             ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
             "http://localhost:${APP_PORT}${HEALTH_PATH}"
 
-      - name: Deployment Summary
+      - name: "🧪 Staging smoke test (external)"
+        continue-on-error: true
+        run: |
+          source .github/scripts/deploy-log.sh
+          log_section "🧪 External smoke test"
+          URL="http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"
+          log_info "Testing ${URL}"
+          if curl -sf "${URL}" -m 10 -o /dev/null; then
+            log_ok "External health check passed"
+          else
+            log_warn "External check failed (SG/DNS) — internal health already passed"
+          fi
+          log_section_end
+
+      # ─────────────────────────────────────────────────────────────
+      # 📊 PHASE 6 — Summary
+      # ─────────────────────────────────────────────────────────────
+
+      - name: "🎉 Deployment success summary"
         if: success()
         run: |
           source .github/scripts/deploy-log.sh
-          deploy_summary "Staging" \
+          deploy_summary "Staging 🧪" \
             "${{ steps.ssh.outputs.host }}" \
             "${GHCR_IMAGE}:${{ steps.image.outputs.tag }}" \
             "http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"
+
+      - name: "💥 Deployment failure summary"
+        if: failure()
+        run: |
+          source .github/scripts/deploy-log.sh
+          deploy_failure_summary "Staging 🧪" \
+            "${{ steps.ssh.outputs.host }}" \
+            "${GHCR_IMAGE}:${{ steps.image.outputs.tag }}"
