@@ -83,19 +83,18 @@ jobs:
         id: image
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq jq
-          TAG=""
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            TAG="${{ github.event.workflow_run.head_sha }}"
+          # Docker Image workflow tags images with the built SHA (STAGING_IMAGE_SHA)
+          # and always pushes the floating :deploy tag. Do NOT use workflow_run.head_sha
+          # here — it is the Docker workflow commit, not the image tag that was pushed.
+          VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
+            | jq -r '.value // empty')
+          if [ -n "${VAR_TAG}" ] && [ "${#VAR_TAG}" -ge 40 ]; then
+            TAG="${VAR_TAG}"
+            echo "Using STAGING_IMAGE_SHA: ${TAG}"
           else
-            VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
-              | jq -r '.value // empty')
-            if [ -n "${VAR_TAG}" ] && [ "${#VAR_TAG}" -ge 40 ]; then
-              TAG="${VAR_TAG}"
-            else
-              echo "STAGING_IMAGE_SHA missing or invalid; using floating deploy tag"
-              TAG="deploy"
-            fi
+            TAG="deploy"
+            echo "STAGING_IMAGE_SHA missing or invalid; using floating deploy tag"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Image tag: ${TAG}"
