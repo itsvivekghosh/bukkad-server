@@ -16,6 +16,8 @@ echo "Deploying ${APP_IMAGE} as ${CONTAINER_NAME}..."
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-3306}"
 DB_NAME="${DB_NAME:-bhukkad}"
+JDBC_PARAMS="createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+DB_URL="${DB_URL:-jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?${JDBC_PARAMS}}"
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_LOCAL="${REDIS_LOCAL:-false}"
@@ -93,6 +95,7 @@ docker run -d \
   -e DB_HOST="${DB_HOST}" \
   -e DB_PORT="${DB_PORT}" \
   -e DB_NAME="${DB_NAME}" \
+  -e DB_URL="${DB_URL}" \
   -e DB_USERNAME="${DB_USERNAME:-}" \
   -e DB_PASSWORD="${DB_PASSWORD:-}" \
   -e REDIS_HOST="${REDIS_HOST}" \
