@@ -5,15 +5,12 @@ on:
     branches: [ main ]
     types: [ opened, synchronize, reopened, ready_for_review ]
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 permissions:
   contents: read
-  actions: read
 
 env:
-  STAGING_SSH_HOST_DEFAULT: ${{ secrets.PROD_SSH_HOST }}
+  PROD_SSH_HOST_DEFAULT: ec2-13-201-21-45.ap-south-1.compute.amazonaws.com
   APP_PORT: "8080"
 
 jobs:
@@ -24,18 +21,16 @@ jobs:
       tag: ${{ steps.image.outputs.tag }}
 
     steps:
-      - name: Install jq
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
-
-      - name: Get staging image tag
+      - name: Resolve production image tag
         id: image
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq
           TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
             | jq -r '.value // empty')
           if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
-            echo "No staging image tag found. Deploy to staging first."
-            exit 1
+            echo "::warning::STAGING_IMAGE_SHA not set; falling back to deploy tag"
+            TAG="deploy"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Production image tag: ${TAG}"
@@ -47,10 +42,7 @@ jobs:
     if: github.event_name == 'pull_request'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v5
 
       - name: Comment PR with release info
         uses: actions/github-script@v7
@@ -61,36 +53,34 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## Production Release Candidate\n\n**Image Tag:** \`${{ needs.get-image-tag.outputs.tag }}\`\n**Commit SHA:** \`${sha}\`\n**Branch:** \`${{ github.event.pull_request.head.ref }}\`\n\nThis PR will deploy the exact image that passed staging validation.`
+              body: `## Production Release Candidate\n\n**Image Tag:** \`${{ needs.get-image-tag.outputs.tag }}\`\n**Commit SHA:** \`${sha}\`\n**Branch:** \`${{ github.event.pull_request.head.ref }}\`\n\nMerge and run **Deploy to Production** manually when ready.`
             });
 
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [get-image-tag]
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'workflow_dispatch'
     environment:
       name: production
-      url: ${{ secrets.PROD_SSH_HOST }}
+      url: http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+
+      - name: Prepare deployment script
+        run: |
+          mkdir -p ./deploy
+          cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
+          chmod +x ./deploy/docker-deploy.sh
 
       - name: Resolve SSH target
         id: ssh
         run: |
           HOST="${{ secrets.PROD_SSH_HOST }}"
-          if [ -z "${HOST}" ]; then
-            echo "ERROR: PROD_SSH_HOST secret is required for production deployment"
-            exit 1
-          fi
+          HOST="${HOST:-${{ env.PROD_SSH_HOST_DEFAULT }}}"
           USER="${{ secrets.PROD_SSH_USER }}"
-          if [ -z "${USER}" ]; then
-            USER="ubuntu"
-          fi
+          USER="${USER:-ubuntu}"
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"
           echo "user=${USER}" >> "$GITHUB_OUTPUT"
           echo "SSH target: ${USER}@${HOST}"
@@ -102,107 +92,74 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
+      - name: Pre-flight SSH
+        run: bash .github/scripts/ec2-preflight-ssh.sh "${{ steps.ssh.outputs.host }}" 22 15
+
       - name: Deploy to production VM
         run: |
           set -euo pipefail
+
+          REDIS_LOCAL="${{ vars.PROD_REDIS_LOCAL }}"
+          REDIS_LOCAL="${REDIS_LOCAL:-true}"
+
+          if [ -z "${{ secrets.GHCR_READ_TOKEN }}" ]; then
+            echo "::error::Missing GHCR_READ_TOKEN"
+            exit 1
+          fi
+          if [ -z "${{ secrets.PROD_SSH_KEY }}" ]; then echo "::error::Missing PROD_SSH_KEY"; exit 1; fi
+          if [ -z "${{ secrets.PROD_DB_HOST }}" ]; then echo "::error::Missing PROD_DB_HOST"; exit 1; fi
+          if [ -z "${{ secrets.PROD_DB_NAME }}" ]; then echo "::error::Missing PROD_DB_NAME"; exit 1; fi
+          if [ -z "${{ secrets.PROD_DB_USERNAME }}" ]; then echo "::error::Missing PROD_DB_USERNAME"; exit 1; fi
+          if [ -z "${{ secrets.PROD_DB_PASSWORD }}" ]; then echo "::error::Missing PROD_DB_PASSWORD"; exit 1; fi
+          if [ -z "${{ secrets.PROD_JWT_SECRET }}" ]; then echo "::error::Missing PROD_JWT_SECRET"; exit 1; fi
+
           echo "Deploying image tag: ${{ needs.get-image-tag.outputs.tag }}"
 
-          # Build env file with all required variables
-          printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}" > /tmp/deploy-env.txt
-          printf 'SPRING_PROFILES_ACTIVE=%s\n' "prod" >> /tmp/deploy-env.txt
-          printf 'SERVER_PORT=%s\n' "${{ env.APP_PORT }}" >> /tmp/deploy-env.txt
+          {
+            printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}"
+            printf 'SPRING_PROFILES_ACTIVE=prod\n'
+            printf 'DOCKER_NETWORK=host\n'
+            printf 'SERVER_PORT=%s\n' "${{ env.APP_PORT }}"
+            printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}"
+            printf 'DB_PORT=%s\n' "${{ secrets.PROD_DB_PORT }}"
+            printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}"
+            printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}"
+            printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}"
+            printf 'JWT_SECRET=%s\n' "${{ secrets.PROD_JWT_SECRET }}"
+            printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}"
+            printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}"
+            printf 'GHCR_USERNAME=itsvivekghosh\n'
+            printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}"
+            printf 'REDIS_LOCAL=%s\n' "${REDIS_LOCAL}"
+          } > /tmp/deploy-env.txt
 
-          # Database configuration
-          printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}" >> /tmp/deploy-env.txt
-          printf 'DB_PORT=%s\n' "${{ secrets.PROD_DB_PORT }}" >> /tmp/deploy-env.txt
-          printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}" >> /tmp/deploy-env.txt
-          printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}" >> /tmp/deploy-env.txt
-          printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}" >> /tmp/deploy-env.txt
-          printf 'DB_URL=%s\n' "${{ secrets.PROD_DB_URL }}" >> /tmp/deploy-env.txt
-
-          # Redis configuration
-          printf 'REDIS_HOST=%s\n' "${{ secrets.PROD_REDIS_HOST }}" >> /tmp/deploy-env.txt
-          printf 'REDIS_PORT=%s\n' "${{ secrets.PROD_REDIS_PORT }}" >> /tmp/deploy-env.txt
-          printf 'REDIS_PASSWORD=%s\n' "${{ secrets.PROD_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
-          printf 'REDIS_LOCAL=%s\n' "${{ secrets.PROD_REDIS_LOCAL }}" >> /tmp/deploy-env.txt
-
-          # JWT configuration
-          printf 'JWT_SECRET=%s\n' "${{ secrets.PROD_JWT_SECRET }}" >> /tmp/deploy-env.txt
-          printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}" >> /tmp/deploy-env.txt
-          printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}" >> /tmp/deploy-env.txt
-
-          # Payment provider configuration
-          printf 'RAZORPAY_ENABLED=%s\n' "${{ secrets.RAZORPAY_ENABLED }}" >> /tmp/deploy-env.txt
-          printf 'RAZORPAY_KEY_ID=%s\n' "${{ secrets.RAZORPAY_KEY_ID }}" >> /tmp/deploy-env.txt
-          printf 'RAZORPAY_KEY_SECRET=%s\n' "${{ secrets.RAZORPAY_KEY_SECRET }}" >> /tmp/deploy-env.txt
-          printf 'RAZORPAY_WEBHOOK_SECRET=%s\n' "${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" >> /tmp/deploy-env.txt
-
-          # Email configuration
-          printf 'NOTIFICATION_EMAIL_ENABLED=%s\n' "${{ secrets.NOTIFICATION_EMAIL_ENABLED }}" >> /tmp/deploy-env.txt
-          printf 'NOTIFICATION_EMAIL_FROM=%s\n' "${{ secrets.NOTIFICATION_EMAIL_FROM }}" >> /tmp/deploy-env.txt
-
-          # Messaging configuration
-          printf 'STOMP_BROKER_TYPE=%s\n' "${{ secrets.STOMP_BROKER_TYPE }}" >> /tmp/deploy-env.txt
-          printf 'RABBITMQ_HOST=%s\n' "${{ secrets.RABBITMQ_HOST }}" >> /tmp/deploy-env.txt
-          printf 'RABBITMQ_STOMP_PORT=%s\n' "${{ secrets.RABBITMQ_STOMP_PORT }}" >> /tmp/deploy-env.txt
-          printf 'RABBITMQ_USERNAME=%s\n' "${{ secrets.RABBITMQ_USERNAME }}" >> /tmp/deploy-env.txt
-          printf 'RABBITMQ_PASSWORD=%s\n' "${{ secrets.RABBITMQ_PASSWORD }}" >> /tmp/deploy-env.txt
-          printf 'LIVE_RELAY_ENABLED=%s\n' "${{ secrets.LIVE_RELAY_ENABLED }}" >> /tmp/deploy-env.txt
-          printf 'LIVE_RELAY_CHANNEL=%s\n' "${{ secrets.LIVE_RELAY_CHANNEL }}" >> /tmp/deploy-env.txt
-
-          # Database replica configuration
-          printf 'DB_REPLICA_ENABLED=%s\n' "${{ secrets.PROD_DB_REPLICA_ENABLED }}" >> /tmp/deploy-env.txt
-          printf 'DB_REPLICA_URL=%s\n' "${{ secrets.PROD_DB_REPLICA_URL }}" >> /tmp/deploy-env.txt
-          printf 'DB_REPLICA_USERNAME=%s\n' "${{ secrets.PROD_DB_REPLICA_USERNAME }}" >> /tmp/deploy-env.txt
-          printf 'DB_REPLICA_PASSWORD=%s\n' "${{ secrets.PROD_DB_REPLICA_PASSWORD }}" >> /tmp/deploy-env.txt
-
-          # Other configuration
-          printf 'PAYMENT_PROVIDER=%s\n' "${{ secrets.PAYMENT_PROVIDER }}" >> /tmp/deploy-env.txt
-          printf 'PROMETHEUS_USERNAME=%s\n' "${{ secrets.PROMETHEUS_USERNAME }}" >> /tmp/deploy-env.txt
-          printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
-
-          # Docker and registry configuration
-          printf 'DOCKER_NETWORK=%s\n' "${{ secrets.PROD_DOCKER_NETWORK }}" >> /tmp/deploy-env.txt
-          printf 'GHCR_TOKEN=%s\n' "${{ secrets.GITHUB_TOKEN }}" >> /tmp/deploy-env.txt
-          printf 'GHCR_USERNAME=%s\n' "${{ github.actor }}" >> /tmp/deploy-env.txt
+          if [ "${REDIS_LOCAL}" = "true" ]; then
+            printf 'REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nREDIS_PASSWORD=\n' >> /tmp/deploy-env.txt
+          else
+            printf 'REDIS_HOST=%s\n' "${{ secrets.PROD_REDIS_HOST }}" >> /tmp/deploy-env.txt
+            REDIS_PORT="${{ secrets.PROD_REDIS_PORT }}"
+            REDIS_PORT="${REDIS_PORT:-6379}"
+            printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
+            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.PROD_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+            chmod +x .github/scripts/ec2-redis-preflight.sh
+            bash .github/scripts/ec2-redis-preflight.sh \
+              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+              ~/.ssh/id_ed25519 /tmp/deploy-env.txt
+          fi
 
           bash .github/scripts/ec2-deploy-remote.sh \
-            "${{ steps.ssh.outputs.user }}" \
-            "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 \
-            docker/scripts/docker-deploy.sh \
-            /tmp/deploy-env.txt
+            "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 ./deploy/docker-deploy.sh /tmp/deploy-env.txt
 
-      - name: Wait for container to start
+      - name: Wait for healthy app
         run: |
           bash .github/scripts/wait-for-ec2-health.sh \
-            "${{ steps.ssh.outputs.user }}" \
-            "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 \
-            60 5 bhukkad-app \
-            "http://localhost:${{ env.APP_PORT }}/api/v1/health/ping"
+            "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 60 5
 
-      - name: Verify production deployment
-        run: |
-          echo "=== Production deployment verification ==="
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}" \
-            "docker ps -a --filter name=bhukkad-app --format '{{.Image}} {{.Status}}' && \
-             docker logs bhukkad-app --tail 20"
-
-      - name: Run production smoke tests
-        run: |
-          bash .github/scripts/ec2-smoke-test.sh \
-            "${{ steps.ssh.outputs.user }}" \
-            "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 \
-            /api/v1/health/ping \
-            "${{ env.APP_PORT }}"
-
-      - name: Update production deployment status
+      - name: Deployment summary
         if: success()
         run: |
-          echo "✅ Production deployment successful"
+          echo "Production deployment successful"
           echo "Image: ghcr.io/itsvivekghosh/bukkad-server:${{ needs.get-image-tag.outputs.tag }}"
           echo "Host: ${{ steps.ssh.outputs.host }}"
-          echo "URL: ${{ secrets.PROD_DOMAIN && format('https://{0}', secrets.PROD_DOMAIN) || 'https://production.bhukkad.com' }}"

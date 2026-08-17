@@ -67,13 +67,46 @@ grep -q 'ec2-13-201-21-45.ap-south-1.compute.amazonaws.com' .github/workflows/de
   || bad "production EC2 host default missing"
 
 echo ""
+echo "=== Workflow expression safety ==="
+for wf in .github/workflows/deploy-staging.yml .github/workflows/deploy-production.yml; do
+  if grep -E '^env:' -A5 "$wf" | grep -q 'secrets\.'; then
+    bad "secrets used in workflow-level env in ${wf}"
+  else
+    ok "no secrets in workflow-level env (${wf})"
+  fi
+  if grep -A3 'environment:' "$wf" | grep -q 'secrets\.'; then
+    bad "secrets used in environment url in ${wf}"
+  else
+    ok "no secrets in environment url (${wf})"
+  fi
+  if grep -q '^name: Deploy to Production' "$wf" 2>/dev/null || [ "$wf" != ".github/workflows/deploy-production.yml" ]; then
+    :
+  fi
+done
+grep -q '^name: Deploy to Production' .github/workflows/deploy-production.yml \
+  && ok "production workflow name is Deploy to Production" \
+  || bad "production workflow name incorrect"
+grep -q '^name: Deploy to Staging' .github/workflows/deploy-staging.yml \
+  && ok "staging workflow name is Deploy to Staging" \
+  || bad "staging workflow name incorrect"
+
+echo ""
 echo "=== Required workflow fixes ==="
 grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/deploy-staging.yml \
   && ok "staging copies deploy script from repo" \
   || bad "staging deploy script copy missing"
+grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/deploy-production.yml \
+  && ok "production copies deploy script from repo" \
+  || bad "production deploy script copy missing"
 grep -q 'branches: \[ main, deploy \]' .github/workflows/docker.yml \
   && ok "docker workflow triggers on main and deploy" \
   || bad "docker workflow trigger branches missing"
+grep -q 'PROD_SSH_HOST_DEFAULT' .github/workflows/deploy-production.yml \
+  && ok "production SSH host default env present" \
+  || bad "production SSH host default env missing"
+grep -q 'GHCR_READ_TOKEN' .github/workflows/deploy-production.yml \
+  && ok "production uses GHCR_READ_TOKEN" \
+  || bad "production missing GHCR_READ_TOKEN"
 
 echo ""
 echo "=== EC2 reachability (SSH port 22) ==="
