@@ -210,7 +210,7 @@ EOF
 }
 
 CMD="${1:-}"
-shift || usage()
+shift || usage
 
 case "$CMD" in
   preflight-port)   cmd_preflight_port "$@" ;;
