@@ -113,6 +113,10 @@ management:
       probes:
         enabled: true
 
+  health:
+    mail:
+      enabled: false
+
   info:
     env:
       enabled: true

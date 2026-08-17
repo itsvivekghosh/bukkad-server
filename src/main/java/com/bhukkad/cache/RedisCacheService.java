@@ -31,10 +31,11 @@ public class RedisCacheService {
     private final DistributedCacheInvalidator distributedInvalidator;
 
     public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
+                             ObjectMapper objectMapper,
                              LocalCacheService localCacheService,
                              DistributedCacheInvalidator distributedInvalidator) {
         this.redisTemplate = redisTemplate;
-        this.objectMapper = new ObjectMapper();
+        this.objectMapper = objectMapper;
         this.localCacheService = localCacheService;
         this.distributedInvalidator = distributedInvalidator;
     }

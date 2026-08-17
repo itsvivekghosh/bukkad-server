@@ -12,6 +12,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import com.bhukkad.cache.invalidation.DistributedCacheInvalidator;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -38,7 +40,7 @@ class RedisCacheServiceTest {
     @Mock
     private LocalCacheService localCacheService;
     @Mock
-    private DistributedCacheInvalidator distributedCacheInvalidator;
+    private DistributedCacheInvalidator invalidator;
 
     private RedisCacheService service;
 
@@ -47,7 +49,8 @@ class RedisCacheServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
         when(localCacheService.isEnabled()).thenReturn(false);
-        service = new RedisCacheService(redisTemplate, localCacheService, distributedCacheInvalidator);
+        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        service = new RedisCacheService(redisTemplate, objectMapper, localCacheService, invalidator);
     }
 
     @Test
