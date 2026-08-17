@@ -51,6 +51,14 @@ app:
   monitoring:
     prometheus:
       require-auth: true
+  notification:
+    enabled: true
+    email:
+      enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
+      from: ${NOTIFICATION_EMAIL_FROM:noreply@bhukkad.com}
+  gift-card:
+    notification-email-enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
+    sender-email: ${NOTIFICATION_EMAIL_FROM:noreply@bhukkad.com}
 
 management:
   endpoints:

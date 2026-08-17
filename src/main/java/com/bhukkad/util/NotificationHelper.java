@@ -2,6 +2,7 @@ package com.bhukkad.util;
 
 import com.bhukkad.config.GiftCardProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -17,15 +18,16 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class NotificationHelper {
 
     private final RestTemplate restTemplate;
-    private final JavaMailSender mailSender;
     private final GiftCardProperties giftCardProperties;
+
+    @Autowired(required = false)
+    private JavaMailSender mailSender;
 
     @Value("${app.notification.webhook.timeout-ms:5000}")
     private int webhookTimeout;
 
-    public NotificationHelper(RestTemplate restTemplate, JavaMailSender mailSender, GiftCardProperties giftCardProperties) {
+    public NotificationHelper(RestTemplate restTemplate, GiftCardProperties giftCardProperties) {
         this.restTemplate = restTemplate;
-        this.mailSender = mailSender;
         this.giftCardProperties = giftCardProperties;
     }
 
