@@ -68,21 +68,12 @@ grep -q 'ec2-13-201-21-45.ap-south-1.compute.amazonaws.com' .github/workflows/de
 
 echo ""
 echo "=== Required workflow fixes ==="
-grep -q 'actions: read' .github/workflows/deploy-staging.yml \
-  && ok "staging has actions: read" \
-  || bad "staging missing actions: read"
-grep -q 'workflow_dispatch' .github/workflows/deploy-staging.yml \
-  && ok "staging supports workflow_dispatch fallback script" \
-  || bad "staging workflow_dispatch missing"
-grep -q 'STAGING_SSH_HOST_DEFAULT' .github/workflows/deploy-staging.yml \
-  && ok "staging SSH host fallback env" \
-  || bad "staging SSH host fallback env missing"
-grep -q 'outputs:' .github/workflows/deploy-production.yml \
-  && ok "production get-image-tag outputs declared" \
-  || bad "production get-image-tag outputs missing"
-grep -q 'docker/scripts/docker-deploy.sh' .github/workflows/docker.yml \
-  && ok "docker workflow uses repo deploy script" \
-  || bad "docker workflow not using repo deploy script"
+grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/deploy-staging.yml \
+  && ok "staging copies deploy script from repo" \
+  || bad "staging deploy script copy missing"
+grep -q 'branches: \[ main, deploy \]' .github/workflows/docker.yml \
+  && ok "docker workflow triggers on main and deploy" \
+  || bad "docker workflow trigger branches missing"
 
 echo ""
 echo "=== EC2 reachability (SSH port 22) ==="

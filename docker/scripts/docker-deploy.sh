@@ -21,19 +21,35 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_LOCAL="${REDIS_LOCAL:-false}"
 REDIS_CONTAINER_NAME="bhukkad-redis"
 
-if [ "${REDIS_LOCAL}" = "true" ]; then
-  echo "Starting local Redis container (${REDIS_CONTAINER_NAME}) on 127.0.0.1:6379..."
-  docker rm -f "${REDIS_CONTAINER_NAME}" 2>/dev/null || true
+ensure_local_redis() {
+  local name="$1"
+  if timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/6379" 2>/dev/null; then
+    echo "Redis already listening on 127.0.0.1:6379"
+    return 0
+  fi
+  if docker ps --format '{{.Names}}' | grep -qx "${name}"; then
+    echo "Redis container ${name} is already running"
+    return 0
+  fi
+  if docker ps -a --format '{{.Names}}' | grep -qx "${name}"; then
+    echo "Starting existing Redis container ${name}..."
+    if docker start "${name}" >/dev/null 2>&1; then
+      sleep 1
+      return 0
+    fi
+    docker rm -f "${name}" 2>/dev/null || true
+  fi
+  echo "Creating Redis container ${name} on 127.0.0.1:6379..."
   docker pull redis:7-alpine
-  docker run -d \
-    --name "${REDIS_CONTAINER_NAME}" \
-    --restart unless-stopped \
-    -p 127.0.0.1:6379:6379 \
-    redis:7-alpine
+  docker run -d --name "${name}" --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine
+  sleep 1
+}
+
+if [ "${REDIS_LOCAL}" = "true" ]; then
+  ensure_local_redis "${REDIS_CONTAINER_NAME}"
   REDIS_HOST="127.0.0.1"
   REDIS_PORT="6379"
   REDIS_PASSWORD=""
-  sleep 2
 fi
 
 echo "Checking Redis from EC2 host (${REDIS_HOST}:${REDIS_PORT})..."
