@@ -1,5 +1,6 @@
 -- V25: Create dynamic_pricing_rules table for DynamicPricingRule entity
-CREATE TABLE dynamic_pricing_rules (
+-- IF NOT EXISTS: safe when V24 previously shipped duplicate DDL (staging repair + re-apply)
+CREATE TABLE IF NOT EXISTS dynamic_pricing_rules (
     id BIGINT NOT NULL AUTO_INCREMENT,
     restaurant_id BIGINT NOT NULL,
     name VARCHAR(100) NOT NULL,

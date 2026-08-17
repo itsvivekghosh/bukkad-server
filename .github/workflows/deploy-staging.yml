@@ -134,6 +134,22 @@ jobs:
           if [ "$missing" -ne 0 ]; then exit 1; fi
           echo "Required staging secrets are configured"
 
+      - name: Repair Flyway schema history (staging)
+        run: |
+          set -euo pipefail
+          chmod +x .github/scripts/flyway-repair-staging.sh
+          DB_URL="${{ secrets.STAGING_DB_URL }}"
+          if [ -z "${DB_URL}" ]; then
+            DB_PORT="${{ secrets.STAGING_DB_PORT }}"
+            DB_PORT="${DB_PORT:-3306}"
+            DB_URL="jdbc:mysql://${{ secrets.STAGING_DB_HOST }}:${DB_PORT}/${{ secrets.STAGING_DB_NAME }}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+          fi
+          bash .github/scripts/flyway-repair-staging.sh \
+            "${DB_URL}" \
+            "${{ secrets.STAGING_DB_USERNAME }}" \
+            "${{ secrets.STAGING_DB_PASSWORD }}" \
+            "${PWD}/src/main/resources/db/migration"
+
       - name: Deploy to staging VM
         run: |
           set -euo pipefail
