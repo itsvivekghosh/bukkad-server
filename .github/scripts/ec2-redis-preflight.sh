@@ -28,6 +28,12 @@ rm -f /tmp/redis-preflight-env.txt
 
 REDIS_HOST="${REDIS_HOST:-}"
 REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_LOCAL="${REDIS_LOCAL:-false}"
+
+if [ "${REDIS_LOCAL}" = "true" ]; then
+  echo "REDIS_LOCAL=true — deploy will start Redis on this host; skipping external preflight"
+  exit 0
+fi
 
 if [ -z "${REDIS_HOST}" ]; then
   echo "::error::REDIS_HOST is empty — set STAGING_REDIS_HOST in GitHub secrets"
@@ -57,6 +63,10 @@ if ! getent hosts "${REDIS_HOST}" >/dev/null 2>&1; then
   exit 1
 fi
 getent hosts "${REDIS_HOST}"
+
+if [[ "${REDIS_HOST}" == ec2-* ]] || getent hosts "${REDIS_HOST}" | grep -q '\.compute\.amazonaws\.com'; then
+  echo "::warning::REDIS_HOST resolves to an EC2 instance, not ElastiCache. Set STAGING_REDIS_LOCAL=true (default) or use a *.cache.amazonaws.com endpoint"
+fi
 
 echo "Testing TCP ${REDIS_HOST}:${REDIS_PORT}..."
 if ! timeout 10 bash -c "echo >/dev/tcp/${REDIS_HOST}/${REDIS_PORT}" 2>/dev/null; then

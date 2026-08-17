@@ -18,9 +18,22 @@ DB_PORT="${DB_PORT:-3306}"
 DB_NAME="${DB_NAME:-bhukkad}"
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_LOCAL="${REDIS_LOCAL:-false}"
+REDIS_CONTAINER_NAME="bhukkad-redis"
 
-if [ "${SPRING_PROFILES_ACTIVE:-}" = "staging" ] && [ "${REDIS_HOST}" = "localhost" ]; then
-  echo "WARNING: REDIS_HOST is localhost on staging — set STAGING_REDIS_HOST to your ElastiCache endpoint"
+if [ "${REDIS_LOCAL}" = "true" ]; then
+  echo "Starting local Redis container (${REDIS_CONTAINER_NAME}) on 127.0.0.1:6379..."
+  docker rm -f "${REDIS_CONTAINER_NAME}" 2>/dev/null || true
+  docker pull redis:7-alpine
+  docker run -d \
+    --name "${REDIS_CONTAINER_NAME}" \
+    --restart unless-stopped \
+    -p 127.0.0.1:6379:6379 \
+    redis:7-alpine
+  REDIS_HOST="127.0.0.1"
+  REDIS_PORT="6379"
+  REDIS_PASSWORD=""
+  sleep 2
 fi
 
 echo "Checking Redis from EC2 host (${REDIS_HOST}:${REDIS_PORT})..."

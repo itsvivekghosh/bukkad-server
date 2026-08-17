@@ -125,14 +125,19 @@ jobs:
       - name: Verify required staging secrets
         run: |
           missing=0
+          REDIS_LOCAL="${{ vars.STAGING_REDIS_LOCAL }}"
+          REDIS_LOCAL="${REDIS_LOCAL:-true}"
           if [ -z "${{ secrets.STAGING_DB_HOST }}" ]; then echo "::error::Missing secret STAGING_DB_HOST"; missing=1; fi
           if [ -z "${{ secrets.STAGING_DB_NAME }}" ]; then echo "::error::Missing secret STAGING_DB_NAME"; missing=1; fi
           if [ -z "${{ secrets.STAGING_DB_USERNAME }}" ]; then echo "::error::Missing secret STAGING_DB_USERNAME"; missing=1; fi
           if [ -z "${{ secrets.STAGING_DB_PASSWORD }}" ]; then echo "::error::Missing secret STAGING_DB_PASSWORD"; missing=1; fi
           if [ -z "${{ secrets.STAGING_JWT_SECRET }}" ]; then echo "::error::Missing secret STAGING_JWT_SECRET"; missing=1; fi
-          if [ -z "${{ secrets.STAGING_REDIS_HOST }}" ]; then echo "::error::Missing secret STAGING_REDIS_HOST"; missing=1; fi
+          if [ "${REDIS_LOCAL}" != "true" ] && [ -z "${{ secrets.STAGING_REDIS_HOST }}" ]; then
+            echo "::error::Missing secret STAGING_REDIS_HOST (or set repo variable STAGING_REDIS_LOCAL=true)"
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then exit 1; fi
-          echo "Required staging secrets are configured"
+          echo "Required staging secrets are configured (REDIS_LOCAL=${REDIS_LOCAL})"
 
       - name: Repair Flyway schema history (staging)
         run: |
@@ -164,11 +169,21 @@ jobs:
           printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/deploy-env.txt
           printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/deploy-env.txt
           printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/deploy-env.txt
-          printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
-          REDIS_PORT="${{ secrets.STAGING_REDIS_PORT }}"
-          REDIS_PORT="${REDIS_PORT:-6379}"
-          printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
-          printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+          REDIS_LOCAL="${{ vars.STAGING_REDIS_LOCAL }}"
+          REDIS_LOCAL="${REDIS_LOCAL:-true}"
+          printf 'REDIS_LOCAL=%s\n' "${REDIS_LOCAL}" >> /tmp/deploy-env.txt
+          if [ "${REDIS_LOCAL}" = "true" ]; then
+            echo "Using local Redis on staging EC2 (127.0.0.1:6379)"
+            printf 'REDIS_HOST=%s\n' "127.0.0.1" >> /tmp/deploy-env.txt
+            printf 'REDIS_PORT=%s\n' "6379" >> /tmp/deploy-env.txt
+            printf 'REDIS_PASSWORD=%s\n' "" >> /tmp/deploy-env.txt
+          else
+            printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
+            REDIS_PORT="${{ secrets.STAGING_REDIS_PORT }}"
+            REDIS_PORT="${REDIS_PORT:-6379}"
+            printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
+            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+          fi
           printf 'JWT_SECRET=%s\n' "${{ secrets.STAGING_JWT_SECRET }}" >> /tmp/deploy-env.txt
           printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}" >> /tmp/deploy-env.txt
           printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}" >> /tmp/deploy-env.txt
