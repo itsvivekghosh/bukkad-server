@@ -161,9 +161,24 @@ Deploy to PRODUCTION
 
 | Secret | Purpose | Used In |
 |--------|---------|---------|
-| `KUBE_CONFIG_STAGING` | Base64-encoded kubeconfig for staging | deploy-staging.yml |
-| `KUBE_CONFIG_PRODUCTION` | Base64-encoded kubeconfig for production | deploy-production.yml |
-| `GITHUB_TOKEN` | Auto-generated token for API access | docker.yml, deploy-production.yml |
+| `STAGING_SSH_HOST` / `STAGING_SSH_USER` / `STAGING_SSH_KEY` | SSH access to staging EC2 | deploy-staging.yml |
+| `STAGING_DB_*` / `STAGING_REDIS_*` / `STAGING_JWT_SECRET` | Staging app config | deploy-staging.yml |
+| `PROD_SSH_HOST` / `PROD_SSH_USER` / `PROD_SSH_KEY` | SSH access to production EC2 | deploy-production.yml |
+| `PROD_DB_*` / `PROD_REDIS_*` / `PROD_JWT_SECRET` | Production app config | deploy-production.yml |
+| **`GHCR_READ_TOKEN`** | **GitHub PAT with `read:packages` (required for docker pull on EC2)** | deploy-staging.yml |
+| `GHCR_USERNAME` | GitHub username for GHCR (optional; default `itsvivekghosh`) | deploy-staging.yml |
+| `GITHUB_TOKEN` | Auto-generated token for API access | docker.yml, deploy workflows |
+
+### GHCR PAT setup (one-time)
+
+1. Open [GitHub → Settings → Developer settings → Personal access tokens](https://github.com/settings/tokens)
+2. **Generate new token (classic)** → enable **`read:packages`**
+3. Repo → **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `GHCR_READ_TOKEN`
+   - Value: your PAT
+4. Re-run **Deploy to Staging**
+
+The workflow steps **Verify GHCR PAT secret** and **Login to GHCR on staging VM** run before `docker pull`.
 
 ## Docker Image Tags
 
