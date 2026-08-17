@@ -87,10 +87,12 @@ echo "=== EC2 reachability (SSH port 22) ==="
 for host in \
   ec2-13-204-80-247.ap-south-1.compute.amazonaws.com \
   ec2-13-201-21-45.ap-south-1.compute.amazonaws.com; do
-  if nc -z -G 3 -w 3 "$host" 22 >/dev/null 2>&1; then
-    ok "TCP 22 open on ${host}"
+  if timeout 3 bash -c "echo >/dev/tcp/${host}/22" 2>/dev/null; then
+    ok "TCP 22 open on ${host} (bash /dev/tcp)"
+  elif nc -z -w 3 "$host" 22 >/dev/null 2>&1; then
+    ok "TCP 22 open on ${host} (nc)"
   else
-    echo "  ⚠️  cannot verify TCP 22 on ${host} (may be blocked from this network)"
+    echo "  ⚠️  cannot verify TCP 22 on ${host}"
   fi
 done
 
