@@ -435,8 +435,6 @@ logging:
     org.springframework.web.servlet.handler.HandlerMappingIntrospector: ERROR
     org.springframework.web.servlet.DispatcherServlet: WARN
     org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor: WARN
-  file:
-    name: logs/bhukkad-system.log
 
 springdoc:
   api-docs:

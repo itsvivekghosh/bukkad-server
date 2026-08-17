@@ -15,11 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: http://${{ vars.STAGING_EC2_HOST }}:${{ vars.APP_PORT }}
+      url: http://${{ vars.STAGING_EC2_HOST }}:8080
 
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'deploy'
+      )
 
     env:
       APP_PORT: ${{ vars.APP_PORT }}
@@ -30,12 +34,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set deployment defaults
+        run: |
+          {
+            echo "APP_PORT=${APP_PORT:-8080}"
+            echo "HEALTH_PATH=${HEALTH_PATH:-/api/v1/health/ping}"
+            echo "CONTAINER_NAME=${CONTAINER_NAME:-bhukkad-app}"
+            echo "GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+            echo "GHCR_USERNAME=${GHCR_USERNAME:-itsvivekghosh}"
+          } >> "$GITHUB_ENV"
 
       - name: Deployment overview
         run: |
           source .github/scripts/deploy-log.sh
-          APP_PORT="${APP_PORT:-8080}"
-          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
           deploy_banner "Staging" "${{ github.sha }}" "pending" "${{ vars.STAGING_EC2_HOST }}"
           log_section "Configuration check"
           check_optional_var "STAGING_EC2_HOST" "${{ vars.STAGING_EC2_HOST }}" "(required)"
@@ -83,8 +97,9 @@ jobs:
         id: image
         run: |
           source .github/scripts/deploy-log.sh
-          TAG="deploy"
+          TAG=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TAG="${{ github.event.workflow_run.head_sha }}"
             sudo apt-get update -qq && sudo apt-get install -y -qq jq
             VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
@@ -92,10 +107,10 @@ jobs:
             if [ -n "${VAR_TAG}" ] && [ "${#VAR_TAG}" -ge 40 ]; then
               TAG="${VAR_TAG}"
             fi
+          else
+            TAG="deploy"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
-          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
           log_ok "Deploying image: ${GHCR_IMAGE}:${TAG}"
 
       - name: Validate secrets
@@ -115,10 +130,8 @@ jobs:
           set -euo pipefail
           source .github/scripts/deploy-log.sh
 
-          APP_PORT="${APP_PORT:-8080}"
-          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
-          GHCR_USERNAME="${GHCR_USERNAME:-itsvivekghosh}"
-          CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
+          DB_PORT="${{ secrets.STAGING_DB_PORT }}"
+          DB_PORT="${DB_PORT:-3306}"
           REDIS_LOCAL="${{ vars.STAGING_REDIS_LOCAL }}"
           REDIS_LOCAL="${REDIS_LOCAL:-true}"
           FLYWAY_REPAIR="${{ vars.FLYWAY_REPAIR_ON_DEPLOY }}"
@@ -127,7 +140,7 @@ jobs:
           if [ "${FLYWAY_REPAIR}" = "true" ]; then
             log_section "Flyway repair (pre-deploy)"
             printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" > /tmp/flyway-env.txt
-            printf 'DB_PORT=%s\n' "${{ secrets.STAGING_DB_PORT }}" >> /tmp/flyway-env.txt
+            printf 'DB_PORT=%s\n' "${DB_PORT}" >> /tmp/flyway-env.txt
             printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/flyway-env.txt
             printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/flyway-env.txt
             printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/flyway-env.txt
@@ -147,7 +160,7 @@ jobs:
             printf 'DOCKER_NETWORK=host\n'
             printf 'SERVER_PORT=%s\n' "${APP_PORT}"
             printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}"
-            printf 'DB_PORT=%s\n' "${{ secrets.STAGING_DB_PORT }}"
+            printf 'DB_PORT=%s\n' "${DB_PORT}"
             printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}"
             printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}"
             printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}"
@@ -178,27 +191,15 @@ jobs:
 
       - name: Wait for healthy app
         run: |
-          APP_PORT="${{ vars.APP_PORT }}"
-          APP_PORT="${APP_PORT:-8080}"
-          HEALTH_PATH="${{ vars.HEALTH_PATH }}"
-          HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
-          CONTAINER_NAME="${{ vars.CONTAINER_NAME }}"
-          CONTAINER_NAME="${CONTAINER_NAME:-bhukkad-app}"
           bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
             ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
             "http://localhost:${APP_PORT}${HEALTH_PATH}"
 
-      - name: Deployment summary
+      - name: Deployment Summary
         if: success()
         run: |
           source .github/scripts/deploy-log.sh
-          APP_PORT="${{ vars.APP_PORT }}"
-          APP_PORT="${APP_PORT:-8080}"
-          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
-          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
-          HEALTH_PATH="${{ vars.HEALTH_PATH }}"
-          HEALTH_PATH="${HEALTH_PATH:-/api/v1/health/ping}"
           deploy_summary "Staging" \
             "${{ steps.ssh.outputs.host }}" \
             "${GHCR_IMAGE}:${{ steps.image.outputs.tag }}" \

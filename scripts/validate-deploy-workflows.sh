@@ -124,6 +124,12 @@ grep -q 'GHCR_READ_TOKEN' .github/workflows/deploy-production.yml \
 grep -q 'ec2.sh verify-ssh' .github/workflows/deploy-staging.yml \
   && ok "staging verifies SSH authentication" \
   || bad "staging missing SSH auth verification"
+grep -q "head_branch == 'deploy'" .github/workflows/deploy-staging.yml \
+  && ok "staging deploy only auto-runs for deploy branch" \
+  || bad "staging missing deploy branch filter on workflow_run"
+grep -q 'Set deployment defaults' .github/workflows/deploy-staging.yml \
+  && ok "staging sets deployment defaults" \
+  || bad "staging missing deployment defaults step"
 grep -q 'ec2.sh verify-ssh' .github/workflows/deploy-production.yml \
   && ok "production verifies SSH authentication" \
   || bad "production missing SSH auth verification"
