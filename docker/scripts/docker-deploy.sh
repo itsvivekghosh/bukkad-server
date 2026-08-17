@@ -11,6 +11,11 @@ HOST_PORT="${SERVER_PORT:-8080}"
 
 echo "Deploying ${APP_IMAGE} as ${CONTAINER_NAME}..."
 
+if [ -n "${GHCR_TOKEN:-}" ]; then
+  echo "Logging in to ghcr.io..."
+  echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME:-itsvivekghosh}" --password-stdin
+fi
+
 echo "Stopping existing container..."
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 

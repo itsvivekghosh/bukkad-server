@@ -8,7 +8,7 @@ SSH_KEY="${3:?SSH key path required}"
 MAX_ATTEMPTS="${4:-60}"
 SLEEP_SECONDS="${5:-5}"
 
-SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30)
 REMOTE="${SSH_USER}@${SSH_HOST}"
 
 echo "Waiting for container health on ${REMOTE} (up to $((MAX_ATTEMPTS * SLEEP_SECONDS))s)..."

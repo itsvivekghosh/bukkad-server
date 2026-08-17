@@ -11,7 +11,7 @@ permissions:
   actions: read
 
 env:
-  STAGING_SSH_HOST_DEFAULT: ec2-3-109-121-149.ap-south-1.compute.amazonaws.com
+  STAGING_SSH_HOST_DEFAULT: ec2-13-204-80-247.ap-south-1.compute.amazonaws.com
   APP_PORT: "8080"
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080
+      url: http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080
 
     if: |
       github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' ||
@@ -73,22 +73,53 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
+      - name: Pre-flight SSH connectivity
+        run: |
+          bash .github/scripts/ec2-preflight-ssh.sh "${{ steps.ssh.outputs.host }}" 22 15
+
       - name: Determine image tag
         id: image
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          TAG=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ github.event.workflow_run.head_sha }}"
           else
-            TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
               | jq -r '.value // empty')
-            if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
-              TAG="${{ github.sha }}"
+            if [ -n "${VAR_TAG}" ] && [ "${#VAR_TAG}" -ge 40 ]; then
+              TAG="${VAR_TAG}"
+            else
+              echo "STAGING_IMAGE_SHA missing or invalid; using floating deploy tag"
+              TAG="deploy"
             fi
-            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           fi
-          echo "Image tag: $(cat "$GITHUB_OUTPUT" | grep '^tag=' | cut -d= -f2-)"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${TAG}"
+
+      - name: Verify GHCR PAT secret
+        run: |
+          if [ -z "${{ secrets.GHCR_READ_TOKEN }}" ]; then
+            echo "::error::Missing GitHub secret GHCR_READ_TOKEN"
+            echo "Create a PAT at https://github.com/settings/tokens with read:packages scope"
+            echo "Then add it as repository secret: GHCR_READ_TOKEN"
+            exit 1
+          fi
+          echo "GHCR_READ_TOKEN is configured"
+
+      - name: Login to GHCR on staging VM
+        run: |
+          GHCR_USER="${{ secrets.GHCR_USERNAME }}"
+          if [ -z "${GHCR_USER}" ]; then
+            GHCR_USER="itsvivekghosh"
+          fi
+          bash .github/scripts/ec2-ghcr-login.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            "${GHCR_USER}" \
+            "${{ secrets.GHCR_READ_TOKEN }}"
 
       - name: Deploy to staging VM
         run: |
@@ -129,6 +160,8 @@ jobs:
           printf 'PAYMENT_PROVIDER=%s\n' "${{ secrets.PAYMENT_PROVIDER }}" >> /tmp/deploy-env.txt
           printf 'PROMETHEUS_USERNAME=%s\n' "${{ secrets.PROMETHEUS_USERNAME }}" >> /tmp/deploy-env.txt
           printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
+          printf 'GHCR_USERNAME=%s\n' "itsvivekghosh" >> /tmp/deploy-env.txt
+          printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}" >> /tmp/deploy-env.txt
 
           bash .github/scripts/ec2-deploy-remote.sh \
             "${{ steps.ssh.outputs.user }}" \

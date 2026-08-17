@@ -150,7 +150,7 @@ Deploy to PRODUCTION
 
 ### staging
 - No manual approval required
-- API URL: http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080
+- API URL: http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080
 
 ### production
 - Required reviewers: at least 1
@@ -161,21 +161,30 @@ Deploy to PRODUCTION
 
 | Secret | Purpose | Used In |
 |--------|---------|---------|
-| `STAGING_SSH_HOST` | Staging EC2 host (optional; defaults to `ec2-3-109-121-149.ap-south-1.compute.amazonaws.com`) | deploy-staging.yml |
-| `STAGING_SSH_USER` | SSH user (defaults to `ubuntu`) | deploy-staging.yml |
-| `STAGING_SSH_KEY` | Private key for staging EC2 | deploy-staging.yml |
-| `STAGING_DB_*` / `STAGING_REDIS_*` / `STAGING_JWT_SECRET` | Staging app configuration | deploy-staging.yml |
-| `PROD_SSH_HOST` | Production EC2 host (optional; defaults to `ec2-13-201-21-45.ap-south-1.compute.amazonaws.com`) | deploy-production.yml |
-| `PROD_SSH_USER` | SSH user (defaults to `ubuntu`) | deploy-production.yml |
-| `PROD_SSH_KEY` | Private key for production EC2 | deploy-production.yml |
-| `PROD_DB_*` / `PROD_REDIS_*` / `PROD_JWT_SECRET` | Production app configuration | deploy-production.yml |
+| `STAGING_SSH_HOST` / `STAGING_SSH_USER` / `STAGING_SSH_KEY` | SSH access to staging EC2 | deploy-staging.yml |
+| `STAGING_DB_*` / `STAGING_REDIS_*` / `STAGING_JWT_SECRET` | Staging app config | deploy-staging.yml |
+| `PROD_SSH_HOST` / `PROD_SSH_USER` / `PROD_SSH_KEY` | SSH access to production EC2 | deploy-production.yml |
+| `PROD_DB_*` / `PROD_REDIS_*` / `PROD_JWT_SECRET` | Production app config | deploy-production.yml |
+| **`GHCR_READ_TOKEN`** | **GitHub PAT with `read:packages` (required for docker pull on EC2)** | deploy-staging.yml |
+| `GHCR_USERNAME` | GitHub username for GHCR (optional; default `itsvivekghosh`) | deploy-staging.yml |
 | `GITHUB_TOKEN` | Auto-generated token for API access | docker.yml, deploy workflows |
+
+### GHCR PAT setup (one-time)
+
+1. Open [GitHub → Settings → Developer settings → Personal access tokens](https://github.com/settings/tokens)
+2. **Generate new token (classic)** → enable **`read:packages`**
+3. Repo → **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `GHCR_READ_TOKEN`
+   - Value: your PAT
+4. Re-run **Deploy to Staging**
+
+The workflow steps **Verify GHCR PAT secret** and **Login to GHCR on staging VM** run before `docker pull`.
 
 ## EC2 Hosts
 
 | Environment | EC2 DNS | API base URL (direct) |
 |-------------|---------|------------------------|
-| Staging | `ec2-3-109-121-149.ap-south-1.compute.amazonaws.com` | `http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080` |
+| Staging | `ec2-13-204-80-247.ap-south-1.compute.amazonaws.com` | `http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080` |
 | Production | `ec2-13-201-21-45.ap-south-1.compute.amazonaws.com` | `http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080` |
 
 Deploy workflows health-check and smoke-test via **SSH + `localhost:8080`** on the EC2 instance. No custom domain is required.

@@ -16,7 +16,9 @@ for script in \
   docker/scripts/docker-deploy.sh \
   .github/scripts/ec2-deploy-remote.sh \
   .github/scripts/wait-for-ec2-health.sh \
-  .github/scripts/ec2-smoke-test.sh; do
+  .github/scripts/ec2-smoke-test.sh \
+  .github/scripts/ec2-ghcr-login.sh \
+  .github/scripts/ec2-preflight-ssh.sh; do
   if bash -n "$script"; then
     ok "bash -n $script"
   else
@@ -55,7 +57,7 @@ fi
 
 echo ""
 echo "=== EC2 host defaults ==="
-grep -q 'ec2-3-109-121-149.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-staging.yml \
+grep -q 'ec2-13-204-80-247.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-staging.yml \
   && ok "staging EC2 host default present" \
   || bad "staging EC2 host default missing"
 grep -q 'ec2-13-201-21-45.ap-south-1.compute.amazonaws.com' .github/workflows/deploy-production.yml \
@@ -83,7 +85,7 @@ grep -q 'docker/scripts/docker-deploy.sh' .github/workflows/docker.yml \
 echo ""
 echo "=== EC2 reachability (SSH port 22) ==="
 for host in \
-  ec2-3-109-121-149.ap-south-1.compute.amazonaws.com \
+  ec2-13-204-80-247.ap-south-1.compute.amazonaws.com \
   ec2-13-201-21-45.ap-south-1.compute.amazonaws.com; do
   if nc -z -G 3 -w 3 "$host" 22 >/dev/null 2>&1; then
     ok "TCP 22 open on ${host}"
@@ -95,7 +97,7 @@ done
 echo ""
 echo "=== Public health endpoints (optional, requires SG port 8080) ==="
 for url in \
-  "http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping" \
+  "http://ec2-13-204-80-247.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping" \
   "http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080/api/v1/health/ping"; do
   code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" || echo "000")
   if [ "$code" = "200" ]; then
