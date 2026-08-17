@@ -47,7 +47,13 @@ jobs:
 
       - name: Determine commit SHA
         id: sha
-        run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Building image for SHA: $(grep '^sha=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
 
       - name: Set staging image tag in repository variables
         run: |
