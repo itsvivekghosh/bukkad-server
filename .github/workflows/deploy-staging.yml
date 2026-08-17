@@ -1,4 +1,4 @@
-name: 🚀 Deploy to Staging
+name: Deploy to Staging
 
 on:
   workflow_run:
@@ -11,265 +11,196 @@ permissions:
 
 jobs:
   deploy:
-    name: 🎯 Staging Deployment
+    name: Deploy to Staging
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: https://staging.bhukkad.com
+      url: http://${{ vars.STAGING_EC2_HOST }}:8080
 
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'deploy'
+      )
+
+    env:
+      APP_PORT: ${{ vars.APP_PORT }}
+      GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
+      GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+      HEALTH_PATH: ${{ vars.HEALTH_PATH }}
+      CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
 
     steps:
-      # ══════════════════════════════════════════════════════════════
-      # 📋 PREPARATION PHASE
-      # ══════════════════════════════════════════════════════════════
-      
-      - name: 📦 Checkout repository
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
-          fetch-depth: 1
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
-      - name: 🎯 Download deployment script
-        uses: actions/download-artifact@v5
-        with:
-          name: docker-deploy-script
-          path: ./deploy
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: false
-
-      - name: ✅ Verify deployment script exists
+      - name: Set deployment defaults
         run: |
-          echo "🔍 Checking deployment artifacts..."
-          ls -la ./deploy/
-          if [ ! -f ./deploy/docker-deploy.sh ]; then
-            echo "❌ Deployment script not found!"
-            echo "📁 Available files:"
-            find ./deploy -type f || echo "No files found"
+          {
+            echo "APP_PORT=${APP_PORT:-8080}"
+            echo "HEALTH_PATH=${HEALTH_PATH:-/api/v1/health/ping}"
+            echo "CONTAINER_NAME=${CONTAINER_NAME:-bhukkad-app}"
+            echo "GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+            echo "GHCR_USERNAME=${GHCR_USERNAME:-itsvivekghosh}"
+          } >> "$GITHUB_ENV"
+
+      - name: Deployment overview
+        run: |
+          source .github/scripts/deploy-log.sh
+          deploy_banner "Staging" "${{ github.sha }}" "pending" "${{ vars.STAGING_EC2_HOST }}"
+          log_section "Configuration check"
+          check_optional_var "STAGING_EC2_HOST" "${{ vars.STAGING_EC2_HOST }}" "(required)"
+          check_optional_var "GHCR_IMAGE" "${GHCR_IMAGE}" "ghcr.io/itsvivekghosh/bukkad-server"
+          check_optional_var "APP_PORT" "${APP_PORT}" "8080"
+          log_section_end
+
+      - name: Prepare deployment script
+        run: |
+          chmod +x .github/scripts/ec2.sh
+          mkdir -p ./deploy
+          cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
+          chmod +x ./deploy/docker-deploy.sh
+
+      - name: Resolve SSH target
+        id: ssh
+        run: |
+          source .github/scripts/deploy-log.sh
+          HOST="${{ secrets.STAGING_SSH_HOST }}"
+          HOST="${HOST:-${{ vars.STAGING_EC2_HOST }}}"
+          if [ -z "${HOST}" ]; then
+            log_error "Set STAGING_SSH_HOST secret or STAGING_EC2_HOST variable"
             exit 1
           fi
-          echo "✅ Deployment script verified: $(wc -l < ./deploy/docker-deploy.sh) lines"
+          USER="${{ secrets.STAGING_SSH_USER }}"
+          USER="${USER:-ubuntu}"
+          echo "host=${HOST}" >> "$GITHUB_OUTPUT"
+          echo "user=${USER}" >> "$GITHUB_OUTPUT"
+          log_ok "SSH target resolved: ${USER}@${HOST}"
 
-      # ══════════════════════════════════════════════════════════════
-      # 🔐 SSH & SECURITY SETUP
-      # ══════════════════════════════════════════════════════════════
-
-      - name: 🔑 Setup SSH connection
+      - name: Setup SSH
         run: |
-          echo "🔐 Setting up SSH authentication..."
           mkdir -p ~/.ssh
           echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          
-          echo "🌐 Adding host to known hosts..."
-          ssh-keyscan -H "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          echo "✅ SSH setup completed"
+          ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: 🎯 Determine deployment image tag
+      - name: Verify SSH authentication
+        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
+
+      - name: Pre-flight SSH port
+        run: bash .github/scripts/ec2.sh preflight-port "${{ steps.ssh.outputs.host }}" 22 15
+
+      - name: Determine image tag
         id: image
         run: |
+          source .github/scripts/deploy-log.sh
+          TAG=""
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+            TAG="${{ github.event.workflow_run.head_sha }}"
+            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+            VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
+              | jq -r '.value // empty')
+            if [ -n "${VAR_TAG}" ] && [ "${#VAR_TAG}" -ge 40 ]; then
+              TAG="${VAR_TAG}"
+            fi
           else
-            IMAGE_TAG="${{ github.sha }}"
+            TAG="${{ github.sha }}"
           fi
-          
-          echo "🏷️ Image tag: ${IMAGE_TAG}"
-          echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          log_ok "Deploying image: ${GHCR_IMAGE}:${TAG}"
 
-      # ══════════════════════════════════════════════════════════════
-      # 🚀 DEPLOYMENT PHASE
-      # ══════════════════════════════════════════════════════════════
+      - name: Validate secrets
+        run: |
+          source .github/scripts/deploy-log.sh
+          log_section "Validate required secrets"
+          check_required_secret "GHCR_READ_TOKEN" "${{ secrets.GHCR_READ_TOKEN }}"
+          check_required_secret "STAGING_DB_HOST" "${{ secrets.STAGING_DB_HOST }}"
+          check_required_secret "STAGING_DB_NAME" "${{ secrets.STAGING_DB_NAME }}"
+          check_required_secret "STAGING_DB_USERNAME" "${{ secrets.STAGING_DB_USERNAME }}"
+          check_required_secret "STAGING_DB_PASSWORD" "${{ secrets.STAGING_DB_PASSWORD }}"
+          check_required_secret "STAGING_JWT_SECRET" "${{ secrets.STAGING_JWT_SECRET }}"
+          log_section_end
 
-      - name: 🚀 Deploy to staging environment
+      - name: Deploy to staging VM
         run: |
           set -euo pipefail
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🚀 BHUKKAD STAGING DEPLOYMENT"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🏷️  Image: ${{ steps.image.outputs.tag }}"
-          echo "🎯  Environment: Staging"
-          echo "📡  Host: ${{ secrets.STAGING_SSH_HOST }}"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          # Build secure environment variables file
-          echo "📝 Building environment configuration..."
-          cat > /tmp/deploy-env.txt << 'EOF'
-          # 🎯 Core Application Settings
-          IMAGE_TAG=${{ steps.image.outputs.tag }}
-          SPRING_PROFILES_ACTIVE=staging
-          SERVER_PORT=8080
-          
-          # 🗄️ Database Configuration
-          DB_HOST=${{ secrets.STAGING_DB_HOST }}
-          DB_PORT=${{ secrets.STAGING_DB_PORT }}
-          DB_NAME=${{ secrets.STAGING_DB_NAME }}
-          DB_USERNAME=${{ secrets.STAGING_DB_USERNAME }}
-          DB_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }}
-          DB_URL=${{ secrets.STAGING_DB_URL }}
-          
-          # 🔴 Redis Configuration
-          REDIS_HOST=${{ secrets.STAGING_REDIS_HOST }}
-          REDIS_PORT=${{ secrets.STAGING_REDIS_PORT }}
-          REDIS_PASSWORD=${{ secrets.STAGING_REDIS_PASSWORD }}
-          
-          # 🔐 Security & Authentication
-          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }}
-          JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }}
-          JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }}
-          
-          # 💳 Payment Gateway (Razorpay)
-          RAZORPAY_ENABLED=${{ secrets.RAZORPAY_ENABLED }}
-          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
-          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
-          RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
-          
-          # 📧 Email & Notifications
-          NOTIFICATION_EMAIL_ENABLED=${{ secrets.NOTIFICATION_EMAIL_ENABLED }}
-          NOTIFICATION_EMAIL_FROM=${{ secrets.NOTIFICATION_EMAIL_FROM }}
-          
-          # 🐰 Message Broker (RabbitMQ)
-          STOMP_BROKER_TYPE=${{ secrets.STOMP_BROKER_TYPE }}
-          RABBITMQ_HOST=${{ secrets.RABBITMQ_HOST }}
-          RABBITMQ_STOMP_PORT=${{ secrets.RABBITMQ_STOMP_PORT }}
-          RABBITMQ_USERNAME=${{ secrets.RABBITMQ_USERNAME }}
-          RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
-          
-          # 📡 Live Updates & WebSocket
-          LIVE_RELAY_ENABLED=${{ secrets.LIVE_RELAY_ENABLED }}
-          LIVE_RELAY_CHANNEL=${{ secrets.LIVE_RELAY_CHANNEL }}
-          
-          # 🔄 Database Replica (Optional)
-          DB_REPLICA_ENABLED=${{ secrets.DB_REPLICA_ENABLED }}
-          DB_REPLICA_URL=${{ secrets.DB_REPLICA_URL }}
-          DB_REPLICA_USERNAME=${{ secrets.STAGING_DB_REPLICA_USERNAME }}
-          DB_REPLICA_PASSWORD=${{ secrets.STAGING_DB_REPLICA_PASSWORD }}
-          
-          # ⚙️ System Configuration
-          PAYMENT_PROVIDER=${{ secrets.PAYMENT_PROVIDER }}
-          PROMETHEUS_USERNAME=${{ secrets.PROMETHEUS_USERNAME }}
-          PROMETHEUS_PASSWORD=${{ secrets.PROMETHEUS_PASSWORD }}
-          EOF
-          
-          echo "📤 Copying deployment script to staging server..."
-          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            ./deploy/docker-deploy.sh \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
-          
-          echo "📤 Transferring environment configuration..."
-          base64 /tmp/deploy-env.txt | \
-            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-              "base64 -d > /tmp/deploy-env.txt && chmod 600 /tmp/deploy-env.txt"
-          
-          echo "🔄 Executing deployment on staging server..."
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-            "chmod 755 /tmp/docker-deploy.sh && \
-            echo '🚀 Starting deployment execution...' && \
-            ls -la /tmp/docker-deploy.sh && \
-            set -a && source /tmp/deploy-env.txt && set +a && \
-            bash /tmp/docker-deploy.sh"
+          source .github/scripts/deploy-log.sh
 
-      # ══════════════════════════════════════════════════════════════
-      # 🏥 HEALTH CHECK & VERIFICATION
-      # ══════════════════════════════════════════════════════════════
+          DB_PORT="${{ secrets.STAGING_DB_PORT }}"
+          DB_PORT="${DB_PORT:-3306}"
+          REDIS_LOCAL="${{ vars.STAGING_REDIS_LOCAL }}"
+          REDIS_LOCAL="${REDIS_LOCAL:-true}"
+          FLYWAY_REPAIR="${{ vars.FLYWAY_REPAIR_ON_DEPLOY }}"
+          FLYWAY_REPAIR="${FLYWAY_REPAIR:-false}"
 
-      - name: 🏥 Wait for application health check
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🏥 APPLICATION HEALTH CHECK"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          # Use single SSH session to avoid connection rate limiting
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-            'echo "🔍 Starting health check monitoring..."
-            for i in $(seq 1 60); do
-              echo "🩺 Health check attempt $i/60..."
-              
-              if curl -sf http://localhost:8080/api/v1/health/ping -o /dev/null 2>/dev/null; then
-                echo "✅ Application is healthy after $i attempts!"
-                echo "🎉 Deployment successful!"
-                exit 0
-              fi
-              
-              if [ $i -eq 1 ] || [ $((i % 10)) -eq 0 ]; then
-                echo "📊 Container status check..."
-                docker ps -a --filter name=bhukkad-app --format "{{.Names}}: {{.Status}}" 2>/dev/null || true
-              fi
-              
-              sleep 5
-            done
-            
-            echo "❌ Health check failed after 60 attempts (5 minutes)"
-            echo "🔍 Final diagnostics..."
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "📊 Container Status:"
-            docker ps -a --filter name=bhukkad-app --format "{{.Image}} {{.Status}}" 2>&1 || true
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "📋 Container Logs (last 100 lines):"
-            docker logs bhukkad-app --tail 100 2>&1 || true
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            exit 1'
-
-      # ══════════════════════════════════════════════════════════════
-      # 🧪 SMOKE TESTS
-      # ══════════════════════════════════════════════════════════════
-
-      - name: 🧪 Run staging smoke tests
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🧪 STAGING SMOKE TESTS"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          STAGING_URL="https://staging.bhukkad.com"
-          
-          echo "🔍 Testing external endpoint: ${STAGING_URL}/api/v1/health/ping"
-          if curl -f "${STAGING_URL}/api/v1/health/ping" -m 10; then
-            echo "✅ External health check passed"
-          else
-            echo "⚠️  External health check failed (may be DNS/proxy issue)"
-            echo "✅ Internal health check already passed, deployment is successful"
+          if [ "${FLYWAY_REPAIR}" = "true" ]; then
+            log_section "Flyway repair (pre-deploy)"
+            printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" > /tmp/flyway-env.txt
+            printf 'DB_PORT=%s\n' "${DB_PORT}" >> /tmp/flyway-env.txt
+            printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/flyway-env.txt
+            printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/flyway-env.txt
+            printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/flyway-env.txt
+            printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
+            bash .github/scripts/ec2.sh flyway-repair \
+              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+              ~/.ssh/id_ed25519 "${PWD}/src/main/resources/db/migration" /tmp/flyway-env.txt
+            log_section_end
           fi
 
-      # ══════════════════════════════════════════════════════════════
-      # 📊 DEPLOYMENT SUMMARY
-      # ══════════════════════════════════════════════════════════════
+          {
+            printf 'IMAGE_TAG=%s\n' "${{ steps.image.outputs.tag }}"
+            printf 'GHCR_IMAGE=%s\n' "${GHCR_IMAGE}"
+            printf 'GHCR_USERNAME=%s\n' "${GHCR_USERNAME}"
+            printf 'CONTAINER_NAME=%s\n' "${CONTAINER_NAME}"
+            printf 'SPRING_PROFILES_ACTIVE=staging\n'
+            printf 'DOCKER_NETWORK=host\n'
+            printf 'SERVER_PORT=%s\n' "${APP_PORT}"
+            printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}"
+            printf 'DB_PORT=%s\n' "${DB_PORT}"
+            printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}"
+            printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}"
+            printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}"
+            printf 'JWT_SECRET=%s\n' "${{ secrets.STAGING_JWT_SECRET }}"
+            printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}"
+            printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}"
+            printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}"
+            printf 'REDIS_LOCAL=%s\n' "${REDIS_LOCAL}"
+          } > /tmp/deploy-env.txt
 
-      - name: 📊 Deployment success summary
+          if [ "${REDIS_LOCAL}" = "true" ]; then
+            printf 'REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n' >> /tmp/deploy-env.txt
+            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+          else
+            printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
+            REDIS_PORT="${{ secrets.STAGING_REDIS_PORT }}"
+            REDIS_PORT="${REDIS_PORT:-6379}"
+            printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
+            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
+            bash .github/scripts/ec2.sh redis-preflight \
+              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+              ~/.ssh/id_ed25519 /tmp/deploy-env.txt
+          fi
+
+          bash .github/scripts/ec2.sh deploy \
+            "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 ./deploy/docker-deploy.sh /tmp/deploy-env.txt
+
+      - name: Wait for healthy app
+        run: |
+          bash .github/scripts/ec2.sh wait-health \
+            "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
+            "http://localhost:${APP_PORT}${HEALTH_PATH}"
+
+      - name: Deployment Summary
         if: success()
         run: |
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🎉 STAGING DEPLOYMENT SUCCESSFUL!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🏷️  Image: ghcr.io/itsvivekghosh/bukkad-server:${{ steps.image.outputs.tag }}"
-          echo "🎯  Environment: Staging"
-          echo "📡  SSH Host: ${{ secrets.STAGING_SSH_HOST }}"
-          echo "🌐  Public URL: https://staging.bhukkad.com"
-          echo "🏥  Health Check: ✅ Passed"
-          echo "🧪  Smoke Tests: ✅ Completed"
-          echo "⏰  Deployed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🚀 Ready for testing and validation!"
-
-      - name: 💥 Deployment failure summary
-        if: failure()
-        run: |
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "❌ STAGING DEPLOYMENT FAILED!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🏷️  Image: ghcr.io/itsvivekghosh/bukkad-server:${{ steps.image.outputs.tag }}"
-          echo "🎯  Environment: Staging"
-          echo "📡  SSH Host: ${{ secrets.STAGING_SSH_HOST }}"
-          echo "❌  Status: Failed"
-          echo "⏰  Failed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🔍 Check the logs above for detailed error information"
-          echo "🛠️  Common issues: SSH connection, missing secrets, container startup"
+          source .github/scripts/deploy-log.sh
+          deploy_summary "Staging" \
+            "${{ steps.ssh.outputs.host }}" \
+            "${GHCR_IMAGE}:${{ steps.image.outputs.tag }}" \
+            "http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"
