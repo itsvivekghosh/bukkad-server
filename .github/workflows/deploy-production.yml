@@ -92,7 +92,10 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Pre-flight SSH
+      - name: Verify SSH authentication
+        run: bash .github/scripts/ec2-verify-ssh.sh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
+
+      - name: Pre-flight SSH port
         run: bash .github/scripts/ec2-preflight-ssh.sh "${{ steps.ssh.outputs.host }}" 22 15
 
       - name: Deploy to production VM
