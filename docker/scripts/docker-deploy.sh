@@ -23,11 +23,30 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_LOCAL="${REDIS_LOCAL:-false}"
 REDIS_CONTAINER_NAME="bhukkad-redis"
 
+redis_ping_ok() {
+  local host="$1"
+  local port="$2"
+  local password="${3:-}"
+  if command -v redis-cli >/dev/null 2>&1; then
+    if [ -n "${password}" ]; then
+      redis-cli -h "${host}" -p "${port}" -a "${password}" ping 2>/dev/null | grep -qx PONG
+      return $?
+    fi
+    redis-cli -h "${host}" -p "${port}" ping 2>/dev/null | grep -qx PONG
+    return $?
+  fi
+  timeout 2 bash -c "echo >/dev/tcp/${host}/${port}" 2>/dev/null
+}
+
 ensure_local_redis() {
   local name="$1"
-  if timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/6379" 2>/dev/null; then
-    echo "Redis already listening on 127.0.0.1:6379"
+  if redis_ping_ok "127.0.0.1" "6379" "${REDIS_PASSWORD:-}"; then
+    echo "Redis already reachable on 127.0.0.1:6379"
     return 0
+  fi
+  if timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/6379" 2>/dev/null; then
+    echo "ERROR: Redis on 127.0.0.1:6379 is up but auth failed (check REDIS_PASSWORD)"
+    exit 1
   fi
   if docker ps --format '{{.Names}}' | grep -qx "${name}"; then
     echo "Redis container ${name} is already running"
@@ -51,7 +70,6 @@ if [ "${REDIS_LOCAL}" = "true" ]; then
   ensure_local_redis "${REDIS_CONTAINER_NAME}"
   REDIS_HOST="127.0.0.1"
   REDIS_PORT="6379"
-  REDIS_PASSWORD=""
 fi
 
 echo "Checking Redis from EC2 host (${REDIS_HOST}:${REDIS_PORT})..."
@@ -59,8 +77,8 @@ if ! getent hosts "${REDIS_HOST}" >/dev/null 2>&1; then
   echo "ERROR: Cannot resolve REDIS_HOST=${REDIS_HOST}"
   exit 1
 fi
-if ! timeout 10 bash -c "echo >/dev/tcp/${REDIS_HOST}/${REDIS_PORT}" 2>/dev/null; then
-  echo "ERROR: Cannot reach Redis at ${REDIS_HOST}:${REDIS_PORT} from EC2"
+if ! redis_ping_ok "${REDIS_HOST}" "${REDIS_PORT}" "${REDIS_PASSWORD:-}"; then
+  echo "ERROR: Cannot authenticate to Redis at ${REDIS_HOST}:${REDIS_PORT} from EC2"
   exit 1
 fi
 echo "Redis reachable from EC2 host"

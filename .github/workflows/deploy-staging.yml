@@ -120,7 +120,8 @@ jobs:
           } > /tmp/deploy-env.txt
 
           if [ "${REDIS_LOCAL}" = "true" ]; then
-            printf 'REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\nREDIS_PASSWORD=\n' >> /tmp/deploy-env.txt
+            printf 'REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n' >> /tmp/deploy-env.txt
+            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
           else
             printf 'REDIS_HOST=%s\n' "${{ secrets.STAGING_REDIS_HOST }}" >> /tmp/deploy-env.txt
             REDIS_PORT="${{ secrets.STAGING_REDIS_PORT }}"
