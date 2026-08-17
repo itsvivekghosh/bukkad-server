@@ -8,6 +8,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
+env:
+  STAGING_SSH_HOST_DEFAULT: ec2-3-109-121-149.ap-south-1.compute.amazonaws.com
+  APP_PORT: "8080"
 
 jobs:
   deploy:
@@ -15,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: https://staging.bhukkad.com
+      url: http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080
 
     if: |
       github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' ||
@@ -25,44 +30,71 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Download deployment script
+      - name: Download deployment script from Docker workflow
+        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v5
         with:
           name: docker-deploy-script
           path: ./deploy
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: false
+
+      - name: Use repository deployment script
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p ./deploy
+          cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
+          chmod +x ./deploy/docker-deploy.sh
 
       - name: Verify deployment script exists
         run: |
           ls -la ./deploy/
-          test -f ./deploy/docker-deploy.sh || { echo "Deployment script not found!"; exit 1; }
+          test -x ./deploy/docker-deploy.sh || { echo "Deployment script not found or not executable!"; exit 1; }
+
+      - name: Resolve SSH target
+        id: ssh
+        run: |
+          HOST="${{ secrets.STAGING_SSH_HOST }}"
+          if [ -z "${HOST}" ]; then
+            HOST="${{ env.STAGING_SSH_HOST_DEFAULT }}"
+          fi
+          USER="${{ secrets.STAGING_SSH_USER }}"
+          if [ -z "${USER}" ]; then
+            USER="ubuntu"
+          fi
+          echo "host=${HOST}" >> "$GITHUB_OUTPUT"
+          echo "user=${USER}" >> "$GITHUB_OUTPUT"
+          echo "SSH target: ${USER}@${HOST}"
 
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.STAGING_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Determine image tag
         id: image
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "tag=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+            TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
+              | jq -r '.value // empty')
+            if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
+              TAG="${{ github.sha }}"
+            fi
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           fi
+          echo "Image tag: $(cat "$GITHUB_OUTPUT" | grep '^tag=' | cut -d= -f2-)"
 
       - name: Deploy to staging VM
         run: |
+          set -euo pipefail
           echo "Deploying image tag: ${{ steps.image.outputs.tag }}"
-          # Copy the deployment script
-          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            ./deploy/docker-deploy.sh \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}:/tmp/docker-deploy.sh"
-          # Build env file on local machine using printf to safely handle special chars
+
           printf 'IMAGE_TAG=%s\n' "${{ steps.image.outputs.tag }}" > /tmp/deploy-env.txt
           printf 'SPRING_PROFILES_ACTIVE=%s\n' "staging" >> /tmp/deploy-env.txt
           printf 'DB_HOST=%s\n' "${{ secrets.STAGING_DB_HOST }}" >> /tmp/deploy-env.txt
@@ -97,40 +129,27 @@ jobs:
           printf 'PAYMENT_PROVIDER=%s\n' "${{ secrets.PAYMENT_PROVIDER }}" >> /tmp/deploy-env.txt
           printf 'PROMETHEUS_USERNAME=%s\n' "${{ secrets.PROMETHEUS_USERNAME }}" >> /tmp/deploy-env.txt
           printf 'PROMETHEUS_PASSWORD=%s\n' "${{ secrets.PROMETHEUS_PASSWORD }}" >> /tmp/deploy-env.txt
-          # Copy env file to remote (base64 to avoid any character issues during transfer)
-          base64 /tmp/deploy-env.txt | \
-            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-              "base64 -d > /tmp/deploy-env.txt && chmod 600 /tmp/deploy-env.txt"
-          # Run deploy on remote with env file
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-            "chmod 755 /tmp/docker-deploy.sh && \
-            ls -la /tmp/docker-deploy.sh && \
-            set -a && source /tmp/deploy-env.txt && set +a && \
-            bash /tmp/docker-deploy.sh"
+
+          bash .github/scripts/ec2-deploy-remote.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            ./deploy/docker-deploy.sh \
+            /tmp/deploy-env.txt
 
       - name: Wait for container to start
         run: |
-          echo "Waiting for container to start..."
-          for i in $(seq 1 30); do
-            if ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-              "curl -sf http://localhost:8080/api/v1/health/ping -o /dev/null"; then
-              echo "Container is healthy"
-              exit 0
-            fi
-            echo "Attempt $i: container not ready yet..."
-            sleep 5
-          done
-          echo "Container failed to become healthy"
-          echo "=== Container status ==="
-          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}" \
-            "docker ps -a --filter name=bhukkad-app --format '{{.Image}} {{.Status}}' && echo '---' && docker logs bhukkad-app 2>&1 | tail -50"
-          exit 1
+          bash .github/scripts/wait-for-ec2-health.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            60 5
 
       - name: Run smoke tests
         run: |
-          echo "Running staging smoke tests..."
-          curl -f https://staging.bhukkad.com/api/v1/health/ping || echo "Smoke test endpoint pending"
+          bash .github/scripts/ec2-smoke-test.sh \
+            "${{ steps.ssh.outputs.user }}" \
+            "${{ steps.ssh.outputs.host }}" \
+            ~/.ssh/id_ed25519 \
+            /api/v1/health/ping \
+            "${{ env.APP_PORT }}"

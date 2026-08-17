@@ -150,20 +150,37 @@ Deploy to PRODUCTION
 
 ### staging
 - No manual approval required
-- URL: https://staging.bhukkad.com
+- API URL: http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080
 
 ### production
 - Required reviewers: at least 1
-- URL: https://bhukkad.com
+- API URL: http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080
 - Wait timer: 0 minutes (approval only)
 
 ## Secrets
 
 | Secret | Purpose | Used In |
 |--------|---------|---------|
-| `KUBE_CONFIG_STAGING` | Base64-encoded kubeconfig for staging | deploy-staging.yml |
-| `KUBE_CONFIG_PRODUCTION` | Base64-encoded kubeconfig for production | deploy-production.yml |
-| `GITHUB_TOKEN` | Auto-generated token for API access | docker.yml, deploy-production.yml |
+| `STAGING_SSH_HOST` | Staging EC2 host (optional; defaults to `ec2-3-109-121-149.ap-south-1.compute.amazonaws.com`) | deploy-staging.yml |
+| `STAGING_SSH_USER` | SSH user (defaults to `ubuntu`) | deploy-staging.yml |
+| `STAGING_SSH_KEY` | Private key for staging EC2 | deploy-staging.yml |
+| `STAGING_DB_*` / `STAGING_REDIS_*` / `STAGING_JWT_SECRET` | Staging app configuration | deploy-staging.yml |
+| `PROD_SSH_HOST` | Production EC2 host (optional; defaults to `ec2-13-201-21-45.ap-south-1.compute.amazonaws.com`) | deploy-production.yml |
+| `PROD_SSH_USER` | SSH user (defaults to `ubuntu`) | deploy-production.yml |
+| `PROD_SSH_KEY` | Private key for production EC2 | deploy-production.yml |
+| `PROD_DB_*` / `PROD_REDIS_*` / `PROD_JWT_SECRET` | Production app configuration | deploy-production.yml |
+| `GITHUB_TOKEN` | Auto-generated token for API access | docker.yml, deploy workflows |
+
+## EC2 Hosts
+
+| Environment | EC2 DNS | API base URL (direct) |
+|-------------|---------|------------------------|
+| Staging | `ec2-3-109-121-149.ap-south-1.compute.amazonaws.com` | `http://ec2-3-109-121-149.ap-south-1.compute.amazonaws.com:8080` |
+| Production | `ec2-13-201-21-45.ap-south-1.compute.amazonaws.com` | `http://ec2-13-201-21-45.ap-south-1.compute.amazonaws.com:8080` |
+
+Deploy workflows health-check and smoke-test via **SSH + `localhost:8080`** on the EC2 instance. No custom domain is required.
+
+To hit the API from your browser or mobile app, open port **8080** in the EC2 security group (or put nginx on 80/443 later).
 
 ## Docker Image Tags
 
@@ -174,19 +191,17 @@ Deploy to PRODUCTION
 
 ## Rollback Strategy
 
-To rollback to a previous version:
+To rollback on EC2, redeploy a previous image tag:
 
 ```bash
-kubectl config use-context staging
-kubectl set image deployment/bhukkad-app \
-  bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:<previous-sha> \
-  -n bhukkad
-
-kubectl config use-context production
-kubectl set image deployment/bhukkad-app \
-  bhukkad-app=ghcr.io/itsvivekghosh/bukkad-server:<previous-sha> \
-  -n bhukkad
+# On the target EC2 host
+export IMAGE_TAG=<previous-git-sha>
+export SPRING_PROFILES_ACTIVE=staging   # or prod
+source /tmp/deploy-env.txt              # existing env file from last deploy
+bash /tmp/docker-deploy.sh
 ```
+
+Or trigger **Deploy to Staging** / **Deploy to Production** manually in GitHub Actions after setting `STAGING_IMAGE_SHA` to the desired commit.
 
 ## Troubleshooting
 
@@ -201,9 +216,10 @@ kubectl set image deployment/bhukkad-app \
 - Review Trivy scan results for vulnerabilities
 
 ### Staging deployment fails
-- Check kubeconfig secret
-- Check Kubernetes cluster availability
-- Review pod events: `kubectl describe pod -n bhukkad`
+- Verify `STAGING_SSH_KEY` matches the EC2 key pair
+- Confirm security group allows SSH from GitHub Actions runners
+- On EC2: `docker login ghcr.io` (package read access required)
+- Check container logs: `docker logs bhukkad-app`
 
 ### Production deployment fails
 - Check production environment approval
