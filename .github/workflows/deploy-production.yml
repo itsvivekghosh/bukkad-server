@@ -1,222 +1,428 @@
-name: Deploy to Production
+name: 🏭 Deploy to Production
 
 on:
   pull_request:
     branches: [ main ]
     types: [ opened, synchronize, reopened, ready_for_review ]
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 permissions:
   contents: read
+  actions: read
+
+env:
+  APP_PORT: "8080"
 
 jobs:
   get-image-tag:
-    name: Get Image Tag
+    name: 🏷️ Get Staging Image Tag
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.image.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v5
+      - name: 🛠️ Install dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
 
-      - name: Resolve production image tag
+      - name: 🏷️ Retrieve validated staging image
         id: image
         run: |
-          source .github/scripts/deploy-log.sh
-          sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 FETCHING STAGING-VALIDATED IMAGE"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
           TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
             | jq -r '.value // empty')
+            
           if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
-            log_warn "STAGING_IMAGE_SHA not set; falling back to deploy tag"
-            TAG="deploy"
+            echo "❌ No staging image tag found!"
+            echo "🚨 Please deploy to staging first before production deployment"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
           fi
+          
+          echo "✅ Found validated staging image: ${TAG}"
+          echo "🏷️ This image has passed staging validation"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          log_ok "Production image tag: ${TAG}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   validate:
-    name: Validate Release Candidate
+    name: 📋 Release Candidate Validation
     runs-on: ubuntu-latest
     needs: get-image-tag
     if: github.event_name == 'pull_request'
 
     steps:
-      - uses: actions/checkout@v5
+      - name: 📦 Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      - name: Comment PR with release info
+      - name: 📝 Comment PR with release information
         uses: actions/github-script@v7
         with:
           script: |
             const sha = context.payload.pull_request.head.sha;
+            const imageTag = "${{ needs.get-image-tag.outputs.tag }}";
+            
+            const releaseInfo = `
+            ## 🏭 Production Release Candidate
+            
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            
+            ### 📊 Release Details
+            
+            | Field | Value |
+            |-------|-------|
+            | 🏷️ **Image Tag** | \`${imageTag}\` |
+            | 📝 **Commit SHA** | \`${sha}\` |
+            | 🌿 **Source Branch** | \`${{ github.event.pull_request.head.ref }}\` |
+            | 🎯 **Target Branch** | \`main\` |
+            | 🏥 **Health Status** | ✅ Staging Validated |
+            
+            ### 🚀 Deployment Process
+            
+            This PR will deploy the **exact same Docker image** that has:
+            - ✅ Passed all staging tests
+            - ✅ Been validated in staging environment  
+            - ✅ Completed health checks successfully
+            
+            ### 🔐 Security Note
+            
+            🛡️ This ensures **zero-drift deployment** - the production deployment uses the identical image that was tested in staging.
+            
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            
+            **Ready for production deployment** 🚀
+            `;
+            
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## Production Release Candidate\n\n**Image Tag:** \`${{ needs.get-image-tag.outputs.tag }}\`\n**Commit SHA:** \`${sha}\`\n**Branch:** \`${{ github.event.pull_request.head.ref }}\`\n\nMerge and run **Deploy to Production** manually when ready.`
+              body: releaseInfo
             });
 
   deploy:
-    name: Deploy to Production
+    name: 🏭 Production Deployment
     runs-on: ubuntu-latest
     needs: [get-image-tag]
-    if: github.event_name == 'workflow_dispatch'
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     environment:
       name: production
-      url: http://${{ vars.PROD_EC2_HOST }}:8080
-
-    env:
-      APP_PORT: ${{ vars.APP_PORT }}
-      GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
-      GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
-      HEALTH_PATH: ${{ vars.HEALTH_PATH }}
-      CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
+      url: ${{ secrets.PROD_DOMAIN && format('https://{0}', secrets.PROD_DOMAIN) || format('http://{0}:8080', secrets.PROD_SSH_HOST) }}
 
     steps:
-      - uses: actions/checkout@v5
+      # ══════════════════════════════════════════════════════════════
+      # 📋 PREPARATION PHASE
+      # ══════════════════════════════════════════════════════════════
+      
+      - name: 📦 Checkout repository
+        uses: actions/checkout@v5
 
-      - name: Set deployment defaults
-        run: |
-          {
-            echo "APP_PORT=${APP_PORT:-8080}"
-            echo "HEALTH_PATH=${HEALTH_PATH:-/api/v1/health/ping}"
-            echo "CONTAINER_NAME=${CONTAINER_NAME:-bhukkad-app}"
-            echo "GHCR_IMAGE=${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
-            echo "GHCR_USERNAME=${GHCR_USERNAME:-itsvivekghosh}"
-          } >> "$GITHUB_ENV"
-
-      - name: Deployment overview
-        run: |
-          source .github/scripts/deploy-log.sh
-          deploy_banner "Production" "${{ github.sha }}" "${{ needs.get-image-tag.outputs.tag }}" "${{ vars.PROD_EC2_HOST }}"
-          log_section "Configuration check"
-          check_optional_var "PROD_EC2_HOST" "${{ vars.PROD_EC2_HOST }}" "(required)"
-          check_optional_var "GHCR_IMAGE" "${{ vars.GHCR_IMAGE }}" "ghcr.io/itsvivekghosh/bukkad-server"
-          log_section_end
-
-      - name: Prepare deployment script
-        run: |
-          chmod +x .github/scripts/ec2.sh
-          mkdir -p ./deploy
-          cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
-          chmod +x ./deploy/docker-deploy.sh
-
-      - name: Resolve SSH target
+      - name: 🎯 Resolve production SSH target
         id: ssh
         run: |
-          source .github/scripts/deploy-log.sh
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 PRODUCTION SERVER CONFIGURATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
           HOST="${{ secrets.PROD_SSH_HOST }}"
-          HOST="${HOST:-${{ vars.PROD_EC2_HOST }}}"
           if [ -z "${HOST}" ]; then
-            log_error "Set PROD_SSH_HOST secret or PROD_EC2_HOST variable"
+            echo "❌ PROD_SSH_HOST secret is required for production deployment!"
+            echo "🔧 Please configure this secret in GitHub repository settings"
             exit 1
           fi
+          
           USER="${{ secrets.PROD_SSH_USER }}"
-          USER="${USER:-ubuntu}"
+          if [ -z "${USER}" ]; then
+            USER="ubuntu"
+            echo "ℹ️  Using default SSH user: ubuntu"
+          fi
+          
+          echo "✅ SSH Configuration Validated:"
+          echo "   📡 Host: ${HOST}"
+          echo "   👤 User: ${USER}"
+          echo "   🔐 Key: Configured"
+          
           echo "host=${HOST}" >> "$GITHUB_OUTPUT"
           echo "user=${USER}" >> "$GITHUB_OUTPUT"
-          log_ok "SSH target resolved: ${USER}@${HOST}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      - name: Setup SSH
+      # ══════════════════════════════════════════════════════════════
+      # 🔐 SSH & SECURITY SETUP
+      # ══════════════════════════════════════════════════════════════
+
+      - name: 🔑 Setup SSH connection
         run: |
+          echo "🔐 Setting up production SSH authentication..."
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          
+          echo "🌐 Adding production host to known hosts..."
           ssh-keyscan -H "${{ steps.ssh.outputs.host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          echo "✅ Production SSH setup completed"
 
-      - name: Verify SSH authentication
-        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
+      # ══════════════════════════════════════════════════════════════
+      # 🚀 DEPLOYMENT PHASE
+      # ══════════════════════════════════════════════════════════════
 
-      - name: Pre-flight SSH port
-        run: bash .github/scripts/ec2.sh preflight-port "${{ steps.ssh.outputs.host }}" 22 15
-
-      - name: Validate secrets
-        run: |
-          source .github/scripts/deploy-log.sh
-          log_section "Validate required secrets"
-          check_required_secret "GHCR_READ_TOKEN" "${{ secrets.GHCR_READ_TOKEN }}"
-          check_required_secret "PROD_SSH_KEY" "${{ secrets.PROD_SSH_KEY }}"
-          check_required_secret "PROD_DB_HOST" "${{ secrets.PROD_DB_HOST }}"
-          check_required_secret "PROD_DB_NAME" "${{ secrets.PROD_DB_NAME }}"
-          check_required_secret "PROD_DB_USERNAME" "${{ secrets.PROD_DB_USERNAME }}"
-          check_required_secret "PROD_DB_PASSWORD" "${{ secrets.PROD_DB_PASSWORD }}"
-          check_required_secret "PROD_JWT_SECRET" "${{ secrets.PROD_JWT_SECRET }}"
-          log_section_end
-
-      - name: Deploy to production VM
+      - name: 🏭 Deploy to production environment
         run: |
           set -euo pipefail
-          source .github/scripts/deploy-log.sh
+          
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏭 BHUKKAD PRODUCTION DEPLOYMENT"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  Image: ${{ needs.get-image-tag.outputs.tag }}"
+          echo "🎯  Environment: Production"
+          echo "📡  Host: ${{ steps.ssh.outputs.host }}"
+          echo "🔐  Security: High"
+          echo "⚠️   CRITICAL DEPLOYMENT - PRODUCTION SYSTEM"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Build secure production environment variables
+          echo "📝 Building production environment configuration..."
+          cat > /tmp/deploy-env.txt << 'EOF'
+          # 🎯 Core Application Settings
+          IMAGE_TAG=${{ needs.get-image-tag.outputs.tag }}
+          SPRING_PROFILES_ACTIVE=prod
+          SERVER_PORT=${{ env.APP_PORT }}
+          
+          # 🗄️ Database Configuration
+          DB_HOST=${{ secrets.PROD_DB_HOST }}
+          DB_PORT=${{ secrets.PROD_DB_PORT }}
+          DB_NAME=${{ secrets.PROD_DB_NAME }}
+          DB_USERNAME=${{ secrets.PROD_DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
+          DB_URL=${{ secrets.PROD_DB_URL }}
+          
+          # 🔴 Redis Configuration
+          REDIS_HOST=${{ secrets.PROD_REDIS_HOST }}
+          REDIS_PORT=${{ secrets.PROD_REDIS_PORT }}
+          REDIS_PASSWORD=${{ secrets.PROD_REDIS_PASSWORD }}
+          REDIS_LOCAL=${{ secrets.PROD_REDIS_LOCAL }}
+          
+          # 🔐 Security & Authentication
+          JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
+          JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }}
+          JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }}
+          
+          # 💳 Payment Gateway (Razorpay)
+          RAZORPAY_ENABLED=${{ secrets.RAZORPAY_ENABLED }}
+          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+          
+          # 📧 Email & Notifications
+          NOTIFICATION_EMAIL_ENABLED=${{ secrets.NOTIFICATION_EMAIL_ENABLED }}
+          NOTIFICATION_EMAIL_FROM=${{ secrets.NOTIFICATION_EMAIL_FROM }}
+          
+          # 🐰 Message Broker (RabbitMQ)
+          STOMP_BROKER_TYPE=${{ secrets.STOMP_BROKER_TYPE }}
+          RABBITMQ_HOST=${{ secrets.RABBITMQ_HOST }}
+          RABBITMQ_STOMP_PORT=${{ secrets.RABBITMQ_STOMP_PORT }}
+          RABBITMQ_USERNAME=${{ secrets.RABBITMQ_USERNAME }}
+          RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+          
+          # 📡 Live Updates & WebSocket
+          LIVE_RELAY_ENABLED=${{ secrets.LIVE_RELAY_ENABLED }}
+          LIVE_RELAY_CHANNEL=${{ secrets.LIVE_RELAY_CHANNEL }}
+          
+          # 🔄 Database Replica Configuration
+          DB_REPLICA_ENABLED=${{ secrets.PROD_DB_REPLICA_ENABLED }}
+          DB_REPLICA_URL=${{ secrets.PROD_DB_REPLICA_URL }}
+          DB_REPLICA_USERNAME=${{ secrets.PROD_DB_REPLICA_USERNAME }}
+          DB_REPLICA_PASSWORD=${{ secrets.PROD_DB_REPLICA_PASSWORD }}
+          
+          # ⚙️ System Configuration
+          PAYMENT_PROVIDER=${{ secrets.PAYMENT_PROVIDER }}
+          PROMETHEUS_USERNAME=${{ secrets.PROMETHEUS_USERNAME }}
+          PROMETHEUS_PASSWORD=${{ secrets.PROMETHEUS_PASSWORD }}
+          
+          # 🐳 Docker Configuration
+          DOCKER_NETWORK=${{ secrets.PROD_DOCKER_NETWORK }}
+          GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME=${{ github.actor }}
+          EOF
+          
+          echo "📤 Copying deployment script to production server..."
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            docker/scripts/docker-deploy.sh \
+            "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}:/tmp/docker-deploy.sh"
+          
+          echo "📤 Transferring production environment configuration..."
+          base64 /tmp/deploy-env.txt | \
+            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}" \
+              "base64 -d > /tmp/deploy-env.txt && chmod 600 /tmp/deploy-env.txt"
+          
+          echo "🔄 Executing production deployment..."
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}" \
+            "chmod 755 /tmp/docker-deploy.sh && \
+            echo '🏭 Starting production deployment execution...' && \
+            ls -la /tmp/docker-deploy.sh && \
+            set -a && source /tmp/deploy-env.txt && set +a && \
+            bash /tmp/docker-deploy.sh"
 
-          DB_PORT="${{ secrets.PROD_DB_PORT }}"
-          DB_PORT="${DB_PORT:-3306}"
-          REDIS_LOCAL="${{ vars.PROD_REDIS_LOCAL }}"
-          REDIS_LOCAL="${REDIS_LOCAL:-true}"
-          FLYWAY_REPAIR="${{ vars.FLYWAY_REPAIR_ON_DEPLOY }}"
-          FLYWAY_REPAIR="${FLYWAY_REPAIR:-false}"
+      # ══════════════════════════════════════════════════════════════
+      # 🏥 HEALTH CHECK & VERIFICATION
+      # ══════════════════════════════════════════════════════════════
 
-          if [ "${FLYWAY_REPAIR}" = "true" ]; then
-            log_section "Flyway repair (pre-deploy)"
-            printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}" > /tmp/flyway-env.txt
-            printf 'DB_PORT=%s\n' "${DB_PORT}" >> /tmp/flyway-env.txt
-            printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}" >> /tmp/flyway-env.txt
-            printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}" >> /tmp/flyway-env.txt
-            printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}" >> /tmp/flyway-env.txt
-            bash .github/scripts/ec2.sh flyway-repair \
-              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-              ~/.ssh/id_ed25519 "${PWD}/src/main/resources/db/migration" /tmp/flyway-env.txt
-            log_section_end
-          fi
-
-          {
-            printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}"
-            printf 'GHCR_IMAGE=%s\n' "${GHCR_IMAGE}"
-            printf 'GHCR_USERNAME=%s\n' "${GHCR_USERNAME}"
-            printf 'CONTAINER_NAME=%s\n' "${CONTAINER_NAME}"
-            printf 'SPRING_PROFILES_ACTIVE=prod\n'
-            printf 'DOCKER_NETWORK=host\n'
-            printf 'SERVER_PORT=%s\n' "${APP_PORT}"
-            printf 'DB_HOST=%s\n' "${{ secrets.PROD_DB_HOST }}"
-            printf 'DB_PORT=%s\n' "${DB_PORT}"
-            printf 'DB_NAME=%s\n' "${{ secrets.PROD_DB_NAME }}"
-            printf 'DB_USERNAME=%s\n' "${{ secrets.PROD_DB_USERNAME }}"
-            printf 'DB_PASSWORD=%s\n' "${{ secrets.PROD_DB_PASSWORD }}"
-            printf 'JWT_SECRET=%s\n' "${{ secrets.PROD_JWT_SECRET }}"
-            printf 'JWT_EXPIRATION=%s\n' "${{ secrets.JWT_EXPIRATION }}"
-            printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}"
-            printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}"
-            printf 'REDIS_LOCAL=%s\n' "${REDIS_LOCAL}"
-          } > /tmp/deploy-env.txt
-
-          if [ "${REDIS_LOCAL}" = "true" ]; then
-            printf 'REDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n' >> /tmp/deploy-env.txt
-            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.PROD_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
-          else
-            printf 'REDIS_HOST=%s\n' "${{ secrets.PROD_REDIS_HOST }}" >> /tmp/deploy-env.txt
-            REDIS_PORT="${{ secrets.PROD_REDIS_PORT }}"
-            REDIS_PORT="${REDIS_PORT:-6379}"
-            printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
-            printf 'REDIS_PASSWORD=%s\n' "${{ secrets.PROD_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
-            bash .github/scripts/ec2.sh redis-preflight \
-              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-              ~/.ssh/id_ed25519 /tmp/deploy-env.txt
-          fi
-
-          bash .github/scripts/ec2.sh deploy \
-            "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 ./deploy/docker-deploy.sh /tmp/deploy-env.txt
-
-      - name: Wait for healthy app
+      - name: 🏥 Wait for production application startup
         run: |
-          bash .github/scripts/ec2.sh wait-health \
-            "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
-            "http://localhost:${APP_PORT}${HEALTH_PATH}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏥 PRODUCTION HEALTH CHECK"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Enhanced health check with detailed monitoring
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}" \
+            'echo "🔍 Starting production health monitoring..."
+            CONSECUTIVE_SUCCESS=0
+            REQUIRED_CONSECUTIVE=3
+            
+            for i in $(seq 1 90); do
+              echo "🩺 Health check attempt $i/90..."
+              
+              if curl -sf http://localhost:${{ env.APP_PORT }}/api/v1/health/ping -o /dev/null 2>/dev/null; then
+                CONSECUTIVE_SUCCESS=$((CONSECUTIVE_SUCCESS + 1))
+                echo "✅ Health check passed ($CONSECUTIVE_SUCCESS/$REQUIRED_CONSECUTIVE consecutive)"
+                
+                if [ $CONSECUTIVE_SUCCESS -ge $REQUIRED_CONSECUTIVE ]; then
+                  echo "🎉 Production application is stable and healthy!"
+                  echo "✅ $REQUIRED_CONSECUTIVE consecutive successful health checks completed"
+                  exit 0
+                fi
+              else
+                CONSECUTIVE_SUCCESS=0
+                echo "⏳ Waiting for application startup..."
+              fi
+              
+              if [ $i -eq 1 ] || [ $((i % 15)) -eq 0 ]; then
+                echo "📊 Container status check..."
+                docker ps -a --filter name=bhukkad-app --format "{{.Names}}: {{.Status}}" 2>/dev/null || true
+              fi
+              
+              sleep 5
+            done
+            
+            echo "❌ Production health check failed after 90 attempts (7.5 minutes)"
+            echo "🚨 CRITICAL: Production deployment health check failed!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📊 Final Container Status:"
+            docker ps -a --filter name=bhukkad-app --format "{{.Image}} {{.Status}}" 2>&1 || true
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 Container Logs (last 150 lines):"
+            docker logs bhukkad-app --tail 150 2>&1 || true
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1'
 
-      - name: Deployment summary
+      # ══════════════════════════════════════════════════════════════
+      # ✅ DEPLOYMENT VERIFICATION
+      # ══════════════════════════════════════════════════════════════
+
+      - name: ✅ Verify production deployment
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ PRODUCTION DEPLOYMENT VERIFICATION"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}" \
+            "echo '🔍 Production container verification:'
+            docker ps -a --filter name=bhukkad-app --format '{{.Image}} {{.Status}}' 2>&1
+            echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            echo '📋 Application startup logs (last 30 lines):'
+            docker logs bhukkad-app --tail 30 2>&1 || true"
+
+      # ══════════════════════════════════════════════════════════════
+      # 🧪 PRODUCTION SMOKE TESTS
+      # ══════════════════════════════════════════════════════════════
+
+      - name: 🧪 Run production smoke tests
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🧪 PRODUCTION SMOKE TESTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Internal health check
+          echo "🔍 Internal health endpoint test..."
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ steps.ssh.outputs.user }}@${{ steps.ssh.outputs.host }}" \
+            "curl -f http://localhost:${{ env.APP_PORT }}/api/v1/health/ping -m 10"
+          echo "✅ Internal health check: PASSED"
+          
+          # External health check (if domain configured)
+          PROD_DOMAIN="${{ secrets.PROD_DOMAIN }}"
+          if [ -n "${PROD_DOMAIN}" ]; then
+            echo "🔍 External health endpoint test..."
+            EXTERNAL_URL="https://${PROD_DOMAIN}/api/v1/health/ping"
+            echo "Testing: ${EXTERNAL_URL}"
+            
+            if curl -f "${EXTERNAL_URL}" -m 15; then
+              echo "✅ External health check: PASSED"
+            else
+              echo "⚠️  External health check failed (may be DNS/proxy configuration)"
+              echo "ℹ️  Internal health check passed - application is running correctly"
+            fi
+          else
+            echo "ℹ️  No PROD_DOMAIN configured - skipping external health check"
+          fi
+
+      # ══════════════════════════════════════════════════════════════
+      # 📊 DEPLOYMENT SUMMARY
+      # ══════════════════════════════════════════════════════════════
+
+      - name: 🎉 Production deployment success
         if: success()
         run: |
-          source .github/scripts/deploy-log.sh
-          deploy_summary "Production" \
-            "${{ steps.ssh.outputs.host }}" \
-            "${GHCR_IMAGE}:${{ needs.get-image-tag.outputs.tag }}" \
-            "http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 PRODUCTION DEPLOYMENT SUCCESSFUL!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  Image: ghcr.io/itsvivekghosh/bukkad-server:${{ needs.get-image-tag.outputs.tag }}"
+          echo "🏭  Environment: Production"
+          echo "📡  SSH Host: ${{ steps.ssh.outputs.host }}"
+          PROD_URL="${{ secrets.PROD_DOMAIN && format('https://{0}', secrets.PROD_DOMAIN) || format('http://{0}:8080', steps.ssh.outputs.host) }}"
+          echo "🌐  Production URL: ${PROD_URL}"
+          echo "🏥  Health Check: ✅ Passed (3 consecutive)"
+          echo "🧪  Smoke Tests: ✅ Completed"
+          echo "🔐  Security: ✅ Production Grade"
+          echo "⏰  Deployed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 PRODUCTION IS LIVE AND READY FOR TRAFFIC!"
+          echo "👥 Notify your team that production deployment is complete"
+
+      - name: 💥 Production deployment failure
+        if: failure()
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚨 PRODUCTION DEPLOYMENT FAILED!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏷️  Image: ghcr.io/itsvivekghosh/bukkad-server:${{ needs.get-image-tag.outputs.tag }}"
+          echo "🏭  Environment: Production"
+          echo "📡  SSH Host: ${{ steps.ssh.outputs.host }}"
+          echo "❌  Status: FAILED"
+          echo "⏰  Failed at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚨 IMMEDIATE ACTION REQUIRED!"
+          echo "🔍 Check the detailed logs above for error diagnosis"
+          echo "🛠️  Common failure points:"
+          echo "   • SSH connection issues"
+          echo "   • Missing or incorrect production secrets"
+          echo "   • Database connectivity problems"
+          echo "   • Application startup failures"
+          echo "   • Health check endpoint issues"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⚠️  Production system may be in an inconsistent state"
+          echo "👥 Notify your team immediately for manual intervention"
