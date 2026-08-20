@@ -74,7 +74,7 @@ public class OrderPricingServiceImpl implements OrderPricingService {
         }
 
         double membershipDiscount = membershipService.applyMembershipDiscount(customer.getId(), subtotal);
-        var promotion = promotionEngineService.evaluateBestDiscount(customer, restaurant, subtotal);
+        var promotion = promotionEngineService.evaluateBestDiscount(customer, restaurant, subtotal, cartItems);
         double campaignDiscount = promotion.discountAmount();
         boolean campaignFreeDelivery = promotion.freeDelivery();
         discountAmount = PriceCalculator.roundToTwoDecimals(

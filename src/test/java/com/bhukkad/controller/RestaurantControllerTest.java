@@ -45,14 +45,14 @@ public class RestaurantControllerTest {
     @Test
     void getAllRestaurants_returnsActiveRestaurants() {
         List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
-        when(restaurantService.getAllActiveRestaurants()).thenReturn(restaurants);
+        when(restaurantService.getAllActiveRestaurants(null)).thenReturn(restaurants);
         when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
-        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null);
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(restaurants, response.getBody().getData());
-        verify(restaurantService).getAllActiveRestaurants();
+        verify(restaurantService).getAllActiveRestaurants(null);
     }
 
     @Test

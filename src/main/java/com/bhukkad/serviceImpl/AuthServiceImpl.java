@@ -18,6 +18,7 @@ import com.bhukkad.repository.UserRepository;
 import com.bhukkad.security.AuthTokenService;
 import com.bhukkad.security.JwtTokenProvider;
 import com.bhukkad.referral.ReferralService;
+import com.bhukkad.referral.AffiliateService;
 import com.bhukkad.service.AuthService;
 import com.bhukkad.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthTokenService authTokenService;
     private final NotificationService notificationService;
     private final ReferralService referralService;
+    private final AffiliateService affiliateService;
 
     @Override
     public AuthResponse register(RegisterRequest request) {
@@ -78,6 +80,9 @@ public class AuthServiceImpl implements AuthService {
                 customer.setActive(true);
                 customer = customerRepository.save(customer);
                 referralService.initializeNewCustomer(customer, request.getReferralCode());
+                if (request.getAffiliateCode() != null && !request.getAffiliateCode().isBlank()) {
+                    affiliateService.recordSignup(request.getAffiliateCode(), customer.getId());
+                }
                 user = customer;
                 break;
 

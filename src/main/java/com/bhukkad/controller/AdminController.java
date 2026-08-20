@@ -2,12 +2,15 @@ package com.bhukkad.controller;
 
 import com.bhukkad.config.ApiPaths;
 
+import com.bhukkad.dto.request.OnboardingReviewRequest;
 import com.bhukkad.dto.request.TestNotificationRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.service.AdminService;
 import com.bhukkad.service.NotificationService;
+import com.bhukkad.service.RestaurantService;
 import com.bhukkad.service.RiderPayoutService;
 import com.bhukkad.settlement.RestaurantSettlementService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +28,7 @@ public class AdminController {
     private final RiderPayoutService riderPayoutService;
     private final RestaurantSettlementService restaurantSettlementService;
     private final NotificationService notificationService;
+    private final RestaurantService restaurantService;
 
     @GetMapping("/dashboard")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getDashboard() {
@@ -90,6 +94,16 @@ public class AdminController {
     public ResponseEntity<ApiResponse<Void>> suspendRestaurant(@PathVariable Long restaurantId) {
         adminService.suspendRestaurant(restaurantId);
         return ResponseEntity.ok(ApiResponse.success("Restaurant suspended", null));
+    }
+
+    /** Approves or rejects a dark kitchen onboarding application. */
+    @PutMapping("/restaurants/{restaurantId}/onboarding")
+    public ResponseEntity<ApiResponse<Void>> reviewOnboarding(
+            @PathVariable Long restaurantId, @Valid @RequestBody OnboardingReviewRequest request) {
+        restaurantService.reviewOnboarding(restaurantId, request.getApproved(), request.getReason());
+        String message = Boolean.TRUE.equals(request.getApproved())
+                ? "Onboarding approved" : "Onboarding rejected";
+        return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 
     @GetMapping("/revenue")

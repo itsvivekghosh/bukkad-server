@@ -22,4 +22,19 @@ public class PromotionCampaignRequest {
     private Boolean isActive;
     private LocalDateTime startsAt;
     private LocalDateTime endsAt;
+
+    /** Buy-X-Get-Y: quantity the customer must buy to unlock the offer. */
+    private Integer buyQuantity;
+
+    /** Buy-X-Get-Y: quantity granted (discounted) when buyQuantity is met. */
+    private Integer getQuantity;
+
+    /** Buy-X-Get-Y: discount percent on the "get" items (100 = free). */
+    private Double getDiscountPercent;
+
+    /** Target user segment: ALL, NEW_USER, VIP. */
+    private String targetSegment;
+
+    /** When set, Buy-X-Get-Y applies only to this menu item. */
+    private Long applicableMenuItemId;
 }

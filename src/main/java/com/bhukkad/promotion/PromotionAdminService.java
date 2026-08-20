@@ -5,6 +5,7 @@ import com.bhukkad.dto.response.PromotionCampaignResponse;
 import com.bhukkad.entity.PromotionCampaign;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.PromotionCampaignRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class PromotionAdminService {
 
     private final PromotionCampaignRepository promotionCampaignRepository;
     private final RestaurantRepository restaurantRepository;
+    private final MenuItemRepository menuItemRepository;
 
     public List<PromotionCampaignResponse> listAll() {
         return promotionCampaignRepository.findAll().stream().map(this::toResponse).toList();
@@ -69,10 +71,27 @@ public class PromotionAdminService {
         if (request.getIsActive() != null) campaign.setIsActive(request.getIsActive());
         if (request.getStartsAt() != null) campaign.setStartsAt(request.getStartsAt());
         if (request.getEndsAt() != null) campaign.setEndsAt(request.getEndsAt());
+        if (request.getBuyQuantity() != null) campaign.setBuyQuantity(request.getBuyQuantity());
+        if (request.getGetQuantity() != null) campaign.setGetQuantity(request.getGetQuantity());
+        if (request.getGetDiscountPercent() != null) campaign.setGetDiscountPercent(request.getGetDiscountPercent());
+        if (request.getTargetSegment() != null) {
+            try {
+                campaign.setTargetSegment(PromotionCampaign.CampaignSegment.valueOf(
+                        request.getTargetSegment().trim().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                throw new com.bhukkad.exception.BusinessException(
+                        "Invalid target segment: " + request.getTargetSegment());
+            }
+        }
         if (request.getRestaurantId() != null) {
             Restaurant restaurant = restaurantRepository.findById(request.getRestaurantId())
                     .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
             campaign.setRestaurant(restaurant);
+        }
+        if (request.getApplicableMenuItemId() != null) {
+            com.bhukkad.entity.MenuItem menuItem = menuItemRepository.findById(request.getApplicableMenuItemId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Menu item not found"));
+            campaign.setApplicableMenuItem(menuItem);
         }
     }
 
@@ -94,6 +113,12 @@ public class PromotionAdminService {
                 .startsAt(campaign.getStartsAt() != null ? campaign.getStartsAt().toString() : null)
                 .endsAt(campaign.getEndsAt() != null ? campaign.getEndsAt().toString() : null)
                 .isActive(campaign.getIsActive())
+                .buyQuantity(campaign.getBuyQuantity())
+                .getQuantity(campaign.getGetQuantity())
+                .getDiscountPercent(campaign.getGetDiscountPercent())
+                .targetSegment(campaign.getTargetSegment() != null ? campaign.getTargetSegment().name() : null)
+                .applicableMenuItemId(campaign.getApplicableMenuItem() != null
+                        ? campaign.getApplicableMenuItem().getId() : null)
                 .build();
     }
 }

@@ -27,4 +27,7 @@ public class RegisterRequest {
 
     /** Optional referral code from an existing customer (CUSTOMER registration only). */
     private String referralCode;
+
+    /** Optional influencer/affiliate code (CUSTOMER registration only). */
+    private String affiliateCode;
 }
