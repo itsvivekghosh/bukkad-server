@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import secrets
 import sys
@@ -845,7 +846,7 @@ def write_json_report(results: list[TestResult], path: Path, base_url: str) -> N
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bhukkad API feature test runner")
-    parser.add_argument("--base-url", default="http://localhost:8080", help="Server base URL")
+    parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8080"), help="Server base URL")
     parser.add_argument("--password", default="Test@123456", help="Password for test accounts")
     parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout seconds")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print full request/response")
