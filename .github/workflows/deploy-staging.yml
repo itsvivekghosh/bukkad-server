@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   deploy:
@@ -33,14 +34,55 @@ jobs:
       CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
 
     steps:
+      # ─────────────────────────────────────────────────────────────────
+      # 🧹 PHASE 0 — Disk Space Optimization (CRITICAL for GitHub runners)
+      # ─────────────────────────────────────────────────────────────
+      - name: "🧹 Disk Space Optimization"
+        run: |
+          set -euo pipefail
+          log() { echo "🔧 $*"; }
+          log "🔍 Checking disk usage before cleanup..."
+          df -h /
+          LOG_SIZE=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%' || echo "0")
+          if [ "${LOG_SIZE}" -gt 80 ]; then
+            log "⚠️ Disk usage above 80%, proceeding with aggressive cleanup"
+          else
+            log "✅ Disk usage at ${LOG_SIZE}%, proceeding with standard cleanup"
+          fi
+          
+          # Remove unused packages and caches that GitHub runners accumulate
+          apt-get purge -y --auto-remove openjdk-21* 2>/dev/null || true
+          apt-get clean 2>/dev/null || true
+          rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+          rm -rf /tmp/* 2>/dev/null || true
+          rm -rf /var/tmp/* 2>/dev/null || true
+          
+          # Remove large default GitHub runner directories that are rarely used
+          rm -rf /usr/share/dotnet 2>/dev/null || true
+          rm -rf /usr/local/lib/android 2>/dev/null || true
+          rm -rf /opt/ghc 2>/dev/null || true
+          rm -rf /snap/*/core 2>/dev/null || true
+          
+          # Docker-specific cleanup
+          docker image prune -f 2>/dev/null || true
+          docker system prune -f 2>/dev/null || true
+          
+          # Clean Maven local repository cache partially
+          rm -rf /root/.m2/repository/*-sources 2>/dev/null || true
+          rm -rf /root/.m2/repository/*-javadoc 2>/dev/null || true
+          
+          df -h /
+          LOG_SIZE_NEW=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%' || echo "0")
+          log "📉 Disk usage reduced from ${LOG_SIZE}% to ${LOG_SIZE_NEW}%"
+
       # ─────────────────────────────────────────────────────────────
       # 📋 PHASE 1 — Checkout & configuration
       # ─────────────────────────────────────────────────────────────
-
       - name: "📦 Checkout repository"
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
 
       - name: "⚙️ Set deployment defaults"
         run: |
@@ -65,7 +107,7 @@ jobs:
 
       - name: "📜 Prepare deployment script"
         run: |
-          chmod +x .github/scripts/ec2.sh
+          chmod +x .github/scripts/deploy.sh
           mkdir -p ./deploy
           cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
           chmod +x ./deploy/docker-deploy.sh
@@ -101,7 +143,7 @@ jobs:
           echo "✅ SSH setup complete"
 
       - name: "🔍 Verify SSH authentication"
-        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
+        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" 20
 
       - name: "🛡️ Pre-flight SSH port"
         run: bash .github/scripts/ec2.sh preflight-port "${{ steps.ssh.outputs.host }}" 22 15
@@ -114,14 +156,13 @@ jobs:
         id: image
         run: |
           source .github/scripts/deploy-log.sh
-          sudo apt-get update -qq && sudo apt-get install -y -qq jq
           TAG=""
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          if [ "${github.event_name}" = "workflow_run" ]; then
             TAG="${{ github.event.workflow_run.head_sha }}"
           else
             TAG="deploy"
           fi
-          VAR_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          VAR_TAG=$(curl -s -H "Authorization: token ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
             | jq -r '.value // empty')
           if [ -n "${VAR_TAG}" ] && [ "${VAR_TAG}" != "null" ]; then
@@ -166,6 +207,8 @@ jobs:
             printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/flyway-env.txt
             printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/flyway-env.txt
             printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
+            printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
+            printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
             bash .github/scripts/ec2.sh flyway-repair \
               "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
               ~/.ssh/id_ed25519 "${PWD}/src/main/resources/db/migration" /tmp/flyway-env.txt
@@ -201,9 +244,6 @@ jobs:
             REDIS_PORT="${REDIS_PORT:-6379}"
             printf 'REDIS_PORT=%s\n' "${REDIS_PORT}" >> /tmp/deploy-env.txt
             printf 'REDIS_PASSWORD=%s\n' "${{ secrets.STAGING_REDIS_PASSWORD }}" >> /tmp/deploy-env.txt
-            bash .github/scripts/ec2.sh redis-preflight \
-              "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-              ~/.ssh/id_ed25519 /tmp/deploy-env.txt
           fi
 
           bash .github/scripts/ec2.sh deploy \
