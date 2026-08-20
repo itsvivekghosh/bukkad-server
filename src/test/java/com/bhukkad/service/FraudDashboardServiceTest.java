@@ -1,7 +1,9 @@
 package com.bhukkad.service;
 
 import com.bhukkad.entity.FraudEvent;
+import com.bhukkad.entity.FraudReviewAction;
 import com.bhukkad.repository.FraudEventRepository;
+import com.bhukkad.repository.FraudReviewActionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,12 +24,17 @@ class FraudDashboardServiceTest {
     @Mock
     private FraudEventRepository fraudEventRepository;
 
+    @Mock
+    private FraudReviewActionRepository fraudReviewActionRepository;
+
     @InjectMocks
     private FraudDashboardService service;
 
     @Test
     void getDashboard_noEvents_returnsEmptyStats() {
         when(fraudEventRepository.findTop100ByOrderByCreatedAtDesc()).thenReturn(List.of());
+        when(fraudReviewActionRepository.countByStatus(FraudReviewAction.FraudReviewStatus.PENDING))
+                .thenReturn(0L);
 
         var dashboard = service.getDashboard();
 
@@ -37,6 +44,18 @@ class FraudDashboardServiceTest {
         assertTrue(dashboard.getTopIPs().isEmpty());
         assertTrue(dashboard.getTopDevices().isEmpty());
         assertTrue(dashboard.getRecentEvents().isEmpty());
+        assertEquals(0, dashboard.getPendingReviewCount());
+    }
+
+    @Test
+    void getDashboard_reportsPendingReviewCount() {
+        when(fraudEventRepository.findTop100ByOrderByCreatedAtDesc()).thenReturn(List.of());
+        when(fraudReviewActionRepository.countByStatus(FraudReviewAction.FraudReviewStatus.PENDING))
+                .thenReturn(3L);
+
+        var dashboard = service.getDashboard();
+
+        assertEquals(3, dashboard.getPendingReviewCount());
     }
 
     @Test
@@ -57,6 +76,8 @@ class FraudDashboardServiceTest {
         event2.setCreatedAt(now.minusHours(2));
 
         when(fraudEventRepository.findTop100ByOrderByCreatedAtDesc()).thenReturn(List.of(event1, event2));
+        when(fraudReviewActionRepository.countByStatus(FraudReviewAction.FraudReviewStatus.PENDING))
+                .thenReturn(0L);
 
         var dashboard = service.getDashboard();
 
@@ -95,6 +116,8 @@ class FraudDashboardServiceTest {
         event.setCreatedAt(LocalDateTime.now());
 
         when(fraudEventRepository.findTop100ByOrderByCreatedAtDesc()).thenReturn(List.of(event));
+        when(fraudReviewActionRepository.countByStatus(FraudReviewAction.FraudReviewStatus.PENDING))
+                .thenReturn(0L);
 
         var dashboard = service.getDashboard();
 

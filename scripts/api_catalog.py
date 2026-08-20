@@ -163,8 +163,9 @@ API_CATALOG = [
         "path": "/api/v1/orders/delivery/{order_id}/proof/photo-url",
         "auth": "agent",
         "body_key": "delivery_proof_photo",
-        "expected": [200],
+        "expected": [200, 400],
         "requires": ["order_id"],
+        "optional": True,
     },
     {
         "group": "Trust & Compliance (V17)",

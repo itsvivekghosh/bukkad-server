@@ -7,6 +7,7 @@ import com.bhukkad.geo.RestaurantGeoIndexService;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.mapper.AddressMapper;
 import com.bhukkad.dto.response.AddressResponse;
+import com.bhukkad.dto.response.RestaurantOnboardingStatusResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Cuisine;
@@ -26,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.HashSet;
 import java.util.List;
@@ -76,12 +78,28 @@ public class RestaurantServiceImpl implements RestaurantService {
     @Override
     @UseReadReplica
     public List<RestaurantResponse> getAllActiveRestaurants() {
+        return getAllActiveRestaurants(null);
+    }
+
+    @Override
+    @UseReadReplica
+    public List<RestaurantResponse> getAllActiveRestaurants(Long tenantId) {
         String cacheKey = CacheKeyGenerator.restaurantList();
-        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, restaurantListTtl, () ->
-                restaurantRepository.findAllActiveWithDetails()
-                        .stream()
-                        .map(this::mapToResponse)
-                        .collect(Collectors.toList()));
+        List<RestaurantResponse> cached = cacheService.getList(cacheKey, RestaurantResponse.class).orElse(null);
+        if (cached != null && tenantId == null) {
+            return cached;
+        }
+        List<RestaurantResponse> restaurants = restaurantRepository.findAllActiveWithDetails()
+                .stream()
+                .filter(r -> !Restaurant.OnboardingStatus.REJECTED.equals(r.getOnboardingStatus())
+                        && !Restaurant.OnboardingStatus.SUSPENDED.equals(r.getOnboardingStatus()))
+                .filter(r -> tenantId == null || tenantId.equals(r.getTenantId()))
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+        if (tenantId == null) {
+            cacheService.set(cacheKey, restaurants, restaurantListTtl);
+        }
+        return restaurants;
     }
 
     @Override
@@ -187,6 +205,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         restaurant.setIsPureVeg(request.getIsPureVeg() != null ? request.getIsPureVeg() : false);
         restaurant.setLicenseNumber(request.getLicenseNumber());
         restaurant.setFssaiNumber(request.getFssaiNumber());
+        restaurant.setTenantId(request.getTenantId());
 
         if (request.getFeatures() != null) restaurant.setFeatures(request.getFeatures());
 
@@ -220,6 +239,103 @@ public class RestaurantServiceImpl implements RestaurantService {
         invalidateRestaurantCaches();
 
         return mapToResponse(restaurant);
+    }
+
+    @Override
+    public RestaurantResponse createOnboardingApplication(RestaurantRequest request) {
+        Long ownerId = securityUtils.getCurrentUserId();
+        RestaurantOwner owner = restaurantOwnerRepository.findById(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Owner not found"));
+
+        if (!StringUtils.hasText(request.getLicenseNumber()) || !StringUtils.hasText(request.getFssaiNumber())) {
+            throw new BusinessException("Business license and FSSAI number are required for onboarding");
+        }
+
+        Restaurant restaurant = new Restaurant();
+        restaurant.setOwner(owner);
+        restaurant.setName(request.getName());
+        restaurant.setDescription(request.getDescription());
+        restaurant.setImageUrl(request.getImageUrl());
+        restaurant.setOpeningTime(request.getOpeningTime());
+        restaurant.setClosingTime(request.getClosingTime());
+        restaurant.setAverageDeliveryTime(request.getAverageDeliveryTime());
+        restaurant.setMinimumOrderAmount(request.getMinimumOrderAmount());
+        restaurant.setDeliveryFee(request.getDeliveryFee());
+        restaurant.setFreeDeliveryAvailable(request.getFreeDeliveryAvailable() != null ? request.getFreeDeliveryAvailable() : false);
+        restaurant.setFreeDeliveryAbove(request.getFreeDeliveryAbove());
+        restaurant.setIsPureVeg(request.getIsPureVeg() != null ? request.getIsPureVeg() : false);
+        restaurant.setLicenseNumber(request.getLicenseNumber());
+        restaurant.setFssaiNumber(request.getFssaiNumber());
+        restaurant.setTenantId(request.getTenantId());
+        restaurant.setOnboardingStatus(Restaurant.OnboardingStatus.PENDING_VERIFICATION);
+        restaurant.setOnboardingRejectionReason(null);
+
+        if (request.getFeatures() != null) restaurant.setFeatures(request.getFeatures());
+        if (request.getVirtualBrandName() != null) restaurant.setVirtualBrandName(request.getVirtualBrandName());
+
+        if (request.getAddress() != null) {
+            Address address = new Address();
+            address.setAddressLine1(request.getAddress().getAddressLine1());
+            address.setAddressLine2(request.getAddress().getAddressLine2());
+            address.setCity(request.getAddress().getCity());
+            address.setState(request.getAddress().getState());
+            address.setPincode(request.getAddress().getPincode());
+            address.setLandmark(request.getAddress().getLandmark());
+            address.setLatitude(request.getAddress().getLatitude());
+            address.setLongitude(request.getAddress().getLongitude());
+            restaurant.setAddress(address);
+        }
+
+        if (request.getCuisineIds() != null && !request.getCuisineIds().isEmpty()) {
+            Set<Cuisine> cuisines = request.getCuisineIds().stream()
+                    .map(id -> cuisineRepository.findById(id)
+                            .orElseThrow(() -> new ResourceNotFoundException("Cuisine not found: " + id)))
+                    .collect(Collectors.toSet());
+            restaurant.setCuisines(cuisines);
+        }
+
+        restaurant = restaurantRepository.save(restaurant);
+        invalidateRestaurantCaches();
+        return mapToResponse(restaurant);
+    }
+
+    @Override
+    public RestaurantOnboardingStatusResponse getOnboardingStatus() {
+        Long ownerId = securityUtils.getCurrentUserId();
+        List<RestaurantOnboardingStatusResponse.RestaurantOnboardingItem> items =
+                restaurantRepository.findByOwnerIdWithDetails(ownerId)
+                        .stream()
+                        .map(r -> RestaurantOnboardingStatusResponse.RestaurantOnboardingItem.builder()
+                                .restaurantId(r.getId())
+                                .name(r.getName())
+                                .onboardingStatus(r.getOnboardingStatus().name())
+                                .rejectionReason(r.getOnboardingRejectionReason())
+                                .isActive(r.getIsActive())
+                                .build())
+                        .toList();
+        return RestaurantOnboardingStatusResponse.builder().restaurants(items).build();
+    }
+
+    @Override
+    public void reviewOnboarding(Long restaurantId, boolean approved, String reason) {
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+        if (approved) {
+            restaurant.setOnboardingStatus(Restaurant.OnboardingStatus.APPROVED);
+            restaurant.setOnboardingRejectionReason(null);
+            restaurant.setIsActive(true);
+        } else {
+            if (!StringUtils.hasText(reason)) {
+                throw new BusinessException("Rejection reason is required");
+            }
+            restaurant.setOnboardingStatus(Restaurant.OnboardingStatus.REJECTED);
+            restaurant.setOnboardingRejectionReason(reason);
+            restaurant.setIsActive(false);
+            restaurant.setIsOpen(false);
+        }
+        restaurantRepository.save(restaurant);
+        cacheService.delete(CacheKeyGenerator.restaurant(restaurantId));
+        invalidateRestaurantCaches();
     }
 
     @Override
@@ -357,6 +473,8 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .isPureVeg(restaurant.getIsPureVeg())
                 .features(restaurant.getFeatures())
                 .virtualBrandName(restaurant.getVirtualBrandName())
+                .onboardingStatus(restaurant.getOnboardingStatus() != null ? restaurant.getOnboardingStatus().name() : null)
+                .tenantId(restaurant.getTenantId())
                 .build();
     }
 
@@ -398,6 +516,8 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .isPureVeg(restaurant.getIsPureVeg())
                 .features(restaurant.getFeatures())
                 .virtualBrandName(restaurant.getVirtualBrandName())
+                .onboardingStatus(restaurant.getOnboardingStatus() != null ? restaurant.getOnboardingStatus().name() : null)
+                .tenantId(restaurant.getTenantId())
                 .build();
     }
 }

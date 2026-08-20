@@ -119,6 +119,19 @@ public class Restaurant {
     @Column(nullable = false)
     private Integer extraPrepMinutes = 0;
 
+    /** Dark Kitchen onboarding lifecycle state. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private OnboardingStatus onboardingStatus = OnboardingStatus.APPROVED;
+
+    /** Reason recorded when onboarding was rejected. */
+    @Column(length = 255)
+    private String onboardingRejectionReason;
+
+    /** White-label tenant this restaurant belongs to (null = platform/own brand). */
+    @Column(name = "tenant_id")
+    private Long tenantId;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -147,5 +160,13 @@ public class Restaurant {
 
     public enum FoodType {
         VEG, NON_VEG, VEGAN, GLUTEN_FREE
+    }
+
+    /** Dark Kitchen self-serve onboarding lifecycle. */
+    public enum OnboardingStatus {
+        PENDING_VERIFICATION,
+        APPROVED,
+        REJECTED,
+        SUSPENDED
     }
 }

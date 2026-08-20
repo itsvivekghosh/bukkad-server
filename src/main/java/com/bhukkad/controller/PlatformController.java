@@ -6,15 +6,21 @@ import com.bhukkad.config.ExternalEventsProperties;
 import com.bhukkad.config.GeoIndexProperties;
 import com.bhukkad.config.NotificationProperties;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.CityConfigResponse;
+import com.bhukkad.dto.response.TenantResponse;
 import com.bhukkad.inventory.StockReservationService;
 import com.bhukkad.geo.RestaurantGeoIndexService;
+import com.bhukkad.tenant.TenantService;
+import com.bhukkad.zone.CityConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -28,6 +34,20 @@ public class PlatformController {
     private final RestaurantGeoIndexService restaurantGeoIndexService;
     private final StockReservationService stockReservationService;
     private final NotificationProperties notificationProperties;
+    private final CityConfigService cityConfigService;
+    private final TenantService tenantService;
+
+    /** Public list of active cities (Multi-city/Region Support). */
+    @GetMapping("/cities")
+    public ResponseEntity<ApiResponse<List<CityConfigResponse>>> getActiveCities() {
+        return ResponseEntity.ok(ApiResponse.success(cityConfigService.listActive()));
+    }
+
+    /** Public white-label storefront config for a tenant domain. */
+    @GetMapping("/tenants/{domain}")
+    public ResponseEntity<ApiResponse<TenantResponse>> getTenantByDomain(@PathVariable String domain) {
+        return ResponseEntity.ok(ApiResponse.success(tenantService.getByDomain(domain)));
+    }
 
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPlatformStatus() {

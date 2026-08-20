@@ -51,4 +51,7 @@ public class RestaurantRequest {
     private String fssaiNumber;
 
     private String virtualBrandName;
+
+    /** White-label tenant this restaurant belongs to (null = platform/own brand). */
+    private Long tenantId;
 }

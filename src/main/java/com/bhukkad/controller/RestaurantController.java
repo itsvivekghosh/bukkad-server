@@ -6,6 +6,7 @@ import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.dto.request.ReviewResponseRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.RestaurantOnboardingStatusResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
 import com.bhukkad.entity.Review;
 import com.bhukkad.ratelimit.RateLimited;
@@ -46,8 +47,9 @@ public class RestaurantController {
     @GetMapping("/public")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getAllRestaurants(
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
-            @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince) {
-        List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants();
+            @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince,
+            @RequestHeader(value = "X-Tenant-Id", required = false) Long tenantId) {
+        List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants(tenantId);
         ApiResponse<List<RestaurantResponse>> body = ApiResponse.success(restaurants);
 
         HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
@@ -116,6 +118,26 @@ public class RestaurantController {
             @Valid @RequestBody RestaurantRequest request) {
         RestaurantResponse restaurant = restaurantService.createRestaurant(request);
         return ResponseEntity.ok(ApiResponse.success("Restaurant created successfully", restaurant));
+    }
+
+    /**
+     * Self-serve dark kitchen onboarding: submits an application for verification.
+     * The restaurant starts in {@code PENDING_VERIFICATION} until an admin approves it.
+     */
+    @PostMapping("/onboarding/signup")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<RestaurantResponse>> onboardingSignup(
+            @Valid @RequestBody RestaurantRequest request) {
+        RestaurantResponse restaurant = restaurantService.createOnboardingApplication(request);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Onboarding application submitted for verification", restaurant));
+    }
+
+    /** Returns the onboarding status of all restaurants owned by the caller. */
+    @GetMapping("/onboarding/status")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<RestaurantOnboardingStatusResponse>> onboardingStatus() {
+        return ResponseEntity.ok(ApiResponse.success(restaurantService.getOnboardingStatus()));
     }
 
     @GetMapping("/owner/my-restaurants")

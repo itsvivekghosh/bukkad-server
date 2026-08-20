@@ -14,6 +14,7 @@ import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.UserRepository;
 import com.bhukkad.referral.ReferralService;
+import com.bhukkad.referral.AffiliateService;
 import com.bhukkad.security.JwtTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,9 @@ class AuthServiceImplTest {
     private com.bhukkad.service.NotificationService notificationService;
     @Mock
     private ReferralService referralService;
+
+    @Mock
+    private AffiliateService affiliateService;
 
     @InjectMocks
     private AuthServiceImpl authService;

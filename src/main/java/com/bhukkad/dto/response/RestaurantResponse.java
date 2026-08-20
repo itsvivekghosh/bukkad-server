@@ -36,4 +36,6 @@ public class RestaurantResponse {
     private Set<String> foodTypes;
     private Set<String> features;
     private String virtualBrandName;
+    private String onboardingStatus;
+    private Long tenantId;
 }

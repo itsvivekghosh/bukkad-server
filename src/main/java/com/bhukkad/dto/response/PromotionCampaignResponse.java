@@ -22,4 +22,9 @@ public class PromotionCampaignResponse {
     private Boolean isActive;
     private String startsAt;
     private String endsAt;
+    private Integer buyQuantity;
+    private Integer getQuantity;
+    private Double getDiscountPercent;
+    private String targetSegment;
+    private Long applicableMenuItemId;
 }

@@ -99,6 +99,8 @@ public class SecurityConfig {
 
                     // Platform status - Public GET
                     auth.requestMatchers(HttpMethod.GET, V1 + "/platform/status").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/platform/cities").permitAll();
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/platform/tenants/**").permitAll();
 
                     // Serviceability & home feed - Public GET
                     auth.requestMatchers(HttpMethod.GET, V1 + "/serviceability/**").permitAll();
@@ -124,6 +126,7 @@ public class SecurityConfig {
 
                     // ==================== RESTAURANT OWNER ====================
                     auth.requestMatchers(V1 + "/restaurants/owner/**").hasRole("RESTAURANT_OWNER");
+                    auth.requestMatchers(V1 + "/restaurants/onboarding/**").hasRole("RESTAURANT_OWNER");
                     auth.requestMatchers(HttpMethod.POST, V1 + "/menu/**").hasRole("RESTAURANT_OWNER");
                     auth.requestMatchers(HttpMethod.PUT, V1 + "/menu/**").hasRole("RESTAURANT_OWNER");
                     auth.requestMatchers(HttpMethod.DELETE, V1 + "/menu/**").hasRole("RESTAURANT_OWNER");

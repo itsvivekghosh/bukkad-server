@@ -59,7 +59,32 @@ public class PromotionCampaign {
 
     private LocalDateTime endsAt;
 
+    /** Buy-X-Get-Y: items the customer must purchase to unlock the offer. */
+    private Integer buyQuantity;
+
+    /** Buy-X-Get-Y: items granted (discounted) when {@link #buyQuantity} is met. */
+    private Integer getQuantity;
+
+    /** Buy-X-Get-Y: discount percent applied to the "get" items (100 = free). */
+    private Double getDiscountPercent;
+
+    /** User segment this campaign targets; null/ALL applies to everyone. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private CampaignSegment targetSegment;
+
+    /** When set, the Buy-X-Get-Y offer applies only to this menu item. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "applicable_menu_item_id")
+    private MenuItem applicableMenuItem;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    public enum CampaignSegment {
+        ALL,
+        NEW_USER,
+        VIP
+    }
 }
