@@ -45,11 +45,11 @@ jobs:
           cache: maven
       - run: chmod +x mvnw
       - name: Run ArchUnit
-        run: ./mvnw -B test -Dtest="com.bhukkad.architecture.*" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B test -Dtest="ArchitectureTest" -Dsurefire.failIfNoSpecifiedTests=false
       - name: Run Pact consumer tests (writes pact file)
-        run: ./mvnw -B test -Dtest="com.bhukkad.contract.*ConsumerPactTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B test -Dtest="CuisineApiConsumerPactTest" -Dsurefire.failIfNoSpecifiedTests=false
       - name: Run Pact provider tests (verifies consumer pact)
-        run: ./mvnw -B test -Dtest="com.bhukkad.contract.*ProviderPactTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B test -Dtest="CuisineApiProviderPactTest" -Dsurefire.failIfNoSpecifiedTests=false
 
   mutation-testing:
     name: Mutation Testing
@@ -86,6 +86,8 @@ jobs:
       - run: chmod +x mvnw
       - name: Run OWASP Dependency Check
         run: ./mvnw -B -Pdependency-scan org.owasp:dependency-check-maven:check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
       - name: Upload OWASP report
         uses: actions/upload-artifact@v5
         with:

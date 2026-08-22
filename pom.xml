@@ -236,6 +236,15 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- Required for @Suite-based regression/architecture suites to actually
+		     execute. Without the engine, JUnit Platform treats @Suite classes as
+		     zero tests and CI reports a green-but-empty run. -->
+		<dependency>
+			<groupId>org.junit.platform</groupId>
+			<artifactId>junit-platform-suite-engine</artifactId>
+			<scope>test</scope>
+		</dependency>
+
 		<!-- Architecture tests (ArchUnit) — enforce layer boundaries -->
 		<dependency>
 			<groupId>com.tngtech.archunit</groupId>
@@ -520,6 +529,12 @@
 							</targetClasses>
 							<excludedTestClasses>
 								<param>com.bhukkad.regression.*</param>
+								<!-- Docker/Testcontainers and contract tests are not run
+								     by Pitest: they need a container/pact broker and would
+								     fail the "green suite" pre-check in CI. -->
+								<param>com.bhukkad.integration.*</param>
+								<param>com.bhukkad.contract.*</param>
+								<param>com.bhukkad.architecture.*</param>
 							</excludedTestClasses>
 							<mutationThreshold>50</mutationThreshold>
 							<timestampedReports>false</timestampedReports>
@@ -555,6 +570,10 @@
 							<failOnError>false</failOnError>
 							<format>ALL</format>
 							<skipProvidedScope>false</skipProvidedScope>
+							<!-- NVD now requires an API key; provide via NVD_API_KEY env
+							     (GitHub secret in CI). Without it the feed 403s and the
+							     analysis is skipped non-fatally (failOnError=false). -->
+							<nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
 						</configuration>
 						<executions>
 							<execution>
