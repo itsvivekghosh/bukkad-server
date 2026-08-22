@@ -64,7 +64,7 @@ jobs:
           cache: maven
       - run: chmod +x mvnw
       - name: Run Pitest
-        run: ./mvnw -B -Pmutation-testing org.pitest:pitest-maven:mutationCoverage
+        run: ./mvnw -B -Pmutation-testing test-compile org.pitest:pitest-maven:mutationCoverage
       - name: Upload Pitest report
         uses: actions/upload-artifact@v5
         with:
@@ -85,7 +85,7 @@ jobs:
           cache: maven
       - run: chmod +x mvnw
       - name: Run OWASP Dependency Check
-        run: ./mvnw -B -Pdependency-scan verify
+        run: ./mvnw -B -Pdependency-scan org.owasp:dependency-check-maven:check
       - name: Upload OWASP report
         uses: actions/upload-artifact@v5
         with:

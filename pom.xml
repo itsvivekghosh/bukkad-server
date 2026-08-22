@@ -27,7 +27,7 @@
 		<argLine></argLine>
 		<!-- Code quality tooling versions -->
 		<archunit.version>1.3.0</archunit.version>
-		<pact.version>4.6.6</pact.version>
+		<pact.version>4.7.5</pact.version>
 		<pitest.version>1.15.8</pitest.version>
 		<pitest-junit5.version>1.2.1</pitest-junit5.version>
 		<dependency-check.version>9.2.0</dependency-check.version>
