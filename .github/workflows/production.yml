@@ -1,88 +1,68 @@
-name: Deploy to Production
+name: Production Deploy
 
 on:
-  pull_request:
+  push:
     branches: [ main ]
-    types: [ opened, synchronize, reopened, ready_for_review ]
   workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  get-image-tag:
-    name: "🏷️ Get Staging Image Tag"
+  ci:
+    name: Build & Test
+    uses: ./.github/workflows/ci.yml
+
+  build-and-push:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    needs: ci
     outputs:
-      tag: ${{ steps.image.outputs.tag }}
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.sha }}
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: "📦 Checkout repository"
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: "🔍 Resolve production image tag"
-        id: image
-        run: |
-          source .github/scripts/deploy-log.sh
-          deploy_pipeline_diagram "Production"
-          log_section "🏷️ Resolve staging-validated image"
-          sudo apt-get update -qq && sudo apt-get install -y -qq jq
-          TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
-            | jq -r '.value // empty')
-          if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
-            log_warn "STAGING_IMAGE_SHA not set; falling back to deploy tag"
-            TAG="deploy"
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          log_ok "Production image tag: ${TAG}"
-          log_info "Same image that passed staging validation"
-          log_section_end
+      - uses: docker/setup-buildx-action@v4
 
-  validate:
-    name: "📋 Release Candidate Validation"
-    runs-on: ubuntu-latest
-    needs: get-image-tag
-    if: github.event_name == 'pull_request'
-
-    steps:
-      - name: "📦 Checkout repository"
-        uses: actions/checkout@v5
-
-      - name: "💬 Comment PR with release info"
-        uses: actions/github-script@v7
+      - uses: docker/login-action@v3
         with:
-          script: |
-            const sha = context.payload.pull_request.head.sha;
-            const imageTag = "${{ needs.get-image-tag.outputs.tag }}";
-            const body = [
-              "## 🏭 Production Release Candidate",
-              "",
-              "| Field | Value |",
-              "|-------|-------|",
-              `| 🏷️ **Image Tag** | \`${imageTag}\` |`,
-              `| 📝 **Commit SHA** | \`${sha}\` |`,
-              `| 🌿 **Branch** | \`${{ github.event.pull_request.head.ref }}\` |`,
-              `| 🏥 **Staging** | ✅ Validated image |`,
-              "",
-              "### 🚀 Next step",
-              "",
-              "Merge this PR, then run **Deploy to Production** manually when ready.",
-              "",
-              "🛡️ Production uses the **exact same Docker image** tested in staging."
-            ].join("\n");
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body
-            });
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        run: |
+          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
+          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Building and pushing: ${GHCR_IMAGE}:${GITHUB_SHA} and :deploy"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:deploy
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     name: "🏭 Production Deployment"
     runs-on: ubuntu-latest
-    needs: [get-image-tag]
-    if: github.event_name == 'workflow_dispatch'
+    needs: [ci, build-and-push]
     environment:
       name: production
       url: http://${{ vars.PROD_EC2_HOST }}:8080
@@ -116,10 +96,10 @@ jobs:
         run: |
           source .github/scripts/deploy-log.sh
           deploy_pipeline_diagram "Production"
-          deploy_banner "Production 🏭" "${{ github.sha }}" "${{ needs.get-image-tag.outputs.tag }}" "${{ vars.PROD_EC2_HOST }}"
+          deploy_banner "Production 🏭" "${{ github.sha }}" "${{ needs.build-and-push.outputs.tag }}" "${{ vars.PROD_EC2_HOST }}"
           log_section "🔧 Configuration check"
           check_optional_var "PROD_EC2_HOST" "${{ vars.PROD_EC2_HOST }}" "(required)"
-          check_optional_var "GHCR_IMAGE" "${{ vars.GHCR_IMAGE }}" "ghcr.io/itsvivekghosh/bukkad-server"
+          check_optional_var "GHCR_IMAGE" "${GHCR_IMAGE}" "ghcr.io/itsvivekghosh/bukkad-server"
           log_section_end
 
       - name: "📜 Prepare deployment script"
@@ -212,8 +192,8 @@ jobs:
           fi
 
           {
-            printf 'IMAGE_TAG=%s\n' "${{ needs.get-image-tag.outputs.tag }}"
-            printf 'GHCR_IMAGE=%s\n' "${GHCR_IMAGE}"
+            printf 'IMAGE_TAG=%s\n' "${{ needs.build-and-push.outputs.tag }}"
+            printf 'GHCR_IMAGE=%s\n' "${{ needs.build-and-push.outputs.image }}"
             printf 'GHCR_USERNAME=%s\n' "${GHCR_USERNAME}"
             printf 'CONTAINER_NAME=%s\n' "${CONTAINER_NAME}"
             printf 'SPRING_PROFILES_ACTIVE=prod\n'
@@ -257,7 +237,7 @@ jobs:
         run: |
           bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
+            ~/.ssh/id_ed25519 120 5 "${CONTAINER_NAME}" \
             "http://localhost:${APP_PORT}${HEALTH_PATH}"
 
       - name: "🧪 Production smoke test (external)"
@@ -284,7 +264,7 @@ jobs:
           source .github/scripts/deploy-log.sh
           deploy_summary "Production 🏭" \
             "${{ steps.ssh.outputs.host }}" \
-            "${GHCR_IMAGE}:${{ needs.get-image-tag.outputs.tag }}" \
+            "${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}" \
             "http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"
 
       - name: "💥 Deployment failure summary"
@@ -293,4 +273,4 @@ jobs:
           source .github/scripts/deploy-log.sh
           deploy_failure_summary "Production 🏭" \
             "${{ steps.ssh.outputs.host }}" \
-            "${GHCR_IMAGE}:${{ needs.get-image-tag.outputs.tag }}"
+            "${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}"

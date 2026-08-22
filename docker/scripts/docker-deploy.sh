@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy Bhukkad API container on a single EC2 host (staging or production).
-# Expects IMAGE_TAG and application secrets in the environment (see deploy-staging.yml).
+# Expects IMAGE_TAG and application secrets in the environment (see staging.yml).
 set -euo pipefail
 
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
@@ -101,6 +101,12 @@ fi
 
 echo "Stopping existing container..."
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+# EC2 hosts accumulate one image per deploy SHA. Prune unused images and build
+# cache (keeps images used by running containers; never touches volumes) so the
+# pull below never fails with 'no space left on device'.
+echo "Pruning unused Docker images and build cache..."
+docker system prune -af 2>/dev/null || true
 
 echo "Pulling image..."
 docker pull "$APP_IMAGE"

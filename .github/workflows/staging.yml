@@ -1,30 +1,90 @@
-name: Deploy to Staging
+name: Staging Deploy
 
 on:
-  workflow_run:
-    workflows: ["Docker Image"]
-    types: [completed]
+  push:
+    branches: [ deploy ]
   workflow_dispatch:
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
+  ci:
+    name: Build & Test
+    uses: ./.github/workflows/ci.yml
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: ci
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.sha }}
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        run: |
+          GHCR_IMAGE="${{ vars.GHCR_IMAGE }}"
+          GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/itsvivekghosh/bukkad-server}"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Building and pushing: ${GHCR_IMAGE}:${GITHUB_SHA} and :deploy"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:deploy
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update STAGING_IMAGE_SHA variable
+        if: github.ref == 'refs/heads/deploy'
+        run: |
+          SHA="${{ github.sha }}"
+          HTTP_CODE=$(curl -s -o /tmp/var-response.txt -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
+            -d "{\"name\":\"STAGING_IMAGE_SHA\",\"value\":\"${SHA}\"}")
+          if [ "$HTTP_CODE" = "404" ]; then
+            curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/variables" \
+              -d "{\"name\":\"STAGING_IMAGE_SHA\",\"value\":\"${SHA}\"}"
+          fi
+
   deploy:
     name: "🎯 Staging Deployment"
     runs-on: ubuntu-latest
+    needs: [ci, build-and-push]
     environment:
       name: staging
       url: http://${{ vars.STAGING_EC2_HOST }}:8080
-
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'deploy'
-      )
 
     env:
       APP_PORT: ${{ vars.APP_PORT }}
@@ -34,7 +94,7 @@ jobs:
       CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
 
     steps:
-      # ─────────────────────────────────────────────────────────────────
+      # ─────────────────────────────────────────────────────────────
       # 🧹 PHASE 0 — Disk Space Optimization (CRITICAL for GitHub runners)
       # ─────────────────────────────────────────────────────────────
       - name: "🧹 Disk Space Optimization"
@@ -49,28 +109,28 @@ jobs:
           else
             log "✅ Disk usage at ${LOG_SIZE}%, proceeding with standard cleanup"
           fi
-          
+
           # Remove unused packages and caches that GitHub runners accumulate
           apt-get purge -y --auto-remove openjdk-21* 2>/dev/null || true
           apt-get clean 2>/dev/null || true
           rm -rf /var/lib/apt/lists/* 2>/dev/null || true
           rm -rf /tmp/* 2>/dev/null || true
           rm -rf /var/tmp/* 2>/dev/null || true
-          
+
           # Remove large default GitHub runner directories that are rarely used
           rm -rf /usr/share/dotnet 2>/dev/null || true
           rm -rf /usr/local/lib/android 2>/dev/null || true
           rm -rf /opt/ghc 2>/dev/null || true
           rm -rf /snap/*/core 2>/dev/null || true
-          
+
           # Docker-specific cleanup
           docker image prune -f 2>/dev/null || true
           docker system prune -f 2>/dev/null || true
-          
+
           # Clean Maven local repository cache partially
           rm -rf /root/.m2/repository/*-sources 2>/dev/null || true
           rm -rf /root/.m2/repository/*-javadoc 2>/dev/null || true
-          
+
           df -h /
           LOG_SIZE_NEW=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%' || echo "0")
           log "📉 Disk usage reduced from ${LOG_SIZE}% to ${LOG_SIZE_NEW}%"
@@ -80,9 +140,6 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       - name: "📦 Checkout repository"
         uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 0
 
       - name: "⚙️ Set deployment defaults"
         run: |
@@ -98,7 +155,7 @@ jobs:
         run: |
           source .github/scripts/deploy-log.sh
           deploy_pipeline_diagram "Staging"
-          deploy_banner "Staging 🧪" "${{ github.sha }}" "pending" "${{ vars.STAGING_EC2_HOST }}"
+          deploy_banner "Staging 🧪" "${{ github.sha }}" "${{ needs.build-and-push.outputs.tag }}" "${{ vars.STAGING_EC2_HOST }}"
           log_section "🔧 Configuration check"
           check_optional_var "STAGING_EC2_HOST" "${{ vars.STAGING_EC2_HOST }}" "(required)"
           check_optional_var "GHCR_IMAGE" "${GHCR_IMAGE}" "ghcr.io/itsvivekghosh/bukkad-server"
@@ -107,7 +164,7 @@ jobs:
 
       - name: "📜 Prepare deployment script"
         run: |
-          chmod +x .github/scripts/deploy.sh
+          chmod +x .github/scripts/ec2.sh
           mkdir -p ./deploy
           cp docker/scripts/docker-deploy.sh ./deploy/docker-deploy.sh
           chmod +x ./deploy/docker-deploy.sh
@@ -143,39 +200,21 @@ jobs:
           echo "✅ SSH setup complete"
 
       - name: "🔍 Verify SSH authentication"
-        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" 20
+        run: bash .github/scripts/ec2.sh verify-ssh "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" ~/.ssh/id_ed25519 20
 
       - name: "🛡️ Pre-flight SSH port"
         run: bash .github/scripts/ec2.sh preflight-port "${{ steps.ssh.outputs.host }}" 22 15
 
       # ─────────────────────────────────────────────────────────────
-      # 🏷️ PHASE 3 — Image tag & secrets
+      # 🔒 PHASE 3 — Secrets validation
       # ─────────────────────────────────────────────────────────────
-
-      - name: "🏷️ Determine image tag"
-        id: image
-        run: |
-          source .github/scripts/deploy-log.sh
-          TAG=""
-          if [ "${github.event_name}" = "workflow_run" ]; then
-            TAG="${{ github.event.workflow_run.head_sha }}"
-          else
-            TAG="deploy"
-          fi
-          VAR_TAG=$(curl -s -H "Authorization: token ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/variables/STAGING_IMAGE_SHA" \
-            | jq -r '.value // empty')
-          if [ -n "${VAR_TAG}" ] && [ "${VAR_TAG}" != "null" ]; then
-            TAG="${VAR_TAG}"
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          log_ok "Deploying image: ${GHCR_IMAGE}:${TAG}"
 
       - name: "🔒 Validate secrets"
         run: |
           source .github/scripts/deploy-log.sh
           log_section "🔒 Validate required secrets"
           check_required_secret "GHCR_READ_TOKEN" "${{ secrets.GHCR_READ_TOKEN }}"
+          check_required_secret "STAGING_SSH_KEY" "${{ secrets.STAGING_SSH_KEY }}"
           check_required_secret "STAGING_DB_HOST" "${{ secrets.STAGING_DB_HOST }}"
           check_required_secret "STAGING_DB_NAME" "${{ secrets.STAGING_DB_NAME }}"
           check_required_secret "STAGING_DB_USERNAME" "${{ secrets.STAGING_DB_USERNAME }}"
@@ -206,9 +245,6 @@ jobs:
             printf 'DB_NAME=%s\n' "${{ secrets.STAGING_DB_NAME }}" >> /tmp/flyway-env.txt
             printf 'DB_USERNAME=%s\n' "${{ secrets.STAGING_DB_USERNAME }}" >> /tmp/flyway-env.txt
             printf 'DB_PASSWORD=%s\n' "${{ secrets.STAGING_DB_PASSWORD }}" >> /tmp/flyway-env.txt
-            printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
-            printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
-            printf 'DB_URL=%s\n' "${{ secrets.STAGING_DB_URL }}" >> /tmp/flyway-env.txt
             bash .github/scripts/ec2.sh flyway-repair \
               "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
               ~/.ssh/id_ed25519 "${PWD}/src/main/resources/db/migration" /tmp/flyway-env.txt
@@ -216,8 +252,8 @@ jobs:
           fi
 
           {
-            printf 'IMAGE_TAG=%s\n' "${{ steps.image.outputs.tag }}"
-            printf 'GHCR_IMAGE=%s\n' "${GHCR_IMAGE}"
+            printf 'IMAGE_TAG=%s\n' "${{ needs.build-and-push.outputs.tag }}"
+            printf 'GHCR_IMAGE=%s\n' "${{ needs.build-and-push.outputs.image }}"
             printf 'GHCR_USERNAME=%s\n' "${GHCR_USERNAME}"
             printf 'CONTAINER_NAME=%s\n' "${CONTAINER_NAME}"
             printf 'SPRING_PROFILES_ACTIVE=staging\n'
@@ -258,7 +294,7 @@ jobs:
         run: |
           bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
+            ~/.ssh/id_ed25519 120 5 "${CONTAINER_NAME}" \
             "http://localhost:${APP_PORT}${HEALTH_PATH}"
 
       - name: "🧪 Staging smoke test (external)"
@@ -285,7 +321,7 @@ jobs:
           source .github/scripts/deploy-log.sh
           deploy_summary "Staging 🧪" \
             "${{ steps.ssh.outputs.host }}" \
-            "${GHCR_IMAGE}:${{ steps.image.outputs.tag }}" \
+            "${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}" \
             "http://${{ steps.ssh.outputs.host }}:${APP_PORT}${HEALTH_PATH}"
 
       - name: "💥 Deployment failure summary"
@@ -294,4 +330,4 @@ jobs:
           source .github/scripts/deploy-log.sh
           deploy_failure_summary "Staging 🧪" \
             "${{ steps.ssh.outputs.host }}" \
-            "${GHCR_IMAGE}:${{ steps.image.outputs.tag }}"
+            "${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}"
