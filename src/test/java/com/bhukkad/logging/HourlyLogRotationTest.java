@@ -8,6 +8,8 @@ import ch.qos.logback.core.OutputStreamAppender;
 import ch.qos.logback.core.rolling.DefaultTimeBasedFileNamingAndTriggeringPolicy;
 import ch.qos.logback.core.rolling.RollingFileAppender;
 import ch.qos.logback.core.rolling.TimeBasedRollingPolicy;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,6 +20,7 @@ import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,11 +39,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * The test drives Logback's internal clock via the public test hook
  * DefaultTimeBasedFileNamingAndTriggeringPolicy#setCurrentTime, mirroring the
  * production fileNamePattern (server_%d{dd-MM-yyyy-HH}.log).
+ *
+ * The {@code %d{dd-MM-yyyy-HH}} pattern renders using the JVM default timezone
+ * (the server timezone). CI runners default to UTC, so this test pins the
+ * default timezone to the same zone the asserted filenames are expressed in —
+ * otherwise a UTC runner would render a different hour token and fail.
  */
 class HourlyLogRotationTest {
 
     private static final String PATTERN = "payment/server_%d{dd-MM-yyyy-HH}.log";
     private static final ZoneId TEST_ZONE = ZoneId.of("Asia/Kolkata");
+    private static TimeZone originalTimeZone;
+
+    @BeforeAll
+    static void pinTimeZone() {
+        originalTimeZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone(TEST_ZONE));
+    }
+
+    @AfterAll
+    static void restoreTimeZone() {
+        TimeZone.setDefault(originalTimeZone);
+    }
 
     @TempDir
     Path tempDir;
