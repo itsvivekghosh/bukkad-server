@@ -67,6 +67,12 @@ public class PromotionCampaignService {
                 .isActive(campaign.getIsActive())
                 .startsAt(campaign.getStartsAt() != null ? campaign.getStartsAt().toString() : null)
                 .endsAt(campaign.getEndsAt() != null ? campaign.getEndsAt().toString() : null)
+                .buyQuantity(campaign.getBuyQuantity())
+                .getQuantity(campaign.getGetQuantity())
+                .getDiscountPercent(campaign.getGetDiscountPercent())
+                .targetSegment(campaign.getTargetSegment() != null ? campaign.getTargetSegment().name() : null)
+                .applicableMenuItemId(campaign.getApplicableMenuItem() != null
+                        ? campaign.getApplicableMenuItem().getId() : null)
                 .build();
     }
 }

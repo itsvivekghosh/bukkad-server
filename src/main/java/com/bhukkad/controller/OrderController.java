@@ -27,22 +27,27 @@ import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CartService;
 import com.bhukkad.service.OrderService;
 import com.bhukkad.util.PaginationUtils;
+import com.bhukkad.web.FieldProjection;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.json.MappingJacksonValue;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.stream.Collectors;
 import java.time.LocalDate;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/orders")
 @RequiredArgsConstructor
+@Tag(name = "Order", description = "REST endpoints for Order")
 public class OrderController {
 
     private final OrderService orderService;
@@ -80,6 +85,7 @@ public class OrderController {
     // Customer endpoints
     @PostMapping("/customer/create")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Create order")
     public ResponseEntity<ApiResponse<?>> createOrder(
             @Valid @RequestBody OrderRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -98,6 +104,7 @@ public class OrderController {
 
     @GetMapping("/customer/scheduled-orders")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my scheduled orders")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyScheduledOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -107,6 +114,7 @@ public class OrderController {
 
     @GetMapping("/customer/scheduled-orders/cursor")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my scheduled orders by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyScheduledOrdersByCursor(
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
@@ -117,6 +125,7 @@ public class OrderController {
 
     @PutMapping("/customer/scheduled-orders/{orderId}/cancel")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Cancel scheduled order")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelScheduledOrder(
             @PathVariable Long orderId,
             @RequestParam String reason) {
@@ -126,6 +135,7 @@ public class OrderController {
 
     @PostMapping("/customer/create-batch")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Create batch orders")
     public ResponseEntity<ApiResponse<BatchOrderResponse>> createBatchOrders(
             @Valid @RequestBody BatchOrderRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
@@ -141,6 +151,7 @@ public class OrderController {
 
     @GetMapping("/customer/my-orders")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my orders")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -150,6 +161,7 @@ public class OrderController {
 
     @GetMapping("/customer/my-orders/cursor")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my orders by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyOrdersByCursor(
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
@@ -160,9 +172,12 @@ public class OrderController {
 
     @GetMapping("/customer/{orderId}")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<OrderResponse>> getOrderById(@PathVariable Long orderId) {
+    @Operation(summary = "Get order by id")
+    public ResponseEntity<MappingJacksonValue> getOrderById(
+            @PathVariable Long orderId,
+            @RequestParam(required = false) String fields) {
         OrderResponse order = orderService.getOrderById(orderId);
-        return ResponseEntity.ok(ApiResponse.success(order));
+        return ResponseEntity.ok(FieldProjection.project(ApiResponse.success(order), fields));
     }
 
     /**
@@ -186,13 +201,17 @@ public class OrderController {
     @GetMapping({"/customer/track/{orderId}", "/customer/{orderId}/track"})
     @PreAuthorize("hasRole('CUSTOMER')")
     @RateLimited("order-track")
-    public ResponseEntity<ApiResponse<OrderResponse>> trackOrder(@PathVariable Long orderId) {
+    @Operation(summary = "Track order")
+    public ResponseEntity<MappingJacksonValue> trackOrder(
+            @PathVariable Long orderId,
+            @RequestParam(required = false) String fields) {
         OrderResponse order = orderService.trackOrder(orderId);
-        return ResponseEntity.ok(ApiResponse.success(order));
+        return ResponseEntity.ok(FieldProjection.project(ApiResponse.success(order), fields));
     }
 
     @PostMapping("/customer/{orderId}/reorder")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Reorder")
     public ResponseEntity<ApiResponse<ReorderResponse>> reorder(
             @PathVariable Long orderId) {
         ReorderResponse response = cartService.reorderFromOrder(orderId);
@@ -215,6 +234,7 @@ public class OrderController {
 
     @GetMapping("/customer/export/orders")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Export order history")
     public ResponseEntity<byte[]> exportOrderHistory(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
@@ -231,6 +251,7 @@ public class OrderController {
 
     @PutMapping("/customer/{orderId}/cancel")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Cancel order")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
             @PathVariable Long orderId,
             @RequestParam String reason) {
@@ -241,6 +262,7 @@ public class OrderController {
     // Restaurant / cloud kitchen endpoints
     @GetMapping("/restaurant/{restaurantId}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get restaurant orders")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getRestaurantOrders(
             @PathVariable Long restaurantId,
             @RequestParam(defaultValue = "0") int page,
@@ -251,6 +273,7 @@ public class OrderController {
 
     @GetMapping("/restaurant/{restaurantId}/cursor")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get restaurant orders by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getRestaurantOrdersByCursor(
             @PathVariable Long restaurantId,
             @RequestParam(required = false) String cursor,
@@ -262,6 +285,7 @@ public class OrderController {
 
     @GetMapping("/restaurant/{restaurantId}/pending")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get pending orders")
     public ResponseEntity<ApiResponse<List<OrderSummaryResponse>>> getPendingOrders(
             @PathVariable Long restaurantId,
             @RequestParam(defaultValue = "" + PaginationUtils.KITCHEN_QUEUE_DEFAULT_LIMIT) int limit) {
@@ -272,6 +296,7 @@ public class OrderController {
     @GetMapping("/restaurant/{restaurantId}/kitchen-queue")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
     @RateLimited("kitchen-queue")
+    @Operation(summary = "Get kitchen queue")
     public ResponseEntity<ApiResponse<List<OrderSummaryResponse>>> getKitchenQueue(
             @PathVariable Long restaurantId,
             @RequestParam(defaultValue = "" + PaginationUtils.KITCHEN_QUEUE_DEFAULT_LIMIT) int limit) {
@@ -295,6 +320,7 @@ public class OrderController {
 
     @PutMapping("/restaurant/{orderId}/assign-delivery")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Assign delivery agent")
     public ResponseEntity<ApiResponse<OrderResponse>> assignDeliveryAgent(
             @PathVariable Long orderId,
             @RequestParam Long agentId) {
@@ -305,6 +331,7 @@ public class OrderController {
     // Delivery agent endpoints
     @GetMapping("/delivery/my-deliveries")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Get my deliveries")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyDeliveries(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -314,6 +341,7 @@ public class OrderController {
 
     @GetMapping("/delivery/my-deliveries/cursor")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Get my deliveries by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyDeliveriesByCursor(
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
@@ -374,6 +402,7 @@ public class OrderController {
      */
     @PostMapping("/delivery/{orderId}/proof/verify")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Verify delivery proof")
     public ResponseEntity<ApiResponse<DeliveryProofResponse>> verifyDeliveryProof(
             @PathVariable Long orderId,
             @Valid @RequestBody DeliveryProofVerifyRequest request) {
@@ -390,6 +419,7 @@ public class OrderController {
      */
     @PostMapping("/delivery/{orderId}/proof/photo-url")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Create delivery proof photo url")
     public ResponseEntity<ApiResponse<DeliveryProofPhotoUploadResponse>> createDeliveryProofPhotoUrl(
             @PathVariable Long orderId,
             @Valid @RequestBody DeliveryProofPhotoUploadRequest request) {
@@ -416,8 +446,39 @@ public class OrderController {
 
     // Common endpoint
     @GetMapping("/number/{orderNumber}")
-    public ResponseEntity<ApiResponse<OrderResponse>> getOrderByNumber(@PathVariable String orderNumber) {
+    @Operation(summary = "Get order by number")
+    public ResponseEntity<MappingJacksonValue> getOrderByNumber(
+            @PathVariable String orderNumber,
+            @RequestParam(required = false) String fields) {
         OrderResponse order = orderService.getOrderByNumber(orderNumber);
-        return ResponseEntity.ok(ApiResponse.success(order));
+        return ResponseEntity.ok(FieldProjection.project(ApiResponse.success(order), fields));
+    }
+
+    /**
+     * Batch read — returns a map keyed by order id for any subset of the
+     * caller's own orders in a single round-trip. Caps at
+     * {@link com.bhukkad.util.PaginationUtils#MAX_PAGE_SIZE} ids per request to
+     * bound server memory and DB pressure; callers that need more should page
+     * via the cursor endpoints instead.
+     *
+     * <p>Ids the caller does not own (or that do not exist) are silently
+     * dropped — see {@code OrderServiceImpl.getOrdersByIds} for the rationale.
+     */
+    @GetMapping("/customer/batch")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get orders by ids")
+    public ResponseEntity<ApiResponse<java.util.Map<Long, OrderResponse>>> getOrdersByIds(
+            @RequestParam("ids") java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(java.util.Collections.emptyMap()));
+        }
+        // Bound the request — capped at MAX_PAGE_SIZE so a malicious caller
+        // can't issue ?ids=1,2,3,...,100000 and force a 100k-row IN-list.
+        if (ids.size() > com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE) {
+            throw new com.bhukkad.exception.BusinessException(
+                    "Too many ids in batch request; max "
+                            + com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE);
+        }
+        return ResponseEntity.ok(ApiResponse.success(orderService.getOrdersByIds(ids)));
     }
 }

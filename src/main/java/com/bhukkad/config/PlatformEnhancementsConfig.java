@@ -20,7 +20,10 @@ import org.springframework.context.annotation.Configuration;
         DeliveryTruthProperties.class,
         CommissionTierProperties.class,
         DynamicPricingProperties.class,
-        GiftCardProperties.class
+        GiftCardProperties.class,
+        OutboxProperties.class,
+        com.bhukkad.featureflag.FeatureFlagProperties.class,
+        com.bhukkad.chaos.ChaosProperties.class
 })
 public class PlatformEnhancementsConfig {
 }

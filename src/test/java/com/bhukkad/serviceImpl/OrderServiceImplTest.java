@@ -44,6 +44,7 @@ import com.bhukkad.settlement.RestaurantSettlementService;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.wallet.WalletService;
 import com.bhukkad.idempotency.OrderIdempotencyService;
+import com.bhukkad.metrics.BusinessMetrics;
 import com.bhukkad.metrics.OrderMetrics;
 import com.bhukkad.mapper.OrderMapper;
 import com.bhukkad.service.CouponService;
@@ -137,12 +138,37 @@ class OrderServiceImplTest {
     private RestaurantBusyService restaurantBusyService;
     @Mock
     private DeliveryProofService deliveryProofService;
+    @Mock
+    private BusinessMetrics businessMetrics;
+
+    @InjectMocks
+    private OrderPlacementService orderPlacementService;
+
+    @InjectMocks
+    private OrderStatusService orderStatusService;
 
     @InjectMocks
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
+        orderPlacementService = new OrderPlacementService(
+                orderRepository, customerRepository, restaurantRepository, addressRepository,
+                cartRepository, cartItemRepository, menuItemRepository, securityUtils,
+                orderCacheService, orderEventPublisher, orderPricingService, couponService,
+                paymentService, orderMapper, orderIdempotencyService, orderMetrics,
+                businessMetrics, walletService, scheduledOrderValidator, orderEtaService,
+                stockReservationService, orderTimelineService, restaurantBusyService);
+        orderStatusService = new OrderStatusService(
+                orderRepository, customerRepository, deliveryAgentRepository, securityUtils,
+                orderCacheService, orderEventPublisher, orderMapper, orderMetrics,
+                businessMetrics, paymentService, riderDispatchService, riderEarningService,
+                orderEtaService, deliveryProofService, restaurantSettlementService,
+                orderTimelineService, orderInvoiceService);
+        orderService = new OrderServiceImpl(
+                orderRepository, restaurantRepository, securityUtils, orderCacheService,
+                redisCacheService, orderMapper, orderEtaService, orderPlacementService,
+                orderStatusService);
         lenient().doNothing().when(orderEventPublisher).publishStatusChange(any(), any());
         lenient().doNothing().when(orderEventPublisher).publishCreated(any());
         lenient().doNothing().when(orderEventPublisher).publishAgentAssigned(any());

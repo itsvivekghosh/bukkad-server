@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -52,7 +53,7 @@ class OrderPricingServiceImplTest {
     void setUpMembershipAndCampaigns() {
         lenient().when(membershipService.getActiveMembership(anyLong()))
                 .thenReturn(MembershipStatusResponse.builder().active(false).build());
-        lenient().when(promotionEngineService.evaluateBestDiscount(any(), any(), anyDouble()))
+        lenient().when(promotionEngineService.evaluateBestDiscount(any(), any(), anyDouble(), anyList()))
                 .thenReturn(PromotionEngineService.PromotionDiscountResult.none());
     }
 

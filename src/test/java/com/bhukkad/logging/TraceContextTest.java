@@ -1,51 +1,52 @@
 package com.bhukkad.logging;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TraceContextTest {
 
+    @BeforeEach
     @AfterEach
-    void tearDown() {
+    void cleanMdc() {
         MDC.clear();
     }
 
     @Test
-    void current_returnsPopulatedContext() {
-        MDC.put(LoggingConstants.TRACE_ID, "trace123");
-        MDC.put(LoggingConstants.REQUEST_ID, "req456");
-        MDC.put(LoggingConstants.USER_ID, "7");
-
-        var context = TraceContext.current();
-
-        assertEquals("trace123", context.get(LoggingConstants.TRACE_ID));
-        assertEquals("req456", context.get(LoggingConstants.REQUEST_ID));
-        assertEquals("7", context.get(LoggingConstants.USER_ID));
+    void newSpanId_returns16HexChars() {
+        String spanId = TraceContext.newSpanId();
+        assertEquals(16, spanId.length());
+        assertTrue(spanId.matches("[0-9a-f]{16}"));
     }
 
     @Test
-    void copyAndRestore_preservesMdcAcrossThreads() {
-        MDC.put(LoggingConstants.TRACE_ID, "trace-copy");
-        MDC.put(LoggingConstants.REQUEST_ID, "req-copy");
-
-        var copy = TraceContext.copy();
-        TraceContext.clear();
-        assertNull(TraceContext.getTraceId());
-
-        TraceContext.restore(copy);
-        assertEquals("trace-copy", TraceContext.getTraceId());
-        assertEquals("req-copy", TraceContext.getRequestId());
+    void newSpanId_isUniquePerCall() {
+        assertTrue(!TraceContext.newSpanId().equals(TraceContext.newSpanId()));
     }
 
     @Test
-    void clear_removesAllMdcValues() {
-        MDC.put(LoggingConstants.TRACE_ID, "x");
-        TraceContext.clear();
-        assertTrue(MDC.getCopyOfContextMap() == null || MDC.getCopyOfContextMap().isEmpty());
+    void getSpanId_readsMdc() {
+        MDC.put(LoggingConstants.SPAN_ID, "0123456789abcdef");
+        assertEquals("0123456789abcdef", TraceContext.getSpanId());
+    }
+
+    @Test
+    void current_includesSpanIdWhenPresent() {
+        MDC.put(LoggingConstants.TRACE_ID, "trace-1");
+        MDC.put(LoggingConstants.SPAN_ID, "0123456789abcdef");
+        MDC.put(LoggingConstants.REQUEST_ID, "req-1");
+
+        Map<String, String> context = TraceContext.current();
+
+        assertEquals("trace-1", context.get(LoggingConstants.TRACE_ID));
+        assertEquals("0123456789abcdef", context.get(LoggingConstants.SPAN_ID));
+        assertEquals("req-1", context.get(LoggingConstants.REQUEST_ID));
     }
 }

@@ -1,6 +1,7 @@
 package com.bhukkad.settlement;
 
 import com.bhukkad.config.SettlementProperties;
+import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.dto.response.RestaurantSettlementResponse;
 import com.bhukkad.entity.Order;
@@ -9,9 +10,11 @@ import com.bhukkad.entity.RestaurantSettlement;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.repository.RestaurantSettlementRepository;
+import com.bhukkad.util.CursorUtils;
 import com.bhukkad.util.PaginationUtils;
 import com.bhukkad.util.PriceCalculator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +56,33 @@ public class RestaurantSettlementService {
                 restaurantId,
                 PaginationUtils.page(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return PagedResponse.from(result.map(this::toResponse));
+    }
+
+    /**
+     * Cursor-paginated settlement list. Preferred over the offset variant for
+     * any restaurant with many historical orders because the keyset predicate
+     * on {@code (createdAt, id)} avoids the {@code OFFSET N} cost that grows
+     * linearly with page depth.
+     */
+    @Transactional(readOnly = true)
+    public CursorPagedResponse<RestaurantSettlementResponse> getRestaurantSettlementsByCursor(
+            Long restaurantId, String cursor, int size) {
+        CursorUtils.OrderCursor c = CursorUtils.decode(cursor).orElse(null);
+        int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
+        List<RestaurantSettlement> batch = settlementRepository.findByRestaurantIdAfterCursor(
+                restaurantId,
+                c != null ? c.createdAt() : null,
+                c != null ? c.id() : null,
+                PageRequest.of(0, safeSize + 1));
+        boolean hasNext = batch.size() > safeSize;
+        List<RestaurantSettlement> page = hasNext ? batch.subList(0, safeSize) : batch;
+        String nextCursor = null;
+        if (hasNext && !page.isEmpty()) {
+            RestaurantSettlement last = page.get(page.size() - 1);
+            nextCursor = CursorUtils.encode(last.getCreatedAt(), last.getId());
+        }
+        List<RestaurantSettlementResponse> items = page.stream().map(this::toResponse).toList();
+        return CursorPagedResponse.of(items, nextCursor, hasNext);
     }
 
     @Transactional

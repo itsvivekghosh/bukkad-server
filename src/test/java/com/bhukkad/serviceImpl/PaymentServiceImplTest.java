@@ -3,9 +3,8 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Payment;
-import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.idempotency.IdempotencyService;
+import com.bhukkad.idempotency.PaymentIdempotencyService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
 import com.bhukkad.payment.strategy.PaymentStrategyFactory;
@@ -15,6 +14,7 @@ import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.PaymentRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.NotificationService;
+import com.bhukkad.timeline.OrderTimelineService;
 import com.bhukkad.wallet.WalletService;
 import com.bhukkad.wallet.WalletTopUpService;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,7 +53,7 @@ class PaymentServiceImplTest {
     @Mock
     private PaymentProperties paymentProperties;
     @Mock
-    private IdempotencyService idempotencyService;
+    private PaymentIdempotencyService paymentIdempotencyService;
     @Mock
     private SecurityUtils securityUtils;
     @Mock
@@ -65,6 +66,8 @@ class PaymentServiceImplTest {
     private PaymentStrategyFactory paymentStrategyFactory;
     @Mock
     private PaymentStrategy paymentStrategy;
+    @Mock
+    private OrderTimelineService orderTimelineService;
 
     @InjectMocks
     private PaymentServiceImpl paymentService;
@@ -198,6 +201,31 @@ class PaymentServiceImplTest {
         Payment completed = payment(Payment.PaymentStatus.COMPLETED);
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(completed));
         when(paymentRepository.save(completed)).thenReturn(completed);
+
+        paymentService.refundPayment(1L);
+
+        assertEquals(Payment.PaymentStatus.REFUNDED, completed.getStatus());
+    }
+
+    @Test
+    void refundPayment_recordsRefundTimelineEvent() {
+        Payment completed = payment(Payment.PaymentStatus.COMPLETED);
+        when(paymentRepository.findById(1L)).thenReturn(Optional.of(completed));
+        when(paymentRepository.save(completed)).thenReturn(completed);
+
+        paymentService.refundPayment(1L);
+
+        verify(orderTimelineService).recordEvent(
+                eq(5L), eq("ORDER_REFUNDED"), any(), any(), any(), any());
+    }
+
+    @Test
+    void refundPayment_timelineFailureDoesNotFailRefund() {
+        Payment completed = payment(Payment.PaymentStatus.COMPLETED);
+        when(paymentRepository.findById(1L)).thenReturn(Optional.of(completed));
+        when(paymentRepository.save(completed)).thenReturn(completed);
+        when(orderTimelineService.recordEvent(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("timeline down"));
 
         paymentService.refundPayment(1L);
 

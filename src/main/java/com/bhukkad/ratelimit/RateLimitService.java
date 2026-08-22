@@ -29,14 +29,22 @@ public class RateLimitService {
     private final RateLimitProperties properties;
 
     public RateLimitDecision check(String bucket, String identifier) {
+        return check(bucket, identifier, "free");
+    }
+
+    /**
+     * Enforces a rate limit for the given bucket and identifier, applying the
+     * tier multiplier for the caller's plan (free/premium/gold/platinum).
+     */
+    public RateLimitDecision check(String bucket, String identifier, String tier) {
         RateLimitProperties.Bucket config = properties.getBucket(bucket);
-        int limit = config.getLimit();
         int windowSeconds = config.getWindowSeconds();
 
         if (!properties.isEnabled()) {
-            return RateLimitDecision.allowed(0, limit, windowSeconds);
+            return RateLimitDecision.allowed(0, config.getLimit(), windowSeconds);
         }
 
+        int limit = properties.effectiveLimit(bucket, tier);
         String key = CacheConstants.KEY_PREFIX + "rate-limit:" + bucket + ":" + identifier;
         try {
             Long count = stringRedisTemplate.execute(
@@ -48,15 +56,15 @@ public class RateLimitService {
             if (currentCount > limit) {
                 Long ttl = stringRedisTemplate.getExpire(key, TimeUnit.SECONDS);
                 long retryAfter = ttl != null && ttl > 0 ? ttl : windowSeconds;
-                log.warn("RATE_LIMIT_EXCEEDED | bucket={} | identifier={} | count={} | limit={}",
-                        bucket, identifier, currentCount, limit);
+                log.warn("RATE_LIMIT_EXCEEDED | bucket={} | identifier={} | tier={} | count={} | limit={}",
+                        bucket, identifier, tier, currentCount, limit);
                 return RateLimitDecision.denied(currentCount, limit, retryAfter);
             }
 
             return RateLimitDecision.allowed(currentCount, limit, windowSeconds);
         } catch (Exception ex) {
-            log.warn("RATE_LIMIT_CHECK_FAILED | bucket={} | identifier={} | error={}",
-                    bucket, identifier, ex.getMessage());
+            log.warn("RATE_LIMIT_CHECK_FAILED | bucket={} | identifier={} | tier={} | error={}",
+                    bucket, identifier, tier, ex.getMessage());
             return RateLimitDecision.allowed(0, limit, windowSeconds);
         }
     }

@@ -3,7 +3,9 @@ package com.bhukkad.service;
 import com.bhukkad.dto.response.FraudDashboardResponse;
 import com.bhukkad.dto.response.FraudPatternResponse;
 import com.bhukkad.entity.FraudEvent;
+import com.bhukkad.entity.FraudReviewAction;
 import com.bhukkad.repository.FraudEventRepository;
+import com.bhukkad.repository.FraudReviewActionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ import java.util.stream.Collectors;
 public class FraudDashboardService {
 
     private final FraudEventRepository fraudEventRepository;
+    private final FraudReviewActionRepository fraudReviewActionRepository;
 
     public FraudDashboardResponse getDashboard() {
         LocalDateTime now = LocalDateTime.now();
@@ -67,6 +70,7 @@ public class FraudDashboardService {
                 .eventsLast24Hours(recentEvents.size())
                 .eventsLast7Days(allEvents.stream().filter(e -> e.getCreatedAt().isAfter(last7Days)).count())
                 .eventsLast30Days(allEvents.stream().filter(e -> e.getCreatedAt().isAfter(last30Days)).count())
+                .pendingReviewCount(fraudReviewActionRepository.countByStatus(FraudReviewAction.FraudReviewStatus.PENDING))
                 .eventsByType(eventsByType)
                 .topIPs(topIPs)
                 .topDevices(topDevices)

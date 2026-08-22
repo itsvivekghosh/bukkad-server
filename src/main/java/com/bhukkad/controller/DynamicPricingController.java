@@ -13,16 +13,20 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/pricing")
 @RequiredArgsConstructor
+@Tag(name = "DynamicPricing", description = "REST endpoints for DynamicPricing")
 public class DynamicPricingController {
 
     private final DynamicPricingService dynamicPricingService;
 
     @PostMapping("/restaurants/{restaurantId}/rules")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Create rule")
     public ResponseEntity<ApiResponse<DynamicPricingRuleResponse>> createRule(
             @PathVariable Long restaurantId,
             @Valid @RequestBody DynamicPricingRuleRequest request) {
@@ -32,6 +36,7 @@ public class DynamicPricingController {
 
     @PutMapping("/rules/{ruleId}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Update rule")
     public ResponseEntity<ApiResponse<DynamicPricingRuleResponse>> updateRule(
             @PathVariable Long ruleId,
             @Valid @RequestBody DynamicPricingRuleRequest request) {
@@ -48,6 +53,7 @@ public class DynamicPricingController {
 
     @GetMapping("/restaurants/{restaurantId}/rules")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get rules")
     public ResponseEntity<ApiResponse<List<DynamicPricingRuleResponse>>> getRules(
             @PathVariable Long restaurantId) {
         List<DynamicPricingRuleResponse> rules = dynamicPricingService.getRulesByRestaurant(restaurantId);

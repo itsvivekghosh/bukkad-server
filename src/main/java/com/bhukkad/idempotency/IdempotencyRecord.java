@@ -46,7 +46,7 @@ public class IdempotencyRecord {
     private LocalDateTime expiresAt;
 
     public enum IdempotencyScope {
-        ORDER_CREATE
+        ORDER_CREATE, PAYMENT_PROCESS
     }
 
     public enum IdempotencyStatus {

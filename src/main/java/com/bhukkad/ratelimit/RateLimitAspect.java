@@ -25,13 +25,15 @@ public class RateLimitAspect {
 
     private final RateLimitService rateLimitService;
     private final SecurityUtils securityUtils;
+    private final UserTierResolver userTierResolver;
     private final ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
     @Around("@annotation(rateLimited)")
     public Object enforceRateLimit(ProceedingJoinPoint joinPoint, RateLimited rateLimited) throws Throwable {
         String bucket = rateLimited.value();
         String identifier = buildIdentifier(bucket, joinPoint);
-        RateLimitDecision decision = rateLimitService.check(bucket, identifier);
+        String tier = userTierResolver.resolveCurrentTier();
+        RateLimitDecision decision = rateLimitService.check(bucket, identifier, tier);
 
         if (!decision.allowed()) {
             throw new RateLimitExceededException(

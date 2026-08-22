@@ -14,6 +14,7 @@ public interface CustomerMembershipRepository extends JpaRepository<CustomerMemb
 
     @Query("""
             SELECT m FROM CustomerMembership m
+            JOIN FETCH m.plan
             WHERE m.customer.id = :customerId
               AND m.status = com.bhukkad.entity.CustomerMembership$MembershipStatus.ACTIVE
               AND m.startsAt <= :now

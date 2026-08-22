@@ -12,11 +12,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/cart")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('CUSTOMER')")
+@Tag(name = "Cart", description = "REST endpoints for Cart")
 public class CartController {
 
     private final CartService cartService;
@@ -36,6 +39,7 @@ public class CartController {
 
     @PutMapping("/items/{cartItemId}")
     @RateLimited("cart-mutation")
+    @Operation(summary = "Update item quantity")
     public ResponseEntity<ApiResponse<CartResponse>> updateItemQuantity(
             @PathVariable Long cartItemId,
             @RequestParam Integer quantity) {

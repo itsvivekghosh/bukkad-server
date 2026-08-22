@@ -25,6 +25,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.json.MappingJacksonValue;
 
 import java.util.List;
 
@@ -102,10 +103,12 @@ public class OrderControllerTest {
         OrderResponse order = new OrderResponse();
         when(orderService.getOrderById(11L)).thenReturn(order);
 
-        ResponseEntity<ApiResponse<OrderResponse>> response = orderController.getOrderById(11L);
+        ResponseEntity<MappingJacksonValue> response =
+                orderController.getOrderById(11L, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(order, response.getBody().getData());
+        ApiResponse<?> body = (ApiResponse<?>) response.getBody().getValue();
+        assertEquals(order, body.getData());
     }
 
     @Test
@@ -113,10 +116,12 @@ public class OrderControllerTest {
         OrderResponse order = new OrderResponse();
         when(orderService.trackOrder(11L)).thenReturn(order);
 
-        ResponseEntity<ApiResponse<OrderResponse>> response = orderController.trackOrder(11L);
+        ResponseEntity<MappingJacksonValue> response =
+                orderController.trackOrder(11L, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(order, response.getBody().getData());
+        ApiResponse<?> body = (ApiResponse<?>) response.getBody().getValue();
+        assertEquals(order, body.getData());
     }
 
     @Test
@@ -260,10 +265,12 @@ public class OrderControllerTest {
         OrderResponse order = new OrderResponse();
         when(orderService.getOrderByNumber("ORD-1")).thenReturn(order);
 
-        ResponseEntity<ApiResponse<OrderResponse>> response = orderController.getOrderByNumber("ORD-1");
+        ResponseEntity<MappingJacksonValue> response =
+                orderController.getOrderByNumber("ORD-1", null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(order, response.getBody().getData());
+        ApiResponse<?> body = (ApiResponse<?>) response.getBody().getValue();
+        assertEquals(order, body.getData());
     }
 
     @Test

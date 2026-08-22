@@ -57,6 +57,23 @@ data:
                    application/atom+xml
                    image/svg+xml;
 
+        # Brotli — better compression than gzip on JSON (~20-30% smaller payloads).
+        # Requires the `nginx-module-brotli` dynamic module to be loaded at the
+        # nginx level (handled by the ingress controller base image, not here).
+        # nginx still negotiates `Accept-Encoding: br` first and falls back to gzip
+        # for clients that do not advertise brotli, so this is purely additive.
+        brotli on;
+        brotli_comp_level 5;
+        brotli_min_length 1000;
+        brotli_types text/plain
+                     text/css
+                     text/xml
+                     application/json
+                     application/javascript
+                     application/rss+xml
+                     application/atom+xml
+                     image/svg+xml;
+
         # Rate Limiting Zones
         limit_req_zone $binary_remote_addr zone=api_general:10m rate=30r/s;
         limit_req_zone $binary_remote_addr zone=api_auth:10m rate=5r/s;

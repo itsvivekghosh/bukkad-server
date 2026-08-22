@@ -71,4 +71,11 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
                                             @Param("threshold") int threshold);
 
     int countByCategoryId(Long categoryId);
+
+    /**
+     * Compact id/name pairs for all available menu items, used to build the
+     * in-memory autocomplete trie without hydrating full entities.
+     */
+    @Query("SELECT m.id, m.name FROM MenuItem m WHERE m.available = true")
+    List<Object[]> findAvailableMenuItemNames();
 }

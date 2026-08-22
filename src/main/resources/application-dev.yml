@@ -50,6 +50,12 @@ spring:
     expiration: ${JWT_EXPIRATION:86400000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
+  rate-limit:
+    buckets:
+      auth-register:
+        limit: 100
+        window-seconds: 60
+
 server:
   port: ${SERVER_PORT:8080}
   error:

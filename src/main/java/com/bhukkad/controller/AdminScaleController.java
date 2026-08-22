@@ -2,11 +2,13 @@ package com.bhukkad.controller;
 
 import com.bhukkad.admin.AdminOperationsDashboardService;
 import com.bhukkad.config.ApiPaths;
+import com.bhukkad.dto.request.CityConfigRequest;
 import com.bhukkad.dto.request.DeliveryZoneRequest;
 import com.bhukkad.dto.request.PromoBannerRequest;
 import com.bhukkad.dto.request.PromotionCampaignRequest;
 import com.bhukkad.dto.response.AdminOperationsDashboardResponse;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.CityConfigResponse;
 import com.bhukkad.dto.response.DeliveryZoneResponse;
 import com.bhukkad.dto.response.PromoBannerResponse;
 import com.bhukkad.dto.response.PromotionCampaignResponse;
@@ -14,7 +16,9 @@ import com.bhukkad.entity.SettlementRun;
 import com.bhukkad.feed.PromoBannerAdminService;
 import com.bhukkad.promotion.PromotionAdminService;
 import com.bhukkad.settlement.SettlementAutomationScheduler;
+import com.bhukkad.zone.CityConfigService;
 import com.bhukkad.zone.DeliveryZoneAdminService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,14 +26,17 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
- * Admin endpoints for V14–V16: zones, promotions, settlement automation, ops dashboard.
+ * Admin endpoints for V14–V16: zones, city configs, promotions, settlement automation, ops dashboard.
  */
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "AdminScale", description = "REST endpoints for AdminScale")
 public class AdminScaleController {
 
     private final DeliveryZoneAdminService deliveryZoneAdminService;
@@ -37,6 +44,7 @@ public class AdminScaleController {
     private final PromoBannerAdminService promoBannerAdminService;
     private final SettlementAutomationScheduler settlementAutomationScheduler;
     private final AdminOperationsDashboardService adminOperationsDashboardService;
+    private final CityConfigService cityConfigService;
 
     // ── V14: Delivery zones ──────────────────────────────────────────────────
 
@@ -51,6 +59,7 @@ public class AdminScaleController {
     }
 
     @PutMapping("/zones/{zoneId}")
+    @Operation(summary = "Update zone")
     public ResponseEntity<ApiResponse<DeliveryZoneResponse>> updateZone(
             @PathVariable Long zoneId, @RequestBody DeliveryZoneRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Zone updated", deliveryZoneAdminService.update(zoneId, request)));
@@ -62,6 +71,31 @@ public class AdminScaleController {
         return ResponseEntity.ok(ApiResponse.success("Zone deleted", null));
     }
 
+    // ── Multi-city/Region Support: per-city config ─────────────────────────
+
+    @GetMapping("/cities")
+    public ResponseEntity<ApiResponse<List<CityConfigResponse>>> listCities() {
+        return ResponseEntity.ok(ApiResponse.success(cityConfigService.listAll()));
+    }
+
+    @PostMapping("/cities")
+    public ResponseEntity<ApiResponse<CityConfigResponse>> createCity(@Valid @RequestBody CityConfigRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("City config created", cityConfigService.create(request)));
+    }
+
+    @PutMapping("/cities/{cityId}")
+    @Operation(summary = "Update city")
+    public ResponseEntity<ApiResponse<CityConfigResponse>> updateCity(
+            @PathVariable Long cityId, @Valid @RequestBody CityConfigRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("City config updated", cityConfigService.update(cityId, request)));
+    }
+
+    @DeleteMapping("/cities/{cityId}")
+    public ResponseEntity<ApiResponse<Void>> deleteCity(@PathVariable Long cityId) {
+        cityConfigService.delete(cityId);
+        return ResponseEntity.ok(ApiResponse.success("City config deleted", null));
+    }
+
     // ── V15: Promotions engine ─────────────────────────────────────────────
 
     @GetMapping("/promotions/campaigns")
@@ -70,12 +104,14 @@ public class AdminScaleController {
     }
 
     @PostMapping("/promotions/campaigns")
+    @Operation(summary = "Create campaign")
     public ResponseEntity<ApiResponse<PromotionCampaignResponse>> createCampaign(
             @RequestBody PromotionCampaignRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Campaign created", promotionAdminService.create(request)));
     }
 
     @PutMapping("/promotions/campaigns/{campaignId}")
+    @Operation(summary = "Update campaign")
     public ResponseEntity<ApiResponse<PromotionCampaignResponse>> updateCampaign(
             @PathVariable Long campaignId, @RequestBody PromotionCampaignRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Campaign updated",
@@ -99,6 +135,7 @@ public class AdminScaleController {
     }
 
     @PutMapping("/promotions/banners/{bannerId}")
+    @Operation(summary = "Update banner")
     public ResponseEntity<ApiResponse<PromoBannerResponse>> updateBanner(
             @PathVariable Long bannerId, @RequestBody PromoBannerRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Banner updated", promoBannerAdminService.update(bannerId, request)));

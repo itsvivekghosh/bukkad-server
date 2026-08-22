@@ -27,11 +27,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/customers")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('CUSTOMER')")
+@Tag(name = "Customer", description = "REST endpoints for Customer")
 public class CustomerController {
 
     private final CustomerService customerService;
@@ -49,6 +52,7 @@ public class CustomerController {
     }
 
     @GetMapping("/profile/{profileId}")
+    @Operation(summary = "Get profile by id")
     public ResponseEntity<ApiResponse<CustomerProfileResponse>> getProfileById(
             @PathVariable @Positive Long profileId) {
         CustomerProfileResponse profile = customerService.getCustomerById(profileId);
@@ -56,6 +60,7 @@ public class CustomerController {
     }
 
     @PutMapping("/profile")
+    @Operation(summary = "Update profile")
     public ResponseEntity<ApiResponse<CustomerResponse>> updateProfile(
             @RequestParam(required = false) String fullName,
             @RequestParam(required = false) String phoneNumber,
@@ -72,6 +77,7 @@ public class CustomerController {
     }
 
     @PostMapping("/addresses")
+    @Operation(summary = "Add address")
     public ResponseEntity<ApiResponse<AddressResponse>> addAddress(
             @Valid @RequestBody AddressRequest request) {
         AddressResponse address = customerService.addAddress(request);
@@ -85,6 +91,7 @@ public class CustomerController {
     }
 
     @PutMapping("/addresses/{addressId}")
+    @Operation(summary = "Update address")
     public ResponseEntity<ApiResponse<AddressResponse>> updateAddress(
             @PathVariable @Positive Long addressId,
             @Valid @RequestBody AddressRequest request) {
@@ -99,6 +106,7 @@ public class CustomerController {
     }
 
     @PutMapping("/addresses/{addressId}/set-default")
+    @Operation(summary = "Set default address")
     public ResponseEntity<ApiResponse<AddressResponse>> setDefaultAddress(
             @PathVariable @Positive Long addressId) {
         AddressResponse address = customerService.setDefaultAddress(addressId);
@@ -112,6 +120,7 @@ public class CustomerController {
     }
 
     @PostMapping("/wallet/top-up")
+    @Operation(summary = "Initiate wallet top up")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.PaymentResponse>> initiateWalletTopUp(
             @RequestParam @Positive Double amount,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
@@ -121,6 +130,7 @@ public class CustomerController {
     }
 
     @PostMapping("/device-tokens")
+    @Operation(summary = "Register device token")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.DeviceTokenResponse>> registerDeviceToken(
             @Valid @RequestBody com.bhukkad.dto.request.DeviceTokenRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -158,6 +168,7 @@ public class CustomerController {
     }
 
     @PostMapping("/favorites/{restaurantId}")
+    @Operation(summary = "Add favorite")
     public ResponseEntity<ApiResponse<FavoriteRestaurantResponse>> addFavorite(
             @PathVariable @Positive Long restaurantId) {
         FavoriteRestaurantResponse favorite = favoriteService.addFavorite(restaurantId);
@@ -183,6 +194,7 @@ public class CustomerController {
     }
 
     @PutMapping("/notification-preferences")
+    @Operation(summary = "Update notification preferences")
     public ResponseEntity<ApiResponse<NotificationPreferenceResponse>> updateNotificationPreferences(
             @RequestBody NotificationPreferenceRequest request) {
         NotificationPreferenceResponse prefs = notificationPreferenceService.updatePreferences(

@@ -19,11 +19,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/delivery")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('DELIVERY_AGENT')")
+@Tag(name = "Delivery", description = "REST endpoints for Delivery")
 public class DeliveryController {
 
     private final DeliveryService deliveryService;
@@ -37,10 +40,23 @@ public class DeliveryController {
     }
 
     @GetMapping("/earnings")
+    @Operation(summary = "Get earnings history")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.PagedResponse<com.bhukkad.dto.response.RiderPayoutResponse>>> getEarningsHistory(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(riderPayoutService.getPayoutHistory(page, size)));
+    }
+
+    /**
+     * Cursor-paginated rider earnings history. Preferred over the offset variant
+     * for high-volume riders — keeps query cost constant regardless of scroll depth.
+     */
+    @GetMapping("/earnings/cursor")
+    @Operation(summary = "Get earnings history by cursor")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.CursorPagedResponse<com.bhukkad.dto.response.RiderPayoutResponse>>> getEarningsHistoryByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(riderPayoutService.getPayoutHistoryByCursor(cursor, size)));
     }
 
     @GetMapping("/profile")
@@ -62,6 +78,7 @@ public class DeliveryController {
     }
 
     @PutMapping("/update-location")
+    @Operation(summary = "Update location")
     public ResponseEntity<ApiResponse<Void>> updateLocation(
             @RequestParam Double latitude,
             @RequestParam Double longitude) {
@@ -101,6 +118,7 @@ public class DeliveryController {
 
     /** Records GPS coordinates for an active delivery (live map tracking). */
     @PostMapping("/orders/{orderId}/location")
+    @Operation(summary = "Update order location")
     public ResponseEntity<ApiResponse<RiderLocationResponse>> updateOrderLocation(
             @PathVariable Long orderId,
             @RequestBody RiderLocationRequest request) {

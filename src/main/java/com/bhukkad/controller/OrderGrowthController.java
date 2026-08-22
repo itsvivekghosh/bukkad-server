@@ -17,6 +17,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Order extensions: timeline, GST invoice, live rider location.
@@ -24,6 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/orders")
 @RequiredArgsConstructor
+@Tag(name = "OrderGrowth", description = "REST endpoints for OrderGrowth")
 public class OrderGrowthController {
 
     private final OrderTimelineService orderTimelineService;
@@ -33,6 +36,7 @@ public class OrderGrowthController {
     /** Order status timeline for customer support and tracking. */
     @GetMapping("/{orderId}/timeline")
     @PreAuthorize("hasAnyRole('CUSTOMER','RESTAURANT_OWNER','DELIVERY_AGENT','ADMIN')")
+    @Operation(summary = "Get order timeline")
     public ResponseEntity<ApiResponse<List<OrderTimelineEventResponse>>> getOrderTimeline(
             @PathVariable Long orderId) {
         return ResponseEntity.ok(ApiResponse.success(orderTimelineService.getTimelineForOrder(orderId)));
@@ -41,6 +45,7 @@ public class OrderGrowthController {
     /** GST invoice for a delivered order. */
     @GetMapping("/{orderId}/invoice")
     @PreAuthorize("hasAnyRole('CUSTOMER','RESTAURANT_OWNER','ADMIN')")
+    @Operation(summary = "Get order invoice")
     public ResponseEntity<ApiResponse<OrderInvoiceResponse>> getOrderInvoice(
             @PathVariable Long orderId) {
         return ResponseEntity.ok(ApiResponse.success(orderInvoiceService.getByOrderId(orderId)));
@@ -72,6 +77,7 @@ public class OrderGrowthController {
     /** Latest rider GPS location for live map (customer). */
     @GetMapping("/{orderId}/rider-location")
     @PreAuthorize("hasAnyRole('CUSTOMER','RESTAURANT_OWNER','ADMIN')")
+    @Operation(summary = "Get rider location")
     public ResponseEntity<ApiResponse<RiderLocationResponse>> getRiderLocation(
             @PathVariable Long orderId) {
         return ResponseEntity.ok(ApiResponse.success(riderLocationService.getLatestForOrder(orderId)));

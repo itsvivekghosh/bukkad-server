@@ -6,6 +6,7 @@ import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.dto.request.ReviewResponseRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.RestaurantOnboardingStatusResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
 import com.bhukkad.entity.Review;
 import com.bhukkad.ratelimit.RateLimited;
@@ -28,10 +29,13 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.time.LocalDateTime;
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/restaurants")
 @RequiredArgsConstructor
+@Tag(name = "Restaurant", description = "REST endpoints for Restaurant")
 public class RestaurantController {
 
     private final RestaurantService restaurantService;
@@ -44,10 +48,12 @@ public class RestaurantController {
 
     // Public endpoints
     @GetMapping("/public")
+    @Operation(summary = "Get all restaurants")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getAllRestaurants(
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
-            @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince) {
-        List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants();
+            @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince,
+            @RequestHeader(value = "X-Tenant-Id", required = false) Long tenantId) {
+        List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants(tenantId);
         ApiResponse<List<RestaurantResponse>> body = ApiResponse.success(restaurants);
 
         HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
@@ -63,6 +69,7 @@ public class RestaurantController {
     }
 
     @GetMapping("/public/{id}")
+    @Operation(summary = "Get restaurant by id")
     public ResponseEntity<ApiResponse<RestaurantResponse>> getRestaurantById(
             @PathVariable Long id,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
@@ -91,6 +98,7 @@ public class RestaurantController {
 
     @GetMapping("/public/nearby")
     @RateLimited("search")
+    @Operation(summary = "Find nearby restaurants")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> findNearbyRestaurants(
             @RequestParam double latitude,
             @RequestParam double longitude,
@@ -102,6 +110,7 @@ public class RestaurantController {
     }
 
     @GetMapping("/public/filter")
+    @Operation(summary = "Filter restaurants")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> filterRestaurants(
             @RequestParam(required = false) Long cuisineId,
             @RequestParam(required = false) Boolean isPureVeg) {
@@ -112,10 +121,32 @@ public class RestaurantController {
     // Owner endpoints
     @PostMapping("/owner")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Create restaurant")
     public ResponseEntity<ApiResponse<RestaurantResponse>> createRestaurant(
             @Valid @RequestBody RestaurantRequest request) {
         RestaurantResponse restaurant = restaurantService.createRestaurant(request);
         return ResponseEntity.ok(ApiResponse.success("Restaurant created successfully", restaurant));
+    }
+
+    /**
+     * Self-serve dark kitchen onboarding: submits an application for verification.
+     * The restaurant starts in {@code PENDING_VERIFICATION} until an admin approves it.
+     */
+    @PostMapping("/onboarding/signup")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Onboarding signup")
+    public ResponseEntity<ApiResponse<RestaurantResponse>> onboardingSignup(
+            @Valid @RequestBody RestaurantRequest request) {
+        RestaurantResponse restaurant = restaurantService.createOnboardingApplication(request);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Onboarding application submitted for verification", restaurant));
+    }
+
+    /** Returns the onboarding status of all restaurants owned by the caller. */
+    @GetMapping("/onboarding/status")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<RestaurantOnboardingStatusResponse>> onboardingStatus() {
+        return ResponseEntity.ok(ApiResponse.success(restaurantService.getOnboardingStatus()));
     }
 
     @GetMapping("/owner/my-restaurants")
@@ -127,6 +158,7 @@ public class RestaurantController {
 
     @PutMapping("/owner/{id}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Update restaurant")
     public ResponseEntity<ApiResponse<RestaurantResponse>> updateRestaurant(
             @PathVariable Long id,
             @Valid @RequestBody RestaurantRequest request) {
@@ -143,6 +175,7 @@ public class RestaurantController {
 
     @GetMapping("/owner/{id}/analytics")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get restaurant analytics")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.RestaurantAnalyticsResponse>> getRestaurantAnalytics(
             @PathVariable Long id,
             @RequestParam(defaultValue = "30") int days) {
@@ -152,6 +185,7 @@ public class RestaurantController {
 
     @PutMapping("/owner/{id}/toggle-status")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Toggle restaurant status")
     public ResponseEntity<ApiResponse<Void>> toggleRestaurantStatus(
             @PathVariable Long id,
             @RequestParam Boolean isOpen) {
@@ -161,6 +195,7 @@ public class RestaurantController {
 
     @GetMapping("/owner/{id}/settlements")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get settlements")
     public ResponseEntity<ApiResponse<PagedResponse<RestaurantSettlementResponse>>> getSettlements(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") int page,
@@ -169,9 +204,26 @@ public class RestaurantController {
                 restaurantSettlementService.getRestaurantSettlements(id, page, size)));
     }
 
+    /**
+     * Cursor-paginated settlement history. Preferred over the offset variant
+     * for restaurants with many historical orders — keeps query cost constant
+     * regardless of scroll depth.
+     */
+    @GetMapping("/owner/{id}/settlements/cursor")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get settlements by cursor")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.CursorPagedResponse<RestaurantSettlementResponse>>> getSettlementsByCursor(
+            @PathVariable Long id,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                restaurantSettlementService.getRestaurantSettlementsByCursor(id, cursor, size)));
+    }
+
     /** Enables busy mode to throttle incoming orders during peak hours. */
     @PutMapping("/owner/{id}/busy-mode")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Enable busy mode")
     public ResponseEntity<ApiResponse<Void>> enableBusyMode(
             @PathVariable Long id,
             @RequestBody RestaurantBusyModeRequest request) {
@@ -190,6 +242,7 @@ public class RestaurantController {
     /** Restaurant dashboard 2.0 with analytics, settlements, and ops status (V16). */
     @GetMapping("/owner/{id}/dashboard")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get dashboard")
     public ResponseEntity<ApiResponse<RestaurantDashboardResponse>> getDashboard(
             @PathVariable Long id,
             @RequestParam(defaultValue = "30") int days) {
@@ -210,6 +263,7 @@ public class RestaurantController {
      */
     @PostMapping("/owner/reviews/{reviewId}/response")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Respond to review")
     public ResponseEntity<ApiResponse<Review>> respondToReview(
             @PathVariable Long reviewId,
             @Valid @RequestBody ReviewResponseRequest request) {

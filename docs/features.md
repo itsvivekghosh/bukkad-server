@@ -255,7 +255,7 @@ When busy mode is active, new orders are rejected until `busyUntil` expires or b
 
 ## Database migration
 
-Schema changes are in `V13__growth_operations.sql` (zones, tickets, invoices, banners, membership, timeline, rider locations, campaigns, fraud events, busy mode, cancellation metadata).
+Schema for these features is consolidated in `src/main/resources/db/migration/V1__baseline_schema.sql` (zones, tickets, invoices, banners, membership, timeline, rider locations, campaigns, fraud events, busy mode, cancellation metadata). New changes go in the next version file — see db/migration/README.md.
 
 ## Related docs
 
@@ -749,5 +749,5 @@ Flow: validate cart → `reserveStock` (Redis) → create order → `decrementSt
 
 ## Database migration
 
-`V12__notification_whatsapp.sql` adds `whatsapp_enabled` to `customer_notification_preferences`.
+The `whatsapp_enabled` column on `customer_notification_preferences` lives in the consolidated `V1__baseline_schema.sql` baseline.
 
