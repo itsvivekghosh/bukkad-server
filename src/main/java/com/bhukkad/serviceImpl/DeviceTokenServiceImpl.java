@@ -12,8 +12,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Push-device token registration and removal.
+ *
+ * <p>Writes are the exception here, so the class defaults to read-only and each
+ * mutation declares its own {@code @Transactional}.</p>
+ */
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class DeviceTokenServiceImpl implements DeviceTokenService {
 
     private final DeviceTokenRepository deviceTokenRepository;

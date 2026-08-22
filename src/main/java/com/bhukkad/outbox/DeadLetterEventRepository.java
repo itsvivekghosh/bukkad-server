@@ -15,6 +15,9 @@ public interface DeadLetterEventRepository extends JpaRepository<DeadLetterEvent
     @Query("SELECT e FROM DeadLetterEvent e WHERE e.status = :status ORDER BY e.createdAt ASC")
     List<DeadLetterEvent> findByStatus(DeadLetterEvent.DlqStatus status, Pageable pageable);
 
+    @Query("SELECT e FROM DeadLetterEvent e ORDER BY e.createdAt DESC")
+    List<DeadLetterEvent> findAllOrderByCreatedAtDesc(Pageable pageable);
+
     @Modifying
     @Query("DELETE FROM DeadLetterEvent e WHERE e.status = :status AND e.createdAt < :cutoff")
     int deleteByStatusAndCreatedAtBefore(DeadLetterEvent.DlqStatus status, LocalDateTime cutoff);

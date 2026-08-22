@@ -16,7 +16,8 @@ public class OrderLiveUpdate {
     public enum EventType {
         ORDER_CREATED,
         STATUS_CHANGED,
-        AGENT_ASSIGNED
+        AGENT_ASSIGNED,
+        RIDER_LOCATION
     }
 
     private EventType eventType;
@@ -31,4 +32,8 @@ public class OrderLiveUpdate {
     private LocalDateTime changedAt;
     private Integer liveEtaMinutes;
     private LocalDateTime liveEtaAt;
+    /** Rider GPS latitude; only set for {@link EventType#RIDER_LOCATION}. */
+    private Double latitude;
+    /** Rider GPS longitude; only set for {@link EventType#RIDER_LOCATION}. */
+    private Double longitude;
 }

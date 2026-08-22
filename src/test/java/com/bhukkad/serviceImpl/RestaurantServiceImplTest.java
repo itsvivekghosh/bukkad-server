@@ -16,6 +16,7 @@ import com.bhukkad.mapper.AddressMapper;
 import com.bhukkad.repository.CuisineRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.RestaurantRepository;
+import com.bhukkad.search.AutocompleteService;
 import com.bhukkad.security.SecurityUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.lang.reflect.Method;
 import java.time.LocalTime;
 import java.util.HashSet;
 import java.util.List;
@@ -49,6 +49,9 @@ class RestaurantServiceImplTest {
     private CuisineRepository cuisineRepository;
     @Mock
     private SecurityUtils securityUtils;
+
+    @Mock
+    private AutocompleteService autocompleteService;
     @Mock
     private RedisCacheService cacheService;
     @Mock
@@ -268,6 +271,8 @@ class RestaurantServiceImplTest {
                 .thenReturn(Optional.empty());
         when(restaurantRepository.searchByNameWithDetails("biryani"))
                 .thenReturn(List.of(fullRestaurant(1L, "Biryani House")));
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L)))
+                .thenReturn(List.of(fullRestaurant(1L, "Biryani House")));
 
         List<RestaurantResponse> result = restaurantService.searchRestaurants("biryani");
 
@@ -447,7 +452,7 @@ class RestaurantServiceImplTest {
         Cuisine cuisine = new Cuisine();
         cuisine.setId(3L);
         cuisine.setName("Chinese");
-        when(cuisineRepository.findById(3L)).thenReturn(Optional.of(cuisine));
+        when(cuisineRepository.findAllById(List.of(3L))).thenReturn(List.of(cuisine));
         when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(inv -> inv.getArgument(0));
 
         RestaurantRequest request = new RestaurantRequest();
@@ -479,7 +484,7 @@ class RestaurantServiceImplTest {
     void createRestaurant_missingCuisine_throwsResourceNotFound() {
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
         when(restaurantOwnerRepository.findById(1L)).thenReturn(Optional.of(owner(1L)));
-        when(cuisineRepository.findById(99L)).thenReturn(Optional.empty());
+        when(cuisineRepository.findAllById(List.of(99L))).thenReturn(List.of());
 
         RestaurantRequest request = new RestaurantRequest();
         request.setName("Missing Cuisine");

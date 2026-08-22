@@ -6,7 +6,6 @@ import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
-import com.bhukkad.dto.response.BlankResponse;
 import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.fraud.FraudEventTypes;
 import com.bhukkad.ratelimit.RateLimited;
@@ -80,6 +79,19 @@ public class AuthController {
         fraudDetectionService.checkAndBlock(null, FraudEventTypes.AUTH_LOGIN);
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(ApiResponse.success("Login successful", response));
+    }
+
+    /**
+     * Completes a login for a TOTP-enabled privileged account by verifying the
+     * second factor. The {@code mfaToken} comes from the initial login response.
+     */
+    @PostMapping("/mfa/verify")
+    @RateLimited("auth-login")
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyMfaLogin(
+            @RequestParam String mfaToken,
+            @RequestParam String code) {
+        AuthResponse response = authService.verifyMfaLogin(mfaToken, code);
+        return ResponseEntity.ok(ApiResponse.success("MFA verification successful", response));
     }
 
     @PostMapping("/verify-email")

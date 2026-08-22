@@ -28,9 +28,14 @@ public class JwtTokenProvider {
     @Value("${app.jwt.refresh-expiration:604800000}")
     private long refreshExpirationMs;
 
+    @Value("${app.jwt.mfa-expiration:300000}")
+    private long mfaExpirationMs;
+
     public static final String TOKEN_TYPE_CLAIM = "type";
     public static final String ACCESS_TOKEN_TYPE = "access";
     public static final String REFRESH_TOKEN_TYPE = "refresh";
+    public static final String MFA_TOKEN_TYPE = "mfa";
+    public static final String USER_ID_CLAIM = "uid";
 
     public JwtTokenProvider(JwtSecretRotationService secretRotationService) {
         this.secretRotationService = secretRotationService;
@@ -68,6 +73,53 @@ public class JwtTokenProvider {
         Map<String, Object> claims = new HashMap<>();
         claims.put(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE);
         return generateToken(claims, userDetails, refreshExpirationMs);
+    }
+
+    /**
+     * Generates a short-lived token authorising the MFA-verify step after a
+     * password login on a TOTP-enabled privileged account. Carries the user id
+     * and an {@code mfa} claim so the verify endpoint can bind the challenge to
+     * the account that logged in.
+     */
+    public String generateMfaToken(Long userId, String email) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(TOKEN_TYPE_CLAIM, MFA_TOKEN_TYPE);
+        claims.put(USER_ID_CLAIM, userId);
+        return Jwts.builder()
+                .setClaims(claims)
+                .setSubject(email)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + mfaExpirationMs))
+                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    /** Extracts the numeric user id claim (used by the MFA verify step). */
+    public Long extractUserId(String token) {
+        return extractClaim(token, claims -> {
+            Object value = claims.get(USER_ID_CLAIM);
+            if (value instanceof Number number) {
+                return number.longValue();
+            }
+            return null;
+        });
+    }
+
+    /** Validates that the token is an unexpired MFA challenge token. */
+    public boolean validateMfaToken(String token) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+        try {
+            if (isTokenExpired(token)) {
+                return false;
+            }
+            return MFA_TOKEN_TYPE.equals(
+                    extractClaim(token, claims -> claims.get(TOKEN_TYPE_CLAIM, String.class)));
+        } catch (Exception ex) {
+            logger.warn("MFA token validation failed: {}", ex.getMessage());
+            return false;
+        }
     }
 
     public boolean isRefreshToken(String token) {

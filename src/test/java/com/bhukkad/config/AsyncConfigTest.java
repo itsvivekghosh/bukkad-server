@@ -1,7 +1,6 @@
 package com.bhukkad.config;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.concurrent.Executor;

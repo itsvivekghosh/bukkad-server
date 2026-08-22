@@ -23,8 +23,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Coupon lifecycle: creation, validation, discount calculation and usage
+ * tracking.
+ *
+ * <p>Class-level {@code @Transactional(readOnly = true)} routes the read-heavy
+ * lookups (validation, active list) to the read replica; write methods override
+ * it with their own {@code @Transactional}.</p>
+ */
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CouponServiceImpl implements CouponService {
 
     private final CouponRepository couponRepository;

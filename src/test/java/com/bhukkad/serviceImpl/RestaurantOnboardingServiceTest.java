@@ -3,7 +3,6 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
-import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.exception.BusinessException;
@@ -27,7 +26,6 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)

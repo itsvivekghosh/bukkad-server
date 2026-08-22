@@ -31,6 +31,7 @@
 		<pitest.version>1.15.8</pitest.version>
 		<pitest-junit5.version>1.2.1</pitest-junit5.version>
 		<dependency-check.version>9.2.0</dependency-check.version>
+		<testcontainers.version>1.20.4</testcontainers.version>
 	</properties>
 
 	<dependencyManagement>
@@ -201,6 +202,16 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 		</dependency>
 
+		<!-- Distributed tracing with OpenTelemetry (bridge + Zipkin export) -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-zipkin</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-mail</artifactId>
@@ -222,6 +233,15 @@
 		<dependency>
 			<groupId>org.junit.platform</groupId>
 			<artifactId>junit-platform-suite-api</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Required for @Suite-based regression/architecture suites to actually
+		     execute. Without the engine, JUnit Platform treats @Suite classes as
+		     zero tests and CI reports a green-but-empty run. -->
+		<dependency>
+			<groupId>org.junit.platform</groupId>
+			<artifactId>junit-platform-suite-engine</artifactId>
 			<scope>test</scope>
 		</dependency>
 
@@ -250,6 +270,26 @@
 			<groupId>au.com.dius.pact.provider</groupId>
 			<artifactId>spring</artifactId>
 			<version>${pact.version}</version>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Integration tests: real MySQL + Redis via Testcontainers -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>mysql</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers</artifactId>
+			<version>${testcontainers.version}</version>
 			<scope>test</scope>
 		</dependency>
 
@@ -321,6 +361,21 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
 					<argLine>@{argLine} -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true</argLine>
+					<!-- Single fork: the Mockito inline mock-maker's self-attach on
+					     Homebrew OpenJDK 17.0.15 races when surefire forks per-core,
+					     causing intermittent "Mockito cannot mock this class" errors.
+					     forkCount=1 makes test runs deterministic. -->
+					<forkCount>1</forkCount>
+					<reuseForks>true</reuseForks>
+					<!-- Run test classes in alphabetical order so the Pact consumer test
+					     (writes target/pacts) executes before the provider verification. -->
+					<runOrder>alphabetical</runOrder>
+					<!-- Docker Desktop 4.53+ enforces a minimum Docker API version of 1.44.
+					     Testcontainers' bundled docker-java defaults to UNKNOWN_VERSION and
+					     fails to negotiate against it; pin the API version explicitly. -->
+					<systemPropertyVariables>
+						<api.version>1.44</api.version>
+					</systemPropertyVariables>
 				</configuration>
 			</plugin>
 
@@ -474,6 +529,12 @@
 							</targetClasses>
 							<excludedTestClasses>
 								<param>com.bhukkad.regression.*</param>
+								<!-- Docker/Testcontainers and contract tests are not run
+								     by Pitest: they need a container/pact broker and would
+								     fail the "green suite" pre-check in CI. -->
+								<param>com.bhukkad.integration.*</param>
+								<param>com.bhukkad.contract.*</param>
+								<param>com.bhukkad.architecture.*</param>
 							</excludedTestClasses>
 							<mutationThreshold>50</mutationThreshold>
 							<timestampedReports>false</timestampedReports>
@@ -509,6 +570,10 @@
 							<failOnError>false</failOnError>
 							<format>ALL</format>
 							<skipProvidedScope>false</skipProvidedScope>
+							<!-- NVD now requires an API key; provide via NVD_API_KEY env
+							     (GitHub secret in CI). Without it the feed 403s and the
+							     analysis is skipped non-fatally (failOnError=false). -->
+							<nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
 						</configuration>
 						<executions>
 							<execution>

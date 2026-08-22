@@ -2,12 +2,10 @@ package com.bhukkad.settlement;
 
 import com.bhukkad.config.SettlementProperties;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.entity.RestaurantSettlement;
 import com.bhukkad.entity.RiderEarning;
 import com.bhukkad.entity.SettlementRun;
 import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.RestaurantRepository;
-import com.bhukkad.repository.RestaurantSettlementRepository;
 import com.bhukkad.repository.RiderEarningRepository;
 import com.bhukkad.repository.SettlementRunRepository;
 import com.bhukkad.service.RiderPayoutService;
@@ -18,7 +16,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * Automated settlement batch processor for restaurants and riders (V16).

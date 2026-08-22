@@ -135,4 +135,85 @@ class DeadLetterEventServiceTest {
         DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
         assertEquals(3L, service.countPending());
     }
+
+    // ==================== ADMIN: DLQ inspection / replay ====================
+
+    private DeadLetterEvent dlqEvent(Long id, DeadLetterEvent.DlqStatus status) {
+        DeadLetterEvent e = new DeadLetterEvent();
+        e.setId(id);
+        e.setEventType("ORDER_CREATED");
+        e.setAggregateType("ORDER");
+        e.setAggregateId(42L);
+        e.setPayload("{\"orderId\":42}");
+        e.setLastError("kafka down");
+        e.setRetryCount(3);
+        e.setStatus(status);
+        return e;
+    }
+
+    @Test
+    void listRecent_delegatesToRepository() {
+        when(deadLetterEventRepository.findAllOrderByCreatedAtDesc(any(Pageable.class)))
+                .thenReturn(List.of(dlqEvent(1L, DeadLetterEvent.DlqStatus.PENDING)));
+
+        DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
+        List<DeadLetterEvent> result = service.listRecent(10);
+
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getId());
+    }
+
+    @Test
+    void getById_returnsEvent() {
+        when(deadLetterEventRepository.findById(5L))
+                .thenReturn(java.util.Optional.of(dlqEvent(5L, DeadLetterEvent.DlqStatus.PENDING)));
+
+        DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
+        assertEquals(5L, service.getById(5L).getId());
+    }
+
+    @Test
+    void getById_missing_throws() {
+        when(deadLetterEventRepository.findById(99L)).thenReturn(java.util.Optional.empty());
+
+        DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
+        assertThrows(com.bhukkad.exception.ResourceNotFoundException.class,
+                () -> service.getById(99L));
+    }
+
+    @Test
+    void requeueOne_recreatesOutboxAndMarksRequeued() {
+        DeadLetterEvent deadLetter = dlqEvent(7L, DeadLetterEvent.DlqStatus.PENDING);
+        when(deadLetterEventRepository.findById(7L)).thenReturn(java.util.Optional.of(deadLetter));
+        when(outboxEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
+        DeadLetterEvent result = service.requeueOne(7L);
+
+        assertEquals(DeadLetterEvent.DlqStatus.REQUEUED, result.getStatus());
+        verify(outboxEventRepository).save(any());
+        verify(deadLetterEventRepository).markRequeued(
+                eq(7L), eq(DeadLetterEvent.DlqStatus.REQUEUED), any());
+    }
+
+    @Test
+    void requeueOne_alreadyRequeued_isNoOp() {
+        DeadLetterEvent deadLetter = dlqEvent(7L, DeadLetterEvent.DlqStatus.REQUEUED);
+        when(deadLetterEventRepository.findById(7L)).thenReturn(java.util.Optional.of(deadLetter));
+
+        DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
+        DeadLetterEvent result = service.requeueOne(7L);
+
+        assertEquals(DeadLetterEvent.DlqStatus.REQUEUED, result.getStatus());
+        verify(outboxEventRepository, never()).save(any());
+    }
+
+    @Test
+    void requeueOne_missing_throws() {
+        when(deadLetterEventRepository.findById(8L)).thenReturn(java.util.Optional.empty());
+
+        DeadLetterEventService service = new DeadLetterEventService(deadLetterEventRepository, outboxEventRepository);
+        assertThrows(com.bhukkad.exception.ResourceNotFoundException.class,
+                () -> service.requeueOne(8L));
+    }
 }

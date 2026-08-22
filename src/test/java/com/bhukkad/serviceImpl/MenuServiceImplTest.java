@@ -18,6 +18,7 @@ import com.bhukkad.storage.MenuImageService;
 import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.RestaurantRepository;
+import com.bhukkad.search.AutocompleteService;
 import com.bhukkad.security.SecurityUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,8 @@ class MenuServiceImplTest {
     private com.bhukkad.inventory.StockReservationService stockReservationService;
     @Mock
     private com.bhukkad.repository.OrderItemRepository orderItemRepository;
+    @Mock
+    private AutocompleteService autocompleteService;
 
     @InjectMocks
     private MenuServiceImpl menuService;
@@ -143,6 +146,11 @@ class MenuServiceImplTest {
                     .ingredients(ingredients)
                     .build();
         });
+
+        // MenuServiceImpl chains resolveImageUrls after toResponse; return the
+        // already-populated response unchanged (imageUrl is set by the stub above).
+        lenient().when(menuItemMapper.resolveImageUrls(any(MenuItem.class), any(MenuItemResponse.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
 
         lenient().when(cacheService.getListOrCompute(anyString(), any(Class.class), anyLong(), any()))
                 .thenAnswer(invocation -> {
@@ -494,6 +502,7 @@ class MenuServiceImplTest {
         when(cacheService.getList(CacheKeyGenerator.menuSearch("naan"), MenuItemResponse.class))
                 .thenReturn(Optional.empty());
         when(menuItemRepository.searchByNameWithDetails("Naan")).thenReturn(List.of(fullMenuItem(1L)));
+        when(menuItemRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(fullMenuItem(1L)));
 
         List<MenuItemResponse> result = menuService.searchMenuItems("Naan");
         assertEquals(1, result.size());

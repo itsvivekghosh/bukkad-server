@@ -10,18 +10,13 @@ import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.DynamicPricingRuleRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;
-import com.bhukkad.service.DynamicPricingService;
-import com.bhukkad.util.PriceCalculator;
-import com.bhukkad.util.PriceCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;

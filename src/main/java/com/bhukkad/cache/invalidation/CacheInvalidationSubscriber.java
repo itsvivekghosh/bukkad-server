@@ -33,7 +33,11 @@ public class CacheInvalidationSubscriber implements MessageListener {
     @Override
     public void onMessage(Message message, byte[] pattern) {
         try {
-            CacheInvalidatedEvent event = objectMapper.readValue(message.getBody(), CacheInvalidatedEvent.class);
+            // The publisher sends the event as a JSON string via RedisTemplate.convertAndSend.
+            // GenericJackson2JsonRedisSerializer wraps the String payload in JSON quotes,
+            // so we deserialize the body as a String first, then parse the event.
+            String json = objectMapper.readValue(message.getBody(), String.class);
+            CacheInvalidatedEvent event = objectMapper.readValue(json, CacheInvalidatedEvent.class);
             log.debug("CACHE_INVALIDATION_RECEIVED cacheName={} key={} pattern={}", event.getCacheName(), event.getKey(), event.isPattern());
 
             String fullKey = event.getKey();

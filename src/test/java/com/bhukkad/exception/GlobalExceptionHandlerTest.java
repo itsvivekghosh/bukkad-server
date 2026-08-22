@@ -125,7 +125,8 @@ class GlobalExceptionHandlerTest {
                 handler.handleRuntimeException(new RuntimeException("boom"), request);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertEquals("boom", response.getBody().getMessage());
+        // Raw exception messages must never leak to clients.
+        assertEquals("An unexpected error occurred. Please try again later.", response.getBody().getMessage());
     }
 
     @Test

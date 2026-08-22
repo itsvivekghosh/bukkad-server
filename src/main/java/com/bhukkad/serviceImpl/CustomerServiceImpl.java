@@ -237,6 +237,7 @@ public class CustomerServiceImpl implements CustomerService {
         return buildProfileResponse(customer);
     }
 
+    @UseReadReplica
     public Customer getCurrentCustomer() {
         User user = securityUtils.getCurrentUser();
 
