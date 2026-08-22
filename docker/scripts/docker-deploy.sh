@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy Bhukkad API container on a single EC2 host (staging or production).
-# Expects IMAGE_TAG and application secrets in the environment (see deploy-staging.yml).
+# Expects IMAGE_TAG and application secrets in the environment (see staging.yml).
 set -euo pipefail
 
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"

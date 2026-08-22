@@ -2,23 +2,24 @@
 
 ## Branch → pipeline map
 
-| Branch | What runs automatically | Environment | Manual step |
-|--------|-------------------------|-------------|-------------|
-| `feature/*` | Nothing deploys | — | Open PR to `deploy` |
-| `deploy` | **Pull Request CI** (on PR) | — | Merge when CI passes |
-| `deploy` | **Docker Image** (test + build + push) | — | Auto on push |
-| `deploy` | **Deploy to Staging** | Staging EC2 | Auto after Docker Image succeeds |
-| `main` | **Docker Image** (test + build + push) | — | Auto on push |
-| `main` | **Deploy to Production** | Production EC2 | **Manual** — Actions → Deploy to Production |
-| `main` | PR to `main` | — | **Validate Release Candidate** (comment only) |
+| Branch | What runs automatically | Environment | Deploy |
+|--------|-------------------------|-------------|--------|
+| `feature/*` | **Feature CI** — Build + Test | — | No |
+| Any PR target | **Pull Request CI** — Build + Test + quality gates | — | No |
+| `deploy` (staging) | **Staging Deploy** — Build + Test → Docker push → Deploy | Staging EC2 | Auto after CI passes |
+| `main` (production) | **Production Deploy** — Build + Test → Docker push → Deploy | Production EC2 | Auto after CI passes |
 
 ```text
-feature/* ──PR──► deploy ──push──► Docker Image ──► Deploy to Staging
-                                    │
-deploy ──PR──► main ──push──► Docker Image
-                                    │
-                         (manual) Deploy to Production
+feature/* ──push──► Feature CI (Build + Test)
+feature/* ──PR──► any branch ──► Pull Request CI (Build + Test)
+
+deploy ──push/merge──► Staging Deploy ──► CI ──► Docker push ──► Deploy to Staging
+main   ──push/merge──► Production Deploy ──► CI ──► Docker push ──► Deploy to Production
 ```
+
+Deployment jobs depend on the reusable `ci.yml` pipeline (`needs: [ci, build-and-push]`), so staging and
+production deploys only run after build and tests pass. There is no path from a feature branch or a
+pull request to any deployment.
 
 ### Nightly (scheduled)
 
@@ -39,7 +40,7 @@ deploy ──PR──► main ──push──► Docker Image
 | `GHCR_IMAGE` | Docker image repository | `ghcr.io/itsvivekghosh/bukkad-server` |
 | `GHCR_USERNAME` | GHCR login user | `itsvivekghosh` |
 | `APP_PORT` | App HTTP port | `8080` |
-| `STAGING_IMAGE_SHA` | Set by Docker workflow | (auto-updated) |
+| `STAGING_IMAGE_SHA` | Set by staging workflow | (auto-updated) |
 | `STAGING_REDIS_LOCAL` | Use Redis on staging EC2 | `true` |
 | `PROD_REDIS_LOCAL` | Use Redis on production EC2 | `true` |
 | `FLYWAY_REPAIR_ON_DEPLOY` | Run Flyway repair before staging deploy | `false` |
@@ -83,14 +84,14 @@ Local mirror: `.github/deploy-config.env`
 
 ### On `feature/*` branches
 
-1. Push code and open PR → **`deploy`**
-2. Wait for **Pull Request CI** (tests, CodeQL)
-3. Merge to `deploy` when green
+1. Push code — **Feature CI** runs Build + Test.
+2. Open PR — **Pull Request CI** runs Build + Test plus quality gates (ArchUnit, Pitest, OWASP, CodeQL).
+3. Merge when green.
 
 ### After merge to `deploy` (staging)
 
-1. **Docker Image** runs (tests + build + push to GHCR)
-2. **Deploy to Staging** runs automatically
+1. **Staging Deploy** runs: Build + Test → Docker push to GHCR → Deploy to Staging.
+2. Staging deploys only after build and tests pass.
 3. Verify: `curl http://<STAGING_EC2_HOST>:8080/api/v1/health/ping`
 4. Optional: `python3 scripts/test-all-apis.py --base-url http://<host>:8080`
 
@@ -98,11 +99,13 @@ Local mirror: `.github/deploy-config.env`
 
 ### Releasing to production (`main`)
 
-1. Open PR: `deploy` → `main`
-2. Merge to `main` (Docker Image builds on push)
-3. Go to **Actions → Deploy to Production → Run workflow** (manual)
-4. Approve if environment protection is enabled
-5. Verify: `curl http://<PROD_EC2_HOST>:8080/api/v1/health/ping`
+1. Open PR: `deploy` → `main` (Pull Request CI runs).
+2. Merge to `main` — **Production Deploy** runs automatically: Build + Test → Docker push → Deploy to Production.
+3. Production deploys only after build and tests pass. Environment protection rules on the `production`
+   environment (e.g. required reviewers) still apply before the deployment job starts.
+4. Verify: `curl http://<PROD_EC2_HOST>:8080/api/v1/health/ping`
+
+Production never deploys from a feature branch or a pull request — only from `main` pushes.
 
 ### When EC2 IP/DNS changes
 

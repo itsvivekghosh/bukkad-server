@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate EC2 deploy workflows and helper scripts locally.
+# Validate CI/CD workflows and helper scripts locally.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,7 +37,7 @@ try:
 except ImportError:
     sys.exit(2)
 root = Path(".github/workflows")
-for path in sorted(root.glob("deploy-*.yml")):
+for path in sorted(root.glob("*.yml")):
     with path.open() as f:
         yaml.safe_load(f)
     print(f"  ✅ yaml parse {path}")
@@ -65,27 +65,112 @@ elif [ -f .github/deploy-hosts.env ]; then
 else
   bad "missing .github/deploy-config.env"
 fi
-grep -q 'vars.STAGING_EC2_HOST' .github/workflows/deploy-staging.yml \
+
+echo ""
+echo "=== Workflow inventory ==="
+for wf in ci.yml pull-request.yml feature-ci.yml staging.yml production.yml nightly-regression.yml; do
+  [ -f ".github/workflows/${wf}" ] && ok "workflow present: ${wf}" || bad "missing workflow: ${wf}"
+done
+for wf in docker.yml deploy-staging.yml deploy-production.yml; do
+  [ -f ".github/workflows/${wf}" ] && bad "obsolete workflow still present: ${wf}" || ok "obsolete workflow removed: ${wf}"
+done
+
+echo ""
+echo "=== Triggers ==="
+grep -q 'on:\s*$\|on:' .github/workflows/pull-request.yml && grep -q 'pull_request:' .github/workflows/pull-request.yml \
+  && ok "PR workflow triggers on pull_request" \
+  || bad "PR workflow missing pull_request trigger"
+grep -q "'feature/\*\*'" .github/workflows/feature-ci.yml \
+  && ok "feature CI triggers on feature/** pushes" \
+  || bad "feature CI missing feature/** push trigger"
+grep -q 'branches: \[ deploy \]' .github/workflows/staging.yml \
+  && ok "staging workflow triggers on deploy branch" \
+  || bad "staging workflow missing deploy branch trigger"
+grep -q 'branches: \[ main \]' .github/workflows/production.yml \
+  && ok "production workflow triggers on main branch" \
+  || bad "production workflow missing main branch trigger"
+
+echo ""
+echo "=== Reusable CI wiring ==="
+grep -q 'workflow_call:' .github/workflows/ci.yml \
+  && ok "ci.yml is reusable (workflow_call)" \
+  || bad "ci.yml missing workflow_call trigger"
+for wf in pull-request.yml feature-ci.yml staging.yml production.yml; do
+  grep -q 'uses: ./.github/workflows/ci.yml' ".github/workflows/${wf}" \
+    && ok "${wf} calls reusable ci.yml" \
+    || bad "${wf} does not call reusable ci.yml"
+done
+grep -q '^\s*build:\s*$\|^  build:' .github/workflows/ci.yml && grep -q '^\s*test:\s*$\|^  test:' .github/workflows/ci.yml \
+  && ok "ci.yml contains build and test jobs" \
+  || bad "ci.yml missing build or test job"
+
+echo ""
+echo "=== Deploy gates (deploy only after CI passes) ==="
+grep -q 'needs: \[ci, build-and-push\]' .github/workflows/staging.yml \
+  && ok "staging deploy depends on ci + build-and-push" \
+  || bad "staging deploy gate missing"
+grep -q 'needs: \[ci, build-and-push\]' .github/workflows/production.yml \
+  && ok "production deploy depends on ci + build-and-push" \
+  || bad "production deploy gate missing"
+grep -q 'needs: ci' .github/workflows/staging.yml \
+  && ok "staging build-and-push depends on ci" \
+  || bad "staging build-and-push gate missing"
+grep -q 'needs: ci' .github/workflows/production.yml \
+  && ok "production build-and-push depends on ci" \
+  || bad "production build-and-push gate missing"
+
+echo ""
+echo "=== Job outputs (deploy consumes pushed image) ==="
+for wf in staging production; do
+  grep -q 'outputs:' ".github/workflows/${wf}.yml" \
+    && ok "${wf} build-and-push declares outputs" \
+    || bad "${wf} build-and-push missing outputs"
+  grep -q 'needs.build-and-push.outputs.image' ".github/workflows/${wf}.yml" \
+    && grep -q 'needs.build-and-push.outputs.tag' ".github/workflows/${wf}.yml" \
+    && ok "${wf} deploy consumes build-and-push outputs" \
+    || bad "${wf} deploy does not consume build-and-push outputs"
+done
+
+echo ""
+echo "=== No deploy from PR / feature workflows ==="
+if grep -qE 'environment:|ec2\.sh deploy|docker-build' .github/workflows/pull-request.yml .github/workflows/feature-ci.yml; then
+  bad "PR or feature workflow contains deploy logic"
+else
+  ok "PR and feature workflows contain no deploy logic"
+fi
+
+echo ""
+echo "=== Variable and secret reuse ==="
+grep -q 'vars.STAGING_EC2_HOST' .github/workflows/staging.yml \
   && ok "staging workflow uses STAGING_EC2_HOST variable" \
   || bad "staging workflow missing STAGING_EC2_HOST variable"
-grep -q 'vars.PROD_EC2_HOST' .github/workflows/deploy-production.yml \
+grep -q 'vars.PROD_EC2_HOST' .github/workflows/production.yml \
   && ok "production workflow uses PROD_EC2_HOST variable" \
   || bad "production workflow missing PROD_EC2_HOST variable"
-grep -q 'vars.GHCR_IMAGE' .github/workflows/deploy-staging.yml \
+grep -q 'vars.GHCR_IMAGE' .github/workflows/staging.yml \
   && ok "staging workflow uses GHCR_IMAGE variable" \
   || bad "staging workflow missing GHCR_IMAGE variable"
-grep -q 'vars.GHCR_IMAGE' .github/workflows/docker.yml \
-  && ok "docker workflow uses GHCR_IMAGE variable" \
-  || bad "docker workflow missing GHCR_IMAGE variable"
-if ! grep -E 'ec2-[0-9-]+\.ap-south-1\.compute\.amazonaws\.com' .github/workflows/deploy-staging.yml .github/workflows/deploy-production.yml >/dev/null 2>&1; then
-  ok "no hardcoded EC2 DNS in deploy workflows"
+grep -q 'vars.GHCR_IMAGE' .github/workflows/production.yml \
+  && ok "production workflow uses GHCR_IMAGE variable" \
+  || bad "production workflow missing GHCR_IMAGE variable"
+grep -q 'GHCR_READ_TOKEN' .github/workflows/staging.yml \
+  && ok "staging reuses GHCR_READ_TOKEN" \
+  || bad "staging missing GHCR_READ_TOKEN"
+grep -q 'GHCR_READ_TOKEN' .github/workflows/production.yml \
+  && ok "production reuses GHCR_READ_TOKEN" \
+  || bad "production missing GHCR_READ_TOKEN"
+grep -q 'STAGING_IMAGE_SHA' .github/workflows/staging.yml \
+  && ok "staging preserves STAGING_IMAGE_SHA variable update" \
+  || bad "staging missing STAGING_IMAGE_SHA update"
+if ! grep -E 'ec2-[0-9-]+\.ap-south-1\.compute\.amazonaws\.com' .github/workflows/*.yml >/dev/null 2>&1; then
+  ok "no hardcoded EC2 DNS in workflows"
 else
-  bad "deploy workflows still contain hardcoded EC2 DNS"
+  bad "workflows still contain hardcoded EC2 DNS"
 fi
 
 echo ""
 echo "=== Workflow expression safety ==="
-for wf in .github/workflows/deploy-staging.yml .github/workflows/deploy-production.yml; do
+for wf in .github/workflows/staging.yml .github/workflows/production.yml; do
   if grep -E '^env:' -A5 "$wf" | grep -q 'secrets\.'; then
     bad "secrets used in workflow-level env in ${wf}"
   else
@@ -96,69 +181,43 @@ for wf in .github/workflows/deploy-staging.yml .github/workflows/deploy-producti
   else
     ok "no secrets in environment url (${wf})"
   fi
-  if grep -q '^name: Deploy to Production' "$wf" 2>/dev/null || [ "$wf" != ".github/workflows/deploy-production.yml" ]; then
-    :
-  fi
 done
-grep -q '^name: Deploy to Production' .github/workflows/deploy-production.yml \
-  && ok "production workflow name is Deploy to Production" \
+grep -q '^name: Production Deploy' .github/workflows/production.yml \
+  && ok "production workflow name is Production Deploy" \
   || bad "production workflow name incorrect"
-grep -q '^name: Deploy to Staging' .github/workflows/deploy-staging.yml \
-  && ok "staging workflow name is Deploy to Staging" \
+grep -q '^name: Staging Deploy' .github/workflows/staging.yml \
+  && ok "staging workflow name is Staging Deploy" \
   || bad "staging workflow name incorrect"
 
 echo ""
-echo "=== Required workflow fixes ==="
-grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/deploy-staging.yml \
+echo "=== Required deployment implementation ==="
+grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/staging.yml \
   && ok "staging copies deploy script from repo" \
   || bad "staging deploy script copy missing"
-grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/deploy-production.yml \
+grep -q 'cp docker/scripts/docker-deploy.sh' .github/workflows/production.yml \
   && ok "production copies deploy script from repo" \
   || bad "production deploy script copy missing"
-grep -q 'branches: \[ main, deploy \]' .github/workflows/docker.yml \
-  && ok "docker workflow triggers on main and deploy" \
-  || bad "docker workflow trigger branches missing"
-grep -q 'GHCR_READ_TOKEN' .github/workflows/deploy-production.yml \
-  && ok "production uses GHCR_READ_TOKEN" \
-  || bad "production missing GHCR_READ_TOKEN"
-grep -q 'ec2.sh verify-ssh' .github/workflows/deploy-staging.yml \
+grep -q 'ec2.sh verify-ssh' .github/workflows/staging.yml \
   && ok "staging verifies SSH authentication" \
   || bad "staging missing SSH auth verification"
-grep -q "head_branch == 'deploy'" .github/workflows/deploy-staging.yml \
-  && ok "staging deploy only auto-runs for deploy branch" \
-  || bad "staging missing deploy branch filter on workflow_run"
-grep -q 'Set deployment defaults' .github/workflows/deploy-staging.yml \
-  && ok "staging sets deployment defaults" \
-  || bad "staging missing deployment defaults step"
-grep -q 'ec2.sh verify-ssh' .github/workflows/deploy-production.yml \
+grep -q 'ec2.sh verify-ssh' .github/workflows/production.yml \
   && ok "production verifies SSH authentication" \
   || bad "production missing SSH auth verification"
+grep -q 'Set deployment defaults' .github/workflows/staging.yml \
+  && ok "staging sets deployment defaults" \
+  || bad "staging missing deployment defaults step"
 
 echo ""
-echo "=== EC2 reachability (SSH port 22) ==="
-for host in "${STAGING_EC2_HOST:-}" "${PROD_EC2_HOST:-}"; do
-  [ -n "${host}" ] || continue
-  if timeout 3 bash -c "echo >/dev/tcp/${host}/22" 2>/dev/null; then
-    ok "TCP 22 open on ${host} (bash /dev/tcp)"
-  elif nc -z -w 3 "$host" 22 >/dev/null 2>&1; then
-    ok "TCP 22 open on ${host} (nc)"
-  else
-    echo "  ⚠️  cannot verify TCP 22 on ${host}"
-  fi
-done
-
-echo ""
-echo "=== Public health endpoints (optional, requires SG port 8080) ==="
-for host in "${STAGING_EC2_HOST:-}" "${PROD_EC2_HOST:-}"; do
-  [ -n "${host}" ] || continue
-  url="http://${host}:${APP_PORT:-8080}${HEALTH_PATH:-/api/v1/health/ping}"
-  code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" || echo "000")
-  if [ "$code" = "200" ]; then
-    ok "${url} -> HTTP ${code}"
-  else
-    echo "  ⚠️  ${url} -> HTTP ${code} (DNS/TLS/app may not be ready yet)"
-  fi
-done
+echo "=== Concurrency ==="
+grep -q 'group: staging-deploy' .github/workflows/staging.yml && grep -q 'cancel-in-progress: false' .github/workflows/staging.yml \
+  && ok "staging serializes deployments without canceling in-progress runs" \
+  || bad "staging concurrency misconfigured"
+grep -q 'group: production-deploy' .github/workflows/production.yml && grep -q 'cancel-in-progress: false' .github/workflows/production.yml \
+  && ok "production serializes deployments without canceling in-progress runs" \
+  || bad "production concurrency misconfigured"
+grep -q 'group: pr-ci-\${{ github.event.pull_request.number }}' .github/workflows/pull-request.yml \
+  && ok "PR CI uses per-PR concurrency group" \
+  || bad "PR CI concurrency group missing"
 
 echo ""
 echo "=== Summary ==="
