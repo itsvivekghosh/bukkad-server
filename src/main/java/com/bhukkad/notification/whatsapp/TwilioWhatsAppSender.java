@@ -1,7 +1,7 @@
 package com.bhukkad.notification.whatsapp;
 
 import com.bhukkad.config.NotificationProperties;
-import lombok.RequiredArgsConstructor;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
@@ -16,16 +16,30 @@ import org.springframework.web.client.RestTemplate;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+/**
+ * Sends WhatsApp messages via the Twilio REST API behind a circuit breaker.
+ *
+ * <p>Twilio is an external dependency; the circuit breaker prevents a slow or
+ * failing provider from stalling business transactions. The fallback degrades
+ * to a WARN log, matching the fire-and-forget contract of the notification
+ * pipeline.</p>
+ */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.notification.whatsapp.provider", havingValue = "twilio")
 public class TwilioWhatsAppSender implements WhatsAppSender {
 
     private final NotificationProperties notificationProperties;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public TwilioWhatsAppSender(NotificationProperties notificationProperties,
+                                RestTemplate restTemplate) {
+        this.notificationProperties = notificationProperties;
+        this.restTemplate = restTemplate;
+    }
 
     @Override
+    @CircuitBreaker(name = "notificationWhatsApp", fallbackMethod = "whatsAppUnavailable")
     public void send(String phoneNumber, String body) {
         if (!StringUtils.hasText(phoneNumber)) {
             return;
@@ -56,11 +70,13 @@ public class TwilioWhatsAppSender implements WhatsAppSender {
         form.add("From", fromAddr);
         form.add("Body", body);
 
-        try {
-            restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
-            log.info("Twilio WhatsApp sent | to={}", phoneNumber);
-        } catch (Exception ex) {
-            log.error("Twilio WhatsApp failed | to={} | error={}", phoneNumber, ex.getMessage());
-        }
+        restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
+        log.info("Twilio WhatsApp sent | to={}", phoneNumber);
+    }
+
+    @SuppressWarnings("unused")
+    void whatsAppUnavailable(String phoneNumber, String body, Throwable ex) {
+        log.warn("Twilio WhatsApp unavailable (circuit open) | to={} | error={}",
+                phoneNumber, ex.getMessage());
     }
 }

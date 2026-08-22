@@ -16,12 +16,14 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.http.MediaType;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -168,6 +170,46 @@ public class GlobalExceptionHandler {
                 .body(buildError("Media type not acceptable for this endpoint"));
     }
 
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException ex, WebRequest request) {
+        log.warn("MediaTypeNotSupported | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Unsupported media type"));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, WebRequest request) {
+        log.warn("HttpMessageNotReadable | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Malformed request body"));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingParams(
+            MissingServletRequestParameterException ex, WebRequest request) {
+        log.warn("MissingParam | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Missing required parameter: " + ex.getParameterName()));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex, WebRequest request) {
+        log.warn("TypeMismatch | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Invalid parameter value"));
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Void>> handleRuntimeException(
             RuntimeException ex, WebRequest request) {
@@ -180,7 +222,8 @@ public class GlobalExceptionHandler {
             log.error("Exception message: {}", ex.getMessage());
         }
         alertService.alertException("GlobalExceptionHandler", ex.getMessage(), ex);
-        return new ResponseEntity<>(buildError(ex.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
+        return new ResponseEntity<>(buildError("An unexpected error occurred. Please try again later."),
+                HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     @ExceptionHandler(Exception.class)

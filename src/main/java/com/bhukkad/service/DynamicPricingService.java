@@ -2,7 +2,6 @@ package com.bhukkad.service;
 
 import com.bhukkad.dto.request.DynamicPricingRuleRequest;
 import com.bhukkad.dto.response.DynamicPricingRuleResponse;
-import com.bhukkad.entity.DynamicPricingRule;
 
 import java.util.List;
 

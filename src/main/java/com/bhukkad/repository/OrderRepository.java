@@ -40,6 +40,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "JOIN FETCH r.owner " +
             "JOIN FETCH o.deliveryAddress " +
             "LEFT JOIN FETCH o.deliveryAgent " +
+            "LEFT JOIN FETCH o.orderItems " +
             "WHERE o.orderNumber = :orderNumber")
     Optional<Order> findByOrderNumberWithDetails(@Param("orderNumber") String orderNumber);
 

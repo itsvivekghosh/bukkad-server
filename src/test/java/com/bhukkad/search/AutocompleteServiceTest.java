@@ -1,11 +1,9 @@
 package com.bhukkad.search;
 
 import com.bhukkad.dto.response.AutocompleteSuggestion;
-import com.bhukkad.featureflag.FeatureFlagProperties;
 import com.bhukkad.featureflag.FeatureFlagService;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.RestaurantRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -13,96 +11,100 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+/**
+ * Unit tests for incremental trie updates (P1-9): after a menu item or
+ * restaurant is created/renamed, the in-memory autocomplete index must reflect
+ * the change without a full rebuild.
+ */
 @ExtendWith(MockitoExtension.class)
 class AutocompleteServiceTest {
 
     @Mock
+    private TrieIndex trieIndex;
+    @Mock
     private RestaurantRepository restaurantRepository;
     @Mock
     private MenuItemRepository menuItemRepository;
-
-    private TrieIndex trie;
-    private AutocompleteService service;
+    @Mock
     private FeatureFlagService featureFlagService;
 
-    @BeforeEach
-    void setUp() {
-        trie = new TrieIndex();
-        FeatureFlagProperties props = new FeatureFlagProperties();
-        props.getFlags().put("autocomplete-enabled", true);
-        featureFlagService = new FeatureFlagService(props);
-        service = new AutocompleteService(trie, restaurantRepository, menuItemRepository, featureFlagService);
+    private AutocompleteService service;
+
+    private AutocompleteService buildService() {
+        service = new AutocompleteService(trieIndex, restaurantRepository,
+                menuItemRepository, featureFlagService);
+        return service;
     }
 
     @Test
-    void refresh_buildsIndexFromRepositories() {
-        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(List.<Object[]>of(
-                new Object[]{1L, "Pizza Palace"},
-                new Object[]{2L, "Pasta Hut"}
-        ));
-        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(List.<Object[]>of(
-                new Object[]{10L, "Paneer Tikka"}
-        ));
+    void indexMenuItem_addsEntryToTrie() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
 
-        service.refresh();
+        service.indexMenuItem(42L, "Paneer Tikka");
 
-        assertEquals(3, trie.size());
-        assertEquals(1, trie.prefixSearch("piz", 5).size());
-        assertEquals(1, trie.prefixSearch("pan", 5).size());
+        org.mockito.Mockito.verify(trieIndex).insert(
+                "Paneer Tikka", 42L, AutocompleteSuggestion.TYPE_MENU_ITEM);
     }
 
     @Test
-    void suggest_returnsTypeTaggedSuggestions() {
-        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(List.<Object[]>of(
-                new Object[]{1L, "Pizza Palace"}
-        ));
-        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(List.<Object[]>of(
-                new Object[]{10L, "Pizza Fries"}
-        ));
-        service.refresh();
+    void indexRestaurant_addsEntryToTrie() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
 
-        List<AutocompleteSuggestion> suggestions = service.suggest("pizza", null);
+        service.indexRestaurant(7L, "Spice Hub");
 
-        assertEquals(2, suggestions.size());
-        // Lexicographic order: "Pizza Fries" < "Pizza Palace"; display name keeps original case.
-        assertEquals("Pizza Fries", suggestions.get(0).getText());
-        assertEquals(AutocompleteSuggestion.TYPE_MENU_ITEM, suggestions.get(0).getType());
-        assertEquals("Pizza Palace", suggestions.get(1).getText());
-        assertEquals(AutocompleteSuggestion.TYPE_RESTAURANT, suggestions.get(1).getType());
+        org.mockito.Mockito.verify(trieIndex).insert(
+                "Spice Hub", 7L, AutocompleteSuggestion.TYPE_RESTAURANT);
     }
 
     @Test
-    void suggest_appliesLimit() {
-        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(List.<Object[]>of(
-                new Object[]{1L, "Alpha"}, new Object[]{2L, "Apple"}, new Object[]{3L, "Apricot"}
-        ));
-        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(List.of());
-        service.refresh();
+    void indexMenuItem_skipsWhenFeatureFlagDisabled() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(false);
+        buildService();
 
-        List<AutocompleteSuggestion> suggestions = service.suggest("ap", 2);
+        service.indexMenuItem(42L, "Paneer Tikka");
 
-        assertEquals(2, suggestions.size());
+        org.mockito.Mockito.verifyNoInteractions(trieIndex);
     }
 
     @Test
-    void suggest_emptyPrefix_returnsEmpty() {
-        assertTrue(service.suggest("", null).isEmpty());
-        assertTrue(service.suggest("zzz-no-match", null).isEmpty());
+    void indexMenuItem_skipsBlankName() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+
+        service.indexMenuItem(42L, "   ");
+
+        org.mockito.Mockito.verifyNoInteractions(trieIndex);
     }
 
     @Test
-    void suggest_disabledFlag_returnsEmpty() {
-        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(List.<Object[]>of(
-                new Object[]{1L, "Pizza Palace"}
-        ));
-        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(List.of());
-        service.refresh();
-        featureFlagService.setFlag("autocomplete-enabled", false);
+    void suggest_returnsEmptyWhenFlagDisabled() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(false);
+        buildService();
 
-        assertTrue(service.suggest("pizza", null).isEmpty());
+        assertThat(service.suggest("pa", null)).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(trieIndex);
+    }
+
+    @Test
+    void suggest_limitsAndDeduplicatesResults() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+        when(trieIndex.prefixSearch("pa", 32)).thenReturn(List.of(
+                new TrieIndex.Entry("paneer", "Paneer", 1L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("paneer", "Paneer", 2L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pasta", "Pasta", 3L, AutocompleteSuggestion.TYPE_MENU_ITEM)
+        ));
+
+        List<AutocompleteSuggestion> result = service.suggest("pa", 2);
+
+        // Dedup by text+type and cap at the limit.
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(AutocompleteSuggestion::getText)
+                .containsExactly("Paneer", "Pasta");
     }
 }

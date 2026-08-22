@@ -105,6 +105,13 @@ class RunState:
     vars: dict[str, str] = field(default_factory=dict)
     tokens: dict[str, str] = field(default_factory=dict)
     results: list[TestResult] = field(default_factory=list)
+    _webhook_seq: int = 0
+
+    def next_webhook_payment_id(self) -> str:
+        """Returns a unique payment id per webhook call so replay-protection
+        tests never collide on the dedup key."""
+        self._webhook_seq += 1
+        return f"pay_test{self._webhook_seq}"
 
     def init_defaults(self, password: str) -> None:
         ts = str(int(time.time()))
@@ -329,6 +336,12 @@ def run_test(
         body_obj = resolve_value(BODY_TEMPLATES[body_key], state)
         if body_key == "scheduled_order":
             body_obj["scheduledAt"] = (datetime.now() + timedelta(minutes=35)).strftime("%Y-%m-%dT%H:%M:%S")
+        # Each webhook test must use a distinct payment id: the payment webhook
+        # is replay-protected by idempotency, so reusing the same id across tests
+        # would make later tests hit the dedup path (200) instead of the
+        # first-processing path (404) they assert.
+        if body_key and body_key.startswith("razorpay_webhook") and "paymentId" in body_obj:
+            body_obj["paymentId"] = state.next_webhook_payment_id()
         body_bytes = json.dumps(body_obj).encode("utf-8")
 
     start = time.perf_counter()

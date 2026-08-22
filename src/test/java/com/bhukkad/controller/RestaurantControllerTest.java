@@ -22,7 +22,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import static org.springframework.http.HttpHeaders.IF_NONE_MATCH;
 import org.junit.jupiter.api.Tag;
 
 @Tag("regression")

@@ -1,13 +1,13 @@
 package com.bhukkad.delivery;
 
 import com.bhukkad.cache.OrderCacheService;
+import com.bhukkad.delivery.RoadDistanceService;
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
-import com.bhukkad.entity.User;
 import com.bhukkad.event.OrderEventPublisher;
 import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.OrderRepository;
@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +36,8 @@ class RiderDispatchServiceTest {
     private OrderEventPublisher orderEventPublisher;
     @Mock
     private OrderCacheService orderCacheService;
+    @Mock
+    private RoadDistanceService roadDistanceService;
 
     @InjectMocks
     private RiderDispatchService riderDispatchService;
@@ -46,6 +48,8 @@ class RiderDispatchServiceTest {
         DeliveryAgent agent = agent(7L);
 
         when(deliveryAgentRepository.findAvailableAgents()).thenReturn(List.of(agent));
+        when(roadDistanceService.route(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(new RoadDistanceService.RoadRoute(1.5, 3.0, false));
         when(orderRepository.save(order)).thenReturn(order);
 
         Optional<Order> assigned = riderDispatchService.autoAssignNearestRider(order);

@@ -20,6 +20,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Groups nearby ready orders into multi-stop delivery batches for riders (V16).
@@ -82,10 +85,7 @@ public class RiderBatchDispatchService {
                 .findFirstByAgentIdAndStatusOrderByCreatedAtDesc(agent.getId(), RiderDeliveryBatch.BatchStatus.ACTIVE)
                 .orElseThrow(() -> new ResourceNotFoundException("No active delivery batch"));
         List<RiderDeliveryBatchOrder> entries = batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batch.getId());
-        List<Order> orders = entries.stream()
-                .map(e -> orderRepository.findById(e.getOrderId()).orElse(null))
-                .filter(o -> o != null)
-                .toList();
+        List<Order> orders = fetchOrdersByIds(entries);
         return toResponse(batch, orders);
     }
 
@@ -98,11 +98,22 @@ public class RiderBatchDispatchService {
         batch.setCompletedAt(LocalDateTime.now());
         batchRepository.save(batch);
         List<RiderDeliveryBatchOrder> entries = batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batchId);
-        List<Order> orders = entries.stream()
-                .map(e -> orderRepository.findById(e.getOrderId()).orElse(null))
-                .filter(o -> o != null)
-                .toList();
+        List<Order> orders = fetchOrdersByIds(entries);
         return toResponse(batch, orders);
+    }
+
+    /**
+     * Loads all orders for batch entries in a single IN query instead of one
+     * {@code findById} per entry (N+1), preserving the entry order.
+     */
+    private List<Order> fetchOrdersByIds(List<RiderDeliveryBatchOrder> entries) {
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = entries.stream().map(RiderDeliveryBatchOrder::getOrderId).toList();
+        Map<Long, Order> byId = orderRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Order::getId, o -> o));
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     private List<Order> selectNearbyOrders(List<Order> orders, int maxSize) {

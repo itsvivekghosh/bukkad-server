@@ -1,6 +1,5 @@
 package com.bhukkad.delivery;
 
-import com.bhukkad.config.DeliveryTruthProperties;
 import com.bhukkad.dto.response.OrderEtaDetailResponse;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.OrderEtaSnapshot;

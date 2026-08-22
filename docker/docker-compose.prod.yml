@@ -88,7 +88,7 @@ services:
     expose:
       - "8080"
     volumes:
-      - app_logs_prod:/app/logs
+      - app_logs_prod:/tmp/logs/bhukkad
     depends_on:
       mysql:
         condition: service_healthy

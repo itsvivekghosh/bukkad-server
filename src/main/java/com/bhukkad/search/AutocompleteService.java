@@ -62,6 +62,32 @@ public class AutocompleteService {
     }
 
     /**
+     * Incrementally indexes a restaurant by id + name so typeahead reflects new
+     * or renamed restaurants without a full rebuild. Called from the restaurant
+     * write path; the feature flag is respected so the index only grows when the
+     * autocomplete feature is active.
+     */
+    public void indexRestaurant(Long id, String name) {
+        if (!featureFlagService.isEnabled(FLAG_AUTOCOMPLETE) || id == null || name == null || name.isBlank()) {
+            return;
+        }
+        trieIndex.insert(name, id, AutocompleteSuggestion.TYPE_RESTAURANT);
+        log.debug("AUTOCOMPLETE_INDEX_ADD | type=restaurant | id={} | name={}", id, name);
+    }
+
+    /**
+     * Incrementally indexes a menu item by id + name. Same contract as
+     * {@link #indexRestaurant(Long, String)} for the menu-item write path.
+     */
+    public void indexMenuItem(Long id, String name) {
+        if (!featureFlagService.isEnabled(FLAG_AUTOCOMPLETE) || id == null || name == null || name.isBlank()) {
+            return;
+        }
+        trieIndex.insert(name, id, AutocompleteSuggestion.TYPE_MENU_ITEM);
+        log.debug("AUTOCOMPLETE_INDEX_ADD | type=menuItem | id={} | name={}", id, name);
+    }
+
+    /**
      * Returns typeahead suggestions for the given prefix, restaurants first
      * then menu items, limited to {@code limit} results. No-op unless the
      * autocomplete feature flag is enabled (gradual rollout).

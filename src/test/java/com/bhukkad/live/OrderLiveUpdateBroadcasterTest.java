@@ -41,7 +41,10 @@ class OrderLiveUpdateBroadcasterTest {
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
-        when(orderRepository.findByIdWithDetails(anyLong())).thenReturn(Optional.empty());
+        // baseUpdate() only queries the order when present; lenient so the stub
+        // does not trip strict mode for the RIDER_LOCATION path (which bypasses it).
+        org.mockito.Mockito.lenient()
+                .when(orderRepository.findByIdWithDetails(anyLong())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -81,5 +84,21 @@ class OrderLiveUpdateBroadcasterTest {
 
         verify(orderLiveReplayStore).record(any(OrderLiveUpdate.class));
         verify(orderLiveRelay).publish(any(OrderLiveUpdate.class));
+    }
+
+    @Test
+    void broadcastRiderLocation_publishesToRelay() {
+        when(orderLiveReplayStore.nextEventId()).thenReturn(103L);
+
+        broadcaster.broadcastRiderLocation(1L, 2L, 3L, 4L, 12.97, 77.59);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(OrderLiveUpdate.class);
+        verify(orderLiveRelay).publish(captor.capture());
+        OrderLiveUpdate update = captor.getValue();
+        org.assertj.core.api.Assertions.assertThat(update.getEventType())
+                .isEqualTo(OrderLiveUpdate.EventType.RIDER_LOCATION);
+        org.assertj.core.api.Assertions.assertThat(update.getLatitude()).isEqualTo(12.97);
+        org.assertj.core.api.Assertions.assertThat(update.getLongitude()).isEqualTo(77.59);
+        org.assertj.core.api.Assertions.assertThat(update.getOrderId()).isEqualTo(1L);
     }
 }

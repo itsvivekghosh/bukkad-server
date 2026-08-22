@@ -5,6 +5,7 @@ import com.bhukkad.config.ApiPaths;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.BlankResponse;
 import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.idempotency.WebhookIdempotencyService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.service.PaymentService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -26,6 +27,7 @@ public class PaymentWebhookController {
 
     private final PaymentGateway paymentGateway;
     private final PaymentService paymentService;
+    private final WebhookIdempotencyService webhookIdempotencyService;
     private final ObjectMapper objectMapper;
 
     @PostMapping("/razorpay")
@@ -44,6 +46,21 @@ public class PaymentWebhookController {
             String event = root.path("event").asText();
             if (!"payment.captured".equals(event)) {
                 return ResponseEntity.ok(ApiResponse.success("Webhook event ignored", null));
+            }
+
+            // Deduplicate provider redeliveries: if this exact event id was already
+            // processed, acknowledge it (200) without re-applying the side effects.
+            // The DataIntegrityViolationException propagates from the REQUIRES_NEW
+            // transaction so the duplicate insert is rolled back cleanly; catching it
+            // here avoids the UnexpectedRollbackException that would otherwise surface
+            // as a 500.
+            String eventId = root.path("payload").path("payment").path("entity").path("id").asText(
+                    root.path("paymentId").asText());
+            try {
+                webhookIdempotencyService.markProcessed(eventId);
+            } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+                log.info("Webhook duplicate ignored | eventId={}", eventId);
+                return ResponseEntity.ok(ApiResponse.success("Webhook duplicate ignored", null));
             }
 
             String gatewayPaymentId;

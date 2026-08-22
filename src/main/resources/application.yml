@@ -93,6 +93,10 @@ app:
       autocomplete-enabled: true
       search-provider-es: false
       new-checkout-flow: false
+    # Percentage-based rollout per flag (0-100). When set, overrides the boolean
+    # switch for user-scoped checks (isEnabled(key, userId)).
+    rollout:
+      new-checkout-flow: 10
   chaos:
     enabled: ${CHAOS_ENABLED:false}
     latency-probability: 0.0
@@ -314,6 +318,15 @@ app:
     confidence-band-minutes: 5
     record-snapshots: true
 
+  road-distance:
+    # Real road-distance ETA (P1-2). Disabled by default → haversine fallback.
+    # Enable with APP_ROAD_DISTANCE_ENABLED=true and set an OSRM URL.
+    enabled: ${APP_ROAD_DISTANCE_ENABLED:false}
+    osrm-url: ${OSRM_URL:}
+    connect-timeout-ms: 2000
+    read-timeout-ms: 2000
+    fallback-speed-km-per-min: 0.6
+
   cache:
     local:
       enabled: true
@@ -392,6 +405,30 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 60s
         permitted-number-of-calls-in-half-open-state: 3
+      notificationSms:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      notificationWhatsApp:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      notificationPush:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      osrm:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
 
 management:
   endpoints:
@@ -401,6 +438,15 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+  # Distributed tracing (OpenTelemetry + Zipkin). Disabled by default; enable by
+  # setting MANAGEMENT_TRACING_ENABLED=true and MANAGEMENT_ZIPKIN_TRACING_ENDPOINT.
+  tracing:
+    enabled: ${MANAGEMENT_TRACING_ENABLED:false}
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.1}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
   endpoint:
     health:
       probes:

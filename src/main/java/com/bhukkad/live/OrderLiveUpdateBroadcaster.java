@@ -48,6 +48,26 @@ public class OrderLiveUpdateBroadcaster {
         dispatch(update);
     }
 
+    /**
+     * Streams a rider GPS snapshot to the customer's order-live topic so the
+     * app can render a live map. Called from {@code RiderLocationService} on
+     * every agent location ping.
+     */
+    public void broadcastRiderLocation(Long orderId, Long customerId, Long restaurantId,
+                                       Long agentId, double latitude, double longitude) {
+        OrderLiveUpdate update = OrderLiveUpdate.builder()
+                .eventType(OrderLiveUpdate.EventType.RIDER_LOCATION)
+                .orderId(orderId)
+                .customerId(customerId)
+                .restaurantId(restaurantId)
+                .deliveryAgentId(agentId)
+                .changedAt(java.time.LocalDateTime.now())
+                .latitude(latitude)
+                .longitude(longitude)
+                .build();
+        dispatch(update);
+    }
+
     private OrderLiveUpdate baseUpdate(Long orderId, String orderNumber, Long customerId, Long restaurantId,
                                        Long agentId, OrderLiveUpdate.EventType type) {
         OrderLiveUpdate.OrderLiveUpdateBuilder builder = OrderLiveUpdate.builder()

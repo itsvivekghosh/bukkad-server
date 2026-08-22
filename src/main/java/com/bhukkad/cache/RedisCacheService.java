@@ -1,6 +1,5 @@
 package com.bhukkad.cache;
 
-import com.bhukkad.cache.event.CacheInvalidatedEvent;
 import com.bhukkad.cache.invalidation.DistributedCacheInvalidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

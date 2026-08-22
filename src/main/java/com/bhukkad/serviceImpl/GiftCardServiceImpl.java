@@ -6,7 +6,6 @@ import com.bhukkad.dto.request.GiftCardRedeemRequest;
 import com.bhukkad.dto.response.GiftCardResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.GiftCard;
-import com.bhukkad.entity.Order;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerRepository;
@@ -15,10 +14,8 @@ import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.GiftCardService;
 import com.bhukkad.util.NotificationHelper;
-import com.bhukkad.util.PriceCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,8 +25,16 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Slf4j
+/**
+ * Gift-card purchase, redemption and querying.
+ *
+ * <p>Reads run in read-only transactions; the money-mutating operations
+ * ({@code purchaseGiftCard}, {@code redeemGiftCard}) override with
+ * {@code @Transactional}.</p>
+ */
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class GiftCardServiceImpl implements GiftCardService {
 
     private final GiftCardRepository giftCardRepository;

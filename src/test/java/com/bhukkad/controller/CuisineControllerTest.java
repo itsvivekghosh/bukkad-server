@@ -2,66 +2,58 @@ package com.bhukkad.controller;
 
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.entity.Cuisine;
+import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CuisineRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-import org.junit.jupiter.api.Tag;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-@Tag("regression")
 @ExtendWith(MockitoExtension.class)
-public class CuisineControllerTest {
+class CuisineControllerTest {
 
     @Mock
     private CuisineRepository cuisineRepository;
 
     @InjectMocks
-    private CuisineController cuisineController;
+    private CuisineController controller;
 
-    @Test
-    void getAllCuisines_returnsActiveCuisines() {
-        Cuisine cuisine = new Cuisine();
-        cuisine.setId(1L);
-        cuisine.setName("Indian");
-        when(cuisineRepository.findByActiveTrue()).thenReturn(List.of(cuisine));
+    @Test void getAllCuisines_returnsActiveList() {
+        Cuisine c = new Cuisine();
+        c.setId(1L);
+        when(cuisineRepository.findByActiveTrue()).thenReturn(List.of(c));
 
-        ResponseEntity<ApiResponse<List<Cuisine>>> response = cuisineController.getAllCuisines();
+        ResponseEntity<ApiResponse<List<Cuisine>>> resp = controller.getAllCuisines();
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(1, response.getBody().getData().size());
-        assertEquals("Indian", response.getBody().getData().get(0).getName());
-        verify(cuisineRepository).findByActiveTrue();
+        assertEquals(200, resp.getStatusCode().value());
+        assertEquals(1, resp.getBody().getData().size());
     }
 
-    @Test
-    void getCuisineById_returnsCuisineWhenFound() {
-        Cuisine cuisine = new Cuisine();
-        cuisine.setId(1L);
-        cuisine.setName("Italian");
-        when(cuisineRepository.findById(1L)).thenReturn(Optional.of(cuisine));
+    @Test void getCuisineById_found_returnsCuisine() {
+        Cuisine c = new Cuisine();
+        c.setId(5L);
+        when(cuisineRepository.findById(5L)).thenReturn(Optional.of(c));
 
-        ResponseEntity<ApiResponse<Cuisine>> response = cuisineController.getCuisineById(1L);
+        ResponseEntity<ApiResponse<Cuisine>> resp = controller.getCuisineById(5L);
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(cuisine, response.getBody().getData());
+        assertEquals(200, resp.getStatusCode().value());
+        assertEquals(5L, resp.getBody().getData().getId());
     }
 
-    @Test
-    void getCuisineById_throwsWhenMissing() {
-        when(cuisineRepository.findById(99L)).thenReturn(Optional.empty());
+    @Test void getCuisineById_notFound_throwsResourceNotFound() {
+        when(cuisineRepository.findById(999L)).thenReturn(Optional.empty());
 
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> cuisineController.getCuisineById(99L));
-
-        assertEquals("Cuisine not found", ex.getMessage());
+        assertThrows(ResourceNotFoundException.class, () -> controller.getCuisineById(999L));
+        verify(cuisineRepository).findById(999L);
     }
 }

@@ -46,7 +46,7 @@ public class IdempotencyRecord {
     private LocalDateTime expiresAt;
 
     public enum IdempotencyScope {
-        ORDER_CREATE, PAYMENT_PROCESS
+        ORDER_CREATE, PAYMENT_PROCESS, RAZORPAY_WEBHOOK
     }
 
     public enum IdempotencyStatus {
