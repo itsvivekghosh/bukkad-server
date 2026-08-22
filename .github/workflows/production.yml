@@ -237,7 +237,7 @@ jobs:
         run: |
           bash .github/scripts/ec2.sh wait-health \
             "${{ steps.ssh.outputs.user }}" "${{ steps.ssh.outputs.host }}" \
-            ~/.ssh/id_ed25519 60 5 "${CONTAINER_NAME}" \
+            ~/.ssh/id_ed25519 120 5 "${CONTAINER_NAME}" \
             "http://localhost:${APP_PORT}${HEALTH_PATH}"
 
       - name: "🧪 Production smoke test (external)"
