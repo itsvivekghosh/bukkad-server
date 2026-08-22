@@ -1,5 +1,6 @@
 package com.bhukkad.outbox;
 
+import com.bhukkad.config.OutboxProperties;
 import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +36,9 @@ class OutboxEventProcessorTest {
     @Mock
     private ExternalEventBridge externalEventBridge;
 
+    @Mock
+    private DeadLetterEventService deadLetterEventService;
+
     private ObjectMapper objectMapper;
 
     @InjectMocks
@@ -43,8 +47,13 @@ class OutboxEventProcessorTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        OutboxProperties outboxProperties = new OutboxProperties();
+        outboxProperties.setMaxRetries(5);
+        outboxProperties.setBatchSize(50);
+        outboxProperties.setDeadLetterBatchSize(50);
         outboxEventProcessor = new OutboxEventProcessor(
-                outboxEventRepository, eventPublisher, objectMapper, externalEventBridge);
+                outboxEventRepository, eventPublisher, objectMapper,
+                externalEventBridge, deadLetterEventService, outboxProperties);
     }
 
     @Test
@@ -68,5 +77,35 @@ class OutboxEventProcessorTest {
         assertEquals(1L, captor.getValue().orderId());
         assertEquals(OutboxEvent.OutboxStatus.PUBLISHED, outboxEvent.getStatus());
         verify(outboxEventRepository).save(outboxEvent);
+    }
+
+    @Test
+    void processPendingEvents_deadLettersEventAfterMaxRetries() throws Exception {
+        OrderCreatedEvent createdEvent = new OrderCreatedEvent(
+                1L, "ORD-1", 2L, 3L, LocalDateTime.now());
+        OutboxEvent outboxEvent = new OutboxEvent();
+        outboxEvent.setId(10L);
+        outboxEvent.setEventType("ORDER_CREATED");
+        outboxEvent.setPayload(objectMapper.writeValueAsString(createdEvent));
+        outboxEvent.setStatus(OutboxEvent.OutboxStatus.PENDING);
+        outboxEvent.setRetryCount(4); // one more attempt reaches max (5)
+
+        when(outboxEventRepository.findByStatus(eq(OutboxEvent.OutboxStatus.PENDING), any(Pageable.class)))
+                .thenReturn(List.of(outboxEvent));
+        org.mockito.Mockito.doThrow(new RuntimeException("broker down"))
+                .when(externalEventBridge).forward(outboxEvent);
+
+        outboxEventProcessor.processPendingEvents();
+
+        assertEquals(OutboxEvent.OutboxStatus.FAILED, outboxEvent.getStatus());
+        assertEquals(5, outboxEvent.getRetryCount());
+        verify(deadLetterEventService).record(outboxEvent, "broker down");
+        verify(outboxEventRepository).save(outboxEvent);
+    }
+
+    @Test
+    void requeueDeadLetters_delegatesToDeadLetterService() {
+        outboxEventProcessor.requeueDeadLetters();
+        verify(deadLetterEventService).requeuePending(50);
     }
 }

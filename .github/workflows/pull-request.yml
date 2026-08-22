@@ -2,7 +2,6 @@ name: Pull Request CI
 
 on:
   pull_request:
-    branches: [ deploy ]
 
 concurrency:
   group: pr-ci-${{ github.event.pull_request.number }}
@@ -14,56 +13,89 @@ permissions:
   pull-requests: write
 
 jobs:
-  compile-and-test:
-    name: Compile & Test
+  ci:
+    name: Build & Test
+    uses: ./.github/workflows/ci.yml
+
+  regression:
+    name: Regression Suite
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
           cache: maven
-
-      - name: Make Maven wrapper executable
-        run: chmod +x mvnw
-
-      - name: Compile
-        run: ./mvnw -B compile -DskipTests
-
-      - name: Run unit tests
-        run: ./mvnw -B test -Dtest="*Test,!*IntegrationTest,!*RegressionTest"
-
-      - name: Run integration tests
-        run: ./mvnw -B test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
-
-      - name: Run regression tests
+      - run: chmod +x mvnw
+      - name: Run regression suite
         run: ./mvnw -B test -Dtest="com.bhukkad.regression.RegressionTestSuite"
 
-      - name: Upload JaCoCo HTML report
+  architecture-tests:
+    name: Architecture Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: chmod +x mvnw
+      - name: Run ArchUnit
+        run: ./mvnw -B test -Dtest="com.bhukkad.architecture.*" -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Run Pact consumer tests (writes pact file)
+        run: ./mvnw -B test -Dtest="com.bhukkad.contract.*ConsumerPactTest" -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Run Pact provider tests (verifies consumer pact)
+        run: ./mvnw -B test -Dtest="com.bhukkad.contract.*ProviderPactTest" -Dsurefire.failIfNoSpecifiedTests=false
+
+  mutation-testing:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: chmod +x mvnw
+      - name: Run Pitest
+        run: ./mvnw -B -Pmutation-testing test-compile org.pitest:pitest-maven:mutationCoverage
+      - name: Upload Pitest report
         uses: actions/upload-artifact@v5
         with:
-          name: jacoco-report-pr
-          path: target/site/jacoco/
+          name: pitest-report
+          path: target/pit-reports/
           retention-days: 14
 
-      - name: Upload test reports
+  dependency-scan:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: chmod +x mvnw
+      - name: Run OWASP Dependency Check
+        run: ./mvnw -B -Pdependency-scan org.owasp:dependency-check-maven:check
+      - name: Upload OWASP report
         uses: actions/upload-artifact@v5
         with:
-          name: test-reports-pr
-          path: target/surefire-reports/
+          name: dependency-check-report
+          path: target/dependency-check-report.*
           retention-days: 14
 
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
 
     steps:
       - name: Checkout repository

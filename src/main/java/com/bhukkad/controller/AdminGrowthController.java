@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Admin endpoints for V13 growth features: support ticket management.
@@ -19,6 +21,7 @@ import java.util.Map;
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "AdminGrowth", description = "REST endpoints for AdminGrowth")
 public class AdminGrowthController {
 
     private final SupportTicketService supportTicketService;
@@ -31,6 +34,7 @@ public class AdminGrowthController {
 
     /** Updates support ticket status and optional resolution notes. */
     @PutMapping("/support/tickets/{ticketId}/status")
+    @Operation(summary = "Update ticket status")
     public ResponseEntity<ApiResponse<SupportTicketResponse>> updateTicketStatus(
             @PathVariable Long ticketId,
             @RequestParam String status,

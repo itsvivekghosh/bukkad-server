@@ -10,6 +10,7 @@ import com.bhukkad.entity.*;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.metrics.BusinessMetrics;
 import com.bhukkad.repository.*;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CartService;
@@ -36,6 +37,7 @@ public class CartServiceImpl implements CartService {
     private final OrderRepository orderRepository;
     private final SecurityUtils securityUtils;
     private final CouponService couponService;
+    private final BusinessMetrics businessMetrics;
 
     @Override
     @Transactional
@@ -95,6 +97,7 @@ public class CartServiceImpl implements CartService {
         }
 
         cart = cartRepository.save(cart);
+        businessMetrics.cartAdd();
         return buildCartResponse(cart);
     }
 

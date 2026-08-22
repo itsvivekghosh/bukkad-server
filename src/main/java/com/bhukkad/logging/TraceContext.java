@@ -19,13 +19,27 @@ public final class TraceContext {
         return MDC.get(LoggingConstants.TRACE_ID);
     }
 
+    public static String getSpanId() {
+        return MDC.get(LoggingConstants.SPAN_ID);
+    }
+
     public static String getRequestId() {
         return MDC.get(LoggingConstants.REQUEST_ID);
+    }
+
+    /**
+     * Generates a W3C trace-context-compatible span id (exactly 16 hex chars).
+     * Used by the request filter to seed MDC so every log line in the
+     * request can be correlated to a span.
+     */
+    public static String newSpanId() {
+        return String.format("%016x", UUID.randomUUID().getMostSignificantBits() & 0xffffffffffffffffL);
     }
 
     public static Map<String, String> current() {
         Map<String, String> context = new LinkedHashMap<>();
         putIfPresent(context, LoggingConstants.TRACE_ID, getTraceId());
+        putIfPresent(context, LoggingConstants.SPAN_ID, getSpanId());
         putIfPresent(context, LoggingConstants.REQUEST_ID, getRequestId());
         putIfPresent(context, LoggingConstants.USER_ID, MDC.get(LoggingConstants.USER_ID));
         putIfPresent(context, LoggingConstants.REQUEST_PATH, MDC.get(LoggingConstants.REQUEST_PATH));

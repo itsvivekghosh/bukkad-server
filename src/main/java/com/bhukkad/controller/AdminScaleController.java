@@ -26,6 +26,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Admin endpoints for V14–V16: zones, city configs, promotions, settlement automation, ops dashboard.
@@ -34,6 +36,7 @@ import java.util.Map;
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "AdminScale", description = "REST endpoints for AdminScale")
 public class AdminScaleController {
 
     private final DeliveryZoneAdminService deliveryZoneAdminService;
@@ -56,6 +59,7 @@ public class AdminScaleController {
     }
 
     @PutMapping("/zones/{zoneId}")
+    @Operation(summary = "Update zone")
     public ResponseEntity<ApiResponse<DeliveryZoneResponse>> updateZone(
             @PathVariable Long zoneId, @RequestBody DeliveryZoneRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Zone updated", deliveryZoneAdminService.update(zoneId, request)));
@@ -80,6 +84,7 @@ public class AdminScaleController {
     }
 
     @PutMapping("/cities/{cityId}")
+    @Operation(summary = "Update city")
     public ResponseEntity<ApiResponse<CityConfigResponse>> updateCity(
             @PathVariable Long cityId, @Valid @RequestBody CityConfigRequest request) {
         return ResponseEntity.ok(ApiResponse.success("City config updated", cityConfigService.update(cityId, request)));
@@ -99,12 +104,14 @@ public class AdminScaleController {
     }
 
     @PostMapping("/promotions/campaigns")
+    @Operation(summary = "Create campaign")
     public ResponseEntity<ApiResponse<PromotionCampaignResponse>> createCampaign(
             @RequestBody PromotionCampaignRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Campaign created", promotionAdminService.create(request)));
     }
 
     @PutMapping("/promotions/campaigns/{campaignId}")
+    @Operation(summary = "Update campaign")
     public ResponseEntity<ApiResponse<PromotionCampaignResponse>> updateCampaign(
             @PathVariable Long campaignId, @RequestBody PromotionCampaignRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Campaign updated",
@@ -128,6 +135,7 @@ public class AdminScaleController {
     }
 
     @PutMapping("/promotions/banners/{bannerId}")
+    @Operation(summary = "Update banner")
     public ResponseEntity<ApiResponse<PromoBannerResponse>> updateBanner(
             @PathVariable Long bannerId, @RequestBody PromoBannerRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Banner updated", promoBannerAdminService.update(bannerId, request)));

@@ -1,0 +1,157 @@
+# Blue/Green deployment for the Bhukkad API.
+#
+# Zero-downtime release strategy:
+#   1. Deploy the new version as `bhukkad-app-green` alongside the current
+#      `bhukkad-app` (blue). The Service keeps routing to the blue pods.
+#   2. Validate the green deployment (readiness probes, smoke tests,
+#      canary traffic via the weight on the service selector).
+#   3. Flip the Service selector `release: blue` -> `release: green`
+#      (or adjust traffic weight in a mesh/ingress) to shift 100% of traffic.
+#   4. Roll back by flipping the selector back — no re-deploy needed.
+#
+# Usage:
+#   kubectl apply -f blue-green/blue-green-deployment.yaml
+#   kubectl scale deployment bhukkad-app-green --replicas=3
+#   # flip traffic:
+#   kubectl patch svc bhukkad-app -p '{"spec":{"selector":{"app":"bhukkad","component":"api","release":"green"}}}'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-app-green
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: api
+    release: green
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: api
+      release: green
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: api
+        release: green
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: api
+              release: green
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: api
+              release: green
+      containers:
+        - name: bhukkad-app
+          # Swap the image tag for the new release, e.g. bhukkad-server:2.0.0
+          image: bhukkad-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: bhukkad-config
+          env:
+            - name: WAIT_FOR_SERVICES
+              value: "false"
+            - name: HEALTH_PATH
+              value: /api/v1/health/ping
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: JWT_SECRET
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/ping
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 300m
+              memory: 640Mi
+            limits:
+              cpu: "1500m"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+# NOTE: the existing bhukkad-app Service in k8s/app/service.yaml must carry the
+# release label selector to support the flip. Add `release: blue` to its
+# selector initially, then patch to `release: green` to cut over.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-app
+  namespace: bhukkad
+spec:
+  selector:
+    app: bhukkad
+    component: api
+    release: blue
+  ports:
+    - port: 8080
+      targetPort: http

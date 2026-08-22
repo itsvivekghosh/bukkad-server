@@ -13,6 +13,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Admin management of influencer/affiliate codes and referral tracking.
@@ -21,6 +23,7 @@ import java.util.List;
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin/affiliates")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "Affiliate", description = "REST endpoints for Affiliate")
 public class AffiliateController {
 
     private final AffiliateService affiliateService;
@@ -31,6 +34,7 @@ public class AffiliateController {
     }
 
     @PostMapping
+    @Operation(summary = "Create")
     public ResponseEntity<ApiResponse<AffiliateCodeResponse>> create(
             @Valid @RequestBody AffiliateCodeRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Affiliate code created",
@@ -38,6 +42,7 @@ public class AffiliateController {
     }
 
     @PutMapping("/{affiliateId}")
+    @Operation(summary = "Update")
     public ResponseEntity<ApiResponse<AffiliateCodeResponse>> update(
             @PathVariable Long affiliateId, @Valid @RequestBody AffiliateCodeRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Affiliate code updated",

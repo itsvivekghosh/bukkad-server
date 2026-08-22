@@ -7,7 +7,7 @@ import com.bhukkad.entity.WalletTransaction;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
-import com.bhukkad.idempotency.IdempotencyService;
+import com.bhukkad.idempotency.PaymentIdempotencyService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
 import com.bhukkad.payment.strategy.PaymentContext;
@@ -17,18 +17,20 @@ import com.bhukkad.repository.PaymentRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.NotificationService;
 import com.bhukkad.service.PaymentService;
+import com.bhukkad.timeline.OrderTimelineService;
 import com.bhukkad.util.PriceCalculator;
 import com.bhukkad.wallet.WalletService;
 import com.bhukkad.wallet.WalletTopUpService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Set;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
@@ -45,11 +47,12 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentGateway paymentGateway;
     private final PaymentProperties paymentProperties;
     private final PaymentStrategyFactory paymentStrategyFactory;
-    private final IdempotencyService idempotencyService;
+    private final PaymentIdempotencyService paymentIdempotencyService;
     private final SecurityUtils securityUtils;
     private final NotificationService notificationService;
     private final WalletService walletService;
     private final WalletTopUpService walletTopUpService;
+    private final OrderTimelineService orderTimelineService;
 
     @Override
     @Transactional
@@ -98,10 +101,13 @@ public class PaymentServiceImpl implements PaymentService {
     @Transactional
     public Payment processPayment(Long paymentId, String idempotencyKey) {
         if (StringUtils.hasText(idempotencyKey)) {
-            var cached = idempotencyService.getPaymentResult(idempotencyKey, Payment.class);
+            var cached = paymentIdempotencyService.findCompletedPayment(idempotencyKey);
             if (cached.isPresent()) {
                 return cached.get();
             }
+            // DB-backed guard: prevents concurrent duplicate processing even if
+            // the Redis cache was lost. Throws for IN_PROGRESS duplicates.
+            paymentIdempotencyService.beginPaymentProcess(idempotencyKey);
         }
 
         Payment payment = paymentRepository.findById(paymentId)
@@ -111,6 +117,15 @@ public class PaymentServiceImpl implements PaymentService {
             return payment;
         }
 
+        try {
+            return doProcessPayment(payment, idempotencyKey);
+        } catch (RuntimeException ex) {
+            paymentIdempotencyService.failPaymentProcess(idempotencyKey);
+            throw ex;
+        }
+    }
+
+    private Payment doProcessPayment(Payment payment, String idempotencyKey) {
         if (payment.getPaymentMethod() == Payment.PaymentMethod.CASH_ON_DELIVERY) {
             return paymentRepository.save(payment);
         }
@@ -122,7 +137,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setStatus(Payment.PaymentStatus.COMPLETED);
             payment.setCompletedAt(LocalDateTime.now());
             payment = paymentRepository.save(payment);
-            cachePaymentResult(idempotencyKey, payment);
+            paymentIdempotencyService.completePaymentProcess(idempotencyKey, payment);
             return payment;
         }
 
@@ -139,7 +154,7 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BusinessException("Payment failed");
         }
 
-        cachePaymentResult(idempotencyKey, payment);
+        paymentIdempotencyService.completePaymentProcess(idempotencyKey, payment);
         return payment;
     }
 
@@ -213,7 +228,26 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setStatus(Payment.PaymentStatus.REFUNDED);
         paymentRepository.save(payment);
         if (order != null) {
+            recordRefundTimeline(order, payment);
             notificationService.sendPaymentRefunded(order.getId(), payment.getAmount());
+        }
+    }
+
+    /**
+     * Records an ORDER_REFUNDED audit-trail event for event sourcing. Best
+     * effort — a failure here must never fail the refund itself.
+     */
+    private void recordRefundTimeline(Order order, Payment payment) {
+        try {
+            orderTimelineService.recordEvent(
+                    order.getId(),
+                    "ORDER_REFUNDED",
+                    order.getStatus() != null ? order.getStatus().name() : null,
+                    "Refund of " + payment.getAmount() + " completed",
+                    securityUtils.getCurrentUserId(),
+                    "SYSTEM");
+        } catch (Exception ex) {
+            log.warn("Failed to record refund timeline event | orderId={}", order.getId(), ex);
         }
     }
 
@@ -241,12 +275,6 @@ public class PaymentServiceImpl implements PaymentService {
 
     private boolean requiresGateway(Payment.PaymentMethod method) {
         return GATEWAY_METHODS.contains(method) && paymentProperties.getRazorpay().isEnabled();
-    }
-
-    private void cachePaymentResult(String idempotencyKey, Payment payment) {
-        if (StringUtils.hasText(idempotencyKey)) {
-            idempotencyService.storePaymentResult(idempotencyKey, payment, Duration.ofHours(24));
-        }
     }
 
     private PaymentResponse toResponse(Payment payment) {

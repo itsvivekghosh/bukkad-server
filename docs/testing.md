@@ -55,8 +55,10 @@ Unit tests use Mockito — no database or Redis required.
 
 | Workflow | When | What runs |
 |----------|------|-----------|
-| Pull Request CI | PR → `deploy` | `mvn verify` + CodeQL |
-| Docker Image | Push `main` / `deploy` | `mvn verify` + Docker build |
+| Feature CI | Push `feature/*` | Build + Test |
+| Pull Request CI | Any PR | Build + Test + ArchUnit/Pact, Pitest, OWASP, CodeQL |
+| Staging Deploy | Push / merge `deploy` | Build + Test + Docker push + Deploy to Staging |
+| Production Deploy | Push / merge `main` | Build + Test + Docker push + Deploy to Production |
 | Nightly Regression | Scheduled | API regression script |
 
 ## Adding tests

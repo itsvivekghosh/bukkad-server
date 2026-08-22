@@ -14,16 +14,20 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/coupons")
 @RequiredArgsConstructor
+@Tag(name = "Coupon", description = "REST endpoints for Coupon")
 public class CouponController {
 
     private final CouponService couponService;
     private final SecurityUtils securityUtils;
 
     @GetMapping("/active")
+    @Operation(summary = "Get active coupons")
     public ResponseEntity<ApiResponse<List<CouponResponse>>> getActiveCoupons(
             @RequestParam(required = false) Long restaurantId) {
         List<CouponResponse> coupons = couponService.getActiveCouponResponses(restaurantId);
@@ -32,6 +36,7 @@ public class CouponController {
 
     @GetMapping("/validate")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Validate coupon")
     public ResponseEntity<ApiResponse<CouponResponse>> validateCoupon(
             @RequestParam String code,
             @RequestParam Double orderAmount,
@@ -50,6 +55,7 @@ public class CouponController {
 
     @PutMapping("/{couponId}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Update coupon")
     public ResponseEntity<ApiResponse<CouponResponse>> updateCoupon(
             @PathVariable Long couponId,
             @Valid @RequestBody CouponRequest request) {

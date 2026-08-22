@@ -1,0 +1,139 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "API Availability (per endpoint)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(bhukkad_http_requests_total[5m])) by (uri) > 0",
+          "legendFormat": "{{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.99 },
+              { "color": "green", "value": 0.999 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Request Latency p95/p99 (per endpoint)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(bhukkad_http_requests_seconds_bucket[5m])) by (le, uri))",
+          "legendFormat": "p95 {{uri}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(bhukkad_http_requests_seconds_bucket[5m])) by (le, uri))",
+          "legendFormat": "p99 {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Error Rate (5xx per endpoint)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(bhukkad_http_errors_total[5m])) by (uri) / clamp_min(sum(rate(bhukkad_http_requests_total[5m])) by (uri), 1e-6)",
+          "legendFormat": "{{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Orders per minute",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(bhukkad_orders_created_total[1m]))",
+          "legendFormat": "orders/min"
+        }
+      ]
+    },
+    {
+      "title": "Conversion Funnel (cumulative)",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(bhukkad_funnel_search_total)",
+          "legendFormat": "search"
+        },
+        {
+          "expr": "sum(bhukkad_funnel_menu_view_total)",
+          "legendFormat": "menu view"
+        },
+        {
+          "expr": "sum(bhukkad_funnel_cart_add_total)",
+          "legendFormat": "cart add"
+        },
+        {
+          "expr": "sum(bhukkad_funnel_checkout_total)",
+          "legendFormat": "checkout"
+        },
+        {
+          "expr": "sum(bhukkad_funnel_payment_total)",
+          "legendFormat": "payment"
+        },
+        {
+          "expr": "sum(bhukkad_funnel_delivered_total)",
+          "legendFormat": "delivered"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["bhukkad", "slo", "sli"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Bhukkad SLO/SLI",
+  "uid": "bhukkad-slo-sli",
+  "version": 1,
+  "weekStart": ""
+}

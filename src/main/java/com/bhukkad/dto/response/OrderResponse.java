@@ -1,5 +1,6 @@
 package com.bhukkad.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFilter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -8,10 +9,17 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * Marker {@code @JsonFilter} makes this DTO projectable via {@code ?fields=}
+ * on the order-detail endpoints — see {@link com.bhukkad.web.FieldProjection}.
+ * The filter is a no-op unless a controller wraps the response with
+ * {@code FieldProjection.project(order, fields)}.
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonFilter("bhukkadFieldSelection")
 public class OrderResponse {
     private Long id;
     private String orderNumber;

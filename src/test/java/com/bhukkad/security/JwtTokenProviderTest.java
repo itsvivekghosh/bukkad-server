@@ -19,12 +19,13 @@ class JwtTokenProviderTest {
     private static final String OTHER_SECRET = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5971";
 
     private JwtTokenProvider jwtTokenProvider;
+    private JwtSecretRotationService secretRotationService;
     private UserDetails userDetails;
 
     @BeforeEach
     void setUp() {
-        jwtTokenProvider = new JwtTokenProvider();
-        ReflectionTestUtils.setField(jwtTokenProvider, "jwtSecret", JWT_SECRET);
+        secretRotationService = new JwtSecretRotationService(JWT_SECRET, false);
+        jwtTokenProvider = new JwtTokenProvider(secretRotationService);
         ReflectionTestUtils.setField(jwtTokenProvider, "jwtExpirationMs", 86400000L);
         userDetails = User.withUsername("user@example.com")
                 .password("password")
@@ -101,11 +102,23 @@ class JwtTokenProviderTest {
     }
 
     @Test
-    void validateToken_signatureException() {
+    void validateToken_wrongSecret_isRejected() {
         String token = jwtTokenProvider.generateToken(userDetails);
-        ReflectionTestUtils.setField(jwtTokenProvider, "jwtSecret", OTHER_SECRET);
+        JwtSecretRotationService different = new JwtSecretRotationService(OTHER_SECRET, false);
+        JwtTokenProvider provider = new JwtTokenProvider(different);
 
-        assertFalse(jwtTokenProvider.validateToken(token));
+        assertFalse(provider.validateToken(token));
+    }
+
+    @Test
+    void validateToken_rotatedSecret_stillValidatesOldToken() {
+        String token = jwtTokenProvider.generateToken(userDetails);
+
+        // Rotate the secret; the previous key stays in the grace period.
+        secretRotationService.rotateNow();
+
+        assertTrue(jwtTokenProvider.validateToken(token));
+        assertTrue(jwtTokenProvider.isTokenValid(token, userDetails));
     }
 
     @Test
@@ -134,5 +147,12 @@ class JwtTokenProviderTest {
         String unsigned = Jwts.builder().setSubject("user@example.com").compact();
 
         assertFalse(jwtTokenProvider.validateToken(unsigned));
+    }
+
+    @Test
+    void rotationService_keepsAtMostTwoKeys() {
+        secretRotationService.rotateNow();
+        secretRotationService.rotateNow();
+        assertEquals(2, secretRotationService.validationKeys().size());
     }
 }

@@ -12,6 +12,7 @@ import com.bhukkad.entity.OrderItem;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.metrics.BusinessMetrics;
 import com.bhukkad.repository.CartItemRepository;
 import com.bhukkad.repository.CartRepository;
 import com.bhukkad.repository.CustomerRepository;
@@ -57,6 +58,8 @@ class CartServiceImplTest {
     private SecurityUtils securityUtils;
     @Mock
     private CouponService couponService;
+    @Mock
+    private BusinessMetrics businessMetrics;
 
     @InjectMocks
     private CartServiceImpl cartService;

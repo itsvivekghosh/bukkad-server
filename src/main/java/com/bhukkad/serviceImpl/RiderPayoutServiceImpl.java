@@ -1,6 +1,7 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.config.RiderEarningsProperties;
+import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.dto.response.RiderEarningsSummaryResponse;
 import com.bhukkad.dto.response.RiderPayoutResponse;
@@ -12,11 +13,15 @@ import com.bhukkad.repository.RiderEarningRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.DeliveryService;
 import com.bhukkad.service.RiderPayoutService;
+import com.bhukkad.util.CursorUtils;
 import com.bhukkad.util.PaginationUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -49,6 +54,32 @@ public class RiderPayoutServiceImpl implements RiderPayoutService {
                 agentId,
                 PaginationUtils.page(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return PagedResponse.from(earningsPage.map(this::mapToResponse));
+    }
+
+    /**
+     * Cursor-paginated rider payout history. Preferred over the offset variant
+     * for high-volume riders because the keyset predicate avoids the
+     * {@code OFFSET N} cost that grows linearly with page depth.
+     */
+    @Override
+    public CursorPagedResponse<RiderPayoutResponse> getPayoutHistoryByCursor(String cursor, int size) {
+        Long agentId = securityUtils.getCurrentUserId();
+        CursorUtils.OrderCursor c = CursorUtils.decode(cursor).orElse(null);
+        int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
+        List<RiderEarning> batch = riderEarningRepository.findByAgentIdAfterCursor(
+                agentId,
+                c != null ? c.createdAt() : null,
+                c != null ? c.id() : null,
+                PageRequest.of(0, safeSize + 1));
+        boolean hasNext = batch.size() > safeSize;
+        List<RiderEarning> page = hasNext ? batch.subList(0, safeSize) : batch;
+        String nextCursor = null;
+        if (hasNext && !page.isEmpty()) {
+            RiderEarning last = page.get(page.size() - 1);
+            nextCursor = CursorUtils.encode(last.getCreatedAt(), last.getId());
+        }
+        List<RiderPayoutResponse> items = page.stream().map(this::mapToResponse).toList();
+        return CursorPagedResponse.of(items, nextCursor, hasNext);
     }
 
     @Override

@@ -4,6 +4,7 @@ public final class LoggingConstants {
 
     // MDC Keys
     public static final String TRACE_ID = "traceId";
+    public static final String SPAN_ID = "spanId";
     public static final String USER_ID = "userId";
     public static final String USER_EMAIL = "userEmail";
     public static final String USER_ROLE = "userRole";

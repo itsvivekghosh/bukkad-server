@@ -75,8 +75,9 @@ public class LoggingAspect {
             return result;
         } catch (Exception ex) {
             long duration = System.currentTimeMillis() - startTime;
-            // Errors always logged
-            log.error(toJson("CONTROLLER_ERROR", className, methodName, duration, ex.getClass().getSimpleName(), ex.getMessage()));
+            // Handled domain exceptions are WARN-logged by GlobalExceptionHandler;
+            // only unexpected failures are logged here at ERROR.
+            logAtAppropriateLevel(ex, "CONTROLLER_ERROR", className, methodName, duration);
             throw ex;
         }
     }
@@ -108,7 +109,9 @@ public class LoggingAspect {
             return result;
         } catch (Exception ex) {
             long duration = System.currentTimeMillis() - startTime;
-            log.error(toJson("SERVICE_ERROR", className, methodName, duration, ex.getClass().getSimpleName(), ex.getMessage()));
+            // Handled domain exceptions are WARN-logged by GlobalExceptionHandler;
+            // only unexpected failures are logged here at ERROR.
+            logAtAppropriateLevel(ex, "SERVICE_ERROR", className, methodName, duration);
             throw ex;
         }
     }
@@ -130,7 +133,8 @@ public class LoggingAspect {
             orderLogger.info(toJson("ORDER_COMPLETED", "OrderService", methodName, duration, "SUCCESS", null));
             return result;
         } catch (Exception ex) {
-            orderLogger.error(toJson("ORDER_FAILED", "OrderService", methodName, null, ex.getClass().getSimpleName(), ex.getMessage()));
+            // Handled domain exceptions are WARN-logged by GlobalExceptionHandler
+            logAtAppropriateLevelFor(ex, orderLogger, "ORDER_FAILED", "OrderService", methodName, null);
             throw ex;
         }
     }
@@ -152,7 +156,8 @@ public class LoggingAspect {
             paymentLogger.info(toJson("PAYMENT_COMPLETED", "PaymentService", methodName, duration, "SUCCESS", null));
             return result;
         } catch (Exception ex) {
-            paymentLogger.error(toJson("PAYMENT_FAILED", "PaymentService", methodName, null, ex.getClass().getSimpleName(), ex.getMessage()));
+            // Handled domain exceptions are WARN-logged by GlobalExceptionHandler
+            logAtAppropriateLevelFor(ex, paymentLogger, "PAYMENT_FAILED", "PaymentService", methodName, null);
             throw ex;
         }
     }
@@ -207,14 +212,63 @@ public class LoggingAspect {
 
     // ==================== EXCEPTION - ERROR (always logged) ====================
 
+    /**
+     * Logs exceptions thrown from controllers or service implementations.
+     *
+     * <p>Expected domain exceptions ({@code BusinessException},
+     * {@code ResourceNotFoundException}, {@code UnauthorizedException},
+     * {@code RateLimitExceededException}, {@code FraudBlockedException}) are
+     * handled by {@code GlobalExceptionHandler}, which already logs them at
+     * WARN with request context — logging them here again at ERROR as
+     * "UNHANDLED_EXCEPTION" is misleading noise. Only genuinely unexpected
+     * exceptions are logged at ERROR.</p>
+     */
     @AfterThrowing(pointcut = "controllerMethods() || serviceImplMethods()", throwing = "exception")
     public void logException(JoinPoint joinPoint, Exception exception) {
+        if (isHandledDomainException(exception)) {
+            return; // handled by GlobalExceptionHandler; already WARN-logged there
+        }
         String className = joinPoint.getTarget().getClass().getSimpleName();
         String methodName = joinPoint.getSignature().getName();
         log.error(toJson("UNHANDLED_EXCEPTION", className, methodName, null, exception.getClass().getSimpleName(), exception.getMessage()));
     }
 
     // ==================== HELPERS ====================
+
+    /** Returns true for domain exceptions translated to 4xx by GlobalExceptionHandler. */
+    private boolean isHandledDomainException(Exception ex) {
+        return ex instanceof com.bhukkad.exception.BusinessException
+                || ex instanceof com.bhukkad.exception.ResourceNotFoundException
+                || ex instanceof com.bhukkad.exception.UnauthorizedException
+                || ex instanceof com.bhukkad.exception.RateLimitExceededException
+                || ex instanceof com.bhukkad.exception.FraudBlockedException
+                || ex instanceof org.springframework.security.authentication.BadCredentialsException
+                || ex instanceof org.springframework.security.access.AccessDeniedException;
+    }
+
+    /**
+     * Logs an exception event at WARN when the exception is a handled domain
+     * exception (it will be translated to a 4xx response by
+     * {@code GlobalExceptionHandler}) and at ERROR otherwise.
+     */
+    private void logAtAppropriateLevel(Exception ex, String event, String className,
+                                       String methodName, long duration) {
+        if (isHandledDomainException(ex)) {
+            log.warn(toJson(event, className, methodName, duration, ex.getClass().getSimpleName(), ex.getMessage()));
+        } else {
+            log.error(toJson(event, className, methodName, duration, ex.getClass().getSimpleName(), ex.getMessage()));
+        }
+    }
+
+    /** Variant of {@link #logAtAppropriateLevel} for the dedicated ORDER/PAYMENT loggers. */
+    private void logAtAppropriateLevelFor(Exception ex, Logger target, String event,
+                                          String className, String methodName, Long duration) {
+        if (isHandledDomainException(ex)) {
+            target.warn(toJson(event, className, methodName, duration, ex.getClass().getSimpleName(), ex.getMessage()));
+        } else {
+            target.error(toJson(event, className, methodName, duration, ex.getClass().getSimpleName(), ex.getMessage()));
+        }
+    }
 
     private String toJson(String event, String className, String methodName,
                           Long durationMs, String status, String detail) {

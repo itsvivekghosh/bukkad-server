@@ -1,0 +1,68 @@
+# Bhukkad GraphQL schema.
+#
+# One file keeps the contract reviewable in a single PR; spring-graphql picks
+# it up automatically because it lives at
+# src/main/resources/graphql/*.graphqls. The schema is intentionally narrow —
+# just two queries that prove the pattern works — and it reuses the existing
+# REST DTOs so resolvers stay thin. Wider coverage (restaurants, menus,
+# search, ...) can be added incrementally behind this same endpoint.
+
+type Query {
+    # Anonymous home feed: a single round-trip for the three sections the app
+    # launch screen needs. Resolver delegates to HomeFeedCacheService so the
+    # REST and GraphQL paths share the same Redis/Caffeine layer.
+    homeFeed: HomeFeed!
+
+    # Customer order detail. Resolver reuses OrderService.getOrderById so
+    # ownership checks and existing 401/404 paths still apply.
+    order(id: ID!): Order
+}
+
+# Section the home feed is composed of. The REST endpoint returns the same
+# three sections as separate fields; here they're collapsed into one payload
+# so a single query is enough.
+type HomeFeed {
+    banners: [PromoBanner!]!
+    campaigns: [PromotionCampaign!]!
+    membershipPlans: [MembershipPlan!]!
+}
+
+type PromoBanner {
+    id: ID!
+    title: String!
+    imageUrl: String
+    description: String
+    # linkUrl is intentionally not exposed — REST returns it but mobile
+    # clients never render it, so removing it shrinks the payload further.
+}
+
+type PromotionCampaign {
+    id: ID!
+    name: String!
+    description: String
+    discountPercent: Float
+}
+
+type MembershipPlan {
+    id: ID!
+    name: String!
+    pricePerMonth: Float
+    benefits: String
+}
+
+# Order detail. Maps to OrderResponse — the GraphQL field selection here is
+# the same trade-off as ?fields= on the REST endpoint, but a single document
+# can request exactly the fields needed and skip the rest.
+type Order {
+    id: ID!
+    orderNumber: String!
+    status: String!
+    customerName: String
+    restaurantName: String
+    totalAmount: Float
+    subtotal: Float
+    deliveryFee: Float
+    taxAmount: Float
+    tipAmount: Float
+    createdAt: String
+}

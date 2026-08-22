@@ -1,5 +1,6 @@
 package com.bhukkad.outbox;
 
+import com.bhukkad.config.OutboxProperties;
 import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
@@ -21,20 +22,19 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OutboxEventProcessor {
 
-    private static final int BATCH_SIZE = 50;
-    private static final int MAX_RETRIES = 5;
-
     private final OutboxEventRepository outboxEventRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final ExternalEventBridge externalEventBridge;
+    private final DeadLetterEventService deadLetterEventService;
+    private final OutboxProperties outboxProperties;
 
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:2000}")
     @Transactional
     public void processPendingEvents() {
         List<OutboxEvent> pending = outboxEventRepository.findByStatus(
                 OutboxEvent.OutboxStatus.PENDING,
-                PageRequest.of(0, BATCH_SIZE));
+                PageRequest.of(0, outboxProperties.getBatchSize()));
 
         for (OutboxEvent event : pending) {
             try {
@@ -46,8 +46,9 @@ public class OutboxEventProcessor {
             } catch (Exception ex) {
                 event.setRetryCount(event.getRetryCount() + 1);
                 event.setLastError(ex.getMessage());
-                if (event.getRetryCount() >= MAX_RETRIES) {
+                if (event.getRetryCount() >= outboxProperties.getMaxRetries()) {
                     event.setStatus(OutboxEvent.OutboxStatus.FAILED);
+                    deadLetterEventService.record(event, ex.getMessage());
                     log.error("OUTBOX_FAILED | id={} | type={} | error={}",
                             event.getId(), event.getEventType(), ex.getMessage());
                 } else {
@@ -57,6 +58,17 @@ public class OutboxEventProcessor {
             }
             outboxEventRepository.save(event);
         }
+    }
+
+    /**
+     * Re-drives dead-lettered events back into the outbox. Runs on a
+     * longer interval than the main sweep so transient downstream failures
+     * (Kafka brokers down, etc.) get a chance to recover in between.
+     */
+    @Scheduled(fixedDelayString = "${app.outbox.dead-letter-repoll-ms:60000}")
+    @Transactional
+    public void requeueDeadLetters() {
+        deadLetterEventService.requeuePending(outboxProperties.getDeadLetterBatchSize());
     }
 
     private void publish(OutboxEvent event) throws Exception {

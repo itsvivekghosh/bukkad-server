@@ -18,6 +18,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Customer growth features: wallet history, support tickets, membership.
@@ -26,6 +28,7 @@ import java.util.List;
 @RequestMapping(ApiPaths.V1_PREFIX + "/customers")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('CUSTOMER')")
+@Tag(name = "CustomerGrowth", description = "REST endpoints for CustomerGrowth")
 public class CustomerGrowthController {
 
     private final WalletQueryService walletQueryService;
@@ -33,8 +36,9 @@ public class CustomerGrowthController {
     private final MembershipService membershipService;
     private final SecurityUtils securityUtils;
 
-    /** Paginated wallet transaction history. */
+    /** Paginated wallet transaction history (offset). Retained for back-compat. */
     @GetMapping("/wallet/transactions")
+    @Operation(summary = "Get wallet transactions")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.PagedResponse<WalletTransactionResponse>>> getWalletTransactions(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -42,8 +46,23 @@ public class CustomerGrowthController {
                 walletQueryService.getTransactions(securityUtils.getCurrentUserId(), page, size)));
     }
 
+    /**
+     * Cursor-paginated wallet transaction history. Preferred over the offset
+     * variant for unbounded histories — keeps query cost constant regardless of
+     * scroll depth.
+     */
+    @GetMapping("/wallet/transactions/cursor")
+    @Operation(summary = "Get wallet transactions by cursor")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.CursorPagedResponse<WalletTransactionResponse>>> getWalletTransactionsByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                walletQueryService.getTransactionsByCursor(securityUtils.getCurrentUserId(), cursor, size)));
+    }
+
     /** Create a support ticket. */
     @PostMapping("/support/tickets")
+    @Operation(summary = "Create support ticket")
     public ResponseEntity<ApiResponse<SupportTicketResponse>> createSupportTicket(
             @RequestBody SupportTicketRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -71,6 +90,7 @@ public class CustomerGrowthController {
 
     /** Subscribe to a membership plan. */
     @PostMapping("/membership/subscribe")
+    @Operation(summary = "Subscribe membership")
     public ResponseEntity<ApiResponse<MembershipStatusResponse>> subscribeMembership(
             @RequestBody SubscribeMembershipRequest request) {
         return ResponseEntity.ok(ApiResponse.success(

@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Admin review moderation queue (V17 trust and compliance).
@@ -34,6 +36,7 @@ import java.util.stream.Collectors;
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin/reviews")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "AdminReviewModeration", description = "REST endpoints for AdminReviewModeration")
 public class AdminReviewModerationController {
 
     private final ReviewService reviewService;
@@ -44,6 +47,7 @@ public class AdminReviewModerationController {
      * @param status optional {@code PENDING} (default), {@code APPROVED} or {@code REJECTED}
      */
     @GetMapping("/moderation")
+    @Operation(summary = "Get moderation queue")
     public ResponseEntity<ApiResponse<List<Review>>> getModerationQueue(
             @RequestParam(required = false) String status) {
         Review.ModerationStatus parsed = status != null ? parseStatus(status) : null;
@@ -56,6 +60,7 @@ public class AdminReviewModerationController {
      * @param status {@code PENDING}, {@code APPROVED} or {@code REJECTED} (case-insensitive)
      */
     @PutMapping("/{reviewId}/moderate")
+    @Operation(summary = "Moderate review")
     public ResponseEntity<ApiResponse<Review>> moderateReview(
             @PathVariable Long reviewId,
             @RequestParam String status) {

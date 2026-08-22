@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter;
+import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.bhukkad.cache.invalidation.CacheInvalidationSubscriber;
 import org.springframework.beans.factory.annotation.Value;
@@ -69,7 +71,13 @@ public class RedisConfig {
 
     /**
      * Primary ObjectMapper for API responses - NO type info
-     * This is used by Spring MVC for REST responses
+     * This is used by Spring MVC for REST responses.
+     *
+     * <p>The {@code bhukkadFieldSelection} filter is registered as a no-op so
+     * any DTO can be wrapped with {@link com.bhukkad.web.FieldProjection#project}
+     * without first being annotated with {@code @JsonFilter}. DTOs that want
+     * to be projectable via {@code ?fields=} still need
+     * {@code @JsonFilter("bhukkadFieldSelection")} on their class declaration.
      */
     @Bean
     @Primary
@@ -79,6 +87,10 @@ public class RedisConfig {
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         // NO DefaultTyping - clean JSON output
+        SimpleFilterProvider filters = new SimpleFilterProvider()
+                .addFilter(com.bhukkad.web.FieldProjection.FILTER_ID,
+                        SimpleBeanPropertyFilter.serializeAll());
+        mapper.setFilterProvider(filters);
         return mapper;
     }
 

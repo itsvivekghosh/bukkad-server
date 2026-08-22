@@ -13,16 +13,20 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/gift-cards")
 @RequiredArgsConstructor
+@Tag(name = "GiftCard", description = "REST endpoints for GiftCard")
 public class GiftCardController {
 
     private final GiftCardService giftCardService;
 
     @PostMapping("/purchase")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Purchase gift card")
     public ResponseEntity<ApiResponse<GiftCardResponse>> purchaseGiftCard(
             @Valid @RequestBody GiftCardPurchaseRequest request) {
         GiftCardResponse giftCard = giftCardService.purchaseGiftCard(request);
@@ -31,6 +35,7 @@ public class GiftCardController {
 
     @PostMapping("/redeem")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Redeem gift card")
     public ResponseEntity<ApiResponse<GiftCardResponse>> redeemGiftCard(
             @Valid @RequestBody GiftCardRedeemRequest request) {
         GiftCardResponse giftCard = giftCardService.redeemGiftCard(request);
