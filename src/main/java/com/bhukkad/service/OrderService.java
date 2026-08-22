@@ -47,4 +47,8 @@ public interface OrderService {
 
     // Tracking
     OrderResponse trackOrder(Long orderId);
+
+    // Batch read — multiple orders in a single request to amortise round-trip
+    // cost for clients that have cached order IDs (e.g. recently viewed list).
+    java.util.Map<Long, OrderResponse> getOrdersByIds(java.util.Collection<Long> ids);
 }

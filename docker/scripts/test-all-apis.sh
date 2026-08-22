@@ -509,7 +509,8 @@ test_api "Register Device Token" \
     "{\"token\":\"fcm-token-${RUN_ID}\",\"platform\":\"ANDROID\"}" "200" "$CUSTOMER_TOKEN"
 
 test_api "Unregister Device Token" \
-    "DELETE" "$BASE/customers/device-tokens?token=fcm-token-${RUN_ID}" "" "200" "$CUSTOMER_TOKEN"
+    "DELETE" "$BASE/customers/device-tokens" \
+    "{\"token\":\"fcm-token-${RUN_ID}\",\"platform\":\"ANDROID\"}" "200" "$CUSTOMER_TOKEN"
 
 log_section "Membership Management"
 test_api "List Membership Plans" \
@@ -1007,10 +1008,10 @@ if [ -n "$ORDER_ID" ] && [ "$ORDER_ID" != "" ]; then
     PHOTO_URL_RESPONSE=$(do_request "POST" "$BASE/orders/delivery/$ORDER_ID/proof/photo-url" \
         "{\"contentType\":\"image/jpeg\"}" "$AGENT_TOKEN")
     # When S3 is not configured in Docker, the endpoint correctly returns 400.
-    if echo "$PHOTO_URL_RESPONSE" | rg -q '"success":true' 2>/dev/null; then
+    if echo "$PHOTO_URL_RESPONSE" | grep -q '"success":true' 2>/dev/null; then
         echo -e "  ${GREEN}✅ PASS${NC} | Create Proof Photo Upload URL (HTTP 200)"
         PASS=$((PASS + 1))
-    elif echo "$PHOTO_URL_RESPONSE" | rg -qi "not enabled|not configured" 2>/dev/null; then
+    elif echo "$PHOTO_URL_RESPONSE" | grep -qi -e "not enabled" -e "not configured" 2>/dev/null; then
         echo -e "  ${GREEN}✅ PASS${NC} | Create Proof Photo Upload URL (S3 disabled — expected 400)"
         PASS=$((PASS + 1))
     else

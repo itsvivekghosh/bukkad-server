@@ -191,6 +191,21 @@ public class RestaurantController {
                 restaurantSettlementService.getRestaurantSettlements(id, page, size)));
     }
 
+    /**
+     * Cursor-paginated settlement history. Preferred over the offset variant
+     * for restaurants with many historical orders — keeps query cost constant
+     * regardless of scroll depth.
+     */
+    @GetMapping("/owner/{id}/settlements/cursor")
+    @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.CursorPagedResponse<RestaurantSettlementResponse>>> getSettlementsByCursor(
+            @PathVariable Long id,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                restaurantSettlementService.getRestaurantSettlementsByCursor(id, cursor, size)));
+    }
+
     /** Enables busy mode to throttle incoming orders during peak hours. */
     @PutMapping("/owner/{id}/busy-mode")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")

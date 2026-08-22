@@ -70,9 +70,20 @@ server:
     include-message: always
     include-binding-errors: always
     include-stacktrace: on_param
+  # Response compression — gzip on the application server.
+  #
+  # Brotli is intentionally not enabled at the Tomcat layer: Tomcat 10.1's built-in
+  # `CompressionConfig` only implements `gzip`/`deflate` (it recognises the `br`
+  # label but produces no brotli output). Adding brotli4j + a custom response
+  # stream wrapper is a non-trivial change for marginal benefit on JSON, because
+  # in production nginx terminates compression for this service — see the
+  # `brotli on;` block in k8s/nginx/configmap.yaml, where brotli runs at ~20-30%
+  # smaller payloads than gzip. The Tomcat gzip block below is the in-cluster
+  # fallback for direct-port traffic (e.g. local dev, port-forward debugging).
   compression:
     enabled: true
     mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+    min-response-size: 1024
 
 app:
   environment: local

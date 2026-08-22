@@ -49,6 +49,14 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
+		<!-- GraphQL — single-query endpoint that lets mobile clients fetch the home
+		     feed and an order detail view in one request, picking exactly the fields
+		     they need. Version is managed by spring-boot-dependencies (3.2.0 → 1.2.4). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-graphql</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>

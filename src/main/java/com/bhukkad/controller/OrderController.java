@@ -27,12 +27,14 @@ import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CartService;
 import com.bhukkad.service.OrderService;
 import com.bhukkad.util.PaginationUtils;
+import com.bhukkad.web.FieldProjection;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.json.MappingJacksonValue;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -160,9 +162,11 @@ public class OrderController {
 
     @GetMapping("/customer/{orderId}")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<OrderResponse>> getOrderById(@PathVariable Long orderId) {
+    public ResponseEntity<MappingJacksonValue> getOrderById(
+            @PathVariable Long orderId,
+            @RequestParam(required = false) String fields) {
         OrderResponse order = orderService.getOrderById(orderId);
-        return ResponseEntity.ok(ApiResponse.success(order));
+        return ResponseEntity.ok(FieldProjection.project(ApiResponse.success(order), fields));
     }
 
     /**
@@ -186,9 +190,11 @@ public class OrderController {
     @GetMapping({"/customer/track/{orderId}", "/customer/{orderId}/track"})
     @PreAuthorize("hasRole('CUSTOMER')")
     @RateLimited("order-track")
-    public ResponseEntity<ApiResponse<OrderResponse>> trackOrder(@PathVariable Long orderId) {
+    public ResponseEntity<MappingJacksonValue> trackOrder(
+            @PathVariable Long orderId,
+            @RequestParam(required = false) String fields) {
         OrderResponse order = orderService.trackOrder(orderId);
-        return ResponseEntity.ok(ApiResponse.success(order));
+        return ResponseEntity.ok(FieldProjection.project(ApiResponse.success(order), fields));
     }
 
     @PostMapping("/customer/{orderId}/reorder")
@@ -416,8 +422,37 @@ public class OrderController {
 
     // Common endpoint
     @GetMapping("/number/{orderNumber}")
-    public ResponseEntity<ApiResponse<OrderResponse>> getOrderByNumber(@PathVariable String orderNumber) {
+    public ResponseEntity<MappingJacksonValue> getOrderByNumber(
+            @PathVariable String orderNumber,
+            @RequestParam(required = false) String fields) {
         OrderResponse order = orderService.getOrderByNumber(orderNumber);
-        return ResponseEntity.ok(ApiResponse.success(order));
+        return ResponseEntity.ok(FieldProjection.project(ApiResponse.success(order), fields));
+    }
+
+    /**
+     * Batch read — returns a map keyed by order id for any subset of the
+     * caller's own orders in a single round-trip. Caps at
+     * {@link com.bhukkad.util.PaginationUtils#MAX_PAGE_SIZE} ids per request to
+     * bound server memory and DB pressure; callers that need more should page
+     * via the cursor endpoints instead.
+     *
+     * <p>Ids the caller does not own (or that do not exist) are silently
+     * dropped — see {@code OrderServiceImpl.getOrdersByIds} for the rationale.
+     */
+    @GetMapping("/customer/batch")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ResponseEntity<ApiResponse<java.util.Map<Long, OrderResponse>>> getOrdersByIds(
+            @RequestParam("ids") java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(java.util.Collections.emptyMap()));
+        }
+        // Bound the request — capped at MAX_PAGE_SIZE so a malicious caller
+        // can't issue ?ids=1,2,3,...,100000 and force a 100k-row IN-list.
+        if (ids.size() > com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE) {
+            throw new com.bhukkad.exception.BusinessException(
+                    "Too many ids in batch request; max "
+                            + com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE);
+        }
+        return ResponseEntity.ok(ApiResponse.success(orderService.getOrdersByIds(ids)));
     }
 }

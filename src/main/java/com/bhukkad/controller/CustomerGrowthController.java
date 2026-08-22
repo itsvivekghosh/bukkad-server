@@ -33,13 +33,26 @@ public class CustomerGrowthController {
     private final MembershipService membershipService;
     private final SecurityUtils securityUtils;
 
-    /** Paginated wallet transaction history. */
+    /** Paginated wallet transaction history (offset). Retained for back-compat. */
     @GetMapping("/wallet/transactions")
     public ResponseEntity<ApiResponse<com.bhukkad.dto.response.PagedResponse<WalletTransactionResponse>>> getWalletTransactions(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(
                 walletQueryService.getTransactions(securityUtils.getCurrentUserId(), page, size)));
+    }
+
+    /**
+     * Cursor-paginated wallet transaction history. Preferred over the offset
+     * variant for unbounded histories — keeps query cost constant regardless of
+     * scroll depth.
+     */
+    @GetMapping("/wallet/transactions/cursor")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.CursorPagedResponse<WalletTransactionResponse>>> getWalletTransactionsByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                walletQueryService.getTransactionsByCursor(securityUtils.getCurrentUserId(), cursor, size)));
     }
 
     /** Create a support ticket. */

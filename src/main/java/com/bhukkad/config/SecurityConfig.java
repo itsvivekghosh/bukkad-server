@@ -106,6 +106,19 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.GET, V1 + "/serviceability/**").permitAll();
                     auth.requestMatchers(HttpMethod.GET, V1 + "/home/**").permitAll();
 
+                    // GraphQL endpoint — single POST endpoint that exposes both
+                    // the anonymous homeFeed query and the authenticated
+                    // order(id) query. Per-query auth is enforced inside the
+                    // GraphQL resolvers (OrderService.getOrderById rejects
+                    // requests whose JWT subject doesn't own the order). The
+                    // HTTP endpoint itself is open to avoid a chicken-and-egg
+                    // problem with the GraphiQL UI in dev, but the schema
+                    // deliberately only returns data the caller is authorised
+                    // to see — unauthenticated callers that try order(id)
+                    // receive null with an error in the response extensions.
+                    auth.requestMatchers("/graphql").permitAll();
+                    auth.requestMatchers("/graphiql", "/graphiql/**").permitAll();
+
                     // Cache - Dev public, Prod admin
                     if (debugMode) {
                         auth.requestMatchers(V1 + "/cache/**").permitAll();

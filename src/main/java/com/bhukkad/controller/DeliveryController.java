@@ -43,6 +43,17 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponse.success(riderPayoutService.getPayoutHistory(page, size)));
     }
 
+    /**
+     * Cursor-paginated rider earnings history. Preferred over the offset variant
+     * for high-volume riders — keeps query cost constant regardless of scroll depth.
+     */
+    @GetMapping("/earnings/cursor")
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.CursorPagedResponse<com.bhukkad.dto.response.RiderPayoutResponse>>> getEarningsHistoryByCursor(
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(riderPayoutService.getPayoutHistoryByCursor(cursor, size)));
+    }
+
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<DeliveryAgentResponse>> getProfile() {
         return ResponseEntity.ok(ApiResponse.success(deliveryService.getProfile()));

@@ -377,6 +377,37 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(order);
     }
 
+    /**
+     * Batch read — returns a map keyed by order id, restricted to orders
+     * owned by the caller. Ids that the caller does not own, or that do not
+     * exist, are silently dropped from the result map rather than throwing —
+     * this matches the behaviour of {@code POST /_mget} style APIs in the
+     * wider industry and lets the caller treat a missing entry as "you can't
+     * see this", which is also the correct auth response.
+     *
+     * <p>Cap is enforced upstream in the controller to avoid surprising
+     * callers with a 50-row response when they asked for 100.
+     */
+    @Override
+    @UseReadReplica
+    public java.util.Map<Long, OrderResponse> getOrdersByIds(java.util.Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        Long callerId = securityUtils.getCurrentUserId();
+        java.util.List<Order> orders = orderRepository.findAllById(ids);
+        java.util.Map<Long, OrderResponse> result = new java.util.LinkedHashMap<>();
+        for (Order order : orders) {
+            // Re-check ownership in code (not just SQL) because the customer
+            // filter is enforced by the controller layer for the single-order
+            // endpoints and we want the same property here.
+            if (order.getCustomer() != null && order.getCustomer().getId().equals(callerId)) {
+                result.put(order.getId(), orderMapper.toResponse(order));
+            }
+        }
+        return result;
+    }
+
     @Override
     @UseReadReplica
     public PagedResponse<OrderSummaryResponse> getCustomerOrders(int page, int size) {
