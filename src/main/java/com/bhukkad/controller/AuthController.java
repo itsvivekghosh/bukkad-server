@@ -16,6 +16,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Public authentication surface: registration, login, token lifecycle and password flows.
@@ -37,6 +39,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/auth")
 @RequiredArgsConstructor
+@Tag(name = "Auth", description = "REST endpoints for Auth")
 public class AuthController {
 
     private final AuthService authService;
@@ -99,6 +102,7 @@ public class AuthController {
     }
 
     @PostMapping("/change-password")
+    @Operation(summary = "Change password")
     public ResponseEntity<ApiResponse<Void>> changePassword(
             @RequestHeader("Authorization") String authHeader,
             @RequestParam String oldPassword,
@@ -110,6 +114,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh-token")
+    @Operation(summary = "Refresh token")
     public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(
             @RequestHeader("Authorization") String authHeader) {
 

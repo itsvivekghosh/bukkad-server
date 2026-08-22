@@ -52,6 +52,15 @@ spec:
             matchLabels:
               app: bhukkad
               component: api
+        # Multi-AZ: spread replicas across availability zones so a single AZ
+        # failure does not take down the API (works with a multi-AZ node pool).
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: api
       containers:
         - name: bhukkad-app
           image: bhukkad-server:latest

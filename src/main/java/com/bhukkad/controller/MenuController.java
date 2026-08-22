@@ -21,10 +21,13 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Set;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/menu")
 @RequiredArgsConstructor
+@Tag(name = "Menu", description = "REST endpoints for Menu")
 public class MenuController {
 
     private final MenuService menuService;
@@ -33,6 +36,7 @@ public class MenuController {
     // Category endpoints
     @PostMapping("/categories")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Create category")
     public ResponseEntity<ApiResponse<MenuCategoryResponse>> createCategory(
             @RequestParam Long restaurantId,
             @Valid @RequestBody MenuCategoryRequest category) {
@@ -41,6 +45,7 @@ public class MenuController {
     }
 
     @GetMapping("/categories/restaurant/{restaurantId}")
+    @Operation(summary = "Get categories by restaurant")
     public ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> getCategoriesByRestaurant(
             @PathVariable Long restaurantId,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
@@ -61,6 +66,7 @@ public class MenuController {
 
     @PutMapping("/categories/{categoryId}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Update category")
     public ResponseEntity<ApiResponse<MenuCategoryResponse>> updateCategory(
             @PathVariable Long categoryId,
             @Valid @RequestBody MenuCategoryRequest category) {
@@ -84,6 +90,7 @@ public class MenuController {
     }
 
     @GetMapping("/items/{id}")
+    @Operation(summary = "Get menu item by id")
     public ResponseEntity<ApiResponse<MenuItemResponse>> getMenuItemById(
             @PathVariable Long id,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
@@ -103,6 +110,7 @@ public class MenuController {
     }
 
     @GetMapping("/items/category/{categoryId}")
+    @Operation(summary = "Get menu items by category")
     public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByCategory(
             @PathVariable Long categoryId,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
@@ -122,6 +130,7 @@ public class MenuController {
     }
 
     @GetMapping("/items/restaurant/{restaurantId}")
+    @Operation(summary = "Get menu items by restaurant")
     public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByRestaurant(
             @PathVariable Long restaurantId,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
@@ -142,6 +151,7 @@ public class MenuController {
 
     @PutMapping("/items/{id}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Update menu item")
     public ResponseEntity<ApiResponse<MenuItemResponse>> updateMenuItem(
             @PathVariable Long id,
             @Valid @RequestBody MenuItemRequest request) {
@@ -158,6 +168,7 @@ public class MenuController {
 
     @PutMapping("/items/{id}/toggle-availability")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Toggle item availability")
     public ResponseEntity<ApiResponse<Void>> toggleItemAvailability(
             @PathVariable Long id,
             @RequestParam Boolean available) {
@@ -179,6 +190,7 @@ public class MenuController {
 
     @PostMapping("/items/{id}/image/upload-url")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Create menu item image upload url")
     public ResponseEntity<ApiResponse<MenuImageUploadResponse>> createMenuItemImageUploadUrl(
             @PathVariable Long id,
             @Valid @RequestBody MenuImageUploadRequest request) {
@@ -195,6 +207,7 @@ public class MenuController {
 
     @GetMapping("/items/restaurant/{restaurantId}/low-stock")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get low stock items")
     public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getLowStockItems(
             @PathVariable Long restaurantId,
             @RequestParam(required = false) Integer threshold) {

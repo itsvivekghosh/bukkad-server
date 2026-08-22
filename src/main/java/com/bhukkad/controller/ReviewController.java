@@ -16,10 +16,13 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/reviews")
 @RequiredArgsConstructor
+@Tag(name = "Review", description = "REST endpoints for Review")
 public class ReviewController {
 
     private final ReviewService reviewService;
@@ -61,6 +64,7 @@ public class ReviewController {
 
     @PostMapping("/menu-items")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Rate menu item")
     public ResponseEntity<ApiResponse<MenuItemRatingResponse>> rateMenuItem(
             @Valid @RequestBody MenuItemRatingRequest request) {
         MenuItemRatingResponse rating = menuItemRatingService.rateMenuItem(request);
@@ -68,6 +72,7 @@ public class ReviewController {
     }
 
     @GetMapping("/menu-items/{menuItemId}")
+    @Operation(summary = "Get menu item ratings")
     public ResponseEntity<ApiResponse<List<MenuItemRatingResponse>>> getMenuItemRatings(
             @PathVariable Long menuItemId) {
         List<MenuItemRatingResponse> ratings = menuItemRatingService.getMenuItemRatings(menuItemId);

@@ -17,11 +17,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "Admin", description = "REST endpoints for Admin")
 public class AdminController {
 
     private final AdminService adminService;
@@ -36,6 +39,7 @@ public class AdminController {
     }
 
     @GetMapping("/users")
+    @Operation(summary = "Get all users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAllUsers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -69,6 +73,7 @@ public class AdminController {
     }
 
     @GetMapping("/orders")
+    @Operation(summary = "Get all orders")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAllOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -77,6 +82,7 @@ public class AdminController {
     }
 
     @GetMapping("/restaurants")
+    @Operation(summary = "Get all restaurants")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAllRestaurants(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -98,6 +104,7 @@ public class AdminController {
 
     /** Approves or rejects a dark kitchen onboarding application. */
     @PutMapping("/restaurants/{restaurantId}/onboarding")
+    @Operation(summary = "Review onboarding")
     public ResponseEntity<ApiResponse<Void>> reviewOnboarding(
             @PathVariable Long restaurantId, @Valid @RequestBody OnboardingReviewRequest request) {
         restaurantService.reviewOnboarding(restaurantId, request.getApproved(), request.getReason());
@@ -107,6 +114,7 @@ public class AdminController {
     }
 
     @GetMapping("/revenue")
+    @Operation(summary = "Get revenue")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getRevenue(
             @RequestParam(defaultValue = "7") int days) {
         return ResponseEntity.ok(ApiResponse.success(adminService.getRevenueStats(days)));
@@ -126,6 +134,7 @@ public class AdminController {
     }
 
     @PutMapping("/restaurants/{restaurantId}/settle-payouts")
+    @Operation(summary = "Settle restaurant payouts")
     public ResponseEntity<ApiResponse<Map<String, Object>>> settleRestaurantPayouts(
             @PathVariable Long restaurantId) {
         int settled = restaurantSettlementService.settlePendingForRestaurant(restaurantId);
@@ -135,6 +144,7 @@ public class AdminController {
     }
 
     @PutMapping("/restaurants/{restaurantId}/commission")
+    @Operation(summary = "Set restaurant commission")
     public ResponseEntity<ApiResponse<Map<String, Object>>> setRestaurantCommission(
             @PathVariable Long restaurantId,
             @RequestParam Double percent) {
@@ -145,6 +155,7 @@ public class AdminController {
     }
 
     @PostMapping("/notifications/test")
+    @Operation(summary = "Send test notification")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendTestNotification(
             @RequestBody TestNotificationRequest request) {
         notificationService.sendTestNotification(

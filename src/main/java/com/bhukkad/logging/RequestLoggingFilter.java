@@ -1,6 +1,7 @@
 package com.bhukkad.logging;
 
 import com.bhukkad.logging.alert.AlertService;
+import com.bhukkad.metrics.EndpointSloMetrics;
 import com.bhukkad.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -32,6 +33,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final AlertService alertService;
+    private final EndpointSloMetrics endpointSloMetrics;
 
     @Value("${app.debug:false}")
     private boolean debugMode;
@@ -42,9 +44,10 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             "/api/v1/health", "/health"
     };
 
-    public RequestLoggingFilter(UserRepository userRepository, AlertService alertService) {
+    public RequestLoggingFilter(UserRepository userRepository, AlertService alertService, EndpointSloMetrics endpointSloMetrics) {
         this.userRepository = userRepository;
         this.alertService = alertService;
+        this.endpointSloMetrics = endpointSloMetrics;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -56,6 +59,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
         String traceId = TraceIdResolver.resolveTraceId(request);
         String requestId = TraceIdResolver.resolveRequestId(request);
+        String spanId = TraceContext.newSpanId();
 
         if (shouldSkip(request)) {
             attachTraceHeaders(response, traceId, requestId);
@@ -69,7 +73,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         long startTime = System.currentTimeMillis();
 
         try {
-            setMDCContext(wrappedRequest, traceId, requestId);
+            setMDCContext(wrappedRequest, traceId, requestId, spanId);
             attachTraceHeaders(wrappedResponse, traceId, requestId);
 
             logIncomingRequest(wrappedRequest, traceId, requestId);
@@ -78,6 +82,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
         } finally {
             long duration = System.currentTimeMillis() - startTime;
+            endpointSloMetrics.record(wrappedRequest.getMethod(), wrappedRequest.getRequestURI(),
+                    duration, wrappedResponse.getStatus());
             populateUserContext();
             logCompletedRequest(wrappedRequest, wrappedResponse, duration, traceId, requestId);
             logPerformance(wrappedRequest, duration);
@@ -168,6 +174,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             Map<String, Object> logMap = new LinkedHashMap<>();
             logMap.put("event", "HTTP_REQUEST_COMPLETED");
             logMap.put("traceId", traceId);
+            logMap.put("spanId", MDC.get(LoggingConstants.SPAN_ID));
             logMap.put("requestId", requestId);
             logMap.put("timestamp", Instant.now().toString());
             logMap.put("method", request.getMethod());
@@ -225,8 +232,9 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     // ==================== MDC ====================
 
-    private void setMDCContext(HttpServletRequest request, String traceId, String requestId) {
+    private void setMDCContext(HttpServletRequest request, String traceId, String requestId, String spanId) {
         MDC.put(LoggingConstants.TRACE_ID, traceId);
+        MDC.put(LoggingConstants.SPAN_ID, spanId);
         MDC.put(LoggingConstants.REQUEST_ID, requestId);
         MDC.put(LoggingConstants.REQUEST_PATH, request.getRequestURI());
         MDC.put(LoggingConstants.REQUEST_METHOD, request.getMethod());
@@ -262,6 +270,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             perf.put("uri", request.getRequestURI());
             perf.put("durationMs", duration);
             perf.put("traceId", MDC.get(LoggingConstants.TRACE_ID));
+            perf.put("spanId", MDC.get(LoggingConstants.SPAN_ID));
             perf.put("requestId", MDC.get(LoggingConstants.REQUEST_ID));
             String userId = MDC.get(LoggingConstants.USER_ID);
             if (userId != null) perf.put("userId", userId);

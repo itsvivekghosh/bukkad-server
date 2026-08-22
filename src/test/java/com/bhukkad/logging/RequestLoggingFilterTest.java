@@ -2,8 +2,10 @@ package com.bhukkad.logging;
 
 import com.bhukkad.entity.User;
 import com.bhukkad.logging.alert.AlertService;
+import com.bhukkad.metrics.EndpointSloMetrics;
 import com.bhukkad.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,7 +52,8 @@ class RequestLoggingFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new RequestLoggingFilter(userRepository, alertService);
+        filter = new RequestLoggingFilter(userRepository, alertService,
+                new EndpointSloMetrics(new SimpleMeterRegistry()));
         ReflectionTestUtils.setField(filter, "debugMode", false);
         SecurityContextHolder.clearContext();
         MDC.clear();

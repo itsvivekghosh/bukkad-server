@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Public serviceability checks: zone coverage, distance, and estimated delivery fee.
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/serviceability")
 @RequiredArgsConstructor
+@Tag(name = "Serviceability", description = "REST endpoints for Serviceability")
 public class ServiceabilityController {
 
     private final DeliveryZoneService deliveryZoneService;
@@ -48,6 +51,7 @@ public class ServiceabilityController {
      * @throws ResourceNotFoundException if the restaurant does not exist
      */
     @GetMapping("/check")
+    @Operation(summary = "Check serviceability")
     public ResponseEntity<ApiResponse<ServiceabilityResponse>> checkServiceability(
             @RequestParam Long restaurantId,
             @RequestParam double latitude,

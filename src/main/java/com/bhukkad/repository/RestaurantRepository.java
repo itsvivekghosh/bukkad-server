@@ -100,4 +100,11 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
             LIMIT 50
             """, nativeQuery = true)
     List<Restaurant> fullTextSearchByName(@Param("keyword") String keyword);
+
+    /**
+     * Compact id/name pairs for all active restaurants, used to build the
+     * in-memory autocomplete trie without hydrating full entities.
+     */
+    @Query("SELECT r.id, r.name FROM Restaurant r WHERE r.isActive = true")
+    List<Object[]> findActiveRestaurantNames();
 }

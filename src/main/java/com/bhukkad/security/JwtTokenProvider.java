@@ -1,8 +1,6 @@
 package com.bhukkad.security;
 
 import io.jsonwebtoken.*;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,9 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -21,8 +20,7 @@ public class JwtTokenProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtTokenProvider.class);
 
-    @Value("${app.jwt.secret}")
-    private String jwtSecret;
+    private final JwtSecretRotationService secretRotationService;
 
     @Value("${app.jwt.expiration}")
     private long jwtExpirationMs;
@@ -33,6 +31,10 @@ public class JwtTokenProvider {
     public static final String TOKEN_TYPE_CLAIM = "type";
     public static final String ACCESS_TOKEN_TYPE = "access";
     public static final String REFRESH_TOKEN_TYPE = "refresh";
+
+    public JwtTokenProvider(JwtSecretRotationService secretRotationService) {
+        this.secretRotationService = secretRotationService;
+    }
 
     /**
      * Extract username from JWT token
@@ -98,7 +100,7 @@ public class JwtTokenProvider {
                 .setSubject(userDetails.getUsername())
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
-                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
+                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
@@ -116,14 +118,12 @@ public class JwtTokenProvider {
     }
 
     /**
-     * Validate JWT token structure and signature
+     * Validate JWT token structure and signature against the current and
+     * previous signing keys (rotation grace period).
      */
     public boolean validateToken(String authToken) {
         try {
-            Jwts.parserBuilder()
-                    .setSigningKey(getSignInKey())
-                    .build()
-                    .parseClaimsJws(authToken);
+            parse(authToken);
             return true;
         } catch (SignatureException e) {
             logger.error("Invalid JWT signature: {}", e.getMessage());
@@ -154,22 +154,32 @@ public class JwtTokenProvider {
     }
 
     /**
-     * Extract all claims from token
+     * Extract all claims from token, trying the current then previous keys.
      */
     private Claims extractAllClaims(String token) {
-        return Jwts
-                .parserBuilder()
-                .setSigningKey(getSignInKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
+        return parse(token).getBody();
     }
 
     /**
-     * Get signing key for JWT
+     * Parse a signed JWT, attempting each active key (current first, then the
+     * previous secret still inside its grace period).
      */
-    private Key getSignInKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
-        return Keys.hmacShaKeyFor(keyBytes);
+    private Jws<Claims> parse(String token) {
+        List<SecretKey> keys = secretRotationService.validationKeys();
+        JwtException lastException = null;
+        for (SecretKey key : keys) {
+            try {
+                return Jwts.parserBuilder()
+                        .setSigningKey(key)
+                        .build()
+                        .parseClaimsJws(token);
+            } catch (JwtException ex) {
+                lastException = ex;
+            }
+        }
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new MalformedJwtException("No signing key matched token");
     }
 }

@@ -35,14 +35,18 @@ public class TraceResponseBodyAdvice implements ResponseBodyAdvice<Object> {
         try {
             String traceId = TraceContext.getTraceId();
             String requestId = TraceContext.getRequestId();
+            String spanId = TraceContext.getSpanId();
             if (traceId != null) {
                 response.getHeaders().set(LoggingConstants.HEADER_TRACE_ID, traceId);
+            }
+            if (spanId != null) {
+                response.getHeaders().set("X-Span-Id", spanId);
             }
             if (requestId != null) {
                 response.getHeaders().set(LoggingConstants.HEADER_REQUEST_ID, requestId);
             }
             response.getHeaders().set(LoggingConstants.HEADER_EXPOSE,
-                    LoggingConstants.HEADER_TRACE_ID + ", " + LoggingConstants.HEADER_REQUEST_ID);
+                    LoggingConstants.HEADER_TRACE_ID + ", " + LoggingConstants.HEADER_REQUEST_ID + ", X-Span-Id");
         } catch (UnsupportedOperationException ignored) {
             // Exception-handler responses may expose read-only headers; trace ids remain in ApiResponse body.
         }
@@ -51,6 +55,9 @@ public class TraceResponseBodyAdvice implements ResponseBodyAdvice<Object> {
     private void enrich(ApiResponse<?> response) {
         if (response.getTraceId() == null) {
             response.setTraceId(TraceContext.getTraceId());
+        }
+        if (response.getSpanId() == null) {
+            response.setSpanId(TraceContext.getSpanId());
         }
         if (response.getRequestId() == null) {
             response.setRequestId(TraceContext.getRequestId());

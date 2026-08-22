@@ -112,14 +112,25 @@ Custom metrics include order counters (`OrderMetrics`).
 
 ## Database migrations (Flyway)
 
-Single baseline: `src/main/resources/db/migration/V1__baseline_schema.sql`
+Migration files live in `src/main/resources/db/migration/`:
+
+- `V1__baseline_schema.sql` — consolidated baseline schema
+- `V2__platform_operations.sql` — platform/operations tables
+- `V27__api_keys.sql` — partner API key management
+- `V28__missing_entity_tables.sql` — entity/summary tables dropped in the V1 consolidation
 
 See [db/migration/README.md](../src/main/resources/db/migration/README.md) for details.
 
 **Rules:**
 
-- Never edit `V1` after it ships to shared environments — add `V2__your_change.sql`
-- App uses `ddl-auto: validate` — Hibernate won't alter schema
+- Never edit an already-applied migration (e.g. `V1`, `V2`, `V27`, `V28`) after it ships
+  to shared environments — add the next version file (`V29__your_change.sql`) instead
+- New migration files must be idempotent (`CREATE TABLE IF NOT EXISTS`, guarded
+  `ALTER TABLE`) so they are safe on both fresh and existing databases
+- App uses `ddl-auto: none` — Hibernate never alters the schema; Flyway owns it
+- Existing databases with pre-consolidation history are handled by
+  `ignore-migration-patterns: "*:missing"`; run `flyway-repair` after any checksum
+  change (see CI `FLYWAY_REPAIR_ON_DEPLOY`)
 
 ### Check migration status
 

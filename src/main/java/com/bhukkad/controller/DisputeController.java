@@ -14,6 +14,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Customer and admin surfaces for evidence-based dispute resolution.
@@ -21,6 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX)
 @RequiredArgsConstructor
+@Tag(name = "Dispute", description = "REST endpoints for Dispute")
 public class DisputeController {
 
     private final DisputeResolutionService disputeResolutionService;
@@ -30,6 +33,7 @@ public class DisputeController {
 
     @PostMapping("/customers/orders/{orderId}/disputes")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "File dispute")
     public ResponseEntity<ApiResponse<DisputeResponse>> fileDispute(
             @PathVariable Long orderId, @Valid @RequestBody DisputeRequest request) {
         DisputeResponse dispute = disputeResolutionService.fileDispute(
@@ -60,6 +64,7 @@ public class DisputeController {
 
     @PostMapping("/admin/disputes/{disputeId}/resolve")
     @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Resolve dispute")
     public ResponseEntity<ApiResponse<DisputeResponse>> resolveDispute(
             @PathVariable Long disputeId, @Valid @RequestBody DisputeResolveRequest request) {
         DisputeResponse dispute = disputeResolutionService.manualResolve(

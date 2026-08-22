@@ -18,6 +18,7 @@ public class ApiResponse<T> {
     private T data;
     private LocalDateTime timestamp;
     private String traceId;
+    private String spanId;
     private String requestId;
 
     public static <T> ApiResponse<T> success(T data) {
@@ -26,6 +27,7 @@ public class ApiResponse<T> {
                 .data(data)
                 .timestamp(LocalDateTime.now())
                 .traceId(TraceContext.getTraceId())
+                .spanId(TraceContext.getSpanId())
                 .requestId(TraceContext.getRequestId())
                 .build();
     }
@@ -37,6 +39,7 @@ public class ApiResponse<T> {
                 .data(data)
                 .timestamp(LocalDateTime.now())
                 .traceId(TraceContext.getTraceId())
+                .spanId(TraceContext.getSpanId())
                 .requestId(TraceContext.getRequestId())
                 .build();
     }
@@ -47,6 +50,7 @@ public class ApiResponse<T> {
                 .message(message)
                 .timestamp(LocalDateTime.now())
                 .traceId(TraceContext.getTraceId())
+                .spanId(TraceContext.getSpanId())
                 .requestId(TraceContext.getRequestId())
                 .build();
     }

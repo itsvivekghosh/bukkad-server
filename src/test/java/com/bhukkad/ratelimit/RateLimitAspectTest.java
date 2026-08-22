@@ -24,6 +24,9 @@ class RateLimitAspectTest {
     @Mock
     private SecurityUtils securityUtils;
 
+    @Mock
+    private UserTierResolver userTierResolver;
+
     @InjectMocks
     private RateLimitAspect rateLimitAspect;
 
@@ -31,7 +34,8 @@ class RateLimitAspectTest {
     void enforceRateLimit_allowsWhenUnderLimit() throws Throwable {
         ProceedingJoinPoint joinPoint = mockJoinPoint("trackOrder", 11L);
         when(securityUtils.getCurrentUserId()).thenReturn(5L);
-        when(rateLimitService.check(eq("order-track"), eq("user:5:order:11")))
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("order-track"), eq("user:5:order:11"), eq("free")))
                 .thenReturn(RateLimitDecision.allowed(1, 20, 60));
         when(joinPoint.proceed()).thenReturn("ok");
 
@@ -42,7 +46,8 @@ class RateLimitAspectTest {
     void enforceRateLimit_throwsWhenExceeded() throws Throwable {
         ProceedingJoinPoint joinPoint = mockKitchenJoinPoint(10L);
         when(securityUtils.getCurrentUserId()).thenReturn(7L);
-        when(rateLimitService.check(eq("kitchen-queue"), eq("user:7:restaurant:10")))
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("kitchen-queue"), eq("user:7:restaurant:10"), eq("free")))
                 .thenReturn(RateLimitDecision.denied(31, 30, 25));
 
         RateLimitExceededException ex = assertThrows(RateLimitExceededException.class,
@@ -63,7 +68,8 @@ class RateLimitAspectTest {
         when(joinPoint.getSignature()).thenReturn(signature);
         when(signature.getMethod()).thenReturn(SampleController.class.getMethod("login", LoginRequest.class));
         when(joinPoint.getArgs()).thenReturn(new Object[]{loginRequest});
-        when(rateLimitService.check(eq("auth-login"), eq("login:admin@bhukkad.dev")))
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("auth-login"), eq("login:admin@bhukkad.dev"), eq("free")))
                 .thenReturn(RateLimitDecision.allowed(1, 10, 60));
         when(joinPoint.proceed()).thenReturn("ok");
 

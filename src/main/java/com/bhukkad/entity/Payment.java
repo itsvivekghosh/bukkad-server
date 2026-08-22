@@ -1,5 +1,6 @@
 package com.bhukkad.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
@@ -28,6 +29,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @ToString(exclude = {"order", "customer"})
 @EqualsAndHashCode(exclude = {"order", "customer"})
+@JsonIgnoreProperties({"order", "customer"})
 @EntityListeners(AuditingEntityListener.class)
 public class Payment {
 

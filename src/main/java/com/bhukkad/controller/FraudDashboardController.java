@@ -17,10 +17,13 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin/fraud")
 @RequiredArgsConstructor
+@Tag(name = "FraudDashboard", description = "REST endpoints for FraudDashboard")
 public class FraudDashboardController {
 
     private final FraudDashboardService fraudDashboardService;
@@ -61,6 +64,7 @@ public class FraudDashboardController {
     /** Records an admin decision (BLOCK_CUSTOMER / IGNORE) on one fraud event. */
     @PostMapping("/review-queue/{eventId}/action")
     @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Review event")
     public ResponseEntity<ApiResponse<FraudReviewActionResponse>> reviewEvent(
             @PathVariable Long eventId, @Valid @RequestBody FraudReviewActionRequest request) {
         FraudReviewActionResponse response = fraudReviewService.action(

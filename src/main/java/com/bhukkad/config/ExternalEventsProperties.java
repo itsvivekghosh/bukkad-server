@@ -20,5 +20,7 @@ public class ExternalEventsProperties {
         private String bootstrapServers = "localhost:9092";
         private String platformTopic = "bhukkad.platform.events";
         private String consumerGroup = "bhukkad-platform-consumer";
+        /** Dead letter topic for messages the consumer cannot process. */
+        private String dlqTopic = "bhukkad.platform.events.dlt";
     }
 }

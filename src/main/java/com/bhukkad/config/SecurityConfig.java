@@ -1,9 +1,11 @@
 package com.bhukkad.config;
 
+import com.bhukkad.apikey.ApiKeyFilter;
 import com.bhukkad.logging.RequestLoggingFilter;
 import com.bhukkad.security.CustomUserDetailsService;
 import com.bhukkad.security.JwtAuthenticationFilter;
 import com.bhukkad.security.PrometheusAuthFilter;
+import com.bhukkad.security.WafFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -35,6 +37,8 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RequestLoggingFilter requestLoggingFilter;
     private final PrometheusAuthFilter prometheusAuthFilter;
+    private final ApiKeyFilter apiKeyFilter;
+    private final WafFilter wafFilter;
 
     @Value("${app.debug:false}")
     private boolean debugMode;
@@ -182,6 +186,8 @@ public class SecurityConfig {
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(prometheusAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(requestLoggingFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(wafFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(apiKeyFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

@@ -12,6 +12,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Admin CRUD for white-label B2B tenants, plus a public storefront config lookup.
@@ -20,6 +22,7 @@ import java.util.List;
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin/tenants")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Tag(name = "Tenant", description = "REST endpoints for Tenant")
 public class TenantController {
 
     private final TenantService tenantService;
@@ -35,6 +38,7 @@ public class TenantController {
     }
 
     @PutMapping("/{tenantId}")
+    @Operation(summary = "Update")
     public ResponseEntity<ApiResponse<TenantResponse>> update(
             @PathVariable Long tenantId, @Valid @RequestBody TenantRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Tenant updated",

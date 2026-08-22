@@ -41,10 +41,13 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.time.LocalDate;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/orders")
 @RequiredArgsConstructor
+@Tag(name = "Order", description = "REST endpoints for Order")
 public class OrderController {
 
     private final OrderService orderService;
@@ -82,6 +85,7 @@ public class OrderController {
     // Customer endpoints
     @PostMapping("/customer/create")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Create order")
     public ResponseEntity<ApiResponse<?>> createOrder(
             @Valid @RequestBody OrderRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -100,6 +104,7 @@ public class OrderController {
 
     @GetMapping("/customer/scheduled-orders")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my scheduled orders")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyScheduledOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -109,6 +114,7 @@ public class OrderController {
 
     @GetMapping("/customer/scheduled-orders/cursor")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my scheduled orders by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyScheduledOrdersByCursor(
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
@@ -119,6 +125,7 @@ public class OrderController {
 
     @PutMapping("/customer/scheduled-orders/{orderId}/cancel")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Cancel scheduled order")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelScheduledOrder(
             @PathVariable Long orderId,
             @RequestParam String reason) {
@@ -128,6 +135,7 @@ public class OrderController {
 
     @PostMapping("/customer/create-batch")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Create batch orders")
     public ResponseEntity<ApiResponse<BatchOrderResponse>> createBatchOrders(
             @Valid @RequestBody BatchOrderRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
@@ -143,6 +151,7 @@ public class OrderController {
 
     @GetMapping("/customer/my-orders")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my orders")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -152,6 +161,7 @@ public class OrderController {
 
     @GetMapping("/customer/my-orders/cursor")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get my orders by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyOrdersByCursor(
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
@@ -162,6 +172,7 @@ public class OrderController {
 
     @GetMapping("/customer/{orderId}")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get order by id")
     public ResponseEntity<MappingJacksonValue> getOrderById(
             @PathVariable Long orderId,
             @RequestParam(required = false) String fields) {
@@ -190,6 +201,7 @@ public class OrderController {
     @GetMapping({"/customer/track/{orderId}", "/customer/{orderId}/track"})
     @PreAuthorize("hasRole('CUSTOMER')")
     @RateLimited("order-track")
+    @Operation(summary = "Track order")
     public ResponseEntity<MappingJacksonValue> trackOrder(
             @PathVariable Long orderId,
             @RequestParam(required = false) String fields) {
@@ -199,6 +211,7 @@ public class OrderController {
 
     @PostMapping("/customer/{orderId}/reorder")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Reorder")
     public ResponseEntity<ApiResponse<ReorderResponse>> reorder(
             @PathVariable Long orderId) {
         ReorderResponse response = cartService.reorderFromOrder(orderId);
@@ -221,6 +234,7 @@ public class OrderController {
 
     @GetMapping("/customer/export/orders")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Export order history")
     public ResponseEntity<byte[]> exportOrderHistory(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
@@ -237,6 +251,7 @@ public class OrderController {
 
     @PutMapping("/customer/{orderId}/cancel")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Cancel order")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
             @PathVariable Long orderId,
             @RequestParam String reason) {
@@ -247,6 +262,7 @@ public class OrderController {
     // Restaurant / cloud kitchen endpoints
     @GetMapping("/restaurant/{restaurantId}")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get restaurant orders")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getRestaurantOrders(
             @PathVariable Long restaurantId,
             @RequestParam(defaultValue = "0") int page,
@@ -257,6 +273,7 @@ public class OrderController {
 
     @GetMapping("/restaurant/{restaurantId}/cursor")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get restaurant orders by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getRestaurantOrdersByCursor(
             @PathVariable Long restaurantId,
             @RequestParam(required = false) String cursor,
@@ -268,6 +285,7 @@ public class OrderController {
 
     @GetMapping("/restaurant/{restaurantId}/pending")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Get pending orders")
     public ResponseEntity<ApiResponse<List<OrderSummaryResponse>>> getPendingOrders(
             @PathVariable Long restaurantId,
             @RequestParam(defaultValue = "" + PaginationUtils.KITCHEN_QUEUE_DEFAULT_LIMIT) int limit) {
@@ -278,6 +296,7 @@ public class OrderController {
     @GetMapping("/restaurant/{restaurantId}/kitchen-queue")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
     @RateLimited("kitchen-queue")
+    @Operation(summary = "Get kitchen queue")
     public ResponseEntity<ApiResponse<List<OrderSummaryResponse>>> getKitchenQueue(
             @PathVariable Long restaurantId,
             @RequestParam(defaultValue = "" + PaginationUtils.KITCHEN_QUEUE_DEFAULT_LIMIT) int limit) {
@@ -301,6 +320,7 @@ public class OrderController {
 
     @PutMapping("/restaurant/{orderId}/assign-delivery")
     @PreAuthorize("hasRole('RESTAURANT_OWNER')")
+    @Operation(summary = "Assign delivery agent")
     public ResponseEntity<ApiResponse<OrderResponse>> assignDeliveryAgent(
             @PathVariable Long orderId,
             @RequestParam Long agentId) {
@@ -311,6 +331,7 @@ public class OrderController {
     // Delivery agent endpoints
     @GetMapping("/delivery/my-deliveries")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Get my deliveries")
     public ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> getMyDeliveries(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -320,6 +341,7 @@ public class OrderController {
 
     @GetMapping("/delivery/my-deliveries/cursor")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Get my deliveries by cursor")
     public ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> getMyDeliveriesByCursor(
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
@@ -380,6 +402,7 @@ public class OrderController {
      */
     @PostMapping("/delivery/{orderId}/proof/verify")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Verify delivery proof")
     public ResponseEntity<ApiResponse<DeliveryProofResponse>> verifyDeliveryProof(
             @PathVariable Long orderId,
             @Valid @RequestBody DeliveryProofVerifyRequest request) {
@@ -396,6 +419,7 @@ public class OrderController {
      */
     @PostMapping("/delivery/{orderId}/proof/photo-url")
     @PreAuthorize("hasRole('DELIVERY_AGENT')")
+    @Operation(summary = "Create delivery proof photo url")
     public ResponseEntity<ApiResponse<DeliveryProofPhotoUploadResponse>> createDeliveryProofPhotoUrl(
             @PathVariable Long orderId,
             @Valid @RequestBody DeliveryProofPhotoUploadRequest request) {
@@ -422,6 +446,7 @@ public class OrderController {
 
     // Common endpoint
     @GetMapping("/number/{orderNumber}")
+    @Operation(summary = "Get order by number")
     public ResponseEntity<MappingJacksonValue> getOrderByNumber(
             @PathVariable String orderNumber,
             @RequestParam(required = false) String fields) {
@@ -441,6 +466,7 @@ public class OrderController {
      */
     @GetMapping("/customer/batch")
     @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Get orders by ids")
     public ResponseEntity<ApiResponse<java.util.Map<Long, OrderResponse>>> getOrdersByIds(
             @RequestParam("ids") java.util.List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
