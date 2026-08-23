@@ -48,4 +48,7 @@ public interface OrderPricingService {
             double orderTotalBeforeWallet,
             Coupon appliedCoupon
     ) {}
+
+    /** Applies loyalty points discount to an order's pricing. */
+    double applyLoyaltyDiscount(Long orderId, Long customerId, int pointsToRedeem);
 }

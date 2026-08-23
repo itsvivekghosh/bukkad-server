@@ -125,10 +125,12 @@ class RunState:
             "owner_email": f"owner_{ts}_{run_id}@bhukkad.test",
             "agent_email": f"agent_{ts}_{run_id}@bhukkad.test",
             "admin_email": f"admin_{ts}_{run_id}@bhukkad.test",
+            "referred_customer_email": f"referred_{ts}_{run_id}@bhukkad.test",
             "customer_phone": self._unique_phone("98"),
             "owner_phone": self._unique_phone("97"),
             "agent_phone": self._unique_phone("96"),
             "admin_phone": self._unique_phone("95"),
+            "referred_customer_phone": self._unique_phone("94"),
             "idempotency_key": str(uuid.uuid4()),
         }
 
@@ -151,6 +153,16 @@ def resolve_string(template: str, state: RunState) -> str:
 
 
 def resolve_value(value: Any, state: RunState, key: str | None = None) -> Any:
+    """Resolve placeholders in values and convert numeric strings to numbers.
+    
+    Args:
+        value: The value to resolve (string, dict, list, or primitive)
+        state: The run state containing variables and tokens
+        key: The JSON key name (used to determine if value should stay string or become numeric)
+    
+    Returns:
+        The resolved value with placeholders substituted and appropriate type conversion
+    """
     if isinstance(value, str):
         resolved = resolve_string(value, state)
         if key in STRING_JSON_KEYS:
@@ -172,6 +184,17 @@ def resolve_value(value: Any, state: RunState, key: str | None = None) -> Any:
 
 
 def extract_json_path(data: Any, path: str) -> Any:
+    """Extract a value from JSON data using a dot-notation path.
+    
+    Supports both object keys and array indices (e.g., "data.0.id").
+    
+    Args:
+        data: The parsed JSON data (dict or list)
+        path: Dot-separated path (e.g., "data.token" or "data.0.id")
+    
+    Returns:
+        The extracted value, or None if path not found
+    """
     current = data
     for part in path.split("."):
         if current is None:
@@ -209,6 +232,23 @@ def http_request(
     body: bytes | None,
     timeout: int,
 ) -> tuple[int, str, dict[str, str]]:
+    """Execute an HTTP request and return status, body, and headers.
+    
+    Handles SSE streams specially with a shorter timeout to avoid hanging.
+    
+    Args:
+        method: HTTP method (GET, POST, PUT, DELETE, etc.)
+        url: Full URL to request
+        headers: Request headers
+        body: Request body as bytes (or None)
+        timeout: Request timeout in seconds
+    
+    Returns:
+        Tuple of (status_code, response_body, response_headers)
+    
+    Raises:
+        ConnectionError: If the request fails to connect
+    """
     is_sse = headers.get("Accept", "") == "text/event-stream"
     # For SSE streams, use a short timeout to avoid hanging on long-lived connections
     effective_timeout = 5 if is_sse else timeout

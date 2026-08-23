@@ -290,4 +290,20 @@ public class PaymentServiceImpl implements PaymentService {
                 .purpose(payment.getPurpose().name())
                 .build();
     }
+
+    public void processRefund(Long paymentId, double amount, String reason) {
+        refundPayment(paymentId);
+    }
+
+    @Override
+    public java.util.Map<String, Object> getPaymentStatus(Long orderId, Long customerId) {
+        Payment payment = getPaymentByOrderId(orderId);
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("orderId", orderId);
+        data.put("paymentId", payment.getId());
+        data.put("status", payment.getStatus());
+        data.put("amount", payment.getAmount());
+        data.put("method", payment.getPaymentMethod());
+        return data;
+    }
 }

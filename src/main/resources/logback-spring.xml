@@ -35,11 +35,18 @@
     <property name="MAX_HISTORY" value="168"/> <!-- hourly files → 7 days -->
 
     <property name="LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [trace:%X{traceId:--}] [req:%X{requestId:--}] [user:%X{userId:--}] [%logger{36}] - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [${APP_NAME}] [%thread] [trace:%X{traceId:--}] [req:%X{requestId:--}] [user:%X{userId:--}] [%logger{36}] - %pii%n"/>
+
+    <!-- PII masking: emails and 10-digit phone numbers are redacted from every
+         message (console + per-service files). If a LogstashEncoder JSON appender
+         is ever added, this conversion-rule masking does not apply to it — JSON
+         payloads would need their own custom JsonProvider/masking. -->
+    <conversionRule conversionWord="pii"
+                    converterClass="com.bhukkad.logging.PiiMaskingConverter"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%yellow(%X{traceId:--})] %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%yellow(%X{traceId:--})] %logger{36} - %pii%n</pattern>
             <charset>UTF-8</charset>
         </encoder>
     </appender>

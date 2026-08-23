@@ -21,4 +21,7 @@ public interface CouponService {
     void deactivateCoupon(Long couponId);
     void recordCouponUsage(Coupon coupon);
     void recordCouponUsage(Coupon coupon, Long customerId, Long orderId);
+
+    Coupon createRecoveryCoupon(String code, String description,
+                                double discountPercent, double minOrderAmount, int validityDays);
 }

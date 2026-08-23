@@ -60,6 +60,20 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
+    public Coupon createRecoveryCoupon(String code, String description,
+                                       double discountPercent, double minOrderAmount, int validityDays) {
+        Coupon coupon = new Coupon();
+        coupon.setCode(code);
+        coupon.setDescription(description);
+        coupon.setDiscountValue(discountPercent);
+        coupon.setDiscountType(com.bhukkad.entity.Coupon.DiscountType.PERCENTAGE);
+        coupon.setMinimumOrderAmount(minOrderAmount);
+        coupon.setValidFrom(java.time.LocalDateTime.now());
+        coupon.setValidUntil(java.time.LocalDateTime.now().plusDays(validityDays));
+        coupon.setActive(true);
+        return couponRepository.save(coupon);
+    }
+
     public Coupon getCouponByCode(String code) {
         return couponRepository.findByCode(code)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));

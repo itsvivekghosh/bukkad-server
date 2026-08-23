@@ -246,4 +246,19 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         }
         streams.clear();
     }
+
+    /** Internal broadcast to kitchen listeners only (no Redis publish). */
+    public void broadcastKitchenLocal(Long restaurantId, com.bhukkad.dto.response.OrderLiveUpdate update) {
+        broadcast(kitchenStreams.get(restaurantId), update);
+    }
+
+    /** Internal broadcast to rider listeners only (no Redis publish). */
+    public void broadcastRiderLocal(Long agentId, com.bhukkad.dto.response.OrderLiveUpdate update) {
+        broadcast(riderStreams.get(agentId), update);
+    }
+
+    /** Internal broadcast to customer listeners only (no Redis publish). */
+    public void broadcastCustomerLocal(Long orderId, com.bhukkad.dto.response.OrderLiveUpdate update) {
+        broadcast(customerStreams.get(orderId), update);
+    }
 }

@@ -13,4 +13,7 @@ public interface CartService {
     CartResponse clearRestaurantCart(Long restaurantId);
     CartResponse applyCoupon(String couponCode);
     ReorderResponse reorderFromOrder(Long orderId);
+
+    /** Re-adds items from a cancelled/refunded order into the caller's cart. */
+    ReorderResponse rebookOrder(Long orderId, Long customerId);
 }

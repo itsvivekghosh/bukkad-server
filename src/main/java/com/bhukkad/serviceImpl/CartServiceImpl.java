@@ -392,4 +392,10 @@ public class CartServiceImpl implements CartService {
                 .specialInstructions(cartItem.getSpecialInstructions())
                 .build();
     }
+
+    @Override
+    public ReorderResponse rebookOrder(Long orderId, Long customerId) {
+        // Ownership is enforced inside reorderFromOrder against the current user.
+        return reorderFromOrder(orderId);
+    }
 }

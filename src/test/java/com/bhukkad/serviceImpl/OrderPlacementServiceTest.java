@@ -400,7 +400,7 @@ class OrderPlacementServiceTest {
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
         verify(walletService).debit(eq(customer), eq(50.0), any(), any(), anyString());
-        verify(customerRepository, never()).save(customer);
+        verify(customerRepository).save(customer);
     }
 
     @Test

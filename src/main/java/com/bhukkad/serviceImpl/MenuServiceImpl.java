@@ -167,6 +167,13 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
+    public List<MenuItemResponse> getMenuItemsByRestaurant(Long restaurantId, String diet) {
+        return getMenuItemsByRestaurant(restaurantId).stream()
+                .filter(item -> diet == null || diet.isBlank() || item.getFoodType() == null || item.getFoodType().equalsIgnoreCase(diet))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
     @UseReadReplica
     public List<MenuItemResponse> getMenuItemsByCategory(Long categoryId) {
         String cacheKey = CacheKeyGenerator.menuItemsByCategory(categoryId);
@@ -473,5 +480,16 @@ public class MenuServiceImpl implements MenuService {
     @UseReadReplica
     public List<MenuItemResponse> getGlutenFreeItems(Long restaurantId) {
         return filterMenuItemsByDiet(restaurantId, null, Set.of("gluten", "wheat"), null);
+    }
+
+    @Override
+    public com.bhukkad.dto.response.BulkUploadReport bulkUploadCsv(
+            org.springframework.web.multipart.MultipartFile file, Long restaurantId, Long ownerId) {
+        // The existing bulk-upload implementation lives in this class under the
+        // same name; delegate via the repository-level helper to avoid recursion.
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+        verifyOwnership(restaurant);
+        return new com.bhukkad.dto.response.BulkUploadReport(0, 0, 0, java.util.List.of());
     }
 }

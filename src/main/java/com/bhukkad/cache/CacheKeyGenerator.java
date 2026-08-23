@@ -42,6 +42,16 @@ public final class CacheKeyGenerator {
         return CacheConstants.MENU_ITEM_LIST + CacheConstants.KEY_SEPARATOR + "category:" + categoryId;
     }
 
+    public static String menuItemsByIds(java.util.List<Long> ids) {
+        return CacheConstants.MENU_ITEM_LIST + CacheConstants.KEY_SEPARATOR + "ids:"
+                + ids.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+    }
+
+    public static String restaurantsByIds(java.util.List<Long> ids) {
+        return CacheConstants.RESTAURANT_LIST + CacheConstants.KEY_SEPARATOR + "ids:"
+                + ids.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+    }
+
     public static String bestsellers(Long restaurantId) {
         return CacheConstants.BESTSELLER + CacheConstants.KEY_SEPARATOR + restaurantId;
     }

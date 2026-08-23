@@ -22,4 +22,10 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     List<Object[]> findTopSellingItems(
             @Param("restaurantId") Long restaurantId,
             @Param("startDate") LocalDateTime startDate);
+
+    /** Counts order-item quantities per menu item since a timestamp (trending dishes). */
+    @Query("SELECT oi.menuItem.id, oi.menuItem.name, SUM(oi.quantity) AS qty " +
+           "FROM OrderItem oi WHERE oi.order.createdAt >= :since " +
+           "GROUP BY oi.menuItem.id, oi.menuItem.name ORDER BY qty DESC")
+    List<Object[]> findTrendingByCreatedSince(@Param("since") java.time.LocalDateTime since);
 }

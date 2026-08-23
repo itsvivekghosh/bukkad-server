@@ -34,6 +34,12 @@ public class RiderEarning {
     @Column(nullable = false)
     private Double amount;
 
+    /** Incentive bonus added on top of the base amount (peak-hour, streak, on-time). */
+    private Double bonusAmount;
+
+    /** Human-readable reason for the bonus, e.g. "peak_hour_multiplier". */
+    private String bonusReason;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private EarningStatus status = EarningStatus.PENDING;

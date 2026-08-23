@@ -18,7 +18,7 @@ class LocalCacheServiceTest {
         props.setEnabled(enabled);
         props.setMaxSize(100);
         props.setTtlSeconds(ttlSeconds);
-        return new LocalCacheService(props);
+        return new LocalCacheService(props, new com.bhukkad.cache.StampedeProperties());
     }
 
     @BeforeEach

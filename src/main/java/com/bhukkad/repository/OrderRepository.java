@@ -357,4 +357,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "ORDER BY HOUR(created_at) ASC", nativeQuery = true)
     List<Object[]> findHourlyDeliveredCounts(@Param("restaurantId") Long restaurantId,
                                              @Param("startDate") LocalDateTime startDate);
+
+    /** Counts orders placed by a customer since the given timestamp (recovery/risk queries). */
+    long countByCustomerIdAndCreatedAtAfter(Long customerId, java.time.LocalDateTime since);
 }
