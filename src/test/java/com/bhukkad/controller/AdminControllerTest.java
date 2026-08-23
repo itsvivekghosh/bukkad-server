@@ -1,7 +1,13 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.dto.request.OnboardingReviewRequest;
+import com.bhukkad.dto.request.TestNotificationRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.service.AdminService;
+import com.bhukkad.service.NotificationService;
+import com.bhukkad.service.RestaurantService;
+import com.bhukkad.settlement.RestaurantSettlementService;
+import com.bhukkad.service.RiderPayoutService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,6 +28,14 @@ public class AdminControllerTest {
 
     @Mock
     private AdminService adminService;
+    @Mock
+    private RiderPayoutService riderPayoutService;
+    @Mock
+    private RestaurantSettlementService restaurantSettlementService;
+    @Mock
+    private NotificationService notificationService;
+    @Mock
+    private RestaurantService restaurantService;
 
     @InjectMocks
     private AdminController adminController;
@@ -148,5 +162,82 @@ public class AdminControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(analytics, response.getBody().getData());
+    }
+
+    @Test
+    void reviewOnboarding_approvedReturnsApprovedMessage() {
+        OnboardingReviewRequest request = new OnboardingReviewRequest();
+        request.setApproved(true);
+        request.setReason("Docs verified");
+
+        ResponseEntity<ApiResponse<Void>> response = adminController.reviewOnboarding(3L, request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Onboarding approved", response.getBody().getMessage());
+        verify(restaurantService).reviewOnboarding(3L, true, "Docs verified");
+    }
+
+    @Test
+    void reviewOnboarding_rejectedReturnsRejectedMessage() {
+        OnboardingReviewRequest request = new OnboardingReviewRequest();
+        request.setApproved(false);
+        request.setReason("Missing documents");
+
+        ResponseEntity<ApiResponse<Void>> response = adminController.reviewOnboarding(3L, request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Onboarding rejected", response.getBody().getMessage());
+        verify(restaurantService).reviewOnboarding(3L, false, "Missing documents");
+    }
+
+    @Test
+    void settleAgentPayouts_returnsSettledCount() {
+        when(riderPayoutService.settlePendingPayouts(9L)).thenReturn(4);
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> response = adminController.settleAgentPayouts(9L);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Rider payouts settled", response.getBody().getMessage());
+        assertEquals(9L, response.getBody().getData().get("agentId"));
+        assertEquals(4, response.getBody().getData().get("settledCount"));
+    }
+
+    @Test
+    void settleRestaurantPayouts_returnsSettledCount() {
+        when(restaurantSettlementService.settlePendingForRestaurant(2L)).thenReturn(6);
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> response = adminController.settleRestaurantPayouts(2L);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Restaurant settlements completed", response.getBody().getMessage());
+        assertEquals(2L, response.getBody().getData().get("restaurantId"));
+        assertEquals(6, response.getBody().getData().get("settledCount"));
+    }
+
+    @Test
+    void setRestaurantCommission_returnsCommissionMap() {
+        ResponseEntity<ApiResponse<Map<String, Object>>> response = adminController.setRestaurantCommission(2L, 12.5);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Restaurant commission updated", response.getBody().getMessage());
+        assertEquals(2L, response.getBody().getData().get("restaurantId"));
+        assertEquals(12.5, response.getBody().getData().get("commissionPercent"));
+        verify(adminService).setRestaurantCommission(2L, 12.5);
+    }
+
+    @Test
+    void sendTestNotification_dispatchesOnChannel() {
+        TestNotificationRequest request = new TestNotificationRequest();
+        request.setChannel("email");
+        request.setRecipient("a@b.com");
+        request.setMessage("hello");
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> response = adminController.sendTestNotification(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Test notification dispatched", response.getBody().getMessage());
+        assertEquals("email", response.getBody().getData().get("channel"));
+        assertEquals("a@b.com", response.getBody().getData().get("recipient"));
+        verify(notificationService).sendTestNotification("email", "a@b.com", "hello");
     }
 }

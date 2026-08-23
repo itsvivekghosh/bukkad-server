@@ -107,4 +107,117 @@ class AutocompleteServiceTest {
         assertThat(result).extracting(AutocompleteSuggestion::getText)
                 .containsExactly("Paneer", "Pasta");
     }
+
+    @Test
+    void suggest_usesDefaultLimitWhenNullOrBelowOne() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+        when(trieIndex.prefixSearch("pa", 32)).thenReturn(List.of(
+                new TrieIndex.Entry("paneer", "Paneer", 1L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pasta", "Pasta", 2L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pizza", "Pizza", 3L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("poha", "Poha", 4L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("paratha", "Paratha", 5L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pakora", "Pakora", 6L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pancake", "Pancake", 7L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("papad", "Papad", 8L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("paella", "Paella", 9L, AutocompleteSuggestion.TYPE_MENU_ITEM)
+        ));
+
+        assertThat(service.suggest("pa", null)).hasSize(8);
+        assertThat(service.suggest("pa", 0)).hasSize(8);
+    }
+
+    @Test
+    void suggest_capsLimitAtTwenty() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+        // effectiveLimit = min(100, 20) = 20 -> prefixSearch(prefix, max(80, 32)) = 80
+        when(trieIndex.prefixSearch("pa", 80)).thenReturn(List.of());
+
+        assertThat(service.suggest("pa", 100)).isEmpty();
+    }
+
+    @Test
+    void suggest_breaksWhenLimitReached() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+        when(trieIndex.prefixSearch("pa", 32)).thenReturn(List.of(
+                new TrieIndex.Entry("paneer", "Paneer", 1L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pasta", "Pasta", 2L, AutocompleteSuggestion.TYPE_MENU_ITEM),
+                new TrieIndex.Entry("pizza", "Pizza", 3L, AutocompleteSuggestion.TYPE_MENU_ITEM)
+        ));
+
+        List<AutocompleteSuggestion> result = service.suggest("pa", 2);
+
+        assertThat(result).hasSize(2);
+    }
+
+    @Test
+    void indexRestaurant_skipsWhenIdNull() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+
+        service.indexRestaurant(null, "Spice Hub");
+
+        org.mockito.Mockito.verifyNoInteractions(trieIndex);
+    }
+
+    @Test
+    void indexRestaurant_skipsWhenNameNull() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+
+        service.indexRestaurant(7L, null);
+
+        org.mockito.Mockito.verifyNoInteractions(trieIndex);
+    }
+
+    @Test
+    void indexMenuItem_skipsWhenIdNull() {
+        when(featureFlagService.isEnabled("autocomplete-enabled")).thenReturn(true);
+        buildService();
+
+        service.indexMenuItem(null, "Paneer Tikka");
+
+        org.mockito.Mockito.verifyNoInteractions(trieIndex);
+    }
+
+    @Test
+    void refresh_buildsIndexFromRestaurantAndMenuItemRows() {
+        buildService();
+        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(List.<Object[]>of(
+                new Object[]{1L, "Spice Hub"},
+                new Object[]{2L, "Green Bowl"}
+        ));
+        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(List.<Object[]>of(
+                new Object[]{3L, "Paneer Tikka"}
+        ));
+
+        service.refresh();
+
+        org.mockito.Mockito.verify(trieIndex).rebuild(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void refresh_withNoRows() {
+        buildService();
+        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(java.util.Collections.emptyList());
+        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(java.util.Collections.emptyList());
+
+        service.refresh();
+
+        org.mockito.Mockito.verify(trieIndex).rebuild(List.of());
+    }
+
+    @Test
+    void buildIndexOnStartup_callsRefresh() {
+        buildService();
+        when(restaurantRepository.findActiveRestaurantNames()).thenReturn(java.util.Collections.emptyList());
+        when(menuItemRepository.findAvailableMenuItemNames()).thenReturn(java.util.Collections.emptyList());
+
+        service.buildIndexOnStartup();
+
+        org.mockito.Mockito.verify(trieIndex).rebuild(org.mockito.ArgumentMatchers.anyList());
+    }
 }

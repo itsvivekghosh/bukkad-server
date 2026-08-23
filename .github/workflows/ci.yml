@@ -56,7 +56,9 @@ jobs:
         run: chmod +x mvnw
 
       - name: Run unit tests
-        run: ./mvnw -B test -Dtest="*Test,!*IntegrationTest,!*RegressionTest,!*PactTest"
+        # "*Tests" also matches BackendServerApplicationTests (suffix-Tests class
+        # that the *Test glob alone would silently skip).
+        run: ./mvnw -B test -Dtest="*Test,*Tests,!*IntegrationTest,!*RegressionTest,!*PactTest" -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Run integration tests
         run: ./mvnw -B test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false

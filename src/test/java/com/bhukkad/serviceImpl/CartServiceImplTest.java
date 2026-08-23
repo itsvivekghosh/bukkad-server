@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -473,6 +474,200 @@ class CartServiceImplTest {
         when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
 
         assertThrows(BusinessException.class, () -> cartService.reorderFromOrder(1L));
+    }
+
+    @Test
+    void reorderFromOrder_noItems_throws() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        Order order = new Order();
+        order.setCustomer(customer(1L));
+        order.setStatus(Order.OrderStatus.DELIVERED);
+        order.setOrderItems(List.of());
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+
+        assertThrows(BusinessException.class, () -> cartService.reorderFromOrder(1L));
+    }
+
+    @Test
+    void reorderFromOrder_skippedUnavailableItem() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        Customer customer = customer(1L);
+        Restaurant restaurant = restaurant(10L, "Spice Hub");
+        MenuItem menuItem = menuItem(30L, "Biryani", 200.0);
+        menuItem.getCategory().setRestaurant(restaurant);
+        menuItem.setAvailable(false);
+
+        Order order = new Order();
+        order.setId(99L);
+        order.setCustomer(customer);
+        order.setRestaurant(restaurant);
+        order.setStatus(Order.OrderStatus.DELIVERED);
+        OrderItem orderItem = new OrderItem();
+        orderItem.setMenuItem(menuItem);
+        orderItem.setQuantity(2);
+        order.setOrderItems(List.of(orderItem));
+
+        when(orderRepository.findByIdWithDetails(99L)).thenReturn(Optional.of(order));
+        Cart cart = cart(5L, null);
+        cart.setCustomer(customer);
+        when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> cartService.reorderFromOrder(99L));
+        assertEquals("No items from this order are available to reorder", ex.getMessage());
+    }
+
+    @Test
+    void reorderFromOrder_skippedDifferentRestaurantItem() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        Customer customer = customer(1L);
+        Restaurant restaurant = restaurant(10L, "Spice Hub");
+        Restaurant otherRestaurant = restaurant(11L, "Other Place");
+        MenuItem menuItem = menuItem(30L, "Biryani", 200.0);
+        menuItem.getCategory().setRestaurant(otherRestaurant);
+        menuItem.setAvailable(true);
+
+        Order order = new Order();
+        order.setId(99L);
+        order.setCustomer(customer);
+        order.setRestaurant(restaurant);
+        order.setStatus(Order.OrderStatus.DELIVERED);
+        OrderItem orderItem = new OrderItem();
+        orderItem.setMenuItem(menuItem);
+        orderItem.setQuantity(2);
+        order.setOrderItems(List.of(orderItem));
+
+        when(orderRepository.findByIdWithDetails(99L)).thenReturn(Optional.of(order));
+        Cart cart = cart(5L, null);
+        cart.setCustomer(customer);
+        when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
+
+        assertThrows(BusinessException.class, () -> cartService.reorderFromOrder(99L));
+    }
+
+    @Test
+    void reorderFromOrder_withExistingItemIncrementsQuantity() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        Customer customer = customer(1L);
+        Restaurant restaurant = restaurant(10L, "Spice Hub");
+        MenuItem menuItem = menuItem(30L, "Biryani", 200.0);
+        menuItem.getCategory().setRestaurant(restaurant);
+
+        Order order = new Order();
+        order.setId(99L);
+        order.setCustomer(customer);
+        order.setRestaurant(restaurant);
+        order.setStatus(Order.OrderStatus.DELIVERED);
+        OrderItem orderItem = new OrderItem();
+        orderItem.setMenuItem(menuItem);
+        orderItem.setQuantity(2);
+        orderItem.setSpecialInstructions("extra spicy");
+        order.setOrderItems(List.of(orderItem));
+
+        when(orderRepository.findByIdWithDetails(99L)).thenReturn(Optional.of(order));
+        Cart cart = cart(5L, restaurant);
+        cart.setCustomer(customer);
+        when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
+        CartItem existing = cartItem(20L, cart, menuItem, 1, null);
+        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(existing));
+        when(cartItemRepository.findByCartIdWithMenuItem(5L)).thenReturn(List.of(existing));
+        when(cartRepository.save(any(Cart.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var response = cartService.reorderFromOrder(99L);
+
+        assertEquals(3, existing.getQuantity());
+        assertEquals("extra spicy", existing.getSpecialInstructions());
+        verify(cartItemRepository).save(existing);
+    }
+
+    @Test
+    void reorderFromOrder_withDifferentRestaurantCart_keepsExisting() {
+        when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        Customer customer = customer(1L);
+        Restaurant orderRestaurant = restaurant(10L, "Spice Hub");
+        Restaurant cartRestaurant = restaurant(11L, "Other Place");
+        MenuItem menuItem = menuItem(30L, "Biryani", 200.0);
+        menuItem.getCategory().setRestaurant(orderRestaurant);
+
+        Order order = new Order();
+        order.setId(99L);
+        order.setCustomer(customer);
+        order.setRestaurant(orderRestaurant);
+        order.setStatus(Order.OrderStatus.DELIVERED);
+        OrderItem orderItem = new OrderItem();
+        orderItem.setMenuItem(menuItem);
+        orderItem.setQuantity(2);
+        order.setOrderItems(List.of(orderItem));
+
+        when(orderRepository.findByIdWithDetails(99L)).thenReturn(Optional.of(order));
+        Cart cart = cart(5L, cartRestaurant);
+        cart.setCustomer(customer);
+        when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
+        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of());
+        when(cartItemRepository.findByCartIdWithMenuItem(5L)).thenReturn(List.of(
+                cartItem(21L, cart, menuItem, 2, null)
+        ));
+        when(cartRepository.save(any(Cart.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var response = cartService.reorderFromOrder(99L);
+
+        assertEquals(cartRestaurant, cart.getRestaurant());
+        assertNotNull(response.getCart());
+    }
+
+    @Test
+    void applyCoupon_couponServiceException_throws() {
+        Cart cart = cart(5L, restaurant(10L, "Spice Hub"));
+        stubGetOrCreateCart(cart);
+        CartItem item = cartItem(20L, cart, menuItem(30L, "Biryani", 200.0), 1, null);
+        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(item));
+        when(couponService.validateCoupon("INVALID", 200.0, 10L)).thenThrow(new RuntimeException("bad coupon"));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> cartService.applyCoupon("INVALID"));
+        assertTrue(ex.getMessage().contains("Invalid coupon"));
+    }
+
+    @Test
+    void clearRestaurantCart_removesMatchingItems() {
+        Restaurant restaurant1 = restaurant(10L, "Spice Hub");
+        Restaurant restaurant2 = restaurant(11L, "Other Place");
+        Cart cart = cart(5L, restaurant1);
+        stubGetOrCreateCart(cart);
+        MenuItem item1 = menuItem(30L, "Biryani", 200.0);
+        item1.getCategory().setRestaurant(restaurant1);
+        MenuItem item2 = menuItem(31L, "Pizza", 300.0);
+        item2.getCategory().setRestaurant(restaurant2);
+        CartItem cartItem1 = cartItem(20L, cart, item1, 1, null);
+        CartItem cartItem2 = cartItem(21L, cart, item2, 1, null);
+        when(cartItemRepository.findByCartIdWithMenuItem(5L))
+                .thenReturn(List.of(cartItem1, cartItem2))
+                .thenReturn(List.of(cartItem2));
+        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(cartItem2));
+        when(cartRepository.save(cart)).thenReturn(cart);
+
+        CartResponse response = cartService.clearRestaurantCart(10L);
+
+        verify(cartItemRepository).delete(cartItem1);
+        assertEquals(restaurant2, cart.getRestaurant());
+        assertNotNull(response);
+    }
+
+    @Test
+    void clearRestaurantCart_removesAllAndClearsRestaurant() {
+        Restaurant restaurant = restaurant(10L, "Spice Hub");
+        Cart cart = cart(5L, restaurant);
+        stubGetOrCreateCart(cart);
+        MenuItem item = menuItem(30L, "Biryani", 200.0);
+        item.getCategory().setRestaurant(restaurant);
+        CartItem cartItem = cartItem(20L, cart, item, 1, null);
+        when(cartItemRepository.findByCartIdWithMenuItem(5L))
+                .thenReturn(List.of(cartItem))
+                .thenReturn(List.of());
+        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of());
+        when(cartRepository.save(cart)).thenReturn(cart);
+
+        cartService.clearRestaurantCart(10L);
+
+        assertNull(cart.getRestaurant());
     }
 
     private void stubGetOrCreateCart(Cart cart) {

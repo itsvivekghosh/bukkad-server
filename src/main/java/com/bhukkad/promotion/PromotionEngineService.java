@@ -83,8 +83,10 @@ public class PromotionEngineService {
                 && campaignUsageRepository.countByCampaignId(campaign.getId()) >= campaign.getUsageLimit()) {
             return false;
         }
+        // Guests (null customer) have no usage history to enforce per-user limits on.
         int perUser = campaign.getPerUserLimit() != null ? campaign.getPerUserLimit() : 1;
-        if (campaignUsageRepository.countByCampaignIdAndCustomerId(campaign.getId(), customer.getId()) >= perUser) {
+        if (customer != null
+                && campaignUsageRepository.countByCampaignIdAndCustomerId(campaign.getId(), customer.getId()) >= perUser) {
             return false;
         }
         return true;

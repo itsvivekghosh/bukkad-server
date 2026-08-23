@@ -131,8 +131,13 @@ public class JwtTokenProvider {
     }
 
     public long getRemainingValidityMs(String token) {
-        Date expiration = extractExpiration(token);
-        return Math.max(0, expiration.getTime() - System.currentTimeMillis());
+        try {
+            Date expiration = extractExpiration(token);
+            return Math.max(0, expiration.getTime() - System.currentTimeMillis());
+        } catch (ExpiredJwtException ex) {
+            // Token already past its expiry claim — remaining validity is zero.
+            return 0;
+        }
     }
 
     /**

@@ -175,7 +175,7 @@ public class GiftCardServiceImpl implements GiftCardService {
     private String generateGiftCardCode() {
         String code;
         do {
-            code = "GIFT-" + RANDOM.nextInt(1000000, 9999999);
+            code = "GIFT-" + (RANDOM.nextInt(9000000) + 1000000);
         } while (giftCardRepository.existsByCode(code));
         return code;
     }

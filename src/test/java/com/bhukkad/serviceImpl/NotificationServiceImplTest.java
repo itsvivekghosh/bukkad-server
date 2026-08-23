@@ -179,4 +179,55 @@ class NotificationServiceImplTest {
         org.junit.jupiter.api.Assertions.assertThrows(ResourceNotFoundException.class,
                 () -> notificationService.sendOrderConfirmation(999L));
     }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void sendEmailVerification_sendsEmail() {
+        notificationService.sendEmailVerification("user@bhukkad.test", "tok-123");
+
+        verify(resilientEmailSender).send(any());
+    }
+
+    @Test
+    void sendPasswordReset_sendsEmail() {
+        notificationService.sendPasswordReset("user@bhukkad.test", "reset-456");
+
+        verify(resilientEmailSender).send(any());
+    }
+
+    @Test
+    void sendPaymentRefunded_dispatchesAllChannels() {
+        Order order = orderWithCustomer();
+        when(orderRepository.findByIdWithDetails(42L)).thenReturn(Optional.of(order));
+        enableAllChannels();
+
+        notificationService.sendPaymentRefunded(42L, 250.0);
+
+        verify(resilientEmailSender).send(any());
+        verify(smsSender).send(eq("9800000000"), anyString());
+        verify(whatsAppSender).send(eq("9800000000"), anyString());
+        verify(pushNotificationSender).sendToUser(eq(7L), anyString(), anyString());
+    }
+
+    @Test
+    void sendTestNotification_smsChannel_sendsSms() {
+        notificationService.sendTestNotification("sms", "9800000000", "hello");
+
+        verify(smsSender).send(eq("9800000000"), anyString());
+    }
+
+    @Test
+    void sendTestNotification_whatsappChannel_sendsWhatsApp() {
+        notificationService.sendTestNotification("whatsapp", "9800000000", "hello");
+
+        verify(whatsAppSender).send(eq("9800000000"), anyString());
+    }
+
+    @Test
+    void sendTestNotification_nullMessage_usesDefaultBody() {
+        notificationService.sendTestNotification("email", "to@bhukkad.test", null);
+
+        verify(resilientEmailSender).send(any());
+    }
 }

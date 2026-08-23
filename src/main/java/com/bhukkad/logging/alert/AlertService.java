@@ -78,7 +78,10 @@ public class AlertService {
     }
 
     public void alertHttpError(String method, String uri, int status, long durationMs) {
-        if (status >= 500 && alertingProperties.getHttpError().isAlertOn5xx()) {
+        if (status >= 500) {
+            if (!alertingProperties.getHttpError().isAlertOn5xx()) {
+                return;
+            }
             alert(AlertSeverity.CRITICAL, AlertCategory.HTTP_ERROR,
                     "Server error response",
                     Map.of("method", method, "uri", uri, "status", status, "durationMs", durationMs));

@@ -107,4 +107,106 @@ class PaymentWebhookControllerTest {
         verify(paymentService, never()).completeWebhookPayment(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void missingSignature_rejected() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.isNull())).thenReturn(false);
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook(capturedPayload("pay_9", "order_1", "pay_9"), null);
+
+        assertEquals(400, response.getStatusCode().value());
+    }
+
+    @Test
+    void invalidJsonPayload_returnsBadRequest() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook("{not-json", "sig");
+
+        assertEquals(400, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        assertEquals("Invalid webhook payload", response.getBody().getMessage());
+    }
+
+    @Test
+    void simplifiedTestFormat_withoutEntityNode_completesFromRootFields() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        when(webhookIdempotencyService.markProcessed("pay_root")).thenReturn(true);
+        String payload = """
+                {
+                  "event": "payment.captured",
+                  "orderId": "order_root",
+                  "paymentId": "pay_root"
+                }
+                """;
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook(payload, "sig");
+
+        assertEquals(200, response.getStatusCode().value());
+        verify(paymentService).completeWebhookPayment("order_root", "pay_root");
+    }
+
+    @Test
+    void missingGatewayIds_returnsBadRequest() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        String payload = "{\"event\": \"payment.captured\"}";
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook(payload, "sig");
+
+        assertEquals(400, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        assertEquals("Missing gateway order or payment id", response.getBody().getMessage());
+    }
+
+    @Test
+    void paymentCompletionFailure_returnsInternalServerError() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        when(webhookIdempotencyService.markProcessed("pay_err")).thenReturn(true);
+        org.mockito.Mockito.doThrow(new RuntimeException("db exploded"))
+                .when(paymentService).completeWebhookPayment("order_e", "pay_err");
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook(capturedPayload("pay_err", "order_e", "pay_err"), "sig");
+
+        assertEquals(500, response.getStatusCode().value());
+    }
+
+    @Test
+    void unknownOrder_returnsNotFound() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        when(webhookIdempotencyService.markProcessed("pay_nf")).thenReturn(true);
+        org.mockito.Mockito.doThrow(new com.bhukkad.exception.ResourceNotFoundException("Payment not found"))
+                .when(paymentService).completeWebhookPayment("order_nf", "pay_nf");
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook(capturedPayload("pay_nf", "order_nf", "pay_nf"), "sig");
+
+        assertEquals(404, response.getStatusCode().value());
+    }
+
+    @Test
+    void illegalArgument_returnsBadRequest() {
+        when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
+        when(webhookIdempotencyService.markProcessed("pay_bad")).thenReturn(true);
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("bad request"))
+                .when(paymentService).completeWebhookPayment("order_b", "pay_bad");
+
+        ResponseEntity<ApiResponse<BlankResponse>> response =
+                controller.handleRazorpayWebhook(capturedPayload("pay_bad", "order_b", "pay_bad"), "sig");
+
+        assertEquals(400, response.getStatusCode().value());
+    }
 }

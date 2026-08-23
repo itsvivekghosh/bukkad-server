@@ -744,4 +744,64 @@ class RestaurantServiceImplTest {
         restaurant.setFeatures(Set.of("AC"));
         return restaurant;
     }
+
+    // ==================== findNearbyRestaurants ====================
+
+    @Test
+    void findNearbyRestaurants_geoIndexHits_mapsResponses() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(12.97, 77.59, 5.0, 10))
+                .thenReturn(List.of(1L));
+        Restaurant r = fullRestaurant(1L, "Geo Hub");
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(r));
+
+        List<RestaurantResponse> result =
+                restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(1, result.size());
+        assertEquals("Geo Hub", result.get(0).getName());
+        verify(restaurantRepository, never()).findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt());
+    }
+
+    @Test
+    void findNearbyRestaurants_geoIndexEmpty_fallsBackToDbQuery() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of());
+        when(restaurantRepository.findNearbyRestaurantIds(12.97, 77.59, 5.0, 10))
+                .thenReturn(List.of(2L));
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(2L)))
+                .thenReturn(List.of(fullRestaurant(2L, "DB Hub")));
+
+        List<RestaurantResponse> result =
+                restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(1, result.size());
+        assertEquals("DB Hub", result.get(0).getName());
+    }
+
+    @Test
+    void findNearbyRestaurants_noRestaurantsAnywhere_returnsEmpty() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of());
+        when(restaurantRepository.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of());
+
+        List<RestaurantResponse> result =
+                restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void findNearbyRestaurants_staleGeoId_droppedByMapLookup() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of(1L, 99L));
+        // Only id=1 still exists; id=99 was removed but lingers in the geo index
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L, 99L)))
+                .thenReturn(List.of(fullRestaurant(1L, "Alive")));
+
+        List<RestaurantResponse> result =
+                restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(1, result.size());
+    }
 }

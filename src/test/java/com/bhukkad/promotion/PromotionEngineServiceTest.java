@@ -17,6 +17,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -248,5 +252,120 @@ class PromotionEngineServiceTest {
         var result = service.evaluateBestDiscount(customer(1, 0), restaurant(), 1000.0);
 
         assertTrue(result.freeDelivery());
+    }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void flatDiscountCampaign_appliesFlatAmount() {
+        PromotionCampaign campaign = percentCampaign("Flat 50", 0.0, null);
+        campaign.setFlatDiscountAmount(50.0);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+
+        var result = service.evaluateBestDiscount(customer(1, 0), restaurant(), 1000.0);
+
+        assertEquals(50.0, result.discountAmount());
+    }
+
+    @Test
+    void vipSegment_nullCustomer_notEligible() {
+        PromotionCampaign campaign = percentCampaign("VIP", 10.0, null);
+        campaign.setTargetSegment(PromotionCampaign.CampaignSegment.VIP);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+
+        var result = service.evaluateBestDiscount(null, restaurant(), 500.0);
+
+        assertEquals(0.0, result.discountAmount());
+    }
+
+    @Test
+    void allSegment_nullCustomer_isEligible() {
+        PromotionCampaign campaign = percentCampaign("Everyone", 10.0, null);
+        campaign.setTargetSegment(PromotionCampaign.CampaignSegment.ALL);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+
+        var result = service.evaluateBestDiscount(null, restaurant(), 500.0);
+
+        assertEquals(50.0, result.discountAmount());
+    }
+
+    @Test
+    void perUserLimitReached_notEligible() {
+        PromotionCampaign campaign = percentCampaign("Once only", 10.0, null);
+        campaign.setPerUserLimit(1);
+        Customer repeatCustomer = customer(1, 0);
+        when(campaignUsageRepository.countByCampaignIdAndCustomerId(1L, 7L)).thenReturn((long) 1);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+
+        var result = service.evaluateBestDiscount(repeatCustomer, restaurant(), 500.0);
+
+        assertEquals(0.0, result.discountAmount());
+    }
+
+    @Test
+    void nullPerUserLimit_defaultsToOneUse() {
+        PromotionCampaign campaign = percentCampaign("One shot", 10.0, null);
+        campaign.setPerUserLimit(null);
+        when(campaignUsageRepository.countByCampaignIdAndCustomerId(1L, 7L)).thenReturn((long) 1);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+
+        var result = service.evaluateBestDiscount(customer(1, 0), restaurant(), 500.0);
+
+        // Already used once; default per-user limit of 1 blocks reuse
+        assertEquals(0.0, result.discountAmount());
+    }
+
+    @Test
+    void buyXGetY_emptyCart_zeroDiscount() {
+        PromotionCampaign campaign = percentCampaign("BOGO", 0.0, null);
+        campaign.setBuyQuantity(2);
+        campaign.setGetQuantity(1);
+        campaign.setGetDiscountPercent(100.0);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+
+        var result = service.evaluateBestDiscount(customer(1, 0), restaurant(), 300.0, List.of());
+
+        assertEquals(0.0, result.discountAmount());
+    }
+
+    @Test
+    void buyXGetY_itemWithoutMenuItem_skipsLine() {
+        PromotionCampaign campaign = percentCampaign("BOGO", 0.0, null);
+        campaign.setBuyQuantity(2);
+        campaign.setGetQuantity(1);
+        campaign.setGetDiscountPercent(100.0);
+        when(promotionCampaignRepository.findActiveCampaigns(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
+                .thenReturn(List.of(campaign));
+        CartItem broken = new CartItem();
+        broken.setMenuItem(null);
+        broken.setQuantity(5);
+
+        var result = service.evaluateBestDiscount(customer(1, 0), restaurant(), 100.0, List.of(broken));
+
+        assertEquals(0.0, result.discountAmount());
+    }
+
+    @Test
+    void recordUsage_persistsUsageRow() {
+        PromotionCampaign campaign = percentCampaign("C", 10.0, null);
+        Customer customer = customer(1, 0);
+        com.bhukkad.entity.Order order = new com.bhukkad.entity.Order();
+
+        service.recordUsage(campaign, customer, order);
+
+        verify(campaignUsageRepository).save(any(com.bhukkad.entity.CampaignUsage.class));
+    }
+
+    @Test
+    void recordUsage_nullCampaign_noSave() {
+        service.recordUsage(null, null, null);
+
+        verify(campaignUsageRepository, never()).save(any());
     }
 }

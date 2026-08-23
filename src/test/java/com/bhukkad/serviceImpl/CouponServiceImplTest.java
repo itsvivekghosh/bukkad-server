@@ -3,10 +3,16 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.dto.request.CouponRequest;
 import com.bhukkad.dto.response.CouponResponse;
 import com.bhukkad.entity.Coupon;
+import com.bhukkad.entity.CouponUsage;
+import com.bhukkad.entity.Customer;
+import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CouponRepository;
+import com.bhukkad.repository.CouponUsageRepository;
+import com.bhukkad.repository.CustomerRepository;
+import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +42,12 @@ class CouponServiceImplTest {
     private CouponRepository couponRepository;
     @Mock
     private RestaurantRepository restaurantRepository;
+    @Mock
+    private CouponUsageRepository couponUsageRepository;
+    @Mock
+    private CustomerRepository customerRepository;
+    @Mock
+    private OrderRepository orderRepository;
 
     @InjectMocks
     private CouponServiceImpl couponService;
@@ -477,5 +489,114 @@ class CouponServiceImplTest {
         assertNull(response.getValidUntil());
         assertNull(response.getRestaurantId());
         assertNull(response.getRestaurantName());
+    }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void calculateDiscount_nullOrderAmount_treatedAsZero() {
+        Coupon coupon = validCoupon();
+        coupon.setMaximumDiscountAmount(null);
+
+        assertEquals(0.0, couponService.calculateDiscount(coupon, null));
+    }
+
+    @Test
+    void calculateDiscount_nullDiscountValue_returnsZero() {
+        Coupon coupon = validCoupon();
+        coupon.setDiscountValue(null);
+
+        assertEquals(0.0, couponService.calculateDiscount(coupon, 200.0));
+    }
+
+    @Test
+    void calculateDiscount_fixedNullValue_returnsZero() {
+        Coupon coupon = validCoupon();
+        coupon.setDiscountType(Coupon.DiscountType.FIXED_AMOUNT);
+        coupon.setDiscountValue(null);
+
+        assertEquals(0.0, couponService.calculateDiscount(coupon, 200.0));
+    }
+
+    @Test
+    void validateCoupon_perUserLimitReached_throws() {
+        Coupon coupon = validCoupon();
+        when(couponRepository.findByCode("SAVE10")).thenReturn(Optional.of(coupon));
+        when(couponUsageRepository.countByCouponIdAndCustomerId(1L, 5L)).thenReturn(1L);
+
+        assertThrows(BusinessException.class,
+                () -> couponService.validateCoupon("SAVE10", 500.0, 10L, 5L));
+    }
+
+    @Test
+    void validateCoupon_perUserLimitNotReached_passes() {
+        Coupon coupon = validCoupon();
+        when(couponRepository.findByCode("SAVE10")).thenReturn(Optional.of(coupon));
+        when(couponUsageRepository.countByCouponIdAndCustomerId(1L, 5L)).thenReturn(0L);
+
+        Coupon result = couponService.validateCoupon("SAVE10", 500.0, 10L, 5L);
+
+        assertEquals(coupon, result);
+    }
+
+    @Test
+    void recordCouponUsage_withoutCustomer_incrementsAndSkipsUsageRow() {
+        Coupon coupon = validCoupon();
+
+        couponService.recordCouponUsage(coupon);
+
+        assertEquals(2, coupon.getUsedCount());
+        verify(couponRepository).save(coupon);
+        verify(couponUsageRepository, never()).save(any());
+    }
+
+    @Test
+    void recordCouponUsage_withCustomerWithoutOrder_savesUsage() {
+        Coupon coupon = validCoupon();
+        Customer customer = new Customer();
+        customer.setId(5L);
+        when(customerRepository.findById(5L)).thenReturn(Optional.of(customer));
+
+        couponService.recordCouponUsage(coupon, 5L, null);
+
+        verify(couponRepository).save(coupon);
+        verify(couponUsageRepository).save(any(CouponUsage.class));
+        verify(orderRepository, never()).findById(any());
+    }
+
+    @Test
+    void recordCouponUsage_withOrder_setsOrderOnUsage() {
+        Coupon coupon = validCoupon();
+        Customer customer = new Customer();
+        customer.setId(5L);
+        Order order = new Order();
+        order.setId(9L);
+        when(customerRepository.findById(5L)).thenReturn(Optional.of(customer));
+        when(orderRepository.findById(9L)).thenReturn(Optional.of(order));
+
+        couponService.recordCouponUsage(coupon, 5L, 9L);
+
+        verify(couponUsageRepository).save(any(CouponUsage.class));
+    }
+
+    @Test
+    void recordCouponUsage_customerNotFound_throws() {
+        Coupon coupon = validCoupon();
+        when(customerRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> couponService.recordCouponUsage(coupon, 404L, null));
+    }
+
+    @Test
+    void recordCouponUsage_orderNotFound_throws() {
+        Coupon coupon = validCoupon();
+        Customer customer = new Customer();
+        customer.setId(5L);
+        when(customerRepository.findById(5L)).thenReturn(Optional.of(customer));
+        when(orderRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> couponService.recordCouponUsage(coupon, 5L, 404L));
     }
 }

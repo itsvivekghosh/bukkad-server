@@ -196,4 +196,99 @@ class AffiliateServiceTest {
 
         assertFalse(code.getIsActive());
     }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void listAll_returnsAllCodes() {
+        AffiliateCode code = new AffiliateCode();
+        code.setId(1L);
+        code.setCode("FOODIE-VIVEK");
+        when(affiliateCodeRepository.findAll()).thenReturn(List.of(code));
+
+        var result = service.listAll();
+
+        assertEquals(1, result.size());
+        assertEquals("FOODIE-VIVEK", result.get(0).getCode());
+    }
+
+    @Test
+    void update_changesCode_whenUnique() {
+        AffiliateCode code = new AffiliateCode();
+        code.setId(1L);
+        code.setCode("OLD-CODE");
+        when(affiliateCodeRepository.findById(1L)).thenReturn(Optional.of(code));
+        when(affiliateCodeRepository.existsByCodeIgnoreCase("NEW-CODE")).thenReturn(false);
+        when(affiliateCodeRepository.save(any(AffiliateCode.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AffiliateCodeRequest request = new AffiliateCodeRequest();
+        request.setCode("new-code");
+
+        var response = service.update(1L, request);
+
+        assertEquals("NEW-CODE", response.getCode());
+    }
+
+    @Test
+    void update_duplicateNewCode_throws() {
+        AffiliateCode code = new AffiliateCode();
+        code.setId(1L);
+        code.setCode("OLD-CODE");
+        when(affiliateCodeRepository.findById(1L)).thenReturn(Optional.of(code));
+        when(affiliateCodeRepository.existsByCodeIgnoreCase("TAKEN")).thenReturn(true);
+
+        AffiliateCodeRequest request = new AffiliateCodeRequest();
+        request.setCode("taken");
+
+        assertThrows(BusinessException.class, () -> service.update(1L, request));
+    }
+
+    @Test
+    void update_sameCodeNormalized_noDuplicateCheck() {
+        AffiliateCode code = new AffiliateCode();
+        code.setId(1L);
+        code.setCode("SAME-CODE");
+        when(affiliateCodeRepository.findById(1L)).thenReturn(Optional.of(code));
+        when(affiliateCodeRepository.save(any(AffiliateCode.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AffiliateCodeRequest request = new AffiliateCodeRequest();
+        request.setCode("same-code");
+
+        var response = service.update(1L, request);
+
+        assertEquals("SAME-CODE", response.getCode());
+        verify(affiliateCodeRepository, never()).existsByCodeIgnoreCase(anyString());
+    }
+
+    @Test
+    void update_updatesNameChannelActiveFlag() {
+        AffiliateCode code = new AffiliateCode();
+        code.setId(1L);
+        code.setCode("CODE");
+        when(affiliateCodeRepository.findById(1L)).thenReturn(Optional.of(code));
+        when(affiliateCodeRepository.save(any(AffiliateCode.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AffiliateCodeRequest request = new AffiliateCodeRequest();
+        request.setName("  New Name  ");
+        request.setChannel("YOUTUBE");
+        request.setIsActive(false);
+
+        var response = service.update(1L, request);
+
+        assertFalse(response.getIsActive());
+        verify(affiliateCodeRepository).save(code);
+    }
+
+    @Test
+    void update_negativeReward_throws() {
+        AffiliateCode code = new AffiliateCode();
+        code.setId(1L);
+        code.setCode("CODE");
+        when(affiliateCodeRepository.findById(1L)).thenReturn(Optional.of(code));
+
+        AffiliateCodeRequest request = new AffiliateCodeRequest();
+        request.setRewardAmount(-5.0);
+
+        assertThrows(BusinessException.class, () -> service.update(1L, request));
+    }
 }

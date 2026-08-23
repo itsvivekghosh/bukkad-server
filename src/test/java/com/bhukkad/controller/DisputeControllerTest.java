@@ -1,6 +1,7 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.dto.request.DisputeRequest;
+import com.bhukkad.dto.request.DisputeResolveRequest;
 import com.bhukkad.dto.response.DisputeResponse;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.support.DisputeResolutionService;
@@ -14,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -67,5 +69,41 @@ class DisputeControllerTest {
 
         ResponseEntity<ApiResponse<List<DisputeResponse>>> resp = controller.listDisputes();
         assertEquals(200, resp.getStatusCodeValue());
+    }
+
+    @Test
+    void getDispute() {
+        when(disputeResolutionService.getById(3L)).thenReturn(disputeResponse);
+
+        ResponseEntity<ApiResponse<DisputeResponse>> resp = controller.getDispute(3L);
+
+        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(disputeResponse, resp.getBody().getData());
+    }
+
+    @Test
+    void resolveDispute() {
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        DisputeResolveRequest request = new DisputeResolveRequest();
+        request.setResolution("FULL_REFUND");
+        request.setRefundAmount(250.0);
+        when(disputeResolutionService.manualResolve(9L, 3L, request)).thenReturn(disputeResponse);
+
+        ResponseEntity<ApiResponse<DisputeResponse>> resp = controller.resolveDispute(3L, request);
+
+        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals("Dispute resolved", resp.getBody().getMessage());
+        assertEquals(disputeResponse, resp.getBody().getData());
+    }
+
+    @Test
+    void autoResolve() {
+        when(disputeResolutionService.triggerAutoResolution()).thenReturn(7);
+
+        ResponseEntity<ApiResponse<Map<String, Integer>>> resp = controller.autoResolve();
+
+        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals("Auto-resolution sweep completed", resp.getBody().getMessage());
+        assertEquals(7, resp.getBody().getData().get("resolved"));
     }
 }

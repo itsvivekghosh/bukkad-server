@@ -127,12 +127,15 @@ final class MdcPropagatingScheduledExecutorService implements ScheduledExecutorS
     // ---------- helpers ----------
 
     private static <T> Callable<T> wrapCallable(Callable<T> callable) {
+        // Capture parent's MDC at submission time and restore it for the
+        // duration of the call. Scheduled callables run on a shared pool, so
+        // without this snapshot taken on the submitting thread they'd inherit
+        // the empty scheduler-thread MDC.
+        java.util.Map<String, String> captured = TraceContext.copy();
         return () -> {
-            // Capture parent's MDC at submission time and restore for the duration
-            // of the call. Scheduled callables run on the same pool, so without
-            // this they'd inherit the empty scheduler-thread MDC.
             java.util.Map<String, String> previous = TraceContext.copy();
             try {
+                TraceContext.restore(captured);
                 return callable.call();
             } finally {
                 TraceContext.restore(previous);
