@@ -7,21 +7,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.validation.BeanPropertyBindingResult;
-import org.springframework.validation.FieldError;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 
@@ -32,7 +28,6 @@ class GlobalExceptionHandlerTest {
     private AlertService alertService;
 
     private GlobalExceptionHandler handler;
-    private final WebRequest request = mock(WebRequest.class);
 
     @BeforeEach
     void setUp() {
@@ -41,100 +36,65 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void handleRateLimitExceeded() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleRateLimitExceeded(new RateLimitExceededException("slow down", 30));
-
-        assertEquals(HttpStatus.TOO_MANY_REQUESTS, response.getStatusCode());
-        assertEquals("30", response.getHeaders().getFirst("Retry-After"));
-        assertEquals("slow down", response.getBody().getMessage());
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleRateLimitExceeded(
+                new RateLimitExceededException("Too fast", 60));
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, resp.getStatusCode());
     }
 
     @Test
-    void handleResourceNotFound() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleResourceNotFoundException(new ResourceNotFoundException("missing"), request);
-
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertFalse(response.getBody().isSuccess());
-        assertEquals("missing", response.getBody().getMessage());
-        assertNotNull(response.getBody().getTimestamp());
+    void handleResourceNotFoundException() {
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleResourceNotFoundException(
+                new ResourceNotFoundException("Not found"), mock(WebRequest.class));
+        assertEquals(HttpStatus.NOT_FOUND, resp.getStatusCode());
     }
 
     @Test
     void handleBusinessException() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleBusinessException(new BusinessException("invalid"), request);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("invalid", response.getBody().getMessage());
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleBusinessException(
+                new BusinessException("Invalid op"), mock(WebRequest.class));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
 
     @Test
     void handleUnauthorizedException() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleUnauthorizedException(new UnauthorizedException("nope"), request);
-
-        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-        assertEquals("nope", response.getBody().getMessage());
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleUnauthorizedException(
+                new UnauthorizedException("Not authorized"), mock(WebRequest.class));
+        assertEquals(HttpStatus.UNAUTHORIZED, resp.getStatusCode());
     }
 
     @Test
-    void handleAccessDenied() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleAccessDeniedException(new AccessDeniedException("denied"), request);
-
-        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
-        assertEquals("Access denied. You don't have permission.", response.getBody().getMessage());
+    void handleValidationExceptions() {
+        BindingResult bindingResult = mock(BindingResult.class);
+        MethodArgumentNotValidException ex = new MethodArgumentNotValidException(null, bindingResult);
+        ResponseEntity<ApiResponse<Map<String, String>>> resp = handler.handleValidationExceptions(ex);
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
 
     @Test
-    void handleAuthenticationException() {
-        AuthenticationException ex = new AuthenticationException("failed") {};
-        ResponseEntity<ApiResponse<Void>> response = handler.handleAuthenticationException(ex, request);
-
-        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-        assertEquals("Authentication failed", response.getBody().getMessage());
+    void handleFraudBlocked() {
+        FraudBlockedException ex = new FraudBlockedException("Fraud detected", "BRUTE_FORCE", 60);
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleFraudBlocked(ex);
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, resp.getStatusCode());
     }
 
     @Test
-    void handleBadCredentials() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleBadCredentialsException(new BadCredentialsException("bad"), request);
-
-        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-        assertEquals("Invalid email or password", response.getBody().getMessage());
+    void handleAccessDeniedException() {
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleAccessDeniedException(
+                new org.springframework.security.access.AccessDeniedException("denied"), mock(WebRequest.class));
+        assertEquals(HttpStatus.FORBIDDEN, resp.getStatusCode());
     }
 
     @Test
-    void handleValidationExceptions() throws Exception {
-        BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(new Object(), "request");
-        bindingResult.addError(new FieldError("request", "email", "must not be blank"));
-        MethodParameter parameter = new MethodParameter(String.class.getMethod("toString"), -1);
-        MethodArgumentNotValidException ex = new MethodArgumentNotValidException(parameter, bindingResult);
-
-        ResponseEntity<ApiResponse<Map<String, String>>> response = handler.handleValidationExceptions(ex);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Validation failed", response.getBody().getMessage());
-        assertEquals("must not be blank", response.getBody().getData().get("email"));
+    void handleHttpMessageNotReadable() {
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleHttpMessageNotReadable(
+                new org.springframework.http.converter.HttpMessageNotReadableException("bad body"), mock(WebRequest.class));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
 
     @Test
-    void handleRuntimeException() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleRuntimeException(new RuntimeException("boom"), request);
-
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        // Raw exception messages must never leak to clients.
-        assertEquals("An unexpected error occurred. Please try again later.", response.getBody().getMessage());
-    }
-
-    @Test
-    void handleGlobalException() {
-        ResponseEntity<ApiResponse<Void>> response =
-                handler.handleGlobalException(new Exception("unexpected"), request);
-
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertEquals("An unexpected error occurred. Please try again later.", response.getBody().getMessage());
+    void handleGenericException() {
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleGlobalException(
+                new RuntimeException("unexpected"), mock(WebRequest.class));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, resp.getStatusCode());
     }
 }

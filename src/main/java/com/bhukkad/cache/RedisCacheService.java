@@ -4,7 +4,9 @@ import com.bhukkad.cache.invalidation.DistributedCacheInvalidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -126,8 +128,11 @@ public class RedisCacheService {
         String cacheName = extractCacheName(pattern);
         try {
             String fullPattern = buildKey(pattern) + "*";
-            Set<String> keys = redisTemplate.keys(fullPattern);
-            if (keys != null && !keys.isEmpty()) {
+            // SCAN instead of KEYS: KEYS blocks Redis for the duration of the
+            // scan and is O(N) on the whole keyspace; SCAN iterates incrementally
+            // in bounded batches and does not block concurrent traffic.
+            Set<String> keys = scanKeys(fullPattern);
+            if (!keys.isEmpty()) {
                 redisTemplate.delete(keys);
                 log.debug("CACHE_DELETE_PATTERN pattern={} count={}", fullPattern, keys.size());
             }
@@ -275,8 +280,8 @@ public class RedisCacheService {
 
     public void clearAll() {
         try {
-            Set<String> keys = redisTemplate.keys("bhukkad:*");
-            if (keys != null && !keys.isEmpty()) {
+            Set<String> keys = scanKeys(CacheConstants.KEY_PREFIX + "*");
+            if (!keys.isEmpty()) {
                 redisTemplate.delete(keys);
                 log.info("CACHE_CLEAR_ALL count={}", keys.size());
             }
@@ -288,15 +293,13 @@ public class RedisCacheService {
     public Map<String, Object> getCacheStats() {
         Map<String, Object> stats = new LinkedHashMap<>();
         try {
-            Set<String> keys = redisTemplate.keys("bhukkad:*");
-            stats.put("totalKeys", keys != null ? keys.size() : 0);
+            Set<String> keys = scanKeys(CacheConstants.KEY_PREFIX + "*");
+            stats.put("totalKeys", keys.size());
 
             Map<String, Integer> keyCounts = new HashMap<>();
-            if (keys != null) {
-                for (String key : keys) {
-                    String prefix = key.split(":").length > 1 ? key.split(":")[1] : "other";
-                    keyCounts.merge(prefix, 1, Integer::sum);
-                }
+            for (String key : keys) {
+                String prefix = key.split(":").length > 1 ? key.split(":")[1] : "other";
+                keyCounts.merge(prefix, 1, Integer::sum);
             }
             stats.put("keysByType", keyCounts);
             stats.put("localCache", localCacheService.getStats());
@@ -347,6 +350,29 @@ public class RedisCacheService {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Incrementally iterates the keyspace using Redis SCAN, which returns keys
+     * in bounded batches without blocking the server. This is the safe
+     * replacement for {@code RedisTemplate.keys(pattern)} (the KEYS command),
+     * which blocks Redis for the whole scan and should never be used in
+     * production.
+     *
+     * @param pattern glob pattern to match, e.g. {@code bhukkad:restaurant:list:*}
+     * @return matching keys, empty set on any failure
+     */
+    private Set<String> scanKeys(String pattern) {
+        Set<String> keys = new LinkedHashSet<>();
+        try (Cursor<String> cursor = redisTemplate.scan(
+                ScanOptions.scanOptions().match(pattern).count(200).build())) {
+            while (cursor.hasNext()) {
+                keys.add(cursor.next());
+            }
+        } catch (Exception e) {
+            log.warn("CACHE_SCAN_FAILED pattern={} error={}", pattern, e.getMessage());
+        }
+        return keys;
     }
 
     private String buildKey(String key) {

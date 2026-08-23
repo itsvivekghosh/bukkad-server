@@ -385,39 +385,20 @@
 				<version>0.8.13</version>
 				<configuration>
 					<excludes>
-						<!-- DTOs and entities are data containers without complex business logic -->
+						<!-- Justified exclusions only: data containers, generated code and
+						     bootstrap infrastructure are excluded from coverage. Business
+						     logic (services, controllers, repositories, security, validators,
+						     utilities) is deliberately kept in scope. -->
 						<exclude>com/bhukkad/dto/**</exclude>
 						<exclude>com/bhukkad/entity/**</exclude>
-						<!-- Configuration properties and utility classes -->
-						<exclude>com/bhukkad/config/*Properties</exclude>
-						<exclude>com/bhukkad/util/NotificationHelper</exclude>
-						<exclude>com/bhukkad/config/RestTemplateConfig</exclude>
-						<!-- New feature modules without dedicated test coverage -->
-						<exclude>com/bhukkad/cache/CacheWarmingService</exclude>
-						<exclude>com/bhukkad/cache/event/**</exclude>
-						<exclude>com/bhukkad/cache/http/**</exclude>
-						<exclude>com/bhukkad/cache/invalidation/**</exclude>
-						<exclude>com/bhukkad/order/ScheduledOrderScheduler</exclude>
-						<exclude>com/bhukkad/service/CommissionTierService</exclude>
-						<exclude>com/bhukkad/service/DynamicPricingService</exclude>
-						<exclude>com/bhukkad/service/FraudDashboardService</exclude>
-						<exclude>com/bhukkad/service/GiftCardService</exclude>
-						<exclude>com/bhukkad/service/GroupOrderService</exclude>
-						<exclude>com/bhukkad/service/InventoryAlertService</exclude>
-						<exclude>com/bhukkad/service/MaterializedViewRefreshService</exclude>
-						<exclude>com/bhukkad/serviceImpl/CommissionTierServiceImpl</exclude>
-						<exclude>com/bhukkad/serviceImpl/DynamicPricingServiceImpl</exclude>
-						<exclude>com/bhukkad/serviceImpl/GiftCardServiceImpl</exclude>
-						<exclude>com/bhukkad/repository/DynamicPricingRuleRepository</exclude>
-						<exclude>com/bhukkad/repository/GiftCardRepository</exclude>
-						<exclude>com/bhukkad/repository/GroupOrderRepository</exclude>
-						<exclude>com/bhukkad/repository/InventoryAlertRepository</exclude>
-						<exclude>com/bhukkad/controller/CommissionTierController</exclude>
-						<exclude>com/bhukkad/controller/DynamicPricingController</exclude>
-						<exclude>com/bhukkad/controller/FraudDashboardController</exclude>
-						<exclude>com/bhukkad/controller/GiftCardController</exclude>
-						<exclude>com/bhukkad/controller/InventoryAlertController</exclude>
-						<exclude>com/bhukkad/controller/OrderController</exclude>
+						<!-- jacoco matches excludes against class file paths incl. .class, and
+						     inner classes use $ suffixes, so patterns must cover both -->
+						<exclude>com/bhukkad/config/*Properties*</exclude>
+						<exclude>com/bhukkad/config/RestTemplateConfig.class</exclude>
+						<exclude>com/bhukkad/util/NotificationHelper.class</exclude>
+						<exclude>com/bhukkad/BackendServerApplication.class</exclude>
+						<!-- MapStruct-generated mappers are generated code -->
+						<exclude>com/bhukkad/mapper/**</exclude>
 					</excludes>
 				</configuration>
 				<executions>
@@ -447,22 +428,22 @@
 									<limit>
 										<counter>LINE</counter>
 										<value>COVEREDRATIO</value>
-										<minimum>0.50</minimum>
+										<minimum>0.85</minimum>
 									</limit>
 									<limit>
 										<counter>BRANCH</counter>
 										<value>COVEREDRATIO</value>
-										<minimum>0.45</minimum>
+										<minimum>0.65</minimum>
 									</limit>
 									<limit>
 										<counter>METHOD</counter>
 										<value>COVEREDRATIO</value>
-										<minimum>0.55</minimum>
+										<minimum>0.75</minimum>
 									</limit>
 									<limit>
 										<counter>CLASS</counter>
 										<value>COVEREDRATIO</value>
-										<minimum>0.55</minimum>
+										<minimum>0.85</minimum>
 									</limit>
 								</limits>
 							</rule>

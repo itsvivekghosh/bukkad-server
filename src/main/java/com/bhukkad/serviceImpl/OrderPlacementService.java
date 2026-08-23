@@ -367,6 +367,7 @@ public class OrderPlacementService {
     }
 
     private void decrementStock(List<CartItem> cartItems) {
+        List<MenuItem> toSave = new ArrayList<>();
         for (CartItem cartItem : cartItems) {
             MenuItem menuItem = cartItem.getMenuItem();
             if (menuItem.getStockQuantity() == null) {
@@ -380,7 +381,11 @@ public class OrderPlacementService {
             if (remaining == 0) {
                 menuItem.setAvailable(false);
             }
-            menuItemRepository.save(menuItem);
+            toSave.add(menuItem);
+        }
+        // Single batched flush instead of one save() per menu item
+        if (!toSave.isEmpty()) {
+            menuItemRepository.saveAll(toSave);
         }
     }
 
@@ -401,17 +406,23 @@ public class OrderPlacementService {
 
     private void clearCartItemsForRestaurant(Cart cart, Long restaurantId) {
         List<CartItem> items = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
+        List<CartItem> toDelete = new ArrayList<>();
+        List<CartItem> remaining = new ArrayList<>();
         for (CartItem item : items) {
             if (item.getMenuItem().getCategory().getRestaurant().getId().equals(restaurantId)) {
-                cartItemRepository.delete(item);
+                toDelete.add(item);
+            } else {
+                remaining.add(item);
             }
         }
-        List<CartItem> remaining = cartItemRepository.findByCartId(cart.getId());
+        if (!toDelete.isEmpty()) {
+            cartItemRepository.deleteAll(toDelete);
+        }
         if (remaining.isEmpty()) {
             cart.setRestaurant(null);
         } else if (cart.getRestaurant() != null && cart.getRestaurant().getId().equals(restaurantId)) {
-            Long nextRestaurantId = remaining.get(0).getMenuItem().getCategory().getRestaurant().getId();
-            restaurantRepository.findById(nextRestaurantId).ifPresent(cart::setRestaurant);
+            // Restaurant is already JOIN FETCHed on the items — no extra lookup
+            cart.setRestaurant(remaining.get(0).getMenuItem().getCategory().getRestaurant());
         }
         cartRepository.save(cart);
     }

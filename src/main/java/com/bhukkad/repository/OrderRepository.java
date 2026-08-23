@@ -306,4 +306,55 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "AND o.estimatedDeliveryAt IS NOT NULL AND o.deliveredAt > o.estimatedDeliveryAt " +
             "ORDER BY o.deliveredAt DESC")
     List<Object[]> findLateDeliveryTimestampsSince(@Param("since") LocalDateTime since, Pageable pageable);
+
+    // ---------------------------------------------------------------------
+    // Restaurant analytics aggregates (daily revenue + hourly volume).
+    //
+    // Implemented as native queries because:
+    //  - JPQL has no portable DATE()/HOUR() functions
+    //  - this project deliberately avoids vendor date functions elsewhere
+    //  - a single grouped query replaces the prior per-day loop (N round-trips)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Per-day delivered-order totals for a restaurant over the window
+     * {@code [startDate, now]}. Returns one row per day that has at least one
+     * delivered order; the caller fills missing days with zeros.
+     *
+     * <p>Rows are {@code [java.sql.Date day, Long orderCount, Double revenue]}.
+     *
+     * @param restaurantId restaurant scope
+     * @param startDate    inclusive lower bound on {@code created_at}
+     * @return aggregate rows ordered by date ascending
+     */
+    @Query(value = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt, " +
+            "COALESCE(SUM(total_amount), 0) AS revenue " +
+            "FROM orders " +
+            "WHERE restaurant_id = :restaurantId " +
+            "AND status = 'DELIVERED' " +
+            "AND created_at >= :startDate " +
+            "GROUP BY DATE(created_at) " +
+            "ORDER BY DATE(created_at) ASC", nativeQuery = true)
+    List<Object[]> findDailyDeliveredAggregates(@Param("restaurantId") Long restaurantId,
+                                                @Param("startDate") LocalDateTime startDate);
+
+    /**
+     * Per-hour-of-day delivered-order counts for a restaurant over the window.
+     * Used to surface peak hours without needing time-series storage.
+     *
+     * <p>Rows are {@code [Integer hourOfDay 0-23, Long orderCount]}.
+     *
+     * @param restaurantId restaurant scope
+     * @param startDate    inclusive lower bound on {@code created_at}
+     * @return aggregate rows ordered by hour ascending
+     */
+    @Query(value = "SELECT HOUR(created_at) AS hr, COUNT(*) AS cnt " +
+            "FROM orders " +
+            "WHERE restaurant_id = :restaurantId " +
+            "AND status = 'DELIVERED' " +
+            "AND created_at >= :startDate " +
+            "GROUP BY HOUR(created_at) " +
+            "ORDER BY HOUR(created_at) ASC", nativeQuery = true)
+    List<Object[]> findHourlyDeliveredCounts(@Param("restaurantId") Long restaurantId,
+                                             @Param("startDate") LocalDateTime startDate);
 }

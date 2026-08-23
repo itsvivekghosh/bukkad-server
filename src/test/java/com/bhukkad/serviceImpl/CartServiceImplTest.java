@@ -447,13 +447,14 @@ class CartServiceImplTest {
         when(orderRepository.findByIdWithDetails(99L)).thenReturn(Optional.of(order));
         Cart cart = cart(5L, null);
         cart.setCustomer(customer);
-        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
         when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
-        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of());
-        when(cartItemRepository.findByCartIdWithMenuItem(5L)).thenReturn(List.of(
-                cartItem(20L, cart, menuItem, 2, "less spicy")
-        ));
+        // The optimized reorder fetches cart items once up front via findByCartId
+        CartItem existing = cartItem(20L, cart, menuItem, 2, "less spicy");
+        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(existing));
+        when(cartItemRepository.findByCartIdWithMenuItem(5L)).thenReturn(List.of(existing));
         when(cartRepository.save(any(Cart.class))).thenAnswer(inv -> inv.getArgument(0));
+        // No customerRepository stub needed: getOrCreateCart only loads the
+        // customer when creating a brand-new cart (cart absent here → no DB call).
 
         var response = cartService.reorderFromOrder(99L);
 
@@ -476,7 +477,8 @@ class CartServiceImplTest {
 
     private void stubGetOrCreateCart(Cart cart) {
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
-        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
+        // No customerRepository stub needed: getOrCreateCart only loads the
+        // customer when a new cart must be created (cart absent).
         when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
     }
 

@@ -7,8 +7,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.ValueOperations;
 
 import com.bhukkad.cache.invalidation.DistributedCacheInvalidator;
@@ -17,6 +19,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +54,17 @@ class RedisCacheServiceTest {
         when(localCacheService.isEnabled()).thenReturn(false);
         ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
         service = new RedisCacheService(redisTemplate, objectMapper, localCacheService, invalidator);
+    }
+
+
+    /** Returns a mocked Cursor that yields the given keys (SCAN semantics). */
+    @SuppressWarnings("unchecked")
+    private Cursor<String> cursorFor(String... keys) {
+        java.util.Iterator<String> it = java.util.Arrays.asList(keys).iterator();
+        Cursor<String> cursor = mock(Cursor.class);
+        when(cursor.hasNext()).thenAnswer(inv -> it.hasNext());
+        when(cursor.next()).thenAnswer(inv -> it.next());
+        return cursor;
     }
 
     @Test
@@ -141,7 +155,8 @@ class RedisCacheServiceTest {
 
     @Test
     void deletePattern_nullKeys() {
-        when(redisTemplate.keys("bhukkad:rest*")).thenReturn(null);
+        Cursor<String> cursor = cursorFor();
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         service.deletePattern("rest");
 
@@ -150,7 +165,8 @@ class RedisCacheServiceTest {
 
     @Test
     void deletePattern_emptyKeys() {
-        when(redisTemplate.keys("bhukkad:rest*")).thenReturn(Collections.emptySet());
+        Cursor<String> cursor = cursorFor();
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         service.deletePattern("rest");
 
@@ -160,7 +176,8 @@ class RedisCacheServiceTest {
     @Test
     void deletePattern_keysPresent() {
         Set<String> keys = Set.of("bhukkad:restaurant:1");
-        when(redisTemplate.keys("bhukkad:rest*")).thenReturn(keys);
+        Cursor<String> cursor = cursorFor(keys.toArray(new String[0]));
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         service.deletePattern("rest");
 
@@ -169,7 +186,7 @@ class RedisCacheServiceTest {
 
     @Test
     void deletePattern_exceptionIsSwallowed() {
-        when(redisTemplate.keys(anyString())).thenThrow(new RuntimeException("fail"));
+        when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new RuntimeException("fail"));
 
         assertDoesNotThrow(() -> service.deletePattern("rest"));
     }
@@ -247,7 +264,8 @@ class RedisCacheServiceTest {
 
     @Test
     void clearAll_nullKeys() {
-        when(redisTemplate.keys("bhukkad:*")).thenReturn(null);
+        Cursor<String> cursor = cursorFor();
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         service.clearAll();
 
@@ -256,7 +274,8 @@ class RedisCacheServiceTest {
 
     @Test
     void clearAll_emptyKeys() {
-        when(redisTemplate.keys("bhukkad:*")).thenReturn(Collections.emptySet());
+        Cursor<String> cursor = cursorFor();
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         service.clearAll();
 
@@ -266,7 +285,8 @@ class RedisCacheServiceTest {
     @Test
     void clearAll_keysPresent() {
         Set<String> keys = Set.of("bhukkad:a");
-        when(redisTemplate.keys("bhukkad:*")).thenReturn(keys);
+        Cursor<String> cursor = cursorFor(keys.toArray(new String[0]));
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         service.clearAll();
 
@@ -275,18 +295,19 @@ class RedisCacheServiceTest {
 
     @Test
     void clearAll_exceptionIsSwallowed() {
-        when(redisTemplate.keys("bhukkad:*")).thenThrow(new RuntimeException("fail"));
+        when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new RuntimeException("fail"));
 
         assertDoesNotThrow(() -> service.clearAll());
     }
 
     @Test
     void getCacheStats_keysWithPrefixAndOther() {
-        when(redisTemplate.keys("bhukkad:*")).thenReturn(Set.of(
+        Cursor<String> cursor = cursorFor(
                 "bhukkad:restaurant:1",
                 "bhukkad:order:2",
                 "nocolon"
-        ));
+        );
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         Map<String, Object> stats = service.getCacheStats();
 
@@ -310,7 +331,8 @@ class RedisCacheServiceTest {
 
     @Test
     void getCacheStats_nullKeys() {
-        when(redisTemplate.keys("bhukkad:*")).thenReturn(null);
+        Cursor<String> cursor = cursorFor();
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
 
         Map<String, Object> stats = service.getCacheStats();
 
@@ -321,11 +343,12 @@ class RedisCacheServiceTest {
     }
 
     @Test
-    void getCacheStats_exception() {
-        when(redisTemplate.keys("bhukkad:*")).thenThrow(new RuntimeException("fail"));
+    void getCacheStats_scanFailureReturnsEmptyStats() {
+        when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new RuntimeException("fail"));
 
         Map<String, Object> stats = service.getCacheStats();
 
-        assertEquals("fail", stats.get("error"));
+        assertEquals(0, stats.get("totalKeys"));
+        assertNull(stats.get("error"));
     }
 }
