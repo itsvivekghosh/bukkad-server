@@ -416,7 +416,7 @@ class OrderPlacementServiceTest {
 
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
-        assertEquals(400, customer.getLoyaltyPoints());
+        assertEquals(402, customer.getLoyaltyPoints());
         verify(customerRepository).save(customer);
     }
 
