@@ -26,6 +26,8 @@ import java.util.Locale;
 public class ServiceLogDiscriminator extends AbstractDiscriminator<ILoggingEvent> {
 
     public static final String KEY = "service";
+    public static final String ORDER_SERVICE = "order";
+    public static final String PAYMENT_SERVICE = "payment";
 
     @Override
     public String getDiscriminatingValue(ILoggingEvent event) {
@@ -34,11 +36,11 @@ public class ServiceLogDiscriminator extends AbstractDiscriminator<ILoggingEvent
             return "core";
         }
         String name = loggerName.toLowerCase(Locale.ROOT);
-        if (name.equals("order") || name.contains("order")) {
-            return "order";
+        if (name.equals(ORDER_SERVICE) || name.contains(ORDER_SERVICE)) {
+            return ORDER_SERVICE;
         }
-        if (name.equals("payment") || name.contains("payment")) {
-            return "payment";
+        if (name.equals(PAYMENT_SERVICE) || name.contains(PAYMENT_SERVICE)) {
+            return PAYMENT_SERVICE;
         }
         if (name.contains("notification")) {
             return "notification";

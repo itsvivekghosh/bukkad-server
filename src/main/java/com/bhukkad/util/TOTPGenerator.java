@@ -12,6 +12,14 @@ import java.time.Instant;
  * <p>Secrets are base32-encoded (20 bytes → 32 characters) and codes are
  * 6-digit decimal strings. The default time step is 30 seconds; verification
  * tolerates ±1 window step to account for clock drift.</p>
+ *
+ * <p>Note: While HMAC-SHA-1 is considered cryptographically weak for general
+ * purposes, it remains the standard algorithm for TOTP per RFC 6238 to ensure
+ * interoperability with authenticator applications like Google Authenticator,
+ * Authy, and others. The security of TOTP depends on the secrecy of the key
+ * rather than the strength of the hash function, and HMAC-SHA-1 provides
+ * sufficient security for this use case when used with a sufficiently long
+ * secret (160 bits in this implementation).</p>
  */
 public final class TOTPGenerator {
 
