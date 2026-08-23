@@ -64,6 +64,9 @@ jobs:
       - name: Run regression suite
         run: ./mvnw -B test -Dtest="com.bhukkad.regression.RegressionTestSuite"
 
+      - name: Verify 85% code coverage (JaCoCo)
+        run: ./mvnw -B jacoco:check
+
       - name: Upload JaCoCo HTML report
         uses: actions/upload-artifact@v5
         with:
