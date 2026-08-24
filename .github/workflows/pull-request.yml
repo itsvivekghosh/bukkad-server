@@ -2,6 +2,12 @@ name: Pull Request CI
 
 on:
   pull_request:
+  # Adding push triggers to eliminate phantom "workflow file issue" runs.
+  # On push events, all jobs are skipped via the job-level if-condition below.
+  push:
+    branches:
+      - main
+      - deploy
 
 concurrency:
   group: pr-ci-${{ github.event.pull_request != null && github.event.pull_request.number || github.run_id }}
@@ -12,6 +18,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'pull_request' }}
     name: Build
     runs-on: ubuntu-latest
 
@@ -35,6 +42,7 @@ jobs:
         run: ./mvnw -B compile -DskipTests
 
   test:
+    if: ${{ github.event_name == 'pull_request' }}
     name: Test
     runs-on: ubuntu-latest
 
@@ -81,6 +89,7 @@ jobs:
           retention-days: 14
 
   regression:
+    if: ${{ github.event_name == 'pull_request' }}
     name: Regression Suite
     runs-on: ubuntu-latest
 
@@ -96,6 +105,7 @@ jobs:
         run: ./mvnw -B test -Dtest="com.bhukkad.regression.RegressionTestSuite"
 
   architecture-tests:
+    if: ${{ github.event_name == 'pull_request' }}
     name: Architecture Tests
     runs-on: ubuntu-latest
 
@@ -115,6 +125,7 @@ jobs:
         run: ./mvnw -B test -Dtest="CuisineApiProviderPactTest" -Dsurefire.failIfNoSpecifiedTests=false
 
   mutation-testing:
+    if: ${{ github.event_name == 'pull_request' }}
     name: Mutation Testing
     runs-on: ubuntu-latest
 
@@ -136,6 +147,7 @@ jobs:
           retention-days: 14
 
   dependency-scan:
+    if: ${{ github.event_name == 'pull_request' }}
     name: OWASP Dependency Check
     runs-on: ubuntu-latest
 
@@ -159,6 +171,7 @@ jobs:
           retention-days: 14
 
   dependency-review:
+    if: ${{ github.event_name == 'pull_request' }}
     name: Dependency Review
     runs-on: ubuntu-latest
     permissions:
@@ -175,6 +188,7 @@ jobs:
           fail-on-severity: moderate
 
   codeql:
+    if: ${{ github.event_name == 'pull_request' }}
     name: CodeQL Analysis
     runs-on: ubuntu-latest
     permissions:
@@ -214,6 +228,7 @@ jobs:
   # is skipped entirely when the secret is not configured (e.g. forks) so CI
   # stays green instead of failing on a missing token.
   sonarqube:
+    if: ${{ github.event_name == 'pull_request' }}
     name: SonarQube Analysis
     runs-on: ubuntu-latest
     if: ${{ secrets.SONAR_TOKEN != '' }}
