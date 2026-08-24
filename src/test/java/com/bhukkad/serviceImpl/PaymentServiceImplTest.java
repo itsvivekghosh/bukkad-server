@@ -9,6 +9,7 @@ import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.idempotency.PaymentIdempotencyService;
+import com.bhukkad.payment.DunningService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
 import com.bhukkad.payment.strategy.PaymentContext;
@@ -64,6 +65,8 @@ class PaymentServiceImplTest {
     private PaymentStrategyFactory paymentStrategyFactory;
     @Mock
     private PaymentIdempotencyService paymentIdempotencyService;
+    @Mock
+    private DunningService dunningService;
     @Mock
     private SecurityUtils securityUtils;
     @Mock
@@ -387,6 +390,22 @@ class PaymentServiceImplTest {
 
         assertThrows(IllegalStateException.class, () -> service.processPayment(1L, "idem-key"));
         verify(paymentIdempotencyService).failPaymentProcess("idem-key");
+    }
+
+    @Test
+    void processPayment_gatewayFailure_marksFailedAndSchedulesDunningRetry() {
+        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentStrategyFactory.getStrategy(Payment.PaymentMethod.CREDIT_CARD))
+                .thenThrow(new IllegalStateException("gateway unavailable"));
+        payment.setGatewayAmount(90.0);
+
+        assertThrows(IllegalStateException.class, () -> service.processPayment(1L, "idem-key"));
+
+        // The payment is marked FAILED and queued for the dunning retry loop so a
+        // transient gateway outage self-heals.
+        assertEquals(Payment.PaymentStatus.FAILED, payment.getStatus());
+        verify(dunningService).scheduleRetry(1L);
     }
 
     // ==================== getPaymentByOrderId / getPaymentForOrder ====================

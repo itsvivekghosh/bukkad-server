@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -30,6 +31,11 @@ class PaymentIdempotencyServiceTest {
     @BeforeEach
     void setUp() {
         paymentIdempotencyService = new PaymentIdempotencyService(idempotencyRecordRepository, idempotencyService, new com.fasterxml.jackson.databind.ObjectMapper());
+        // The Redis lock is best-effort: default to acquired so DB-only tests
+        // exercise the durable guard path. Tests that verify lock rejection
+        // override this stub.
+        lenient().when(idempotencyService.tryAcquireLock(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(true);
     }
 
     @Test
@@ -95,6 +101,19 @@ class PaymentIdempotencyServiceTest {
         BusinessException ex = assertThrows(BusinessException.class, () ->
                 paymentIdempotencyService.beginPaymentProcess("in-progress"));
         assertTrue(ex.getMessage().contains("already being processed"));
+    }
+
+    @Test
+    void beginPaymentProcess_whenRedisLockNotAcquired_throwsDuplicate() {
+        // Another instance is already processing this key: the Redis SETNX lock
+        // is not acquired, so the call is rejected before touching the DB.
+        when(idempotencyService.tryAcquireLock(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(false);
+
+        BusinessException ex = assertThrows(BusinessException.class, () ->
+                paymentIdempotencyService.beginPaymentProcess("locked-key"));
+        assertTrue(ex.getMessage().contains("Duplicate payment request"));
+        verify(idempotencyRecordRepository, never()).findByScopeAndIdempotencyKey(any(), anyString());
     }
 
     @Test

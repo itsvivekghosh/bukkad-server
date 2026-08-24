@@ -400,6 +400,9 @@ class OrderPlacementServiceTest {
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
         verify(walletService).debit(eq(customer), eq(50.0), any(), any(), anyString());
+        // Regression: no loyalty points are earned at placement (the balance of
+        // 500 is untouched); points are earned once at delivery instead.
+        assertEquals(500, customer.getLoyaltyPoints());
         verify(customerRepository).save(customer);
     }
 
@@ -416,7 +419,10 @@ class OrderPlacementServiceTest {
 
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
-        assertEquals(402, customer.getLoyaltyPoints());
+        // Points are only deducted at placement (500 - 100 redeemed). Earning
+        // happens once on delivery (OrderStatusService#markOrderDelivered), so
+        // the balance after placement is 400.
+        assertEquals(400, customer.getLoyaltyPoints());
         verify(customerRepository).save(customer);
     }
 

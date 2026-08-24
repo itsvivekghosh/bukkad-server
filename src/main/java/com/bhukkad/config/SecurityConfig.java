@@ -84,6 +84,10 @@ public class SecurityConfig {
                     // Cuisines - Public GET
                     auth.requestMatchers(HttpMethod.GET, V1 + "/cuisines/**").permitAll();
 
+                    // Order live tracking - anonymous guests with a valid
+                    // tracking token (the token itself is validated in the controller).
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/orders/stream/customer-token/**").permitAll();
+
                     // Menu - Public GET (all GET requests)
                     auth.requestMatchers(HttpMethod.GET, V1 + "/menu/items/**").permitAll();
                     auth.requestMatchers(HttpMethod.GET, V1 + "/menu/items/search").permitAll();

@@ -6,6 +6,7 @@ import com.bhukkad.dto.response.CustomerProfileResponse;
 import com.bhukkad.dto.response.CustomerResponse;
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Customer;
+import com.bhukkad.entity.Order;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
@@ -27,9 +28,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,6 +59,8 @@ class CustomerServiceImplTest {
     private WalletProperties walletProperties;
     @Mock
     private WalletService walletService;
+    @Mock
+    private com.bhukkad.mapper.AddressMapper addressMapper;
 
     @InjectMocks
     private CustomerServiceImpl customerService;
@@ -529,7 +534,49 @@ class CustomerServiceImplTest {
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> customerService.addMoneyToWallet(50.0));
-        assertTrue(ex.getMessage().contains("Direct wallet credit is disabled"));
+        assertEquals("Direct wallet credit is disabled. Use POST /customers/wallet/top-up to pay via gateway.", ex.getMessage());
+    }
+
+    @Test
+    void exportPersonalData_returnsProfileAddressesAndOrders() {
+        Customer customer = customer();
+        stubCurrentCustomer(customer);
+
+        Address addr = address(1L, customer, false);
+        when(addressRepository.findByCustomerId(customer.getId())).thenReturn(List.of(addr));
+        when(addressMapper.toResponse(addr)).thenReturn(new com.bhukkad.dto.response.AddressResponse());
+
+        Order order = new Order();
+        order.setId(5L);
+        order.setOrderNumber("ORD-5");
+        order.setStatus(Order.OrderStatus.PLACED);
+        order.setTotalAmount(250.0);
+        order.setCreatedAt(java.time.LocalDateTime.of(2026, 1, 1, 12, 0));
+        when(orderRepository.findByCustomerIdWithDetails(customer.getId())).thenReturn(List.of(order));
+
+        Map<String, Object> export = customerService.exportPersonalData();
+
+        assertNotNull(export);
+        assertEquals(customer.getId(), export.get("customerId"));
+        assertEquals("Jane Doe", export.get("fullName"));
+        assertEquals(1, ((List<?>) export.get("addresses")).size());
+        List<?> orders = (List<?>) export.get("orders");
+        assertEquals(1, orders.size());
+        assertEquals("ORD-5", ((Map<?, ?>) orders.get(0)).get("orderNumber"));
+    }
+
+    @Test
+    void exportPersonalData_emptyHistory_returnsEmptyLists() {
+        Customer customer = customer();
+        stubCurrentCustomer(customer);
+        when(addressRepository.findByCustomerId(customer.getId())).thenReturn(List.of());
+        when(orderRepository.findByCustomerIdWithDetails(customer.getId())).thenReturn(List.of());
+
+        Map<String, Object> export = customerService.exportPersonalData();
+
+        assertEquals(0, ((List<?>) export.get("addresses")).size());
+        assertEquals(0, ((List<?>) export.get("orders")).size());
+        assertEquals(customer.getId(), export.get("customerId"));
     }
 
     @Test

@@ -358,6 +358,19 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Object[]> findHourlyDeliveredCounts(@Param("restaurantId") Long restaurantId,
                                              @Param("startDate") LocalDateTime startDate);
 
+    /**
+     * Platform-wide hourly order volume since the given timestamp, used by the
+     * demand forecast to estimate how busy each hour of day typically is.
+     *
+     * @return rows of {@code [hourOfDay(int), count(long)]} ordered by hour
+     */
+    @Query(value = "SELECT HOUR(created_at) AS hr, COUNT(*) AS cnt " +
+            "FROM orders " +
+            "WHERE created_at >= :startDate " +
+            "GROUP BY HOUR(created_at) " +
+            "ORDER BY HOUR(created_at) ASC", nativeQuery = true)
+    List<Object[]> findPlatformHourlyOrderCounts(@Param("startDate") LocalDateTime startDate);
+
     /** Counts orders placed by a customer since the given timestamp (recovery/risk queries). */
     long countByCustomerIdAndCreatedAtAfter(Long customerId, java.time.LocalDateTime since);
 }

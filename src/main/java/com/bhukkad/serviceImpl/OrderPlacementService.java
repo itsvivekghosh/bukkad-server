@@ -289,25 +289,22 @@ public class OrderPlacementService {
             if (pricing.loyaltyPointsRedeemed() > 0) {
                 customer.setLoyaltyPoints(customer.getLoyaltyPoints() - pricing.loyaltyPointsRedeemed());
             }
-if (pricing.walletAmountUsed() > 0) {
-                 walletService.debit(
-                         customer,
-pricing.walletAmountUsed(),
-                          WalletTransaction.TransactionType.ORDER_DEBIT,
-                          null,
-                          "Order " + order.getOrderNumber());
-              }
 
-        // Earn loyalty points for the order (based on order total before wallet)
-        int loyaltyPointsEarned = PriceCalculator.calculateLoyaltyPoints(pricing.orderTotalBeforeWallet());
-        if (loyaltyPointsEarned > 0) {
-            customer.setLoyaltyPoints(customer.getLoyaltyPoints() + loyaltyPointsEarned);
-        }
+            if (pricing.walletAmountUsed() > 0) {
+                walletService.debit(
+                        customer,
+                        pricing.walletAmountUsed(),
+                        WalletTransaction.TransactionType.ORDER_DEBIT,
+                        null,
+                        "Order " + order.getOrderNumber());
+            }
 
-        // Save customer if wallet, loyalty redemption, or loyalty earning occurred
-        if (pricing.walletAmountUsed() > 0 || pricing.loyaltyPointsRedeemed() > 0 || loyaltyPointsEarned > 0) {
-            customerRepository.save(customer);
-        }
+            // Loyalty points are earned once, when the order is DELIVERED
+            // (see OrderStatusService#markOrderDelivered). Awarding them here at
+            // placement would double-award the same order.
+            if (pricing.walletAmountUsed() > 0 || pricing.loyaltyPointsRedeemed() > 0) {
+                customerRepository.save(customer);
+            }
 
             if (pricing.appliedCoupon() != null) {
                 couponService.recordCouponUsage(pricing.appliedCoupon(), customerId, order.getId());

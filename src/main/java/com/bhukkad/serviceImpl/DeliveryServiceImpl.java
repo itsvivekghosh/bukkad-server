@@ -1,7 +1,9 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.OrderCacheService;
+import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.delivery.RiderDispatchService;
+import com.bhukkad.live.RiderLocationTrackingService;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.DeliveryAgent;
@@ -43,6 +45,8 @@ public class DeliveryServiceImpl implements DeliveryService {
     private final OrderEventPublisher orderEventPublisher;
     private final OrderCacheService orderCacheService;
     private final RiderDispatchService riderDispatchService;
+    private final OrderEtaService orderEtaService;
+    private final RiderLocationTrackingService riderLocationTrackingService;
 
     @Override
     public DeliveryAgentResponse getProfile() {
@@ -108,6 +112,21 @@ public class DeliveryServiceImpl implements DeliveryService {
         agent.setCurrentLatitude(latitude);
         agent.setCurrentLongitude(longitude);
         deliveryAgentRepository.save(agent);
+
+        // Live tracking: publish the fix for the rider's in-flight order so the
+        // customer's stream shows the rider moving, with a refreshed ETA.
+        orderRepository.findByDeliveryAgentIdAndStatusIn(agent.getId(), ACTIVE_STATUSES).stream()
+                .filter(order -> order.getStatus() == Order.OrderStatus.OUT_FOR_DELIVERY)
+                .findFirst()
+                .ifPresent(order -> {
+                    OrderEtaService.EtaSnapshot eta = orderEtaService.computeLiveEta(order);
+                    riderLocationTrackingService.publishRiderLocation(
+                            agent.getId(), order.getId(),
+                            order.getCustomer() != null ? order.getCustomer().getId() : null,
+                            order.getRestaurant() != null ? order.getRestaurant().getId() : null,
+                            order.getOrderNumber(), latitude, longitude,
+                            eta.minutes(), eta.etaAt());
+                });
     }
 
     @Override
