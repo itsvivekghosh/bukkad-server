@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.data.domain.PageRequest;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -132,7 +131,7 @@ public class AdminOperationsDashboardService {
         for (Object[] row : lateRows) {
             LocalDateTime promised = (LocalDateTime) row[0];
             LocalDateTime actual = (LocalDateTime) row[1];
-            totalMinutes += Duration.between(promised, actual).toMinutes();
+            totalMinutes += java.time.temporal.ChronoUnit.MINUTES.between(promised, actual);
         }
         return round2((double) totalMinutes / lateRows.size());
     }

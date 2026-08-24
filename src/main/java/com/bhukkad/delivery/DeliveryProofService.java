@@ -23,7 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -309,7 +308,7 @@ public class DeliveryProofService {
         if (issuedAt == null) {
             return;
         }
-        long elapsed = Duration.between(issuedAt, now).getSeconds();
+        long elapsed = java.time.temporal.ChronoUnit.SECONDS.between(issuedAt, now);
         long cooldown = properties.getOtpResendCooldownSeconds();
         if (elapsed < cooldown) {
             throw new BusinessException("Please wait " + (cooldown - elapsed)

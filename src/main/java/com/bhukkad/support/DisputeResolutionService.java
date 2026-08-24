@@ -22,7 +22,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -215,7 +214,7 @@ public class DisputeResolutionService {
         if (order.getDeliveredAt() == null || order.getEstimatedDeliveryAt() == null) {
             return false;
         }
-        long lateMinutes = Duration.between(order.getEstimatedDeliveryAt(), order.getDeliveredAt()).toMinutes();
+        long lateMinutes = java.time.temporal.ChronoUnit.MINUTES.between(order.getEstimatedDeliveryAt(), order.getDeliveredAt());
         return lateMinutes > lateThresholdMinutes;
     }
 
