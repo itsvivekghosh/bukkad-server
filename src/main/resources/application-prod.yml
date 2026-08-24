@@ -2,6 +2,14 @@ spring:
   config:
     activate:
       on-profile: prod
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        generate_statistics: false
+        jdbc:
+          batch_size: 50
+          fetch_size: 50
 
 app:
   environment: production
@@ -11,16 +19,6 @@ app:
 server:
   http2:
     enabled: true
-
-spring:
-  jpa:
-    show-sql: false
-    properties:
-      hibernate:
-        generate_statistics: false
-        jdbc:
-          batch_size: 50
-          fetch_size: 50
 
 logging:
   level:
