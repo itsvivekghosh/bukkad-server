@@ -51,6 +51,9 @@ class SecurityConfigTest {
     @Mock
     private com.bhukkad.security.WafFilter wafFilter;
 
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
     @InjectMocks
     private SecurityConfig securityConfig;
 
@@ -60,21 +63,22 @@ class SecurityConfigTest {
     }
 
     @Test
-    void passwordEncoder_returnsBCrypt() {
-        PasswordEncoder encoder = securityConfig.passwordEncoder();
-
+    void passwordEncoder_beanIsBCryptFromPasswordEncoderConfig() {
+        // The PasswordEncoder bean now lives in PasswordEncoderConfig; verify the
+        // real bean (not the mock) is a BCryptPasswordEncoder.
+        PasswordEncoder encoder = new PasswordEncoderConfig().passwordEncoder();
         assertInstanceOf(BCryptPasswordEncoder.class, encoder);
         assertTrue(encoder.matches("secret", encoder.encode("secret")));
     }
 
     @Test
     void authenticationProvider_usesUserDetailsServiceAndPasswordEncoder() {
-        AuthenticationProvider provider = securityConfig.authenticationProvider();
+        AuthenticationProvider provider = securityConfig.authenticationProvider(passwordEncoder);
 
         assertInstanceOf(DaoAuthenticationProvider.class, provider);
         DaoAuthenticationProvider dao = (DaoAuthenticationProvider) provider;
         assertSame(userDetailsService, ReflectionTestUtils.getField(dao, "userDetailsService"));
-        assertInstanceOf(BCryptPasswordEncoder.class, ReflectionTestUtils.getField(dao, "passwordEncoder"));
+        assertSame(passwordEncoder, ReflectionTestUtils.getField(dao, "passwordEncoder"));
     }
 
     @Test
