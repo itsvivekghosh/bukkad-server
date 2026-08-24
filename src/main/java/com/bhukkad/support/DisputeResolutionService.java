@@ -214,7 +214,9 @@ public class DisputeResolutionService {
         if (order.getDeliveredAt() == null || order.getEstimatedDeliveryAt() == null) {
             return false;
         }
-        long lateMinutes = java.time.temporal.ChronoUnit.MINUTES.between(order.getEstimatedDeliveryAt(), order.getDeliveredAt());
+        long lateMinutes = java.time.temporal.ChronoUnit.MINUTES.between(
+                order.getEstimatedDeliveryAt().atZone(java.time.ZoneId.systemDefault()),
+                order.getDeliveredAt().atZone(java.time.ZoneId.systemDefault()));
         return lateMinutes > lateThresholdMinutes;
     }
 

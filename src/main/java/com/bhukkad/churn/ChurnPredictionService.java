@@ -158,7 +158,9 @@ public class ChurnPredictionService {
 
         long daysInactive = f.lastOrderAt() == null
                 ? properties.getRecencyDecayDays()
-                : java.time.temporal.ChronoUnit.DAYS.between(f.lastOrderAt(), LocalDateTime.now());
+                : java.time.temporal.ChronoUnit.DAYS.between(
+                f.lastOrderAt().atZone(java.time.ZoneId.systemDefault()),
+                LocalDateTime.now().atZone(java.time.ZoneId.systemDefault()));
 
         // Recency: fully decayed after ~2× the configured window.
         score += Math.min(40, Math.round(daysInactive * (40.0 / (properties.getRecencyDecayDays() * 2))));
@@ -204,7 +206,7 @@ public class ChurnPredictionService {
         List<String> describe() {
             List<String> parts = new ArrayList<>();
             parts.add("days_inactive=" + (lastOrderAt == null ? -1
-                    : java.time.temporal.ChronoUnit.DAYS.between(lastOrderAt, LocalDateTime.now())));
+                    : java.time.temporal.ChronoUnit.DAYS.between(lastOrderAt.atZone(java.time.ZoneId.systemDefault()), LocalDateTime.now().atZone(java.time.ZoneId.systemDefault()))));
             parts.add("total_orders=" + totalOrders);
             parts.add("recent_30d=" + recentOrders);
             parts.add("prev_30d=" + prevOrders);

@@ -131,7 +131,7 @@ public class AdminOperationsDashboardService {
         for (Object[] row : lateRows) {
             LocalDateTime promised = (LocalDateTime) row[0];
             LocalDateTime actual = (LocalDateTime) row[1];
-            totalMinutes += java.time.temporal.ChronoUnit.MINUTES.between(promised, actual);
+            totalMinutes += java.time.temporal.ChronoUnit.MINUTES.between(promised.atZone(java.time.ZoneId.systemDefault()), actual.atZone(java.time.ZoneId.systemDefault()));
         }
         return round2((double) totalMinutes / lateRows.size());
     }

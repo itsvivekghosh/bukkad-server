@@ -308,7 +308,7 @@ public class DeliveryProofService {
         if (issuedAt == null) {
             return;
         }
-        long elapsed = java.time.temporal.ChronoUnit.SECONDS.between(issuedAt, now);
+        long elapsed = java.time.temporal.ChronoUnit.SECONDS.between(issuedAt.atZone(java.time.ZoneId.systemDefault()), now.atZone(java.time.ZoneId.systemDefault()));
         long cooldown = properties.getOtpResendCooldownSeconds();
         if (elapsed < cooldown) {
             throw new BusinessException("Please wait " + (cooldown - elapsed)

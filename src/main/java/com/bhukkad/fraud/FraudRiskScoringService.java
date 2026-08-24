@@ -176,7 +176,7 @@ public class FraudRiskScoringService {
         if (user == null || user.getCreatedAt() == null) {
             return new AccountAge(false, false);
         }
-        long ageDays = java.time.temporal.ChronoUnit.DAYS.between(user.getCreatedAt(), now);
+        long ageDays = java.time.temporal.ChronoUnit.DAYS.between(user.getCreatedAt().atZone(java.time.ZoneId.systemDefault()), now.atZone(java.time.ZoneId.systemDefault()));
         boolean brandNew = ageDays < 1;
         return new AccountAge(brandNew, ageDays < 7 && !brandNew);
     }

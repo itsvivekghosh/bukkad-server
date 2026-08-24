@@ -121,7 +121,7 @@ public class OrderEtaService {
 
     private int minutesUntil(LocalDateTime target) {
         if (target == null) return 0;
-        return (int) Math.max(0, ChronoUnit.MINUTES.between(LocalDateTime.now(), target));
+        return (int) Math.max(0, ChronoUnit.MINUTES.between(LocalDateTime.now().atZone(java.time.ZoneId.systemDefault()), target.atZone(java.time.ZoneId.systemDefault())));
     }
 
     public record EtaSnapshot(
