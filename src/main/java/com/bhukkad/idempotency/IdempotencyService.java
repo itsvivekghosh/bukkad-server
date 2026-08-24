@@ -37,6 +37,38 @@ public class IdempotencyService {
         store(PAYMENT_PREFIX, idempotencyKey, result, ttl);
     }
 
+    /**
+     * Atomically acquires a Redis-backed lock keyed by the idempotency key.
+     * Uses {@code SETNX} so only one caller across all application instances
+     * wins. The lock auto-expires after the given TTL / timeout.
+     *
+     * @param prefix  key prefix for the scope (e.g. payment or order)
+     * @param idempotencyKey the unique idempotency key
+     * @param ttl     lock TTL; should be long enough for the operation, short
+     *                enough to avoid blocking retries after a crash
+     * @return {@code true} if the lock was acquired, {@code false} otherwise
+     */
+    public boolean tryAcquireLock(String prefix, String idempotencyKey, Duration ttl) {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            return false;
+        }
+        String key = "lock:" + prefix + idempotencyKey;
+        Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(
+                key, "locked", ttl.toMillis(), TimeUnit.MILLISECONDS);
+        return Boolean.TRUE.equals(acquired);
+    }
+
+    /**
+     * Releases a Redis lock acquired via {@link #tryAcquireLock}. Safe to call
+     * even if the lock has already expired (no-op).
+     */
+    public void releaseLock(String prefix, String idempotencyKey) {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            return;
+        }
+        stringRedisTemplate.delete("lock:" + prefix + idempotencyKey);
+    }
+
     private <T> Optional<T> get(String prefix, String idempotencyKey, Class<T> type) {
         if (!StringUtils.hasText(idempotencyKey)) {
             return Optional.empty();

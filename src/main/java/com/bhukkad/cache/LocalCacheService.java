@@ -21,6 +21,7 @@ public class LocalCacheService {
     private final Map<String, Long> stats = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final Map<String, Long> ttlDeadlines = new ConcurrentHashMap<>();
+    private final Map<String, Long> ttlDurations = new ConcurrentHashMap<>();
 
     public LocalCacheService(LocalCacheProperties properties, StampedeProperties stampedeProperties) {
         this.properties = properties;
@@ -47,13 +48,19 @@ public class LocalCacheService {
         if (!isEnabled()) {
             return Optional.empty();
         }
-        // Check TTL deadline
+        // Probabilistic early expiration: as an entry nears its TTL deadline we
+        // may treat it as expired with rising probability, spreading
+        // recomputation across the window instead of a synchronized stampede at
+        // the exact expiry moment. Safe to recompute: the loader refreshes the
+        // value with a fresh TTL.
         Long deadline = ttlDeadlines.get(key);
-        if (deadline != null && System.currentTimeMillis() > deadline) {
-            cache.invalidate(key);
-            ttlDeadlines.remove(key);
-            stats.merge("misses", 1L, Long::sum);
-            return Optional.empty();
+        if (deadline != null) {
+            long now = System.currentTimeMillis();
+            if (now > deadline || probabilisticallyEarlyExpired(key, deadline, now)) {
+                invalidate(key);
+                stats.merge("misses", 1L, Long::sum);
+                return Optional.empty();
+            }
         }
         Object value = cache.getIfPresent(key);
         if (value == null) {
@@ -65,6 +72,28 @@ public class LocalCacheService {
             return Optional.of((T) value);
         }
         return Optional.empty();
+    }
+
+    /**
+     * Returns {@code true} when the entry is inside the probabilistic early
+     * expiration window and the random draw says "refresh now".
+     */
+    private boolean probabilisticallyEarlyExpired(String key, long deadline, long now) {
+        if (!stampedeProperties.isEnabled() || stampedeProperties.getEarlyExpirePercent() <= 0) {
+            return false;
+        }
+        Long ttlMs = ttlDurations.get(key);
+        if (ttlMs == null || ttlMs <= 0) {
+            return false;
+        }
+        long earlyWindowMs = ttlMs * stampedeProperties.getEarlyExpirePercent() / 100L;
+        long remaining = deadline - now;
+        if (remaining > earlyWindowMs) {
+            return false;
+        }
+        // Probability rises linearly from 0 at the window start to 1 at expiry.
+        double probability = 1.0 - (remaining / (double) Math.max(1, earlyWindowMs));
+        return Math.random() < probability;
     }
 
     public void put(String key, Object value) {
@@ -85,6 +114,7 @@ public class LocalCacheService {
             jittered += (long) (Math.random() * 2 * jitter) - jitter;
         }
         ttlDeadlines.put(key, System.currentTimeMillis() + jittered);
+        ttlDurations.put(key, Math.max(1L, jittered));
     }
 
     /**
@@ -134,6 +164,7 @@ public class LocalCacheService {
         if (isEnabled()) {
             cache.invalidate(key);
             ttlDeadlines.remove(key);
+            ttlDurations.remove(key);
         }
     }
 

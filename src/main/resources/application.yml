@@ -2,6 +2,11 @@ spring:
   application:
     name: bhukkad-server
 
+  main:
+    # paymentServiceImpl <-> dunningService is an intentional cycle: payments
+    # queue dunning retries, and dunning calls back to process payment retries.
+    allow-circular-references: true
+
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
@@ -251,6 +256,11 @@ app:
         window-seconds: 60
       cart-mutation:
         limit: 40
+        window-seconds: 60
+      # Webhook endpoints are unauthenticated and keyed by client IP. Kept well
+      # above provider redelivery volume so legitimate retries are never dropped.
+      webhook:
+        limit: 120
         window-seconds: 60
       # Registration is unauthenticated, so this bucket is the per-source cap on
       # account creation. Kept above the fraud thresholds below on purpose: the rate
@@ -531,6 +541,22 @@ app:
       otp-resend-cooldown-seconds: ${DELIVERY_PROOF_OTP_RESEND_COOLDOWN_SECONDS:60}
 
 resilience4j:
+  retry:
+    instances:
+      paymentGateway:
+        max-attempts: 3
+        wait-duration: 500ms
+        # Exponential backoff with randomized jitter on top, so concurrent
+        # instances don't retry the degraded gateway in lockstep.
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - org.springframework.web.client.RestClientException
+          - java.io.IOException
+        ignore-exceptions:
+          - com.bhukkad.exception.BusinessException
   circuitbreaker:
     instances:
       paymentGateway:

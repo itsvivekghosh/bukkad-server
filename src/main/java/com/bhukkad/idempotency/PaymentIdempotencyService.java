@@ -26,6 +26,8 @@ import java.util.Optional;
 public class PaymentIdempotencyService {
 
     private static final Duration PAYMENT_TTL = Duration.ofHours(24);
+    private static final Duration LOCK_TTL = Duration.ofMinutes(5);
+    private static final String PAYMENT_LOCK_PREFIX = "payment:";
 
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final IdempotencyService idempotencyService;
@@ -53,33 +55,47 @@ public class PaymentIdempotencyService {
             return;
         }
 
-        Optional<IdempotencyRecord> existing = idempotencyRecordRepository.findByScopeAndIdempotencyKey(
-                IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, idempotencyKey);
-
-        if (existing.isPresent()) {
-            IdempotencyRecord record = existing.get();
-            if (record.getStatus() == IdempotencyRecord.IdempotencyStatus.COMPLETED) {
-                return;
-            }
-            if (record.getStatus() == IdempotencyRecord.IdempotencyStatus.IN_PROGRESS) {
-                throw new BusinessException("Duplicate payment request is already being processed");
-            }
-            record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
-            record.setExpiresAt(LocalDateTime.now().plus(PAYMENT_TTL));
-            idempotencyRecordRepository.save(record);
-            return;
+        // Atomic cross-instance first gate: SETNX in Redis guarantees only one
+        // pod starts processing a given idempotency key. Best-effort — if Redis
+        // is unavailable the DB unique constraint below still guards.
+        if (!tryAcquireLock(idempotencyKey)) {
+            throw new BusinessException("Duplicate payment request is already being processed");
         }
 
-        IdempotencyRecord record = new IdempotencyRecord();
-        record.setIdempotencyKey(idempotencyKey);
-        record.setScope(IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS);
-        record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
-        record.setExpiresAt(LocalDateTime.now().plus(PAYMENT_TTL));
-
         try {
-            idempotencyRecordRepository.save(record);
-        } catch (DataIntegrityViolationException ex) {
-            throw new BusinessException("Duplicate payment request is already being processed");
+            Optional<IdempotencyRecord> existing = idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                    IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, idempotencyKey);
+
+            if (existing.isPresent()) {
+                IdempotencyRecord record = existing.get();
+                if (record.getStatus() == IdempotencyRecord.IdempotencyStatus.COMPLETED) {
+                    return;
+                }
+                if (record.getStatus() == IdempotencyRecord.IdempotencyStatus.IN_PROGRESS) {
+                    throw new BusinessException("Duplicate payment request is already being processed");
+                }
+                record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
+                record.setExpiresAt(LocalDateTime.now().plus(PAYMENT_TTL));
+                idempotencyRecordRepository.save(record);
+                return;
+            }
+
+            IdempotencyRecord record = new IdempotencyRecord();
+            record.setIdempotencyKey(idempotencyKey);
+            record.setScope(IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS);
+            record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
+            record.setExpiresAt(LocalDateTime.now().plus(PAYMENT_TTL));
+
+            try {
+                idempotencyRecordRepository.save(record);
+            } catch (DataIntegrityViolationException ex) {
+                throw new BusinessException("Duplicate payment request is already being processed");
+            }
+        } finally {
+            // The lock is released immediately after the DB guard is set; the
+            // IN_PROGRESS DB row (with its expiresAt) is the durable guard that
+            // survives Redis loss and crash recovery.
+            releaseLock(idempotencyKey);
         }
     }
 
@@ -112,6 +128,30 @@ public class PaymentIdempotencyService {
                     record.setStatus(IdempotencyRecord.IdempotencyStatus.FAILED);
                     idempotencyRecordRepository.save(record);
                 });
+    }
+
+    /**
+     * Best-effort Redis SETNX lock. On Redis failure we fail open: the DB
+     * unique constraint remains the authoritative duplicate guard.
+     */
+    private boolean tryAcquireLock(String idempotencyKey) {
+        try {
+            return idempotencyService.tryAcquireLock(PAYMENT_LOCK_PREFIX, idempotencyKey, LOCK_TTL);
+        } catch (Exception ex) {
+            log.warn("Redis idempotency lock unavailable, falling back to DB guard | key={} | error={}",
+                    idempotencyKey, ex.getMessage());
+            return true;
+        }
+    }
+
+    private void releaseLock(String idempotencyKey) {
+        try {
+            idempotencyService.releaseLock(PAYMENT_LOCK_PREFIX, idempotencyKey);
+        } catch (Exception ex) {
+            // The lock has a TTL, so a failed delete is harmless.
+            log.debug("Failed to release idempotency lock | key={} | error={}",
+                    idempotencyKey, ex.getMessage());
+        }
     }
 
     private Payment deserialize(String payload) {

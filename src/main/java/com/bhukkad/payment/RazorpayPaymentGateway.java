@@ -4,6 +4,7 @@ import com.bhukkad.exception.BusinessException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -32,6 +33,7 @@ public class RazorpayPaymentGateway implements PaymentGateway {
     private final RestClient restClient = RestClient.create("https://api.razorpay.com");
 
     @Override
+    @Retry(name = "paymentGateway")
     @CircuitBreaker(name = "paymentGateway", fallbackMethod = "createOrderFallback")
     public GatewayOrderResult createOrder(GatewayOrderRequest request) {
         Map<String, Object> body = new HashMap<>();
@@ -48,6 +50,7 @@ public class RazorpayPaymentGateway implements PaymentGateway {
     }
 
     @Override
+    @Retry(name = "paymentGateway")
     @CircuitBreaker(name = "paymentGateway", fallbackMethod = "capturePaymentFallback")
     public GatewayPaymentResult capturePayment(GatewayCaptureRequest request) {
         JsonNode response = get("/v1/orders/" + request.gatewayOrderId() + "/payments");
@@ -65,6 +68,7 @@ public class RazorpayPaymentGateway implements PaymentGateway {
     }
 
     @Override
+    @Retry(name = "paymentGateway")
     @CircuitBreaker(name = "paymentGateway", fallbackMethod = "refundPaymentFallback")
     public GatewayRefundResult refundPayment(GatewayRefundRequest request) {
         Map<String, Object> body = new HashMap<>();

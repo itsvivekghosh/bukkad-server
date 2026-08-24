@@ -15,9 +15,11 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -105,6 +107,56 @@ class IdempotencyServiceTest {
         service.storePaymentResult(KEY, new TestResult("ok"), Duration.ofMinutes(5));
 
         verify(valueOps).set(eq("idempotency:payment:" + KEY), anyString(), eq(300000L), eq(TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void tryAcquireLock_returnsTrueWhenSetIfAbsentSucceeds() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(eq("lock:pay:key-1"), eq("locked"),
+                eq(300000L), eq(TimeUnit.MILLISECONDS))).thenReturn(true);
+
+        assertTrue(service.tryAcquireLock("pay:", "key-1", Duration.ofMinutes(5)));
+    }
+
+    @Test
+    void tryAcquireLock_returnsFalseWhenAlreadyLocked() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(eq("lock:pay:key-2"), eq("locked"),
+                eq(300000L), eq(TimeUnit.MILLISECONDS))).thenReturn(false);
+
+        assertFalse(service.tryAcquireLock("pay:", "key-2", Duration.ofMinutes(5)));
+    }
+
+    @Test
+    void tryAcquireLock_returnsFalseForBlankKey() {
+        assertFalse(service.tryAcquireLock("pay:", "  ", Duration.ofMinutes(5)));
+        assertFalse(service.tryAcquireLock("pay:", null, Duration.ofMinutes(5)));
+    }
+
+    @Test
+    void tryAcquireLock_propagatesRedisFailure() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class)))
+                .thenThrow(new RuntimeException("redis down"));
+
+        // The lock utility propagates Redis errors; the caller
+        // (PaymentIdempotencyService) decides whether to fail open or closed.
+        assertThrows(RuntimeException.class,
+                () -> service.tryAcquireLock("pay:", "key-3", Duration.ofMinutes(5)));
+    }
+
+    @Test
+    void releaseLock_deletesKey() {
+        service.releaseLock("pay:", "key-4");
+
+        verify(stringRedisTemplate).delete("lock:pay:key-4");
+    }
+
+    @Test
+    void releaseLock_ignoresBlankKey() {
+        service.releaseLock("pay:", null);
+        service.releaseLock("pay:", "");
+        // No exception and no Redis interaction expected.
     }
 
     record TestResult(String result) {}

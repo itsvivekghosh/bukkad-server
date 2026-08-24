@@ -3,14 +3,20 @@ package com.bhukkad.controller;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.BlankResponse;
 import com.bhukkad.idempotency.WebhookIdempotencyService;
+import com.bhukkad.logging.alert.AlertService;
+import com.bhukkad.outbox.OutboxEventService;
 import com.bhukkad.payment.PaymentGateway;
+import com.bhukkad.ratelimit.RateLimitDecision;
+import com.bhukkad.ratelimit.RateLimitService;
 import com.bhukkad.service.PaymentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -26,9 +32,19 @@ class PaymentWebhookControllerTest {
     private final PaymentGateway paymentGateway = mock(PaymentGateway.class);
     private final PaymentService paymentService = mock(PaymentService.class);
     private final WebhookIdempotencyService webhookIdempotencyService = mock(WebhookIdempotencyService.class);
+    private final RateLimitService rateLimitService = mock(RateLimitService.class);
+    private final OutboxEventService outboxEventService = mock(OutboxEventService.class);
+    private final AlertService alertService = mock(AlertService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final PaymentWebhookController controller =
-            new PaymentWebhookController(paymentGateway, paymentService, webhookIdempotencyService, objectMapper);
+            new PaymentWebhookController(paymentGateway, paymentService, webhookIdempotencyService,
+                    rateLimitService, outboxEventService, alertService, objectMapper);
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubRateLimitAllowed() {
+        when(rateLimitService.check(anyString(), anyString()))
+                .thenReturn(RateLimitDecision.allowed(1, 120, 60));
+    }
 
     private String capturedPayload(String eventId, String gatewayOrderId, String gatewayPaymentId) {
         return """

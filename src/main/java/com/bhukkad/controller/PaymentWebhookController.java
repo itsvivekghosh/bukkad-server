@@ -6,17 +6,25 @@ import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.BlankResponse;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.idempotency.WebhookIdempotencyService;
+import com.bhukkad.logging.alert.AlertService;
+import com.bhukkad.outbox.OutboxEventService;
 import com.bhukkad.payment.PaymentGateway;
+import com.bhukkad.ratelimit.RateLimitDecision;
+import com.bhukkad.ratelimit.RateLimitService;
 import com.bhukkad.service.PaymentService;
+import com.bhukkad.util.RequestUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -28,6 +36,9 @@ public class PaymentWebhookController {
     private final PaymentGateway paymentGateway;
     private final PaymentService paymentService;
     private final WebhookIdempotencyService webhookIdempotencyService;
+    private final RateLimitService rateLimitService;
+    private final OutboxEventService outboxEventService;
+    private final AlertService alertService;
     private final ObjectMapper objectMapper;
 
     @PostMapping("/razorpay")
@@ -36,8 +47,21 @@ public class PaymentWebhookController {
             @RequestBody String payload,
             @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
 
+        // Distributed rate limit by client IP to prevent abuse of the webhook
+        // endpoint. Fails open: if Redis is unavailable the request is allowed.
+        RateLimitDecision decision = rateLimitService.check("webhook", RequestUtils.resolveClientIp());
+        if (!decision.allowed()) {
+            log.warn("Webhook rate limit exceeded | ip={}", RequestUtils.resolveClientIp());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Too many requests"));
+        }
+
         if (!paymentGateway.verifyWebhookSignature(payload, signature)) {
             log.warn("Rejected Razorpay webhook with invalid signature");
+            // Security-relevant: an invalid HMAC is either a misconfigured secret
+            // or an attempted forgery — alert so operators can react promptly.
+            alertService.alertException("PaymentWebhookController",
+                    "Rejected webhook with invalid signature | ip=" + RequestUtils.resolveClientIp(), null);
             return ResponseEntity.badRequest().body(ApiResponse.error("Invalid signature"));
         }
 
@@ -81,6 +105,20 @@ public class PaymentWebhookController {
             }
 
             paymentService.completeWebhookPayment(gatewayOrderId, gatewayPaymentId);
+
+            // Durable outbox record of the processed webhook. Because the outbox
+            // row is committed in its own transaction and replayed by the outbox
+            // processor, a crash right after this point can never lose the fact
+            // that the payment webhook was received and handled.
+            try {
+                outboxEventService.enqueue("PAYMENT_WEBHOOK_RECEIVED",
+                        parseLongOrNull(gatewayOrderId),
+                        Map.of("eventId", eventId, "gatewayOrderId", gatewayOrderId,
+                                "gatewayPaymentId", gatewayPaymentId));
+            } catch (Exception enqueueEx) {
+                log.warn("Failed to enqueue webhook outbox event | eventId={} | error={}",
+                        eventId, enqueueEx.getMessage());
+            }
         } catch (JsonProcessingException e) {
             log.warn("Invalid JSON in Razorpay webhook payload: {}", e.getMessage());
             return ResponseEntity.badRequest().body(ApiResponse.error("Invalid webhook payload"));
@@ -100,5 +138,16 @@ public class PaymentWebhookController {
 
     private static boolean hasText(String str) {
         return str != null && !str.isBlank();
+    }
+
+    private static Long parseLongOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

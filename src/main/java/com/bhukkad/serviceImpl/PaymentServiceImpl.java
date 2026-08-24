@@ -53,6 +53,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final WalletService walletService;
     private final WalletTopUpService walletTopUpService;
     private final OrderTimelineService orderTimelineService;
+    @org.springframework.context.annotation.Lazy
+    private final com.bhukkad.payment.DunningService dunningService;
 
     @Override
     @Transactional
@@ -121,8 +123,27 @@ public class PaymentServiceImpl implements PaymentService {
             return doProcessPayment(payment, idempotencyKey);
         } catch (RuntimeException ex) {
             paymentIdempotencyService.failPaymentProcess(idempotencyKey);
+            // Gateway-originated failures (circuit open or retries exhausted)
+            // strand the payment: mark it FAILED and queue it for the dunning
+            // retry loop so a transient gateway outage self-heals.
+            if (isGatewayMethod(payment.getPaymentMethod())) {
+                try {
+                    if (payment.getStatus() != Payment.PaymentStatus.COMPLETED) {
+                        payment.setStatus(Payment.PaymentStatus.FAILED);
+                        paymentRepository.save(payment);
+                    }
+                    dunningService.scheduleRetry(payment.getId());
+                } catch (Exception retryEx) {
+                    log.warn("Failed to queue gateway payment retry | paymentId={} | error={}",
+                            payment.getId(), retryEx.getMessage());
+                }
+            }
             throw ex;
         }
+    }
+
+    private boolean isGatewayMethod(Payment.PaymentMethod method) {
+        return method != null && GATEWAY_METHODS.contains(method);
     }
 
     private Payment doProcessPayment(Payment payment, String idempotencyKey) {

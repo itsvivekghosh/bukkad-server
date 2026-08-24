@@ -31,4 +31,10 @@ public interface CustomerService {
     CustomerResponse updateProfile(String fullName, String phoneNumber, String profileImageUrl);
 
     com.bhukkad.dto.response.CustomerOrderStatsResponse getOrderStats();
+
+    /**
+     * Exports the current customer's personal data (profile, addresses, wallet,
+     * loyalty points and order history) for DPDP/GDPR-style self-service access.
+     */
+    java.util.Map<String, Object> exportPersonalData();
 }
