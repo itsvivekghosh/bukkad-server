@@ -90,7 +90,7 @@ public class MenuController {
     @GetMapping("/items")
     @Operation(summary = "Get menu items by IDs (batch)")
     public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByIds(
-            @RequestParam java.util.List<Long> ids) {
+            @RequestParam(required = false) java.util.List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return ResponseEntity.ok(ApiResponse.success(List.of()));
         }

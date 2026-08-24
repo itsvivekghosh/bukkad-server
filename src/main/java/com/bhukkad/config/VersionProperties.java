@@ -23,7 +23,7 @@ public class VersionProperties {
      * List of unsupported versions.
      * Requests using these versions will be rejected with 400.
      */
-    private List<String> unsupportedVersions = List.of();
+    private List<String> unsupportedVersions = List.of("0");
 
     public String getCurrentVersion() {
         return currentVersion;
