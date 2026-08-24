@@ -46,11 +46,18 @@ public class RestaurantController {
 
     // Public endpoints
     @GetMapping("/public")
-    @Operation(summary = "Get all restaurants")
+    @Operation(summary = "Get all restaurants (or batch by ids)")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getAllRestaurants(
+            @RequestParam(required = false) java.util.List<Long> ids,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
             @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince,
             @RequestHeader(value = "X-Tenant-Id", required = false) Long tenantId) {
+        if (ids != null && !ids.isEmpty()) {
+            if (ids.size() > 100) {
+                throw new com.bhukkad.exception.BusinessException("Maximum 100 IDs allowed per request");
+            }
+            return ResponseEntity.ok(ApiResponse.success(restaurantService.getRestaurantsByIds(ids)));
+        }
         List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants(tenantId);
         ApiResponse<List<RestaurantResponse>> body = ApiResponse.success(restaurants);
 

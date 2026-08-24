@@ -920,6 +920,28 @@ class MenuServiceImplTest {
         return category;
     }
 
+    @Test
+    void getMenuItemsByIds_emptyIds_returnsEmptyList() {
+        assertTrue(menuService.getMenuItemsByIds(List.of()).isEmpty());
+        assertTrue(menuService.getMenuItemsByIds(null).isEmpty());
+        verify(menuItemRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void getMenuItemsByIds_withIds_mapsItems() {
+        MenuItem item = fullMenuItem(1L);
+        MenuItemResponse response = new MenuItemResponse();
+        response.setId(1L);
+        when(menuItemRepository.findAllById(List.of(1L))).thenReturn(List.of(item));
+        when(menuItemMapper.toResponse(item)).thenReturn(response);
+
+        List<MenuItemResponse> result = menuService.getMenuItemsByIds(List.of(1L));
+
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getId());
+        verify(menuItemRepository).findAllById(List.of(1L));
+    }
+
     private MenuItem fullMenuItem(Long id) {
         MenuItem item = new MenuItem();
         item.setId(id);

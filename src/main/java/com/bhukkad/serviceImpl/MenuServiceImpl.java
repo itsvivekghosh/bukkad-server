@@ -177,6 +177,16 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
+    public List<MenuItemResponse> getMenuItemsByIds(java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return menuItemRepository.findAllById(ids).stream()
+                .map(menuItemMapper::toResponse)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
     @UseReadReplica
     public List<MenuItemResponse> getMenuItemsByCategory(Long categoryId) {
         String cacheKey = CacheKeyGenerator.menuItemsByCategory(categoryId);

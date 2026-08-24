@@ -87,6 +87,19 @@ public class MenuController {
         return ResponseEntity.ok(ApiResponse.success("Menu item created successfully", menuItem));
     }
 
+    @GetMapping("/items")
+    @Operation(summary = "Get menu items by IDs (batch)")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getMenuItemsByIds(
+            @RequestParam(required = false) java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(List.of()));
+        }
+        if (ids.size() > 100) {
+            throw new com.bhukkad.exception.BusinessException("Maximum 100 IDs allowed per request");
+        }
+        return ResponseEntity.ok(ApiResponse.success(menuService.getMenuItemsByIds(ids)));
+    }
+
     @GetMapping("/items/{id}")
     @Operation(summary = "Get menu item by id")
     public ResponseEntity<ApiResponse<MenuItemResponse>> getMenuItemById(

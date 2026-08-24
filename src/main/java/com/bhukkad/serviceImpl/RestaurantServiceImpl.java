@@ -202,6 +202,16 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
+    public java.util.List<RestaurantResponse> getRestaurantsByIds(java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return restaurantRepository.findAllById(ids).stream()
+                .map(this::mapToResponse)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
     public RestaurantResponse createRestaurant(RestaurantRequest request) {
         Long ownerId = securityUtils.getCurrentUserId();
 

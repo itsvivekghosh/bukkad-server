@@ -196,4 +196,36 @@ public class MenuControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(items, response.getBody().getData());
     }
+
+    @Test
+    void getMenuItemsByIds_emptyIds_returnsEmptyList() {
+        ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
+                menuController.getMenuItemsByIds(List.of());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().getData().isEmpty());
+        verify(menuService, never()).getMenuItemsByIds(any());
+    }
+
+    @Test
+    void getMenuItemsByIds_tooManyIds_throwsBusinessException() {
+        java.util.List<Long> many = java.util.stream.LongStream.rangeClosed(1, 101)
+                .boxed().collect(java.util.stream.Collectors.toList());
+        assertThrows(com.bhukkad.exception.BusinessException.class,
+                () -> menuController.getMenuItemsByIds(many));
+        verify(menuService, never()).getMenuItemsByIds(any());
+    }
+
+    @Test
+    void getMenuItemsByIds_withIds_returnsItems() {
+        MenuItemResponse response = new MenuItemResponse();
+        response.setId(1L);
+        when(menuService.getMenuItemsByIds(List.of(1L))).thenReturn(List.of(response));
+
+        ResponseEntity<ApiResponse<List<MenuItemResponse>>> result =
+                menuController.getMenuItemsByIds(List.of(1L));
+
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals(1, result.getBody().getData().size());
+        verify(menuService).getMenuItemsByIds(List.of(1L));
+    }
 }

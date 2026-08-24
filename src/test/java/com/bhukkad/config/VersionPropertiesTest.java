@@ -11,7 +11,7 @@ class VersionPropertiesTest {
         VersionProperties props = new VersionProperties();
         assertEquals("1", props.getCurrentVersion());
         assertTrue(props.getDeprecatedVersions().isEmpty());
-        assertTrue(props.getUnsupportedVersions().isEmpty());
+        assertEquals(List.of("0"), props.getUnsupportedVersions());
     }
 
     @Test

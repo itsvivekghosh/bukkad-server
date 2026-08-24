@@ -716,6 +716,25 @@ class RestaurantServiceImplTest {
         return request;
     }
 
+    @Test
+    void getRestaurantsByIds_emptyIds_returnsEmptyList() {
+        assertTrue(restaurantService.getRestaurantsByIds(List.of()).isEmpty());
+        assertTrue(restaurantService.getRestaurantsByIds(null).isEmpty());
+        verify(restaurantRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void getRestaurantsByIds_withIds_mapsRestaurants() {
+        Restaurant r = fullRestaurant(1L, "Test Restaurant");
+        when(restaurantRepository.findAllById(List.of(1L))).thenReturn(List.of(r));
+
+        var result = restaurantService.getRestaurantsByIds(List.of(1L));
+
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getId());
+        verify(restaurantRepository).findAllById(List.of(1L));
+    }
+
     private Restaurant fullRestaurant(Long id, String name) {
         Cuisine cuisine = new Cuisine();
         cuisine.setId(3L);
