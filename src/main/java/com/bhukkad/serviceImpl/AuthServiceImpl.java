@@ -31,6 +31,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 
@@ -54,7 +55,18 @@ public class AuthServiceImpl implements AuthService {
     private final ReferralService referralService;
     private final AffiliateService affiliateService;
 
+    /**
+     * Registers a new user account.
+     *
+     * <p>The whole registration is transactional: if any step fails (e.g. an
+     * invalid referral code is rejected), the customer row saved earlier in
+     * this method is rolled back instead of leaving an orphaned,
+     * half-registered account. It also means the customer entity stays managed
+     * so referral-code mutations set by {@link ReferralService} are flushed in
+     * the same commit — no second explicit save is needed.</p>
+     */
     @Override
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
         log.info("Registration attempt | Email: {} | Role: {}", request.getEmail(), request.getRole());
 

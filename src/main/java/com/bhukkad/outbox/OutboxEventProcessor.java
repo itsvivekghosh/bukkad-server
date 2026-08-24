@@ -6,6 +6,7 @@ import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
 import com.bhukkad.logging.TracingBridge;
+import com.bhukkad.logging.alert.AlertService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ public class OutboxEventProcessor {
     private final ExternalEventBridge externalEventBridge;
     private final DeadLetterEventService deadLetterEventService;
     private final OutboxProperties outboxProperties;
+    private final AlertService alertService;
 
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:2000}")
     @Transactional
@@ -52,8 +54,16 @@ public class OutboxEventProcessor {
                 if (event.getRetryCount() >= outboxProperties.getMaxRetries()) {
                     event.setStatus(OutboxEvent.OutboxStatus.FAILED);
                     deadLetterEventService.record(event, ex.getMessage());
-                    log.error("OUTBOX_FAILED | id={} | type={} | error={}",
-                            event.getId(), event.getEventType(), ex.getMessage());
+                    long dlqSize = deadLetterEventService.countPending();
+                    log.error("OUTBOX_FAILED | id={} | type={} | dlqSize={} | error={}",
+                            event.getId(), event.getEventType(), dlqSize, ex.getMessage());
+                    // Alert when the dead-letter queue grows so operators can
+                    // investigate a stuck downstream consumer.
+                    alertService.alertException("OutboxEventProcessor",
+                            "Outbox event dead-lettered | id=" + event.getId()
+                                    + " | type=" + event.getEventType()
+                                    + " | dlqSize=" + dlqSize
+                                    + " | error=" + ex.getMessage(), ex);
                 } else {
                     log.warn("OUTBOX_RETRY | id={} | type={} | attempt={} | error={}",
                             event.getId(), event.getEventType(), event.getRetryCount(), ex.getMessage());

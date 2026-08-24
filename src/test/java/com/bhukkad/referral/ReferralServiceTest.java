@@ -63,7 +63,10 @@ class ReferralServiceTest {
         service.initializeNewCustomer(customer, null);
 
         assertNotNull(customer.getReferralCode());
-        verify(customerRepository).save(customer);
+        // The method no longer saves the customer itself: the caller persists
+        // the (managed) entity inside its own transaction to avoid a redundant
+        // second round-trip.
+        verify(customerRepository, never()).save(customer);
     }
 
     @Test

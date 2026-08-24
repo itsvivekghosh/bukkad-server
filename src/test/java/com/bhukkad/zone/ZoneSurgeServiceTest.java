@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -20,6 +21,9 @@ class ZoneSurgeServiceTest {
 
     @Mock
     private ZoneSurgeRuleRepository zoneSurgeRuleRepository;
+
+    @Mock
+    private DemandForecastService demandForecastService;
 
     @InjectMocks
     private ZoneSurgeService service;
@@ -31,6 +35,8 @@ class ZoneSurgeServiceTest {
         zone = new DeliveryZone();
         zone.setId(1L);
         zone.setSurgeMultiplier(1.5);
+        // Neutral forecast by default so rule/base assertions stay simple.
+        lenient().when(demandForecastService.forecastSurgeAdjustment()).thenReturn(1.0);
     }
 
     @Test
@@ -103,5 +109,23 @@ class ZoneSurgeServiceTest {
         when(zoneSurgeRuleRepository.findByZoneIdAndIsActiveTrue(1L)).thenReturn(List.of(belowBase));
 
         assertEquals(1.5, service.resolveEffectiveSurge(zone));
+    }
+
+    @Test
+    void resolveEffectiveSurge_appliesForecastAdjustmentToBase() {
+        when(zoneSurgeRuleRepository.findByZoneIdAndIsActiveTrue(1L)).thenReturn(List.of());
+        when(demandForecastService.forecastSurgeAdjustment()).thenReturn(1.5);
+
+        // 1.5 (base) * 1.5 (forecast) = 2.25
+        assertEquals(2.25, service.resolveEffectiveSurge(zone));
+    }
+
+    @Test
+    void resolveEffectiveSurge_forecastCanLowerSurgeWithinBounds() {
+        when(zoneSurgeRuleRepository.findByZoneIdAndIsActiveTrue(1L)).thenReturn(List.of());
+        when(demandForecastService.forecastSurgeAdjustment()).thenReturn(0.8);
+
+        // 1.5 (base) * 0.8 (quiet-hour forecast) = 1.2
+        assertEquals(1.2, service.resolveEffectiveSurge(zone));
     }
 }

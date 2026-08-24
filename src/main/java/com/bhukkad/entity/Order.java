@@ -55,6 +55,7 @@ public class Order {
     private Restaurant restaurant;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
+    @org.hibernate.annotations.BatchSize(size = 50)
     private List<OrderItem> orderItems = new ArrayList<>();
 
     @ManyToOne(fetch = FetchType.LAZY)

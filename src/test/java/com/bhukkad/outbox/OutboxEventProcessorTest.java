@@ -3,6 +3,7 @@ package com.bhukkad.outbox;
 import com.bhukkad.config.OutboxProperties;
 import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderCreatedEvent;
+import com.bhukkad.logging.alert.AlertService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,9 @@ class OutboxEventProcessorTest {
     @Mock
     private DeadLetterEventService deadLetterEventService;
 
+    @Mock
+    private AlertService alertService;
+
     private ObjectMapper objectMapper;
 
     @InjectMocks
@@ -53,7 +57,7 @@ class OutboxEventProcessorTest {
         outboxProperties.setDeadLetterBatchSize(50);
         outboxEventProcessor = new OutboxEventProcessor(
                 outboxEventRepository, eventPublisher, objectMapper,
-                externalEventBridge, deadLetterEventService, outboxProperties);
+                externalEventBridge, deadLetterEventService, outboxProperties, alertService);
     }
 
     @Test

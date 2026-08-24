@@ -27,6 +27,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -184,6 +185,16 @@ public class CustomerController {
     @GetMapping("/orders/stats")
     public ResponseEntity<ApiResponse<CustomerOrderStatsResponse>> getOrderStats() {
         return ResponseEntity.ok(ApiResponse.success(customerService.getOrderStats()));
+    }
+
+    /**
+     * Self-service personal data export (DPDP/GDPR-style). Returns the current
+     * customer's profile, addresses, wallet balance, loyalty points and order
+     * history as a structured document the user can download.
+     */
+    @GetMapping("/data-export")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> exportPersonalData() {
+        return ResponseEntity.ok(ApiResponse.success(customerService.exportPersonalData()));
     }
 
     @GetMapping("/notification-preferences")

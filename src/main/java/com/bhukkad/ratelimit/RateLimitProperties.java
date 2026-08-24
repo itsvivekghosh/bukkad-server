@@ -40,6 +40,7 @@ public class RateLimitProperties {
         defaults.put("search", new Bucket(60, 60));
         defaults.put("cart-mutation", new Bucket(30, 60));
         defaults.put("referral", new Bucket(20, 60));
+        defaults.put("webhook", new Bucket(120, 60));
         return defaults;
     }
 

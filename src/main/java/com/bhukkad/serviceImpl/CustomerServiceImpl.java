@@ -27,7 +27,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -42,11 +44,37 @@ public class CustomerServiceImpl implements CustomerService {
     private final SecurityUtils securityUtils;
     private final WalletProperties walletProperties;
     private final WalletService walletService;
+    private final com.bhukkad.mapper.AddressMapper addressMapper;
 
     @Override
     @UseReadReplica
     public CustomerProfileResponse getProfile() {
         return buildProfileResponse(getCurrentCustomer());
+    }
+
+    @Override
+    @UseReadReplica
+    public Map<String, Object> exportPersonalData() {
+        Customer customer = getCurrentCustomer();
+        Map<String, Object> export = new LinkedHashMap<>();
+        export.put("customerId", customer.getId());
+        export.put("fullName", customer.getFullName());
+        export.put("email", customer.getEmail());
+        export.put("phoneNumber", customer.getPhoneNumber());
+        export.put("loyaltyPoints", customer.getLoyaltyPoints());
+        export.put("walletBalance", customer.getWalletBalance());
+        export.put("addresses", addressRepository.findByCustomerId(customer.getId()).stream()
+                .map(addressMapper::toResponse)
+                .toList());
+        export.put("orders", orderRepository.findByCustomerIdWithDetails(customer.getId()).stream()
+                .map(order -> Map.of(
+                        "id", order.getId(),
+                        "orderNumber", order.getOrderNumber(),
+                        "status", String.valueOf(order.getStatus()),
+                        "totalAmount", order.getTotalAmount(),
+                        "createdAt", String.valueOf(order.getCreatedAt())))
+                .toList());
+        return export;
     }
 
     @Override

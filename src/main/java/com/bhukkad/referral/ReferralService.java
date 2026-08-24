@@ -28,13 +28,21 @@ public class ReferralService {
     private final ReferralProperties referralProperties;
     private final RateLimitService rateLimitService;
 
+    /**
+     * Assigns a referral code to a new customer and, when enabled, links the
+     * referrer relationship.
+     *
+     * <p>Deliberately does <em>not</em> save the customer: the caller owns the
+     * persistence (registration already saved the customer and keeps the entity
+     * managed inside its transaction, so these mutations are flushed with the
+     * same commit). This avoids a redundant second INSERT/UPDATE round-trip.</p>
+     */
     @Transactional
     public void initializeNewCustomer(Customer customer, String referralCodeInput) {
         customer.setReferralCode(generateUniqueCode(customer));
         if (referralProperties.isEnabled() && StringUtils.hasText(referralCodeInput)) {
             applyReferral(customer, referralCodeInput.trim().toUpperCase(Locale.ROOT));
         }
-        customerRepository.save(customer);
     }
 
     @Transactional(readOnly = true)
