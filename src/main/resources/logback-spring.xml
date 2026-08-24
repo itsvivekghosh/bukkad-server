@@ -97,6 +97,10 @@
 
     <springProfile name="prod">
         <root level="INFO">
+            <!-- Console (stdout) is essential for containerized deploys: without
+                 it, docker logs shows only the banner and all diagnostics go to
+                 the file appender, making startup failures invisible in CI. -->
+            <appender-ref ref="CONSOLE"/>
             <appender-ref ref="ASYNC_SIFT"/>
         </root>
     </springProfile>
