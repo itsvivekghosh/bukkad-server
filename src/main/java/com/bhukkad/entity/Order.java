@@ -123,6 +123,25 @@ public class Order {
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /** FULFILLMENT_DELIVERY (default) or FULFILLMENT_PICKUP. */
+    @Column(length = 20)
+    private String fulfillmentType = "DELIVERY";
+
+    /** Anonymous device identifier for guest checkout. */
+    private String deviceId;
+
+    /** Phone captured for guest checkout identity. */
+    private String guestPhone;
+
+    /** Optional gift message for gift orders. */
+    private String giftMessage;
+
+    /** Recipient display name for gift orders. */
+    private String recipientName;
+
+    /** Recipient phone for gift orders. */
+    private String recipientPhone;
+
     @LastModifiedDate
     private LocalDateTime updatedAt;
 

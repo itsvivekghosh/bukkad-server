@@ -15,6 +15,7 @@ import org.springframework.web.client.RestClient;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
@@ -88,7 +89,11 @@ public class RazorpayPaymentGateway implements PaymentGateway {
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
             String expected = bytesToHex(hash);
-            return expected.equalsIgnoreCase(signature);
+            // Constant-time comparison: avoids timing side-channels when an attacker
+            // probes the signature byte-by-byte (equalsIgnoreCase short-circuits).
+            return MessageDigest.isEqual(
+                    expected.toLowerCase().getBytes(StandardCharsets.UTF_8),
+                    signature.toLowerCase().getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             log.warn("Razorpay webhook signature verification failed: {}", e.getMessage());
             return false;

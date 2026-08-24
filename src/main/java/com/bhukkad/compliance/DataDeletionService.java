@@ -1,0 +1,86 @@
+package com.bhukkad.compliance;
+
+import com.bhukkad.audit.AuditService;
+import com.bhukkad.entity.Address;
+import com.bhukkad.entity.User;
+import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.repository.AddressRepository;
+import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AuthTokenService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+/**
+ * Erases or anonymizes a user's personal data on request (DPDP Act 2023 / GDPR
+ * right to erasure).
+ *
+ * <p><strong>Strategy: anonymize, not delete.</strong> Financial and legal records
+ * (orders, payments, settlements, audit trail) must be retained, so the user's
+ * identifying attributes are overwritten in place instead of removing their rows.
+ * After anonymization the account is deactivated, all sessions are revoked, saved
+ * addresses are deleted and every consent purpose is revoked.</p>
+ *
+ * <p>The operation is idempotent — anonymizing an already-anonymized user is a
+ * no-op that still returns success.</p>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class DataDeletionService {
+
+    /** TLD reserved by RFC 2606; cannot receive mail or collide with real emails. */
+    static final String ANONYMIZED_EMAIL_DOMAIN = "@anon.invalid";
+
+    private final UserRepository userRepository;
+    private final AddressRepository addressRepository;
+    private final AuthTokenService authTokenService;
+    private final ConsentService consentService;
+    private final AuditService auditService;
+
+    /**
+     * Anonymizes the given user. Returns the number of PII-bearing artifacts removed
+     * (saved addresses) for reporting; 0 when the user was already anonymized.
+     */
+    @Transactional
+    public int deleteUser(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        int removedAddresses = 0;
+        if (!isAnonymized(user)) {
+            List<Address> addresses = addressRepository.findByCustomerId(userId);
+            addressRepository.deleteAll(addresses);
+            removedAddresses = addresses.size();
+
+            // Unique-constraint-safe placeholders derived from the immutable id.
+            user.setEmail("deleted-" + userId + ANONYMIZED_EMAIL_DOMAIN);
+            user.setPhoneNumber(null);
+            user.setFullName("Deleted User");
+            user.setProfileImageUrl(null);
+            user.setTotpSecret(null);
+            user.setTotpEnabled(false);
+            user.setActive(false);
+            userRepository.save(user);
+
+            authTokenService.revokeAllRefreshTokens(userId);
+            consentService.revokeAllConsents(userId);
+        }
+
+        auditService.recordEvent("USER_DATA_DELETED", "USER", String.valueOf(userId),
+                null, "anonymized", userId);
+
+        log.info("USER_DATA_ANONYMIZED | userId={} | addressesRemoved={}", userId, removedAddresses);
+        return removedAddresses;
+    }
+
+    /**
+     * True when the user row no longer carries direct identifiers.
+     */
+    public boolean isAnonymized(User user) {
+        return user.getEmail() != null && user.getEmail().endsWith(ANONYMIZED_EMAIL_DOMAIN);
+    }
+}

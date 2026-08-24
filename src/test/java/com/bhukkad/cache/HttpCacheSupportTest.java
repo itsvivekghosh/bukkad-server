@@ -1,7 +1,6 @@
 package com.bhukkad.cache;
 
 import com.bhukkad.cache.http.HttpCacheSupport;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

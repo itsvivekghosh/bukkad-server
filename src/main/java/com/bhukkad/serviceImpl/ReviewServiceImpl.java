@@ -7,6 +7,7 @@ import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.Review;
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
@@ -102,18 +103,21 @@ public class ReviewServiceImpl implements ReviewService {
      * restaurant page.
      */
     @Override
+    @UseReadReplica
     public List<Review> getRestaurantReviews(Long restaurantId) {
         return reviewRepository.findByRestaurantIdAndModerationStatusWithDetails(
                 restaurantId, Review.ModerationStatus.APPROVED);
     }
 
     @Override
+    @UseReadReplica
     public List<Review> getCustomerReviews() {
         Long customerId = securityUtils.getCurrentUserId();
         return reviewRepository.findByCustomerIdWithDetails(customerId);
     }
 
     @Override
+    @UseReadReplica
     public Review getReviewByOrderId(Long orderId) {
         return reviewRepository.findByOrderIdWithDetails(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
@@ -137,6 +141,7 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     @Override
+    @UseReadReplica
     public List<Review> getModerationQueue(Review.ModerationStatus status) {
         Review.ModerationStatus effective = status != null ? status : Review.ModerationStatus.PENDING;
         return reviewRepository.findByModerationStatusWithDetails(effective);

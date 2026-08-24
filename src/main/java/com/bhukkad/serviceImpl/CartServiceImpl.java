@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -241,6 +242,14 @@ public class CartServiceImpl implements CartService {
         List<SkippedReorderItem> skipped = new ArrayList<>();
         int addedCount = 0;
 
+        // Fetch the existing cart items once up front instead of once per
+        // order item — avoids an N+1 query pattern on multi-item orders.
+        List<CartItem> cartItems = cartItemRepository.findByCartId(cart.getId());
+        Map<Long, CartItem> existingByMenuItemId = new HashMap<>();
+        for (CartItem cartItem : cartItems) {
+            existingByMenuItemId.put(cartItem.getMenuItem().getId(), cartItem);
+        }
+
         for (OrderItem orderItem : order.getOrderItems()) {
             MenuItem menuItem = orderItem.getMenuItem();
             if (menuItem == null) {
@@ -266,11 +275,7 @@ public class CartServiceImpl implements CartService {
                 continue;
             }
 
-            List<CartItem> cartItems = cartItemRepository.findByCartId(cart.getId());
-            CartItem existingItem = cartItems.stream()
-                    .filter(item -> item.getMenuItem().getId().equals(menuItem.getId()))
-                    .findFirst()
-                    .orElse(null);
+            CartItem existingItem = existingByMenuItemId.get(menuItem.getId());
 
             if (existingItem != null) {
                 existingItem.setQuantity(existingItem.getQuantity() + orderItem.getQuantity());
@@ -304,15 +309,8 @@ public class CartServiceImpl implements CartService {
 
     private Cart getOrCreateCart() {
         Long customerId = securityUtils.getCurrentUserId();
-        Customer customer = customerRepository.findById(customerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
-
         return cartRepository.findByCustomerIdWithRestaurant(customerId)
-                .orElseGet(() -> {
-                    Cart newCart = new Cart();
-                    newCart.setCustomer(customer);
-                    return cartRepository.save(newCart);
-                });
+                .orElseGet(() -> createNewCart(customerId));
     }
 
     @SuppressWarnings("deprecation") // legacy single-restaurant fields are populated for backward compatibility
@@ -393,5 +391,11 @@ public class CartServiceImpl implements CartService {
                 .totalPrice(totalPrice)
                 .specialInstructions(cartItem.getSpecialInstructions())
                 .build();
+    }
+
+    @Override
+    public ReorderResponse rebookOrder(Long orderId, Long customerId) {
+        // Ownership is enforced inside reorderFromOrder against the current user.
+        return reorderFromOrder(orderId);
     }
 }

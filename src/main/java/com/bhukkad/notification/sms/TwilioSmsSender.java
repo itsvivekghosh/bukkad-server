@@ -1,8 +1,9 @@
 package com.bhukkad.notification.sms;
 
 import com.bhukkad.config.NotificationProperties;
-import lombok.RequiredArgsConstructor;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -16,16 +17,35 @@ import org.springframework.web.client.RestTemplate;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+/**
+ * Sends SMS via the Twilio REST API behind a circuit breaker.
+ *
+ * <p>Twilio is an external dependency: a slow or failing provider must not stall
+ * the business transaction that triggered the notification. The circuit breaker
+ * opens after repeated failures and the fallback degrades to a WARN log instead
+ * of throwing, mirroring the "fire-and-forget" contract of the notification
+ * pipeline.</p>
+ *
+ * <p>The {@link RestTemplate} is the application-wide configured bean, so the
+ * connect/read timeouts from {@code app.http.*} apply — a hung Twilio call can
+ * no longer block a thread indefinitely.</p>
+ */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.notification.sms.provider", havingValue = "twilio")
 public class TwilioSmsSender implements SmsSender {
 
     private final NotificationProperties notificationProperties;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public TwilioSmsSender(NotificationProperties notificationProperties,
+                           RestTemplate restTemplate) {
+        this.notificationProperties = notificationProperties;
+        this.restTemplate = restTemplate;
+    }
 
     @Override
+    @CircuitBreaker(name = "notificationSms", fallbackMethod = "smsUnavailable")
     public void send(String phoneNumber, String body) {
         if (!StringUtils.hasText(phoneNumber)) {
             log.warn("Skipping SMS — no phone number");
@@ -51,11 +71,18 @@ public class TwilioSmsSender implements SmsSender {
         form.add("From", twilio.getFromNumber());
         form.add("Body", body);
 
-        try {
-            restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
-            log.info("Twilio SMS sent | to={}", phoneNumber);
-        } catch (Exception ex) {
-            log.error("Twilio SMS failed | to={} | error={}", phoneNumber, ex.getMessage());
-        }
+        restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
+        log.info("Twilio SMS sent | to={}", phoneNumber);
+    }
+
+    /**
+     * Circuit-breaker fallback: the notification pipeline is fire-and-forget, so a
+     * failing provider degrades to a WARN instead of propagating the failure to
+     * the business call that triggered it.
+     */
+    @SuppressWarnings("unused")
+    void smsUnavailable(String phoneNumber, String body, Throwable ex) {
+        log.warn("Twilio SMS unavailable (circuit open) | to={} | error={}",
+                phoneNumber, ex.getMessage());
     }
 }

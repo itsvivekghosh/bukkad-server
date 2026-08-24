@@ -22,6 +22,13 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
     @Query("SELECT m FROM MenuItem m " +
             "JOIN FETCH m.category c " +
+            "JOIN FETCH c.restaurant r " +
+            "LEFT JOIN FETCH r.owner " +
+            "WHERE m.id IN :ids")
+    List<MenuItem> findAllByIdsWithDetails(@Param("ids") List<Long> ids);
+
+    @Query("SELECT m FROM MenuItem m " +
+            "JOIN FETCH m.category c " +
             "WHERE c.id = :categoryId AND m.available = true " +
             "ORDER BY m.name")
     List<MenuItem> findByCategoryIdWithDetails(@Param("categoryId") Long categoryId);

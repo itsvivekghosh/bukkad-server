@@ -66,6 +66,8 @@ Local mirror: `.github/deploy-config.env`
 | GHCR pull token | `GHCR_READ_TOKEN` | `GHCR_READ_TOKEN` |
 | JWT expiry (shared) | `JWT_EXPIRATION` | `JWT_EXPIRATION` |
 | JWT refresh (shared) | `JWT_REFRESH_EXPIRATION` | `JWT_REFRESH_EXPIRATION` |
+| SonarCloud token (PR analysis) | `SONAR_TOKEN` | — |
+| NVD API key (OWASP scan) | `NVD_API_KEY` | — |
 
 **RDS endpoints (current):**
 
@@ -85,7 +87,8 @@ Local mirror: `.github/deploy-config.env`
 ### On `feature/*` branches
 
 1. Push code — **Feature CI** runs Build + Test.
-2. Open PR — **Pull Request CI** runs Build + Test plus quality gates (ArchUnit, Pitest, OWASP, CodeQL).
+2. Open PR — **Pull Request CI** runs Build + Test plus quality gates (ArchUnit, Pitest, OWASP, CodeQL,
+   SonarCloud scan + Quality Gate via `SONAR_TOKEN`).
 3. Merge when green.
 
 ### After merge to `deploy` (staging)

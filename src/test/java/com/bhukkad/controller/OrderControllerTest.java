@@ -1,15 +1,20 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.dto.request.OrderRequest;
+import com.bhukkad.dto.request.BatchOrderRequest;
 import com.bhukkad.dto.request.DeliveryProofVerifyRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.BatchOrderResponse;
+import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.DeliveryProofPhotoUploadResponse;
 import com.bhukkad.dto.response.DeliveryProofResponse;
+import com.bhukkad.dto.response.OrderCreateJobResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.dto.response.OrderSummaryResponse;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.entity.Order;
 import com.bhukkad.delivery.DeliveryProofService;
+import com.bhukkad.exception.BusinessException;
 import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.fraud.FraudEventTypes;
 import com.bhukkad.order.AsyncOrderCreateService;
@@ -18,6 +23,7 @@ import com.bhukkad.dto.response.ReorderResponse;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CartService;
 import com.bhukkad.service.OrderService;
+import com.bhukkad.util.PaginationUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -27,7 +33,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.json.MappingJacksonValue;
 
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -328,5 +338,218 @@ public class OrderControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(proof, response.getBody().getData());
+    }
+
+    @Test
+    void createOrder_async_returnsAcceptedJob() {
+        OrderRequest request = new OrderRequest();
+        OrderCreateJobResponse job = OrderCreateJobResponse.builder()
+                .jobId("job-123")
+                .status("PROCESSING")
+                .build();
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(orderCreateJobService.createJob("idem-1")).thenReturn("job-123");
+        when(orderCreateJobService.getJob("job-123")).thenReturn(job);
+
+        ResponseEntity<ApiResponse<?>> response =
+                orderController.createOrder(request, "idem-1", true);
+
+        assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
+        assertEquals("Order accepted for processing", response.getBody().getMessage());
+        assertEquals(job, response.getBody().getData());
+        verify(asyncOrderCreateService).processOrderCreate("job-123", request, "idem-1");
+        verify(orderService, never()).createOrder(any(), any());
+    }
+
+    @Test
+    void getMyScheduledOrders_returnsPagedList() {
+        PagedResponse<OrderSummaryResponse> orders = PagedResponse.from(
+                new org.springframework.data.domain.PageImpl<>(List.of(new OrderSummaryResponse())));
+        when(orderService.getCustomerScheduledOrders(1, 10)).thenReturn(orders);
+
+        ResponseEntity<ApiResponse<PagedResponse<OrderSummaryResponse>>> response =
+                orderController.getMyScheduledOrders(1, 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(orders, response.getBody().getData());
+    }
+
+    @Test
+    void getMyScheduledOrdersByCursor_returnsCursorPagedList() {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                CursorPagedResponse.of(List.of(new OrderSummaryResponse()), "next", true);
+        when(orderService.getCustomerScheduledOrdersByCursor("abc", 10)).thenReturn(orders);
+
+        ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> response =
+                orderController.getMyScheduledOrdersByCursor("abc", 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(orders, response.getBody().getData());
+    }
+
+    @Test
+    void cancelScheduledOrder_returnsCancelledOrder() {
+        OrderResponse order = new OrderResponse();
+        when(orderService.cancelScheduledOrder(11L, "changed plan")).thenReturn(order);
+
+        ResponseEntity<ApiResponse<OrderResponse>> response =
+                orderController.cancelScheduledOrder(11L, "changed plan");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Scheduled order cancelled successfully", response.getBody().getMessage());
+        assertEquals(order, response.getBody().getData());
+    }
+
+    @Test
+    void createBatchOrders_returnsBatchResponse() {
+        BatchOrderRequest request = new BatchOrderRequest();
+        BatchOrderResponse batchResponse = BatchOrderResponse.builder().successCount(2).build();
+        when(orderService.createBatchOrders(request, "idem-2")).thenReturn(batchResponse);
+
+        ResponseEntity<ApiResponse<BatchOrderResponse>> response =
+                orderController.createBatchOrders(request, "idem-2");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Batch orders processed", response.getBody().getMessage());
+        assertEquals(batchResponse, response.getBody().getData());
+    }
+
+    @Test
+    void getCreateOrderJob_returnsJob() {
+        OrderCreateJobResponse job = OrderCreateJobResponse.builder().jobId("job-123").build();
+        when(orderCreateJobService.getJob("job-123")).thenReturn(job);
+
+        ResponseEntity<ApiResponse<OrderCreateJobResponse>> response =
+                orderController.getCreateOrderJob("job-123");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(job, response.getBody().getData());
+    }
+
+    @Test
+    void getMyOrdersByCursor_returnsCursorPagedList() {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                CursorPagedResponse.of(List.of(new OrderSummaryResponse()), "next-cursor", true);
+        when(orderService.getCustomerOrdersByCursor("cursor-1", 10)).thenReturn(orders);
+
+        ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> response =
+                orderController.getMyOrdersByCursor("cursor-1", 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(orders, response.getBody().getData());
+    }
+
+    @Test
+    void exportOrderHistory_returnsCsv() {
+        OrderSummaryResponse order = new OrderSummaryResponse();
+        order.setOrderNumber("ORD-1");
+        order.setCustomerName("Amit");
+        order.setRestaurantName("Dhaba");
+        order.setStatus("DELIVERED");
+        order.setTotalAmount(500.0);
+        order.setCreatedAt(LocalDateTime.of(2025, 1, 1, 10, 0));
+        PagedResponse<OrderSummaryResponse> paged = PagedResponse.from(
+                new org.springframework.data.domain.PageImpl<>(List.of(order)));
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(orderService.getCustomerOrders(0, 50)).thenReturn(paged);
+
+        ResponseEntity<byte[]> response = orderController.exportOrderHistory(0, 50);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        String csv = new String(response.getBody(), StandardCharsets.UTF_8);
+        assertTrue(csv.startsWith("Order Number,Customer,Restaurant,Status,Total,Date\n"));
+        assertTrue(csv.contains("ORD-1,Amit,Dhaba,DELIVERED,500.0,"));
+        assertEquals("bhukkad-orders-" + LocalDate.now() + ".csv",
+                response.getHeaders().getContentDisposition().getFilename());
+        assertEquals("text/csv;charset=UTF-8",
+                response.getHeaders().getContentType().toString());
+    }
+
+    @Test
+    void exportOrderHistory_emptyList_returnsHeaderOnlyCsv() {
+        PagedResponse<OrderSummaryResponse> paged = PagedResponse.from(
+                new org.springframework.data.domain.PageImpl<>(List.of()));
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(orderService.getCustomerOrders(0, 50)).thenReturn(paged);
+
+        ResponseEntity<byte[]> response = orderController.exportOrderHistory(0, 50);
+
+        String csv = new String(response.getBody(), StandardCharsets.UTF_8);
+        assertEquals("Order Number,Customer,Restaurant,Status,Total,Date\n", csv);
+    }
+
+    @Test
+    void getRestaurantOrdersByCursor_returnsCursorPagedList() {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                CursorPagedResponse.of(List.of(new OrderSummaryResponse()), "next", true);
+        when(orderService.getRestaurantOrdersByCursor(7L, "cur", 10)).thenReturn(orders);
+
+        ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> response =
+                orderController.getRestaurantOrdersByCursor(7L, "cur", 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(orders, response.getBody().getData());
+    }
+
+    @Test
+    void getMyDeliveriesByCursor_returnsCursorPagedList() {
+        CursorPagedResponse<OrderSummaryResponse> orders =
+                CursorPagedResponse.of(List.of(new OrderSummaryResponse()), "next", true);
+        when(orderService.getDeliveryAgentOrdersByCursor(null, "cur", 10)).thenReturn(orders);
+
+        ResponseEntity<ApiResponse<CursorPagedResponse<OrderSummaryResponse>>> response =
+                orderController.getMyDeliveriesByCursor("cur", 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(orders, response.getBody().getData());
+        verify(orderService).getDeliveryAgentOrdersByCursor(null, "cur", 10);
+    }
+
+    @Test
+    void getOrdersByIds_nullIds_returnsEmptyMap() {
+        ResponseEntity<ApiResponse<Map<Long, OrderResponse>>> response =
+                orderController.getOrdersByIds(null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody().getData());
+        assertTrue(response.getBody().getData().isEmpty());
+        verify(orderService, never()).getOrdersByIds(any());
+    }
+
+    @Test
+    void getOrdersByIds_emptyIds_returnsEmptyMap() {
+        ResponseEntity<ApiResponse<Map<Long, OrderResponse>>> response =
+                orderController.getOrdersByIds(List.of());
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().getData().isEmpty());
+        verify(orderService, never()).getOrdersByIds(any());
+    }
+
+    @Test
+    void getOrdersByIds_returnsMappedOrders() {
+        Map<Long, OrderResponse> orders = Map.of(1L, new OrderResponse());
+        when(orderService.getOrdersByIds(List.of(1L, 2L))).thenReturn(orders);
+
+        ResponseEntity<ApiResponse<Map<Long, OrderResponse>>> response =
+                orderController.getOrdersByIds(List.of(1L, 2L));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(orders, response.getBody().getData());
+    }
+
+    @Test
+    void getOrdersByIds_tooManyIds_throwsBusinessException() {
+        List<Long> tooMany = new java.util.ArrayList<>();
+        for (long i = 0; i <= PaginationUtils.MAX_PAGE_SIZE; i++) {
+            tooMany.add(i);
+        }
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> orderController.getOrdersByIds(tooMany));
+
+        assertTrue(ex.getMessage().contains("Too many ids in batch request"));
+        verify(orderService, never()).getOrdersByIds(any());
     }
 }

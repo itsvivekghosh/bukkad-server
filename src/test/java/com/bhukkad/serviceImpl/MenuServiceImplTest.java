@@ -3,13 +3,16 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.cache.CacheKeyGenerator;
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.dto.request.MenuCategoryRequest;
+import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
 import com.bhukkad.dto.response.MenuCategoryResponse;
+import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
+import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.mapper.MenuItemMapper;
@@ -18,6 +21,7 @@ import com.bhukkad.storage.MenuImageService;
 import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.RestaurantRepository;
+import com.bhukkad.search.AutocompleteService;
 import com.bhukkad.security.SecurityUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +47,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -75,6 +80,8 @@ class MenuServiceImplTest {
     private com.bhukkad.inventory.StockReservationService stockReservationService;
     @Mock
     private com.bhukkad.repository.OrderItemRepository orderItemRepository;
+    @Mock
+    private AutocompleteService autocompleteService;
 
     @InjectMocks
     private MenuServiceImpl menuService;
@@ -143,6 +150,11 @@ class MenuServiceImplTest {
                     .ingredients(ingredients)
                     .build();
         });
+
+        // MenuServiceImpl chains resolveImageUrls after toResponse; return the
+        // already-populated response unchanged (imageUrl is set by the stub above).
+        lenient().when(menuItemMapper.resolveImageUrls(any(MenuItem.class), any(MenuItemResponse.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
 
         lenient().when(cacheService.getListOrCompute(anyString(), any(Class.class), anyLong(), any()))
                 .thenAnswer(invocation -> {
@@ -494,6 +506,7 @@ class MenuServiceImplTest {
         when(cacheService.getList(CacheKeyGenerator.menuSearch("naan"), MenuItemResponse.class))
                 .thenReturn(Optional.empty());
         when(menuItemRepository.searchByNameWithDetails("Naan")).thenReturn(List.of(fullMenuItem(1L)));
+        when(menuItemRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(fullMenuItem(1L)));
 
         List<MenuItemResponse> result = menuService.searchMenuItems("Naan");
         assertEquals(1, result.size());
@@ -638,6 +651,222 @@ class MenuServiceImplTest {
         UnauthorizedException ex = assertThrows(UnauthorizedException.class,
                 () -> menuService.createCategory(1L, categoryRequest("X", "Y", 1, true)));
         assertEquals("token expired", ex.getMessage());
+    }
+
+    @Test
+    void deleteCategory_hasItems_throwsBusinessException() {
+        MenuCategory category = category(2L, "Starters", restaurant(1L, 9L));
+        when(menuCategoryRepository.findByIdWithRestaurant(2L)).thenReturn(Optional.of(category));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(menuItemRepository.countByCategoryId(2L)).thenReturn(3);
+
+        assertThrows(BusinessException.class, () -> menuService.deleteCategory(2L));
+    }
+
+    @Test
+    void deleteCategory_dataAccessException_throwsBusinessException() {
+        MenuCategory category = category(2L, "Starters", restaurant(1L, 9L));
+        when(menuCategoryRepository.findByIdWithRestaurant(2L)).thenReturn(Optional.of(category));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(menuItemRepository.countByCategoryId(2L)).thenReturn(0);
+        doThrow(new org.springframework.dao.DataIntegrityViolationException("fk"))
+                .when(menuCategoryRepository).delete(category);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> menuService.deleteCategory(2L));
+        assertTrue(ex.getMessage().contains("Cannot delete category due to dependencies"));
+    }
+
+    @Test
+    void deleteMenuItem_hasOrderItems_throwsBusinessException() {
+        MenuItem item = fullMenuItem(1L);
+        when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(orderItemRepository.countByMenuItemId(1L)).thenReturn(2L);
+
+        assertThrows(BusinessException.class, () -> menuService.deleteMenuItem(1L));
+    }
+
+    @Test
+    void deleteMenuItem_dataAccessException_throwsBusinessException() {
+        MenuItem item = fullMenuItem(1L);
+        when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(orderItemRepository.countByMenuItemId(1L)).thenReturn(0L);
+        doThrow(new org.springframework.dao.DataIntegrityViolationException("fk"))
+                .when(menuItemRepository).delete(item);
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> menuService.deleteMenuItem(1L));
+        assertTrue(ex.getMessage().contains("Cannot delete menu item due to dependencies"));
+    }
+
+    @Test
+    void toggleItemAvailability_nullCategory_throws() {
+        MenuItem item = fullMenuItem(1L);
+        item.setCategory(null);
+        when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
+                () -> menuService.toggleItemAvailability(1L, true));
+        assertEquals("Menu item category not found", ex.getMessage());
+    }
+
+    @Test
+    void toggleItemAvailability_nullRestaurant_throws() {
+        MenuItem item = fullMenuItem(1L);
+        item.getCategory().setRestaurant(null);
+        when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
+                () -> menuService.toggleItemAvailability(1L, true));
+        assertEquals("Restaurant not found for menu item", ex.getMessage());
+    }
+
+    @Test
+    void searchMenuItems_fullTextHits_returnsItems() {
+        when(cacheService.getList(CacheKeyGenerator.menuSearch("naan"), MenuItemResponse.class))
+                .thenReturn(Optional.empty());
+        when(menuItemRepository.fullTextSearch("Naan")).thenReturn(List.of(fullMenuItem(1L)));
+        when(menuItemRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(fullMenuItem(1L)));
+
+        List<MenuItemResponse> result = menuService.searchMenuItems("Naan");
+
+        assertEquals(1, result.size());
+        verify(menuItemRepository).fullTextSearch("Naan");
+    }
+
+    @Test
+    void searchMenuItems_fullTextThrows_fallsBackToNameSearch() {
+        when(cacheService.getList(CacheKeyGenerator.menuSearch("naan"), MenuItemResponse.class))
+                .thenReturn(Optional.empty());
+        when(menuItemRepository.fullTextSearch("Naan")).thenThrow(new RuntimeException("fts down"));
+        when(menuItemRepository.searchByNameWithDetails("Naan")).thenReturn(List.of(fullMenuItem(1L)));
+        when(menuItemRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(fullMenuItem(1L)));
+
+        List<MenuItemResponse> result = menuService.searchMenuItems("Naan");
+
+        assertEquals(1, result.size());
+        verify(menuItemRepository).searchByNameWithDetails("Naan");
+    }
+
+    @Test
+    void searchMenuItems_emptyResults_returnsEmptyList() {
+        when(cacheService.getList(CacheKeyGenerator.menuSearch("zzz"), MenuItemResponse.class))
+                .thenReturn(Optional.empty());
+        when(menuItemRepository.fullTextSearch("zzz")).thenReturn(List.of());
+        when(menuItemRepository.searchByNameWithDetails("zzz")).thenReturn(List.of());
+
+        List<MenuItemResponse> result = menuService.searchMenuItems("zzz");
+
+        assertTrue(result.isEmpty());
+        verify(menuItemRepository, never()).findAllByIdsWithDetails(any());
+    }
+
+    @Test
+    void createMenuItem_withImageKey_validatesAndSets() {
+        MenuCategory category = category(2L, "Mains", restaurant(1L, 9L));
+        when(menuCategoryRepository.findByIdWithRestaurant(2L)).thenReturn(Optional.of(category));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(menuItemRepository.save(any(MenuItem.class))).thenAnswer(inv -> {
+            MenuItem saved = inv.getArgument(0);
+            saved.setId(12L);
+            return saved;
+        });
+
+        MenuItemRequest request = new MenuItemRequest();
+        request.setCategoryId(2L);
+        request.setPrice(100.0);
+        request.setImageKey("uploads/rest-1/item-12.png");
+        menuService.createMenuItem(request);
+
+        verify(menuImageService).validateImageKey("uploads/rest-1/item-12.png");
+        ArgumentCaptor<MenuItem> captor = ArgumentCaptor.forClass(MenuItem.class);
+        verify(menuItemRepository).save(captor.capture());
+        assertEquals("uploads/rest-1/item-12.png", captor.getValue().getImageUrl());
+    }
+
+    @Test
+    void updateMenuItem_s3EnabledRawImageUrl_throws() {
+        MenuItem item = fullMenuItem(1L);
+        when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(imageStorageProperties.isEnabled()).thenReturn(true);
+
+        MenuItemRequest request = new MenuItemRequest();
+        request.setImageUrl("http://cdn.example.com/img.png");
+
+        assertThrows(BusinessException.class, () -> menuService.updateMenuItem(1L, request));
+    }
+
+    @Test
+    void getLowStockItems_mapsResponse() {
+        Restaurant restaurant = restaurant(1L, 9L);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(inventoryProperties.getLowStockThreshold()).thenReturn(10);
+        when(menuItemRepository.findLowStockByRestaurant(1L, 10)).thenReturn(List.of(fullMenuItem(1L)));
+
+        List<MenuItemResponse> result = menuService.getLowStockItems(1L, null);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void getLowStockItems_restaurantNotFound_throws() {
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.empty());
+        assertThrows(ResourceNotFoundException.class, () -> menuService.getLowStockItems(1L, 5));
+    }
+
+    @Test
+    void createMenuItemImageUploadUrl_buildsResponse() {
+        MenuItem item = fullMenuItem(1L);
+        when(menuItemRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(item));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+        when(menuImageService.generateImageKey(1L, 1L, "image/png")).thenReturn("key.png");
+        when(menuImageService.createUploadUrl("key.png", "image/png")).thenReturn("https://s3.example.com/key.png");
+        when(imageStorageProperties.getUploadUrlExpirySeconds()).thenReturn(900L);
+
+        MenuImageUploadRequest request = new MenuImageUploadRequest();
+        request.setContentType("image/png");
+        var response = menuService.createMenuItemImageUploadUrl(1L, request);
+
+        assertEquals("https://s3.example.com/key.png", response.getUploadUrl());
+        assertEquals("key.png", response.getImageKey());
+        assertEquals(900, response.getExpiresInSeconds());
+    }
+
+    @Test
+    void filterMenuItemsByDiet_appliesAllFilters() {
+        MenuItem vegItem = fullMenuItem(1L);
+        vegItem.setFoodType(MenuItem.FoodType.VEG);
+        vegItem.setSpiceLevel(MenuItem.SpiceLevel.MILD);
+        vegItem.setAllergens(new HashSet<>(Set.of("sesame")));
+        MenuItem spicyItem = fullMenuItem(2L);
+        spicyItem.setId(2L);
+        spicyItem.setFoodType(MenuItem.FoodType.VEG);
+        spicyItem.setSpiceLevel(MenuItem.SpiceLevel.HOT);
+        spicyItem.setAllergens(new HashSet<>(Set.of("peanuts")));
+        when(cacheService.getList(CacheKeyGenerator.menuItemsByDiet(1L, MenuItem.FoodType.VEG,
+                Set.of("nuts"), MenuItem.SpiceLevel.MEDIUM), MenuItemResponse.class))
+                .thenReturn(Optional.empty());
+        when(menuItemRepository.findByRestaurantIdWithDetails(1L)).thenReturn(List.of(vegItem, spicyItem));
+
+        List<MenuItemResponse> result = menuService.filterMenuItemsByDiet(
+                1L, MenuItem.FoodType.VEG, Set.of("nuts"), MenuItem.SpiceLevel.MEDIUM);
+
+        assertEquals(1, result.size());
+        assertEquals("Biryani", result.get(0).getName());
+    }
+
+    @Test
+    void filterMenuItemsByDiet_nullFilters_keepsEverything() {
+        MenuItem item = fullMenuItem(1L);
+        when(cacheService.getList(CacheKeyGenerator.menuItemsByDiet(1L, null, null, null), MenuItemResponse.class))
+                .thenReturn(Optional.empty());
+        when(menuItemRepository.findByRestaurantIdWithDetails(1L)).thenReturn(List.of(item));
+
+        List<MenuItemResponse> result = menuService.filterMenuItemsByDiet(1L, null, null, null);
+
+        assertEquals(1, result.size());
     }
 
     private MenuCategoryRequest categoryRequest(String name, String description, Integer order, Boolean active) {

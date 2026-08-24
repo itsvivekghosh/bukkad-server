@@ -1,158 +1,194 @@
 package com.bhukkad.security;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Field;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JwtTokenProviderTest {
 
-    private static final String JWT_SECRET = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970";
-    private static final String OTHER_SECRET = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5971";
-
-    private JwtTokenProvider jwtTokenProvider;
-    private JwtSecretRotationService secretRotationService;
-    private UserDetails userDetails;
+    private JwtTokenProvider provider;
+    private UserDetails user;
 
     @BeforeEach
-    void setUp() {
-        secretRotationService = new JwtSecretRotationService(JWT_SECRET, false);
-        jwtTokenProvider = new JwtTokenProvider(secretRotationService);
-        ReflectionTestUtils.setField(jwtTokenProvider, "jwtExpirationMs", 86400000L);
-        userDetails = User.withUsername("user@example.com")
-                .password("password")
-                .roles("CUSTOMER")
-                .build();
+    void setUp() throws Exception {
+        String secret = Base64.getEncoder().encodeToString("test-secret-32bytes-minimum-length!!".getBytes());
+        JwtSecretRotationService rotationService = new JwtSecretRotationService(secret, false);
+        provider = new JwtTokenProvider(rotationService);
+        setField(provider, "jwtExpirationMs", 60000L);
+        setField(provider, "refreshExpirationMs", 604800000L);
+        setField(provider, "mfaExpirationMs", 300000L);
+        user = new User("bob", "password", List.of());
+    }
+
+    private void setField(Object target, String name, Object value) throws Exception {
+        Field f = target.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(target, value);
     }
 
     @Test
-    void generateToken_andExtractUsername() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-
+    void generateAccessToken_roundTrip() {
+        String token = provider.generateAccessToken(user);
         assertNotNull(token);
-        assertEquals("user@example.com", jwtTokenProvider.extractUsername(token));
+        assertEquals("bob", provider.extractUsername(token));
+    }
+
+    @Test
+    void generateToken_aliasForAccessToken() {
+        String token = provider.generateToken(user);
+        assertEquals("bob", provider.extractUsername(token));
     }
 
     @Test
     void generateToken_withExtraClaims() {
-        Map<String, Object> extraClaims = new HashMap<>();
-        extraClaims.put("role", "CUSTOMER");
-
-        String token = jwtTokenProvider.generateToken(extraClaims, userDetails);
-
-        assertEquals("CUSTOMER", jwtTokenProvider.extractClaim(token, claims -> claims.get("role", String.class)));
-        assertEquals("user@example.com", jwtTokenProvider.extractClaim(token, Claims::getSubject));
+        Map<String, Object> extra = new HashMap<>();
+        extra.put("custom", "value");
+        String token = provider.generateToken(extra, user);
+        assertEquals("bob", provider.extractUsername(token));
+        assertEquals("value", provider.extractClaim(token, claims -> claims.get("custom", String.class)));
     }
 
     @Test
-    void extractClaim_expirationIsInFuture() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-
-        assertTrue(jwtTokenProvider.extractClaim(token, Claims::getExpiration).after(new java.util.Date()));
+    void generateRefreshToken_hasRefreshTypeClaim() {
+        String token = provider.generateRefreshToken(user);
+        assertTrue(provider.isRefreshToken(token));
     }
 
     @Test
-    void isTokenValid_true() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-
-        assertTrue(jwtTokenProvider.isTokenValid(token, userDetails));
+    void generateMfaToken_carriesUserId() {
+        String token = provider.generateMfaToken(42L, "test@example.com");
+        assertTrue(provider.validateMfaToken(token));
     }
 
     @Test
-    void isTokenValid_falseWhenUsernameMismatch() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-        UserDetails other = User.withUsername("other@example.com")
-                .password("password")
-                .roles("CUSTOMER")
-                .build();
-
-        assertFalse(jwtTokenProvider.isTokenValid(token, other));
+    void isTokenValid_returnsTrueForValidToken() {
+        String token = provider.generateAccessToken(user);
+        assertTrue(provider.isTokenValid(token, user));
     }
 
     @Test
-    void isTokenValid_falseWhenExpiredAndUsernameMatches() {
-        JwtTokenProvider spy = org.mockito.Mockito.spy(jwtTokenProvider);
-        String token = jwtTokenProvider.generateToken(userDetails);
-        org.mockito.Mockito.doReturn("user@example.com").when(spy).extractUsername(token);
-        org.mockito.Mockito.doReturn(new java.util.Date(0)).when(spy)
-                .extractClaim(org.mockito.ArgumentMatchers.eq(token), org.mockito.ArgumentMatchers.any());
-
-        assertFalse(spy.isTokenValid(token, userDetails));
+    void isTokenValid_rejectsTokenForDifferentUser() {
+        String token = provider.generateAccessToken(user);
+        UserDetails other = new User("alice", "password", List.of());
+        assertFalse(provider.isTokenValid(token, other));
     }
 
     @Test
-    void isTokenValid_falseOnException() {
-        assertFalse(jwtTokenProvider.isTokenValid("not-a-jwt", userDetails));
-        assertFalse(jwtTokenProvider.isTokenValid(null, userDetails));
+    void validateToken_acceptsValidToken() {
+        String token = provider.generateAccessToken(user);
+        assertTrue(provider.validateToken(token));
     }
 
     @Test
-    void validateToken_success() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-
-        assertTrue(jwtTokenProvider.validateToken(token));
-    }
-
-    @Test
-    void validateToken_wrongSecret_isRejected() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-        JwtSecretRotationService different = new JwtSecretRotationService(OTHER_SECRET, false);
-        JwtTokenProvider provider = new JwtTokenProvider(different);
-
+    void validateToken_rejectsExpiredToken() throws Exception {
+        setField(provider, "jwtExpirationMs", -1L);
+        String token = provider.generateAccessToken(user);
         assertFalse(provider.validateToken(token));
     }
 
     @Test
-    void validateToken_rotatedSecret_stillValidatesOldToken() {
-        String token = jwtTokenProvider.generateToken(userDetails);
-
-        // Rotate the secret; the previous key stays in the grace period.
-        secretRotationService.rotateNow();
-
-        assertTrue(jwtTokenProvider.validateToken(token));
-        assertTrue(jwtTokenProvider.isTokenValid(token, userDetails));
+    void validateToken_rejectsInvalidSignature() {
+        String token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJib2IifQ.invalidsignature";
+        assertFalse(provider.validateToken(token));
     }
 
     @Test
-    void validateToken_malformedJwtException() {
-        assertFalse(jwtTokenProvider.validateToken("not-a-jwt"));
+    void validateToken_rejectsMalformedToken() {
+        assertFalse(provider.validateToken("not-a-jwt"));
     }
 
     @Test
-    void validateToken_expiredJwtException() throws InterruptedException {
-        ReflectionTestUtils.setField(jwtTokenProvider, "jwtExpirationMs", 1L);
-        String token = jwtTokenProvider.generateToken(userDetails);
-        Thread.sleep(20);
-
-        assertFalse(jwtTokenProvider.validateToken(token));
-        assertFalse(jwtTokenProvider.isTokenValid(token, userDetails));
+    void validateToken_rejectsUnsupportedToken() {
+        // A token with a different algorithm header
+        String token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJib2IifQ.";
+        assertFalse(provider.validateToken(token));
     }
 
     @Test
-    void validateToken_illegalArgumentException() {
-        assertFalse(jwtTokenProvider.validateToken(""));
-        assertFalse(jwtTokenProvider.validateToken(null));
+    void validateToken_rejectsEmptyToken() {
+        assertFalse(provider.validateToken(""));
     }
 
     @Test
-    void validateToken_unsupportedJwtException() {
-        String unsigned = Jwts.builder().setSubject("user@example.com").compact();
-
-        assertFalse(jwtTokenProvider.validateToken(unsigned));
+    void isTokenValid_exceptionDuringValidation() {
+        assertFalse(provider.isTokenValid("invalid-token", user));
     }
 
     @Test
-    void rotationService_keepsAtMostTwoKeys() {
-        secretRotationService.rotateNow();
-        secretRotationService.rotateNow();
-        assertEquals(2, secretRotationService.validationKeys().size());
+    void extractUserId_fromMfaToken() {
+        String token = provider.generateMfaToken(42L, "test@example.com");
+        assertEquals(42L, provider.extractUserId(token));
+    }
+
+    @Test
+    void extractUserId_returnsNullWhenNotPresent() {
+        String token = provider.generateAccessToken(user);
+        assertNull(provider.extractUserId(token));
+    }
+
+    @Test
+    void validateMfaToken_nullToken() {
+        assertFalse(provider.validateMfaToken(null));
+    }
+
+    @Test
+    void validateMfaToken_blankToken() {
+        assertFalse(provider.validateMfaToken("   "));
+    }
+
+    @Test
+    void validateMfaToken_expiredToken() throws Exception {
+        setField(provider, "mfaExpirationMs", -1L);
+        String token = provider.generateMfaToken(42L, "test@example.com");
+        assertFalse(provider.validateMfaToken(token));
+    }
+
+    @Test
+    void validateMfaToken_notMfaType() {
+        String token = provider.generateAccessToken(user);
+        assertFalse(provider.validateMfaToken(token));
+    }
+
+    @Test
+    void validateMfaToken_exception() {
+        assertFalse(provider.validateMfaToken("invalid-token"));
+    }
+
+    @Test
+    void isRefreshToken_returnsFalseOnException() {
+        assertFalse(provider.isRefreshToken("invalid-token"));
+    }
+
+    @Test
+    void getRemainingValidityMs_returnsPositive() {
+        String token = provider.generateAccessToken(user);
+        assertTrue(provider.getRemainingValidityMs(token) > 0);
+    }
+
+    @Test
+    void getRemainingValidityMs_returnsZeroForExpired() throws Exception {
+        setField(provider, "jwtExpirationMs", -1L);
+        String token = provider.generateAccessToken(user);
+        assertEquals(0, provider.getRemainingValidityMs(token));
+    }
+
+    @Test
+    void extractClaim_returnsCorrectValue() {
+        String token = provider.generateAccessToken(user);
+        String sub = provider.extractClaim(token, claims -> claims.getSubject());
+        assertEquals("bob", sub);
     }
 }

@@ -16,6 +16,16 @@ type Query {
     # Customer order detail. Resolver reuses OrderService.getOrderById so
     # ownership checks and existing 401/404 paths still apply.
     order(id: ID!): Order
+
+    # Public menu listing for one restaurant (same cached service as REST).
+    menuItems(restaurantId: ID!): [MenuItem!]!
+
+    # Public restaurant info.
+    restaurant(id: ID!): Restaurant
+
+    # Authenticated caller's own profile. Returns null when unauthenticated —
+    # per-query auth mirrors the order(id) pattern.
+    me: Me
 }
 
 # Section the home feed is composed of. The REST endpoint returns the same
@@ -65,4 +75,43 @@ type Order {
     taxAmount: Float
     tipAmount: Float
     createdAt: String
+}
+
+type MenuItem {
+    id: ID!
+    name: String!
+    description: String
+    categoryName: String
+    price: Float!
+    discountPercentage: Float
+    available: Boolean
+    isVeg: Boolean
+    imageUrl: String
+    preparationTime: Int
+    bestseller: Boolean
+    recommended: Boolean
+}
+
+type Restaurant {
+    id: ID!
+    name: String!
+    description: String
+    cuisines: [String!]
+    imageUrl: String
+    isOpen: Boolean
+    averageRating: Float
+    totalReviews: Int
+    averageDeliveryTime: Int
+    minimumOrderAmount: Float
+    deliveryFee: Float
+    isPureVeg: Boolean
+}
+
+# The authenticated caller's own profile (never another user's).
+type Me {
+    id: ID!
+    email: String!
+    fullName: String
+    role: String!
+    emailVerified: Boolean
 }

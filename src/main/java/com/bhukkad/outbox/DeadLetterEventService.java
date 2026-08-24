@@ -87,4 +87,55 @@ public class DeadLetterEventService {
     public long countPending() {
         return deadLetterEventRepository.countByStatus(DeadLetterEvent.DlqStatus.PENDING);
     }
+
+    // ==================== ADMIN (DLQ inspection / replay) ====================
+
+    /**
+     * Returns the most recent dead-letter events (newest first) for the admin
+     * DLQ panel. Payloads are included so operators can inspect the message.
+     */
+    @Transactional(readOnly = true)
+    public List<DeadLetterEvent> listRecent(int limit) {
+        return deadLetterEventRepository.findAllOrderByCreatedAtDesc(
+                PageRequest.of(0, Math.min(Math.max(limit, 1), 100)));
+    }
+
+    /**
+     * Returns a single dead-letter event by id, or throws if it does not exist.
+     */
+    @Transactional(readOnly = true)
+    public DeadLetterEvent getById(Long id) {
+        return deadLetterEventRepository.findById(id)
+                .orElseThrow(() -> new com.bhukkad.exception.ResourceNotFoundException(
+                        "Dead-letter event not found: " + id));
+    }
+
+    /**
+     * Requeues a single dead-letter event back into the outbox so the polling
+     * processor retries it. Returns the requeued event. Idempotent: re-requeuing
+     * an already-requeued event is a no-op returning the current row.
+     */
+    @Transactional
+    public DeadLetterEvent requeueOne(Long id) {
+        DeadLetterEvent deadLetter = getById(id);
+        if (deadLetter.getStatus() == DeadLetterEvent.DlqStatus.REQUEUED) {
+            log.info("OUTBOX_DLQ_ALREADY_REQUEUED | id={}", id);
+            return deadLetter;
+        }
+        OutboxEvent event = new OutboxEvent();
+        event.setEventType(deadLetter.getEventType());
+        event.setAggregateType(deadLetter.getAggregateType());
+        event.setAggregateId(deadLetter.getAggregateId());
+        event.setPayload(deadLetter.getPayload());
+        event.setStatus(OutboxEvent.OutboxStatus.PENDING);
+        event.setRetryCount(0);
+        outboxEventRepository.save(event);
+        deadLetterEventRepository.markRequeued(
+                deadLetter.getId(), DeadLetterEvent.DlqStatus.REQUEUED, LocalDateTime.now());
+        deadLetter.setStatus(DeadLetterEvent.DlqStatus.REQUEUED);
+        deadLetter.setRequeuedAt(LocalDateTime.now());
+        log.info("OUTBOX_DLQ_REQUEUED_ONE | id={} | type={} | aggregateId={}",
+                id, deadLetter.getEventType(), deadLetter.getAggregateId());
+        return deadLetter;
+    }
 }

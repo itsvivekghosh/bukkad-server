@@ -26,6 +26,7 @@ public class RiderDispatchService {
     private final OrderRepository orderRepository;
     private final OrderEventPublisher orderEventPublisher;
     private final OrderCacheService orderCacheService;
+    private final RoadDistanceService roadDistanceService;
 
     @Transactional
     public Optional<Order> autoAssignNearestRider(Order order) {
@@ -74,13 +75,15 @@ public class RiderDispatchService {
         return deliveryAgentRepository.findAvailableAgents().stream()
                 .filter(agent -> excludedAgentIds == null || !excludedAgentIds.contains(agent.getId()))
                 .filter(agent -> agent.getCurrentLatitude() != null && agent.getCurrentLongitude() != null)
+                // Feasibility + nearest-rider selection use road distance when OSRM is
+                // configured, straight-line haversine otherwise (graceful degradation).
                 .filter(agent -> DistanceCalculator.isDeliveryPossible(
-                        DistanceCalculator.calculateDistance(
+                        roadDistanceService.route(
                                 latitude, longitude,
-                                agent.getCurrentLatitude(), agent.getCurrentLongitude())))
-                .min(Comparator.comparingDouble(agent -> DistanceCalculator.calculateDistance(
+                                agent.getCurrentLatitude(), agent.getCurrentLongitude()).distanceKm()))
+                .min(Comparator.comparingDouble(agent -> roadDistanceService.route(
                         latitude, longitude,
-                        agent.getCurrentLatitude(), agent.getCurrentLongitude())))
+                        agent.getCurrentLatitude(), agent.getCurrentLongitude()).distanceKm()))
                 .orElse(null);
     }
 

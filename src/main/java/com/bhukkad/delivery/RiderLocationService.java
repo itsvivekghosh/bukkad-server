@@ -28,6 +28,7 @@ public class RiderLocationService {
     private final OrderRepository orderRepository;
     private final DeliveryAgentRepository deliveryAgentRepository;
     private final OrderEtaService orderEtaService;
+    private final com.bhukkad.live.OrderLiveUpdateBroadcaster orderLiveUpdateBroadcaster;
 
     /**
      * Records a rider location update, syncs agent GPS, and recalculates live ETA.
@@ -56,6 +57,15 @@ public class RiderLocationService {
 
         orderEtaService.applyLiveEta(order);
         orderRepository.save(order);
+
+        // Stream the GPS snapshot to the customer's live order topic (live map).
+        orderLiveUpdateBroadcaster.broadcastRiderLocation(
+                order.getId(),
+                order.getCustomer() != null ? order.getCustomer().getId() : null,
+                order.getRestaurant() != null ? order.getRestaurant().getId() : null,
+                agent.getId(),
+                request.getLatitude(),
+                request.getLongitude());
 
         return toResponse(update);
     }

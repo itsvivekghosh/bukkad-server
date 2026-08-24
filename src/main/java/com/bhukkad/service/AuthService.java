@@ -13,4 +13,13 @@ public interface AuthService {
     AuthResponse refreshToken(String token);
     void changePassword(String token, String oldPassword, String newPassword);
     void logout(String token);
+
+    /**
+     * Verifies a TOTP code passed during login and issues the full token pair.
+     *
+     * @param mfaToken  short-lived token from the initial login response
+     * @param totpCode  6-digit code from the authenticator app
+     * @return the full AuthResponse with access/refresh tokens
+     */
+    AuthResponse verifyMfaLogin(String mfaToken, String totpCode);
 }

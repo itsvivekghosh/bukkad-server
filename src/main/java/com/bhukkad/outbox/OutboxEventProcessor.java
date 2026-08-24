@@ -5,6 +5,7 @@ import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
+import com.bhukkad.logging.TracingBridge;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +38,9 @@ public class OutboxEventProcessor {
                 PageRequest.of(0, outboxProperties.getBatchSize()));
 
         for (OutboxEvent event : pending) {
-            try {
+            // When tracing is enabled, each outbox event gets its own child span so
+            // Kafka publish + DB work is observable end-to-end (no-op otherwise).
+            try (AutoCloseable span = TracingBridge.startSpan("outbox-" + event.getEventType())) {
                 publish(event);
                 externalEventBridge.forward(event);
                 event.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);

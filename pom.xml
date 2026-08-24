@@ -20,6 +20,7 @@
 
 	<properties>
 		<java.version>17</java.version>
+		<lombok.version>1.18.26</lombok.version>
 		<jwt.version>0.11.5</jwt.version>
 		<mapstruct.version>1.5.5.Final</mapstruct.version>
 		<mockito.version>5.15.2</mockito.version>
@@ -31,6 +32,7 @@
 		<pitest.version>1.15.8</pitest.version>
 		<pitest-junit5.version>1.2.1</pitest-junit5.version>
 		<dependency-check.version>9.2.0</dependency-check.version>
+		<testcontainers.version>1.20.4</testcontainers.version>
 	</properties>
 
 	<dependencyManagement>
@@ -201,6 +203,16 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 		</dependency>
 
+		<!-- Distributed tracing with OpenTelemetry (bridge + Zipkin export) -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-zipkin</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-mail</artifactId>
@@ -222,6 +234,15 @@
 		<dependency>
 			<groupId>org.junit.platform</groupId>
 			<artifactId>junit-platform-suite-api</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Required for @Suite-based regression/architecture suites to actually
+		     execute. Without the engine, JUnit Platform treats @Suite classes as
+		     zero tests and CI reports a green-but-empty run. -->
+		<dependency>
+			<groupId>org.junit.platform</groupId>
+			<artifactId>junit-platform-suite-engine</artifactId>
 			<scope>test</scope>
 		</dependency>
 
@@ -250,6 +271,26 @@
 			<groupId>au.com.dius.pact.provider</groupId>
 			<artifactId>spring</artifactId>
 			<version>${pact.version}</version>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Integration tests: real MySQL + Redis via Testcontainers -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>mysql</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers</artifactId>
+			<version>${testcontainers.version}</version>
 			<scope>test</scope>
 		</dependency>
 
@@ -299,9 +340,87 @@
 			<groupId>com.fasterxml.jackson.datatype</groupId>
 			<artifactId>jackson-datatype-jsr310</artifactId>
 		</dependency>
+
+		<!-- gRPC (internal service-to-service endpoints, FEATURE #9) -->
+		<dependency>
+			<groupId>net.devh</groupId>
+			<artifactId>grpc-server-spring-boot-starter</artifactId>
+			<version>3.1.0.RELEASE</version>
+		</dependency>
+		<dependency>
+			<groupId>io.grpc</groupId>
+			<artifactId>grpc-netty-shaded</artifactId>
+			<version>1.63.0</version>
+		</dependency>
+		<dependency>
+			<groupId>io.grpc</groupId>
+			<artifactId>grpc-stub</artifactId>
+			<version>1.63.0</version>
+		</dependency>
+		<dependency>
+			<groupId>io.grpc</groupId>
+			<artifactId>grpc-protobuf</artifactId>
+			<version>1.63.0</version>
+		</dependency>
+		<dependency>
+			<groupId>io.grpc</groupId>
+			<artifactId>grpc-services</artifactId>
+			<version>1.63.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.protobuf</groupId>
+			<artifactId>protobuf-java</artifactId>
+			<version>3.25.5</version>
+		</dependency>
+
+		<!-- Property-based testing (jqwik) -->
+		<dependency>
+			<groupId>net.jqwik</groupId>
+			<artifactId>jqwik</artifactId>
+			<version>1.6.5</version>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- ShedLock: distributed locks for scheduled jobs across instances -->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>5.16.0</version>
+		</dependency>
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-provider-redis-spring</artifactId>
+			<version>5.16.0</version>
+		</dependency>
+
+		<!-- OAuth2 client (social login) -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-oauth2-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-oauth2-jose</artifactId>
+		</dependency>
+
+		<!-- javax.annotation (protobuf-generated code references @Generated) -->
+		<dependency>
+			<groupId>javax.annotation</groupId>
+			<artifactId>javax.annotation-api</artifactId>
+			<version>1.3.2</version>
+		</dependency>
 	</dependencies>
 
 	<build>
+		<extensions>
+			<!-- Sets os.detected.classifier so the protobuf plugin can pick the
+			     platform-specific protoc binary (macOS arm64 vs linux x86_64). -->
+			<extension>
+				<groupId>kr.motd.maven</groupId>
+				<artifactId>os-maven-plugin</artifactId>
+				<version>1.7.1</version>
+			</extension>
+		</extensions>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
@@ -321,7 +440,41 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
 					<argLine>@{argLine} -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true</argLine>
+					<!-- Single fork: the Mockito inline mock-maker's self-attach on
+					     Homebrew OpenJDK 17.0.15 races when surefire forks per-core,
+					     causing intermittent "Mockito cannot mock this class" errors.
+					     forkCount=1 makes test runs deterministic. -->
+					<forkCount>1</forkCount>
+					<reuseForks>true</reuseForks>
+					<!-- Run test classes in alphabetical order so the Pact consumer test
+					     (writes target/pacts) executes before the provider verification. -->
+					<runOrder>alphabetical</runOrder>
+					<!-- Docker Desktop 4.53+ enforces a minimum Docker API version of 1.44.
+					     Testcontainers' bundled docker-java defaults to UNKNOWN_VERSION and
+					     fails to negotiate against it; pin the API version explicitly. -->
+					<systemPropertyVariables>
+						<api.version>1.44</api.version>
+					</systemPropertyVariables>
 				</configuration>
+			</plugin>
+
+			<plugin>
+				<groupId>org.xolstice.maven.plugins</groupId>
+				<artifactId>protobuf-maven-plugin</artifactId>
+				<version>0.6.1</version>
+				<configuration>
+					<protocArtifact>com.google.protobuf:protoc:3.25.3:exe:${os.detected.classifier}</protocArtifact>
+					<pluginId>grpc-java</pluginId>
+					<pluginArtifact>io.grpc:protoc-gen-grpc-java:1.62.2:exe:${os.detected.classifier}</pluginArtifact>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>compile</goal>
+							<goal>compile-custom</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 
 			<plugin>
@@ -330,40 +483,50 @@
 				<version>0.8.13</version>
 				<configuration>
 					<excludes>
-						<!-- DTOs and entities are data containers without complex business logic -->
+						<!-- Justified exclusions only: data containers, generated code and
+						     bootstrap infrastructure are excluded from coverage. Business
+						     logic (services, controllers, repositories, security, validators,
+						     utilities) is deliberately kept in scope. -->
 						<exclude>com/bhukkad/dto/**</exclude>
 						<exclude>com/bhukkad/entity/**</exclude>
-						<!-- Configuration properties and utility classes -->
-						<exclude>com/bhukkad/config/*Properties</exclude>
-						<exclude>com/bhukkad/util/NotificationHelper</exclude>
-						<exclude>com/bhukkad/config/RestTemplateConfig</exclude>
-						<!-- New feature modules without dedicated test coverage -->
-						<exclude>com/bhukkad/cache/CacheWarmingService</exclude>
-						<exclude>com/bhukkad/cache/event/**</exclude>
-						<exclude>com/bhukkad/cache/http/**</exclude>
-						<exclude>com/bhukkad/cache/invalidation/**</exclude>
-						<exclude>com/bhukkad/order/ScheduledOrderScheduler</exclude>
-						<exclude>com/bhukkad/service/CommissionTierService</exclude>
-						<exclude>com/bhukkad/service/DynamicPricingService</exclude>
-						<exclude>com/bhukkad/service/FraudDashboardService</exclude>
-						<exclude>com/bhukkad/service/GiftCardService</exclude>
-						<exclude>com/bhukkad/service/GroupOrderService</exclude>
-						<exclude>com/bhukkad/service/InventoryAlertService</exclude>
-						<exclude>com/bhukkad/service/MaterializedViewRefreshService</exclude>
-						<exclude>com/bhukkad/serviceImpl/CommissionTierServiceImpl</exclude>
-						<exclude>com/bhukkad/serviceImpl/DynamicPricingServiceImpl</exclude>
-						<exclude>com/bhukkad/serviceImpl/GiftCardServiceImpl</exclude>
-						<exclude>com/bhukkad/repository/DynamicPricingRuleRepository</exclude>
-						<exclude>com/bhukkad/repository/GiftCardRepository</exclude>
-						<exclude>com/bhukkad/repository/GroupOrderRepository</exclude>
-						<exclude>com/bhukkad/repository/InventoryAlertRepository</exclude>
-						<exclude>com/bhukkad/controller/CommissionTierController</exclude>
-						<exclude>com/bhukkad/controller/DynamicPricingController</exclude>
-						<exclude>com/bhukkad/controller/FraudDashboardController</exclude>
-						<exclude>com/bhukkad/controller/GiftCardController</exclude>
-						<exclude>com/bhukkad/controller/InventoryAlertController</exclude>
-						<exclude>com/bhukkad/controller/OrderController</exclude>
+						<!-- jacoco matches excludes against class file paths incl. .class, and
+						     inner classes use $ suffixes, so patterns must cover both -->
+						<exclude>com/bhukkad/config/*Properties*</exclude>
+						<exclude>com/bhukkad/config/RestTemplateConfig.class</exclude>
+						<exclude>com/bhukkad/util/NotificationHelper.class</exclude>
+						<exclude>com/bhukkad/BackendServerApplication.class</exclude>
+					<!-- MapStruct-generated mappers are generated code -->
+					<exclude>com/bhukkad/mapper/**</exclude>
+					<!-- Protobuf/gRPC-generated code (OrderInternalServiceGrpc, messages) -->
+					<exclude>com/bhukkad/grpc/proto/**</exclude>
 					</excludes>
+					<rules>
+						<rule>
+							<element>BUNDLE</element>
+							<limits>
+								<limit>
+									<counter>LINE</counter>
+									<value>COVEREDRATIO</value>
+									<minimum>0.85</minimum>
+								</limit>
+								<limit>
+									<counter>BRANCH</counter>
+									<value>COVEREDRATIO</value>
+									<minimum>0.65</minimum>
+								</limit>
+								<limit>
+									<counter>METHOD</counter>
+									<value>COVEREDRATIO</value>
+									<minimum>0.75</minimum>
+								</limit>
+								<limit>
+									<counter>CLASS</counter>
+									<value>COVEREDRATIO</value>
+									<minimum>0.85</minimum>
+								</limit>
+							</limits>
+						</rule>
+					</rules>
 				</configuration>
 				<executions>
 					<execution>
@@ -384,35 +547,6 @@
 						<goals>
 							<goal>check</goal>
 						</goals>
-						<configuration>
-						<rules>
-							<rule>
-								<element>BUNDLE</element>
-								<limits>
-									<limit>
-										<counter>LINE</counter>
-										<value>COVEREDRATIO</value>
-										<minimum>0.50</minimum>
-									</limit>
-									<limit>
-										<counter>BRANCH</counter>
-										<value>COVEREDRATIO</value>
-										<minimum>0.45</minimum>
-									</limit>
-									<limit>
-										<counter>METHOD</counter>
-										<value>COVEREDRATIO</value>
-										<minimum>0.55</minimum>
-									</limit>
-									<limit>
-										<counter>CLASS</counter>
-										<value>COVEREDRATIO</value>
-										<minimum>0.55</minimum>
-									</limit>
-								</limits>
-							</rule>
-						</rules>
-					</configuration>
 					</execution>
 				</executions>
 			</plugin>
@@ -474,6 +608,12 @@
 							</targetClasses>
 							<excludedTestClasses>
 								<param>com.bhukkad.regression.*</param>
+								<!-- Docker/Testcontainers and contract tests are not run
+								     by Pitest: they need a container/pact broker and would
+								     fail the "green suite" pre-check in CI. -->
+								<param>com.bhukkad.integration.*</param>
+								<param>com.bhukkad.contract.*</param>
+								<param>com.bhukkad.architecture.*</param>
 							</excludedTestClasses>
 							<mutationThreshold>50</mutationThreshold>
 							<timestampedReports>false</timestampedReports>
@@ -509,6 +649,10 @@
 							<failOnError>false</failOnError>
 							<format>ALL</format>
 							<skipProvidedScope>false</skipProvidedScope>
+							<!-- NVD now requires an API key; provide via NVD_API_KEY env
+							     (GitHub secret in CI). Without it the feed 403s and the
+							     analysis is skipped non-fatally (failOnError=false). -->
+							<nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
 						</configuration>
 						<executions>
 							<execution>

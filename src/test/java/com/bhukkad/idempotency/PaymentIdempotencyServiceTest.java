@@ -10,7 +10,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -141,5 +140,74 @@ class PaymentIdempotencyServiceTest {
     void failPaymentProcess_withNullKey_doesNothing() {
         paymentIdempotencyService.failPaymentProcess(null);
         verify(idempotencyRecordRepository, never()).findByScopeAndIdempotencyKey(any(), anyString());
+    }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void findCompletedPayment_completedRecordInDb_deserializesPayload() {
+        when(idempotencyService.getPaymentResult("db-key", Payment.class))
+                .thenReturn(Optional.empty());
+
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
+        record.setResponsePayload("{\"id\":55,\"amount\":100.0,\"status\":\"PENDING\"}");
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, "db-key"))
+                .thenReturn(Optional.of(record));
+
+        Optional<Payment> result = paymentIdempotencyService.findCompletedPayment("db-key");
+
+        assertTrue(result.isPresent());
+        assertEquals(55L, result.get().getId());
+    }
+
+    @Test
+    void findCompletedPayment_nonCompletedRecord_returnsEmpty() {
+        when(idempotencyService.getPaymentResult("pending-key", Payment.class))
+                .thenReturn(Optional.empty());
+
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, "pending-key"))
+                .thenReturn(Optional.of(record));
+
+        assertTrue(paymentIdempotencyService.findCompletedPayment("pending-key").isEmpty());
+    }
+
+    @Test
+    void findCompletedPayment_corruptPayload_returnsEmpty() {
+        when(idempotencyService.getPaymentResult("corrupt-key", Payment.class))
+                .thenReturn(Optional.empty());
+
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
+        record.setResponsePayload("{not-valid-json");
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, "corrupt-key"))
+                .thenReturn(Optional.of(record));
+
+        // Corrupt payloads are logged and skipped rather than failing the read
+        assertTrue(paymentIdempotencyService.findCompletedPayment("corrupt-key").isEmpty());
+    }
+
+    @Test
+    void beginPaymentProcess_withBlankKey_doesNothing() {
+        paymentIdempotencyService.beginPaymentProcess("");
+
+        verify(idempotencyRecordRepository, never()).findByScopeAndIdempotencyKey(any(), anyString());
+    }
+
+    @Test
+    void beginPaymentProcess_completedRecord_isIdempotentNoOp() {
+        IdempotencyRecord existing = new IdempotencyRecord();
+        existing.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, "done"))
+                .thenReturn(Optional.of(existing));
+
+        assertDoesNotThrow(() -> paymentIdempotencyService.beginPaymentProcess("done"));
+        verify(idempotencyRecordRepository, never()).save(any());
     }
 }

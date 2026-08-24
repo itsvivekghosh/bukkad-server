@@ -1,0 +1,39 @@
+# Test profile used by integration tests (Testcontainers).
+# The MySQL/Redis containers are wired via @DynamicPropertySource in
+# AbstractJpaIntegrationTest; this file only disables infrastructure that the
+# @DataJpaTest slice does not need and that would otherwise fail the context.
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    ignore-migration-patterns: "*:missing"
+
+# Disable infra that would block a slice-test context.
+app:
+  eventing:
+    enabled: false
+  rate-limit:
+    enabled: false
+  monitoring:
+    enabled: false
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql: WARN

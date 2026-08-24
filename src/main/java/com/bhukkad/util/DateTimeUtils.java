@@ -38,15 +38,15 @@ public class DateTimeUtils {
     }
 
     public static long getMinutesBetween(LocalDateTime start, LocalDateTime end) {
-        return ChronoUnit.MINUTES.between(start, end);
+        return ChronoUnit.MINUTES.between(start.atZone(java.time.ZoneId.systemDefault()), end.atZone(java.time.ZoneId.systemDefault()));
     }
 
     public static long getHoursBetween(LocalDateTime start, LocalDateTime end) {
-        return ChronoUnit.HOURS.between(start, end);
+        return ChronoUnit.HOURS.between(start.atZone(java.time.ZoneId.systemDefault()), end.atZone(java.time.ZoneId.systemDefault()));
     }
 
     public static long getDaysBetween(LocalDateTime start, LocalDateTime end) {
-        return ChronoUnit.DAYS.between(start, end);
+        return ChronoUnit.DAYS.between(start.atZone(java.time.ZoneId.systemDefault()), end.atZone(java.time.ZoneId.systemDefault()));
     }
 
     public static boolean isWithinMinutes(LocalDateTime dateTime, int minutes) {

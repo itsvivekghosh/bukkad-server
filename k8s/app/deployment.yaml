@@ -166,7 +166,7 @@ spec:
               drop: ["ALL"]
           volumeMounts:
             - name: app-logs
-              mountPath: /app/logs
+              mountPath: /tmp/logs/bhukkad
       volumes:
         - name: app-logs
           emptyDir: {}

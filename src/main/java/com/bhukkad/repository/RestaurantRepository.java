@@ -30,6 +30,13 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT DISTINCT r FROM Restaurant r " +
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.owner " +
+            "WHERE r.id IN :ids")
+    List<Restaurant> findAllByIdsWithDetails(@Param("ids") List<Long> ids);
+
+    @Query("SELECT DISTINCT r FROM Restaurant r " +
+            "LEFT JOIN FETCH r.address " +
+            "LEFT JOIN FETCH r.cuisines " +
             "WHERE r.isActive = true " +
             "ORDER BY r.averageRating DESC")
     List<Restaurant> findAllActiveWithDetails();
