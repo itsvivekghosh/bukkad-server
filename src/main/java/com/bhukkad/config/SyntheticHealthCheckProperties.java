@@ -11,10 +11,12 @@ public class SyntheticHealthCheckProperties {
     /**
      * List of endpoints to check for synthetic health checks.
      * Each endpoint should be a path relative to the base URL of the application.
+     * Endpoints must not require mandatory request params (health checks call
+     * them with no query string).
      */
     private List<String> endpoints = List.of(
             "/actuator/health",
-            "/api/v1/serviceability/check"
+            "/api/v1/health"
     );
 
     /**
