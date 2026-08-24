@@ -362,7 +362,7 @@ public class SubscriptionService {
     private LocalDate computeNextDeliveryDate(SubscriptionPlan.Weekday weekday, LocalDate startDate) {
         DayOfWeek target = toDayOfWeek(weekday);
         LocalDate date = startDate;
-        while (date.getDayOfWeek() != target) {
+        while (!date.getDayOfWeek().equals(target)) {
             date = date.plusDays(1);
         }
         LocalDate today = LocalDate.now();

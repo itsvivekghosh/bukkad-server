@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,18 +59,12 @@ public class FraudRiskScoringService {
             reasons.add("high_order_velocity_24h=" + velocity24h);
         }
 
-        boolean brandNew = false;
-        boolean young = false;
         var user = userRepository.findById(customerId).orElse(null);
-        if (user != null && user.getCreatedAt() != null) {
-            long ageDays = Duration.between(user.getCreatedAt(), now).toDays();
-            brandNew = ageDays < 1;
-            young = ageDays < 7 && !brandNew;
-            if (brandNew) {
-                reasons.add("account_age_lt_1d");
-            } else if (young) {
-                reasons.add("account_age_lt_7d");
-            }
+        AccountAge accountAge = assessAccountAge(user, now);
+        if (accountAge.brandNew()) {
+            reasons.add("account_age_lt_1d");
+        } else if (accountAge.young()) {
+            reasons.add("account_age_lt_7d");
         }
 
         long priorFraudEvents = safeCount(() ->
@@ -96,8 +89,8 @@ public class FraudRiskScoringService {
 
         double z = -3.0 // bias: keeps ordinary orders low-risk
                 + properties.weight("velocity24h") * normalize(velocity24h, 10)
-                + properties.weight("brandNewAccount") * (brandNew ? 1 : 0)
-                + properties.weight("youngAccount") * (young ? 1 : 0)
+                + properties.weight("brandNewAccount") * (accountAge.brandNew() ? 1 : 0)
+                + properties.weight("youngAccount") * (accountAge.young() ? 1 : 0)
                 + properties.weight("priorFraudEvents") * normalize(priorFraudEvents, 3)
                 + properties.weight("lateNightHour") * (lateNight ? 1 : 0)
                 + properties.weight("largeFirstOrder") * (largeFirstOrder ? 1 : 0);
@@ -176,5 +169,18 @@ public class FraudRiskScoringService {
             log.debug("Fraud feature lookup failed: {}", ex.getMessage());
             return 0;
         }
+    }
+
+    /** Categorises a customer account by age to drive the new/young-account signals. */
+    private static AccountAge assessAccountAge(com.bhukkad.entity.User user, LocalDateTime now) {
+        if (user == null || user.getCreatedAt() == null) {
+            return new AccountAge(false, false);
+        }
+        long ageDays = java.time.temporal.ChronoUnit.DAYS.between(user.getCreatedAt(), now);
+        boolean brandNew = ageDays < 1;
+        return new AccountAge(brandNew, ageDays < 7 && !brandNew);
+    }
+
+    private record AccountAge(boolean brandNew, boolean young) {
     }
 }

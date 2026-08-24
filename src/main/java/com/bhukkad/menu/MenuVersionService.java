@@ -138,53 +138,58 @@ public class MenuVersionService {
 
     private Map<String, Object> buildSnapshot(List<MenuCategory> categories, List<MenuItem> items) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
-
-        List<Map<String, Object>> categoryList = new ArrayList<>();
-        for (MenuCategory category : categories) {
-            Map<String, Object> categoryMap = new LinkedHashMap<>();
-            categoryMap.put("id", category.getId());
-            categoryMap.put("name", category.getName());
-            categoryMap.put("description", category.getDescription());
-            categoryMap.put("displayOrder", category.getDisplayOrder());
-            categoryMap.put("active", category.getActive());
-            categoryList.add(categoryMap);
-        }
-
-        List<Map<String, Object>> itemList = new ArrayList<>();
-        for (MenuItem item : items) {
-            Map<String, Object> itemMap = new LinkedHashMap<>();
-            itemMap.put("id", item.getId());
-            itemMap.put("name", item.getName());
-            itemMap.put("description", item.getDescription());
-            itemMap.put("categoryId", item.getCategory() != null ? item.getCategory().getId() : null);
-            itemMap.put("categoryName", item.getCategory() != null ? item.getCategory().getName() : null);
-            itemMap.put("price", item.getPrice());
-            itemMap.put("originalPrice", item.getOriginalPrice());
-            itemMap.put("discountPercentage", item.getDiscountPercentage());
-            itemMap.put("available", item.getAvailable());
-            itemMap.put("foodType", item.getFoodType() != null ? item.getFoodType().name() : null);
-            itemMap.put("isVeg", item.getIsVeg());
-            itemMap.put("isSpicy", item.getIsSpicy());
-            itemMap.put("spiceLevel", item.getSpiceLevel() != null ? item.getSpiceLevel().name() : null);
-            itemMap.put("imageUrl", item.getImageUrl());
-            itemMap.put("preparationTime", item.getPreparationTime());
-            itemMap.put("bestseller", item.getBestseller());
-            itemMap.put("recommended", item.getRecommended());
-            itemMap.put("calories", item.getCalories());
-            itemMap.put("servingSize", item.getServingSize());
-            itemMap.put("averageRating", item.getAverageRating());
-            itemMap.put("totalRatings", item.getTotalRatings());
-            itemMap.put("stockQuantity", item.getStockQuantity());
-            itemMap.put("tags", item.getTags() == null ? List.of() : new ArrayList<>(item.getTags()));
-            itemMap.put("allergens", item.getAllergens() == null ? List.of() : new ArrayList<>(item.getAllergens()));
-            itemMap.put("ingredients", item.getIngredients() == null ? List.of() : new ArrayList<>(item.getIngredients()));
-            itemMap.put("additionalImages", item.getAdditionalImages() == null ? List.of() : new ArrayList<>(item.getAdditionalImages()));
-            itemList.add(itemMap);
-        }
-
-        snapshot.put("categories", categoryList);
-        snapshot.put("items", itemList);
+        snapshot.put("categories", categories.stream().map(this::toCategoryMap).toList());
+        snapshot.put("items", items.stream().map(this::toItemMap).toList());
         return snapshot;
+    }
+
+    private Map<String, Object> toCategoryMap(MenuCategory category) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", category.getId());
+        map.put("name", category.getName());
+        map.put("description", category.getDescription());
+        map.put("displayOrder", category.getDisplayOrder());
+        map.put("active", category.getActive());
+        return map;
+    }
+
+    private Map<String, Object> toItemMap(MenuItem item) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", item.getId());
+        map.put("name", item.getName());
+        map.put("description", item.getDescription());
+        map.put("categoryId", item.getCategory() != null ? item.getCategory().getId() : null);
+        map.put("categoryName", item.getCategory() != null ? item.getCategory().getName() : null);
+        map.put("price", item.getPrice());
+        map.put("originalPrice", item.getOriginalPrice());
+        map.put("discountPercentage", item.getDiscountPercentage());
+        map.put("available", item.getAvailable());
+        map.put("foodType", item.getFoodType() != null ? item.getFoodType().name() : null);
+        map.put("isVeg", item.getIsVeg());
+        map.put("isSpicy", item.getIsSpicy());
+        map.put("spiceLevel", item.getSpiceLevel() != null ? item.getSpiceLevel().name() : null);
+        map.put("imageUrl", item.getImageUrl());
+        map.put("preparationTime", item.getPreparationTime());
+        map.put("bestseller", item.getBestseller());
+        map.put("recommended", item.getRecommended());
+        map.put("calories", item.getCalories());
+        map.put("servingSize", item.getServingSize());
+        map.put("averageRating", item.getAverageRating());
+        map.put("totalRatings", item.getTotalRatings());
+        map.put("stockQuantity", item.getStockQuantity());
+        map.put("tags", safeCopySet(item.getTags()));
+        map.put("allergens", safeCopySet(item.getAllergens()));
+        map.put("ingredients", safeCopySet(item.getIngredients()));
+        map.put("additionalImages", safeCopy(item.getAdditionalImages()));
+        return map;
+    }
+
+    private static <T> List<T> safeCopy(List<T> source) {
+        return source == null ? List.of() : new ArrayList<>(source);
+    }
+
+    private static <T> List<T> safeCopySet(java.util.Set<T> source) {
+        return source == null ? List.of() : new ArrayList<>(source);
     }
 
     private MenuVersionResponse toResponse(MenuVersion version) {

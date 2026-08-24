@@ -20,6 +20,10 @@ import org.springframework.jdbc.core.RowCallbackHandler;
 @Service
 @RequiredArgsConstructor
 public class AnalyticsExportService {
+    private static final String COL_CREATED_AT = "created_at";
+    private static final String COL_UPDATED_AT = "updated_at";
+    private static final String COL_COMPLETED_AT = "completed_at";
+
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -129,7 +133,7 @@ public class AnalyticsExportService {
         writer.print(",");
         writer.print(escapeCsv(rs.getString("total_amount")));
         writer.print(",");
-        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp("created_at"))));
+        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp(COL_CREATED_AT))));
         writer.print(",");
         writer.print(escapeCsv(rs.getString("customer_name")));
         writer.print(",");
@@ -167,7 +171,7 @@ public class AnalyticsExportService {
         writer.print(",");
         writer.print(escapeCsv(rs.getString("commission_rate")));
         writer.print(",");
-        writer.println(escapeCsv(formatTimestamp(rs.getTimestamp("created_at"))));
+        writer.println(escapeCsv(formatTimestamp(rs.getTimestamp(COL_CREATED_AT))));
     }
 
     private void writeRiderRow(PrintWriter writer, ResultSet rs) throws SQLException {
@@ -191,9 +195,9 @@ public class AnalyticsExportService {
         writer.print(",");
         writer.print(escapeCsv(rs.getString("current_longitude")));
         writer.print(",");
-        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp("created_at"))));
+        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp(COL_CREATED_AT))));
         writer.print(",");
-        writer.println(escapeCsv(formatTimestamp(rs.getTimestamp("updated_at"))));
+        writer.println(escapeCsv(formatTimestamp(rs.getTimestamp(COL_UPDATED_AT))));
     }
 
     private void writePaymentRow(PrintWriter writer, ResultSet rs) throws SQLException {
@@ -213,9 +217,9 @@ public class AnalyticsExportService {
         writer.print(",");
         writer.print(escapeCsv(rs.getString("transaction_id")));
         writer.print(",");
-        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp("created_at"))));
+        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp(COL_CREATED_AT))));
         writer.print(",");
-        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp("completed_at"))));
+        writer.print(escapeCsv(formatTimestamp(rs.getTimestamp(COL_COMPLETED_AT))));
         writer.print(",");
         writer.print(escapeCsv(rs.getString("order_number")));
         writer.print(",");

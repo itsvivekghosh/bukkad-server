@@ -30,6 +30,9 @@ import java.util.Set;
 @Transactional(readOnly = true)
 public class RecommendationQueryService {
 
+    private static final String PARAM_LIMIT = "limit";
+
+
     @PersistenceContext
     private final EntityManager entityManager;
 
@@ -49,7 +52,7 @@ public class RecommendationQueryService {
                 LIMIT :limit
                 """)
                 .setParameter("customerId", customerId)
-                .setParameter("limit", limit)
+                .setParameter(PARAM_LIMIT, limit)
                 .getResultList();
     }
 
@@ -77,7 +80,7 @@ public class RecommendationQueryService {
                 """)
                 .setParameter("menuItemIds", menuItemIds)
                 .setParameter("excludeCustomerId", excludeCustomerId)
-                .setParameter("limit", limit)
+                .setParameter(PARAM_LIMIT, limit)
                 .getResultList();
     }
 
@@ -94,7 +97,7 @@ public class RecommendationQueryService {
                 LIMIT :limit
                 """)
                 .setParameter("customerId", customerId)
-                .setParameter("limit", limit)
+                .setParameter(PARAM_LIMIT, limit)
                 .getResultList();
     }
 

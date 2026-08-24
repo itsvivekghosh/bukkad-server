@@ -21,6 +21,9 @@ import java.util.List;
 @Component
 public class HtmlEmailBuilder {
 
+    private static final String CELL_END = "</td></tr>";
+
+
     private static final String BRAND = "#ff6d3f";
 
     /**
@@ -57,7 +60,7 @@ public class HtmlEmailBuilder {
         sb.append("<tr><td class=\"header\" align=\"center\" style=\"background-color:")
           .append(BRAND).append(";padding:24px;text-align:center;\">")
           .append("<span style=\"color:#ffffff;font-size:20px;font-weight:bold;\">Bhukkad</span>")
-          .append("</td></tr>");
+          .append(CELL_END);
 
         // Body.
         sb.append("<tr><td class=\"body\" style=\"padding:28px 32px;\">")
@@ -68,51 +71,17 @@ public class HtmlEmailBuilder {
               .append(escape(bodyText)).append("</p>");
         }
 
-        if (summary != null && !summary.isEmpty()) {
-            sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"");
-            sb.append(" class=\"summary\">");
-            for (KeyValuePair pair : summary) {
-                if (pair == null || pair.label() == null) {
-                    continue;
-                }
-                sb.append("<tr>")
-                  .append("<td class=\"summary-label\" style=\"padding:6px 0;color:#6b6b70;font-size:14px;\">")
-                  .append(escape(pair.label())).append("</td>")
-                  .append("<td class=\"summary-value\" align=\"right\" style=\"padding:6px 0;color:#1c1c1e;font-size:14px;font-weight:600;\">")
-                  .append(escape(pair.value() == null ? "" : pair.value())).append("</td>")
-                  .append("</tr>");
-            }
-            sb.append("</table>");
-        }
+        appendSummary(sb, summary);
+        appendItems(sb, items);
+        appendCta(sb, ctaUrl, ctaLabel);
 
-        if (items != null && !items.isEmpty()) {
-            sb.append("<ul class=\"items\" style=\"margin:16px 0 0;padding-left:20px;\">");
-            for (String item : items) {
-                if (item != null && !item.isBlank()) {
-                    sb.append("<li style=\"color:#48484a;font-size:14px;padding:2px 0;\">")
-                      .append(escape(item)).append("</li>");
-                }
-            }
-            sb.append("</ul>");
-        }
-
-        if (ctaUrl != null && !ctaUrl.isBlank()) {
-            sb.append("<p style=\"margin:26px 0 0;text-align:center;\">")
-              .append("<a href=\"").append(escape(ctaUrl))
-              .append("\" class=\"cta\" style=\"display:inline-block;background-color:").append(BRAND)
-              .append(";color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;")
-              .append("padding:13px 34px;border-radius:8px;\">")
-              .append(escape(ctaLabel == null || ctaLabel.isBlank() ? "View details" : ctaLabel))
-              .append("</a></p>");
-        }
-
-        sb.append("</td></tr>");
+        sb.append(CELL_END);
 
         // Footer.
         sb.append("<tr><td class=\"footer\" style=\"padding:18px 32px;border-top:1px solid #ececee;")
           .append("color:#9a9aa0;font-size:12px;text-align:center;\">")
           .append("&copy; Bhukkad \u00b7 You are receiving this email because you have a Bhukkad account.")
-          .append("</td></tr>");
+          .append(CELL_END);
 
         sb.append("</table>\n</td></tr>\n</table>\n</body>\n</html>");
         return sb.toString();
@@ -156,5 +125,52 @@ public class HtmlEmailBuilder {
 
     /** One labelled row of the summary table. */
     public record KeyValuePair(String label, String value) {
+    }
+
+    private void appendSummary(StringBuilder sb, List<KeyValuePair> summary) {
+        if (summary == null || summary.isEmpty()) {
+            return;
+        }
+        sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"");
+        sb.append(" class=\"summary\">");
+        for (KeyValuePair pair : summary) {
+            if (pair == null || pair.label() == null) {
+                continue;
+            }
+            sb.append("<tr>")
+              .append("<td class=\"summary-label\" style=\"padding:6px 0;color:#6b6b70;font-size:14px;\">")
+              .append(escape(pair.label())).append("</td>")
+              .append("<td class=\"summary-value\" align=\"right\" style=\"padding:6px 0;color:#1c1c1e;font-size:14px;font-weight:600;\">")
+              .append(escape(pair.value() == null ? "" : pair.value())).append("</td>")
+              .append("</tr>");
+        }
+        sb.append("</table>");
+    }
+
+    private void appendItems(StringBuilder sb, List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        sb.append("<ul class=\"items\" style=\"margin:16px 0 0;padding-left:20px;\">");
+        for (String item : items) {
+            if (item != null && !item.isBlank()) {
+                sb.append("<li style=\"color:#48484a;font-size:14px;padding:2px 0;\">")
+                  .append(escape(item)).append("</li>");
+            }
+        }
+        sb.append("</ul>");
+    }
+
+    private void appendCta(StringBuilder sb, String ctaUrl, String ctaLabel) {
+        if (ctaUrl == null || ctaUrl.isBlank()) {
+            return;
+        }
+        sb.append("<p style=\"margin:26px 0 0;text-align:center;\">")
+          .append("<a href=\"").append(escape(ctaUrl))
+          .append("\" class=\"cta\" style=\"display:inline-block;background-color:").append(BRAND)
+          .append(";color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;")
+          .append("padding:13px 34px;border-radius:8px;\">")
+          .append(escape(ctaLabel == null || ctaLabel.isBlank() ? "View details" : ctaLabel))
+          .append("</a></p>");
     }
 }

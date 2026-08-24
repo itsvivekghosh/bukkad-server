@@ -300,10 +300,12 @@ public class PaymentServiceImpl implements PaymentService {
         Payment payment = getPaymentByOrderId(orderId);
         java.util.Map<String, Object> data = new java.util.HashMap<>();
         data.put("orderId", orderId);
-        data.put("paymentId", payment.getId());
-        data.put("status", payment.getStatus());
-        data.put("amount", payment.getAmount());
-        data.put("method", payment.getPaymentMethod());
+        if (payment != null) {
+            data.put("paymentId", payment.getId());
+            data.put("status", payment.getStatus());
+            data.put("amount", payment.getAmount());
+            data.put("method", payment.getPaymentMethod());
+        }
         return data;
     }
 }

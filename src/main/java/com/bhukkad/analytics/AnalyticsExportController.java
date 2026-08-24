@@ -9,11 +9,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 /**
  * Controller for streaming large analytics exports.
@@ -24,6 +22,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AnalyticsExportController {
 
+    private static final String CSV_CONTENT_TYPE = "text/csv";
+    private static final String CONTENT_DISPOSITION_HEADER = "Content-Disposition";
+    private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
+    private static final String CSV_EXTENSION = ".csv";
+
     private final AnalyticsExportService exportService;
 
     @GetMapping("/export/orders")
@@ -32,9 +35,7 @@ public class AnalyticsExportController {
             @RequestParam(required = false) String toDate,
             HttpServletResponse response
     ) {
-        response.setContentType("text/csv");
-        response.setHeader("Content-Disposition", 
-            "attachment; filename=orders_export_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")) + ".csv");
+        prepareCsvDownload(response, "orders_export_");
 
         return outputStream -> {
             try (PrintWriter writer = new PrintWriter(outputStream)) {
@@ -48,9 +49,7 @@ public class AnalyticsExportController {
             @RequestParam(required = false) String city,
             HttpServletResponse response
     ) {
-        response.setContentType("text/csv");
-        response.setHeader("Content-Disposition",
-            "attachment; filename=restaurants_export_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")) + ".csv");
+        prepareCsvDownload(response, "restaurants_export_");
 
         return outputStream -> {
             try (PrintWriter writer = new PrintWriter(outputStream)) {
@@ -64,9 +63,7 @@ public class AnalyticsExportController {
             @RequestParam(required = false) String city,
             HttpServletResponse response
     ) {
-        response.setContentType("text/csv");
-        response.setHeader("Content-Disposition",
-            "attachment; filename=riders_export_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")) + ".csv");
+        prepareCsvDownload(response, "riders_export_");
 
         return outputStream -> {
             try (PrintWriter writer = new PrintWriter(outputStream)) {
@@ -82,14 +79,19 @@ public class AnalyticsExportController {
             @RequestParam(required = false) String status,
             HttpServletResponse response
     ) {
-        response.setContentType("text/csv");
-        response.setHeader("Content-Disposition",
-            "attachment; filename=payments_export_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm")) + ".csv");
+        prepareCsvDownload(response, "payments_export_");
 
         return outputStream -> {
             try (PrintWriter writer = new PrintWriter(outputStream)) {
                 exportService.streamPaymentsCsv(writer, fromDate, toDate, status);
             }
         };
+    }
+
+    private void prepareCsvDownload(HttpServletResponse response, String filenamePrefix) {
+        response.setContentType(CSV_CONTENT_TYPE);
+        response.setHeader(CONTENT_DISPOSITION_HEADER,
+                "attachment; filename=" + filenamePrefix
+                        + LocalDateTime.now().format(TIMESTAMP_FORMAT) + CSV_EXTENSION);
     }
 }

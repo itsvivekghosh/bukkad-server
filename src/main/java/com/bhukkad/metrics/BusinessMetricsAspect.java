@@ -28,29 +28,36 @@ public class BusinessMetricsAspect {
     @AfterReturning(pointcut = "orderPlacementCreate()", returning = "result")
     public void recordOrderCreated(JoinPoint joinPoint, Object result) {
         try {
-            if (result instanceof OrderResponse order) {
-                Double total = order.getTotalAmount();
-                businessMetricsService.recordOrderCreated(total != null ? total : 0.0);
-            } else if (result instanceof BatchOrderResponse batch) {
-                List<OrderResponse> orders = batch.getOrders();
-                if (orders != null && !orders.isEmpty()) {
-                    double sum = orders.stream()
-                            .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount() : 0.0)
-                            .sum();
-                    businessMetricsService.recordOrderCreated(sum);
-                } else {
-                    businessMetricsService.recordOrderCreated(0.0);
-                }
-            } else if (result != null) {
-                Double total = extractTotal(result);
-                businessMetricsService.recordOrderCreated(total != null ? total : 0.0);
-            } else {
-                businessMetricsService.recordOrderCreated(0.0);
-            }
+            double total = resolveOrderTotal(result);
+            businessMetricsService.recordOrderCreated(total);
         } catch (Exception e) {
             log.warn("Failed to record order metrics in aspect | method={} | error={}",
                     joinPoint.getSignature().toShortString(), e.getMessage());
         }
+    }
+
+    private double resolveOrderTotal(Object result) {
+        if (result instanceof OrderResponse order) {
+            return order.getTotalAmount() != null ? order.getTotalAmount() : 0.0;
+        }
+        if (result instanceof BatchOrderResponse batch) {
+            return resolveBatchTotal(batch);
+        }
+        if (result != null) {
+            Double total = extractTotal(result);
+            return total != null ? total : 0.0;
+        }
+        return 0.0;
+    }
+
+    private static double resolveBatchTotal(BatchOrderResponse batch) {
+        List<OrderResponse> orders = batch.getOrders();
+        if (orders == null || orders.isEmpty()) {
+            return 0.0;
+        }
+        return orders.stream()
+                .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount() : 0.0)
+                .sum();
     }
 
     private static Double extractTotal(Object result) {

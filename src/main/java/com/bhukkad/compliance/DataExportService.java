@@ -27,6 +27,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DataExportService {
 
+    private static final String COL_CREATED_AT = "createdAt";
+
+
     private final DataExportRequestRepository dataExportRequestRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
@@ -87,7 +90,7 @@ public class DataExportService {
         profile.put("role", user.getRole() != null ? user.getRole().name() : null);
         profile.put("active", user.getActive());
         profile.put("emailVerified", user.getEmailVerified());
-        profile.put("createdAt", user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
+        profile.put(COL_CREATED_AT, user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);
         payload.put("profile", profile);
 
         List<Map<String, Object>> orders = new ArrayList<>();
@@ -97,7 +100,7 @@ public class DataExportService {
             summary.put("orderNumber", order.getOrderNumber());
             summary.put("status", order.getStatus() != null ? order.getStatus().name() : null);
             summary.put("totalAmount", order.getTotalAmount());
-            summary.put("createdAt", order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
+            summary.put(COL_CREATED_AT, order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
             orders.add(summary);
         }
         payload.put("orders", orders);
@@ -124,7 +127,7 @@ public class DataExportService {
             entry.put("purpose", consent.getPurpose());
             entry.put("granted", consent.getGranted());
             entry.put("source", consent.getSource());
-            entry.put("createdAt", consent.getCreatedAt() != null ? consent.getCreatedAt().toString() : null);
+            entry.put(COL_CREATED_AT, consent.getCreatedAt() != null ? consent.getCreatedAt().toString() : null);
             consents.add(entry);
         }
         payload.put("consents", consents);

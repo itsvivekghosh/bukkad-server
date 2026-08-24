@@ -59,32 +59,7 @@ public class RouteOptimizationService {
             stops.add(stop);
         }
 
-        List<Long> optimized = new ArrayList<>(stops.size());
-        Set<Integer> visited = new HashSet<>();
-        double cursorLat = currentLat;
-        double cursorLng = currentLng;
-
-        while (optimized.size() < stops.size()) {
-            int next = -1;
-            double best = Double.MAX_VALUE;
-            for (int i = 0; i < stops.size(); i++) {
-                if (visited.contains(i)) {
-                    continue;
-                }
-                Stop stop = stops.get(i);
-                double distance = DistanceCalculator.calculateDistance(cursorLat, cursorLng, stop.lat(), stop.lng());
-                if (distance < best) {
-                    best = distance;
-                    next = i;
-                }
-            }
-            visited.add(next);
-            Stop chosen = stops.get(next);
-            optimized.add(chosen.orderId());
-            cursorLat = chosen.lat();
-            cursorLng = chosen.lng();
-        }
-        return optimized;
+        return greedyTspOrder(stops, currentLat, currentLng);
     }
 
     private Stop resolveStop(Long orderId) {
@@ -100,5 +75,39 @@ public class RouteOptimizationService {
     }
 
     private record Stop(Long orderId, double lat, double lng) {
+    }
+
+    /** Applies a nearest-neighbour (greedy) TSP solver to order stops. */
+    private List<Long> greedyTspOrder(List<Stop> stops, double startLat, double startLng) {
+        List<Long> optimized = new ArrayList<>(stops.size());
+        Set<Integer> visited = new HashSet<>();
+        double cursorLat = startLat;
+        double cursorLng = startLng;
+
+        while (optimized.size() < stops.size()) {
+            int next = findNearestUnvisited(stops, visited, cursorLat, cursorLng);
+            visited.add(next);
+            Stop chosen = stops.get(next);
+            optimized.add(chosen.orderId());
+            cursorLat = chosen.lat();
+            cursorLng = chosen.lng();
+        }
+        return optimized;
+    }
+
+    private int findNearestUnvisited(List<Stop> stops, Set<Integer> visited, double lat, double lng) {
+        int nearest = -1;
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i < stops.size(); i++) {
+            if (visited.contains(i)) {
+                continue;
+            }
+            double distance = DistanceCalculator.calculateDistance(lat, lng, stops.get(i).lat(), stops.get(i).lng());
+            if (distance < best) {
+                best = distance;
+                nearest = i;
+            }
+        }
+        return nearest;
     }
 }

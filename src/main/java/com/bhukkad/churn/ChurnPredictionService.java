@@ -8,7 +8,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -159,7 +158,7 @@ public class ChurnPredictionService {
 
         long daysInactive = f.lastOrderAt() == null
                 ? properties.getRecencyDecayDays()
-                : Duration.between(f.lastOrderAt(), LocalDateTime.now()).toDays();
+                : java.time.temporal.ChronoUnit.DAYS.between(f.lastOrderAt(), LocalDateTime.now());
 
         // Recency: fully decayed after ~2× the configured window.
         score += Math.min(40, Math.round(daysInactive * (40.0 / (properties.getRecencyDecayDays() * 2))));
@@ -205,7 +204,7 @@ public class ChurnPredictionService {
         List<String> describe() {
             List<String> parts = new ArrayList<>();
             parts.add("days_inactive=" + (lastOrderAt == null ? -1
-                    : Duration.between(lastOrderAt, LocalDateTime.now()).toDays()));
+                    : java.time.temporal.ChronoUnit.DAYS.between(lastOrderAt, LocalDateTime.now())));
             parts.add("total_orders=" + totalOrders);
             parts.add("recent_30d=" + recentOrders);
             parts.add("prev_30d=" + prevOrders);

@@ -46,6 +46,9 @@ import org.springframework.dao.DataAccessException;
 @Transactional(readOnly = true)
 public class MenuServiceImpl implements MenuService {
 
+    private static final String RESTAURANT_NOT_FOUND = "Restaurant not found";
+
+
     private final MenuItemRepository menuItemRepository;
     private final MenuCategoryRepository menuCategoryRepository;
     private final RestaurantRepository restaurantRepository;
@@ -74,7 +77,7 @@ public class MenuServiceImpl implements MenuService {
     @Transactional
     public MenuCategoryResponse createCategory(Long restaurantId, MenuCategoryRequest request) {
         Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(RESTAURANT_NOT_FOUND));
 
         verifyOwnership(restaurant);
 
@@ -239,7 +242,7 @@ public class MenuServiceImpl implements MenuService {
     @Override
     public List<MenuItemResponse> getLowStockItems(Long restaurantId, Integer threshold) {
         Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(RESTAURANT_NOT_FOUND));
         verifyOwnership(restaurant);
         int effectiveThreshold = threshold != null ? threshold : inventoryProperties.getLowStockThreshold();
         return menuItemRepository.findLowStockByRestaurant(restaurantId, effectiveThreshold)
@@ -488,7 +491,7 @@ public class MenuServiceImpl implements MenuService {
         // The existing bulk-upload implementation lives in this class under the
         // same name; delegate via the repository-level helper to avoid recursion.
         Restaurant restaurant = restaurantRepository.findByIdWithDetails(restaurantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(RESTAURANT_NOT_FOUND));
         verifyOwnership(restaurant);
         return new com.bhukkad.dto.response.BulkUploadReport(0, 0, 0, java.util.List.of());
     }
