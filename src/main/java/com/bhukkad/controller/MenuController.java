@@ -9,7 +9,6 @@ import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.MenuCategoryResponse;
 import com.bhukkad.dto.response.MenuImageUploadResponse;
 import com.bhukkad.dto.response.MenuItemResponse;
-import com.bhukkad.entity.MenuItem;
 import com.bhukkad.ratelimit.RateLimited;
 import com.bhukkad.service.MenuService;
 import jakarta.validation.Valid;
@@ -20,7 +19,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Set;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 

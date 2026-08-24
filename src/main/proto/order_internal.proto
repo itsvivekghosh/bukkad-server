@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.bhukkad.grpc.proto";
+option java_outer_classname = "OrderInternalProto";
+
+package bhukkad.internal;
+
+// Internal, high-throughput order lookups (FEATURE #9). Served on the gRPC port
+// for sibling services (pricing, settlement, analytics); external clients keep
+// using REST/GraphQL. Messages are intentionally narrow projections.
+service OrderInternalService {
+  rpc GetOrderStatus(GetOrderStatusRequest) returns (OrderStatusSnapshot);
+}
+
+message GetOrderStatusRequest {
+  int64 order_id = 1;
+}
+
+message OrderStatusSnapshot {
+  int64 order_id = 1;
+  string order_number = 2;
+  string status = 3;
+  double total_amount = 4;
+  int64 customer_id = 5;
+  int64 restaurant_id = 6;
+  string created_at_iso = 7;
+}

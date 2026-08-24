@@ -133,10 +133,21 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
             try {
                 sendUpdate(emitter, update);
             } catch (Exception e) {
+                // Remove the dead emitter from every stream map it may be
+                // registered in, then complete it, so the connection count and
+                // future broadcasts no longer include it.
+                removeFromAllStreams(emitter);
                 removeAndCompleteEmitter(emitter);
                 log.debug("SSE emitter removed after send failure: {}", e.getMessage());
             }
         }
+    }
+
+    /** Removes a dead emitter from all three stream registries. */
+    private void removeFromAllStreams(SseEmitter emitter) {
+        remove(kitchenStreams, emitter);
+        remove(riderStreams, emitter);
+        remove(customerStreams, emitter);
     }
 
     private void sendUpdate(SseEmitter emitter, OrderLiveUpdate update) throws IOException {
@@ -149,7 +160,14 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         emitter.send(event);
     }
 
-private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+                         SseEmitter emitter) {
+        for (Map.Entry<Long, CopyOnWriteArrayList<SseEmitter>> entry : streams.entrySet()) {
+            remove(streams, entry.getKey(), emitter);
+        }
+    }
+
+    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
                          Long key,
                          SseEmitter emitter) {
         CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
@@ -198,7 +216,10 @@ private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event().comment("heartbeat"));
-            } catch (IOException e) {
+            } catch (IOException | IllegalStateException e) {
+                // IOException: client disconnected; IllegalStateException:
+                // emitter already completed. Either way the stream is dead.
+                removeFromAllStreams(emitter);
                 removeAndCompleteEmitter(emitter);
             }
         }
@@ -224,5 +245,20 @@ private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
             emitters.clear();
         }
         streams.clear();
+    }
+
+    /** Internal broadcast to kitchen listeners only (no Redis publish). */
+    public void broadcastKitchenLocal(Long restaurantId, com.bhukkad.dto.response.OrderLiveUpdate update) {
+        broadcast(kitchenStreams.get(restaurantId), update);
+    }
+
+    /** Internal broadcast to rider listeners only (no Redis publish). */
+    public void broadcastRiderLocal(Long agentId, com.bhukkad.dto.response.OrderLiveUpdate update) {
+        broadcast(riderStreams.get(agentId), update);
+    }
+
+    /** Internal broadcast to customer listeners only (no Redis publish). */
+    public void broadcastCustomerLocal(Long orderId, com.bhukkad.dto.response.OrderLiveUpdate update) {
+        broadcast(customerStreams.get(orderId), update);
     }
 }

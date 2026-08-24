@@ -125,7 +125,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - app_logs_dev:/app/logs
+      - app_logs_dev:/tmp/logs/bhukkad
     depends_on:
       mysql:
         condition: service_healthy

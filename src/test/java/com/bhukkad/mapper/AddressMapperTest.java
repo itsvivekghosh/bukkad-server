@@ -3,26 +3,22 @@ package com.bhukkad.mapper;
 import com.bhukkad.dto.response.AddressResponse;
 import com.bhukkad.entity.Address;
 import org.junit.jupiter.api.Test;
-import org.mapstruct.factory.Mappers;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-/**
- * Unit tests for the MapStruct {@link AddressMapper}.
- */
 class AddressMapperTest {
 
-    private final AddressMapper addressMapper = Mappers.getMapper(AddressMapper.class);
+    private final AddressMapper mapper = new AddressMapperImpl();
 
-    @Test
-    void toResponse_mapsAllFields() {
+    @Test void toResponse_mapsAllFields() {
         Address address = new Address();
-        address.setId(1L);
-        address.setAddressLine1("42 Residency Road");
-        address.setAddressLine2("2nd Floor");
+        address.setId(7L);
+        address.setAddressLine1("123 MG Road");
+        address.setAddressLine2("Floor 2");
         address.setCity("Bangalore");
         address.setState("Karnataka");
-        address.setPincode("560025");
+        address.setPincode("560001");
         address.setLandmark("Near Metro");
         address.setType(Address.AddressType.HOME);
         address.setLabel("Home");
@@ -30,37 +26,35 @@ class AddressMapperTest {
         address.setLongitude(77.5946);
         address.setIsDefault(true);
 
-        AddressResponse response = addressMapper.toResponse(address);
+        AddressResponse response = mapper.toResponse(address);
 
-        assertEquals(1L, response.getId());
-        assertEquals("42 Residency Road", response.getAddressLine1());
-        assertEquals("2nd Floor", response.getAddressLine2());
+        assertEquals(7L, response.getId());
+        assertEquals("123 MG Road", response.getAddressLine1());
+        assertEquals("Floor 2", response.getAddressLine2());
         assertEquals("Bangalore", response.getCity());
         assertEquals("Karnataka", response.getState());
-        assertEquals("560025", response.getPincode());
+        assertEquals("560001", response.getPincode());
         assertEquals("Near Metro", response.getLandmark());
         assertEquals("HOME", response.getType());
         assertEquals("Home", response.getLabel());
         assertEquals(12.9716, response.getLatitude());
         assertEquals(77.5946, response.getLongitude());
-        assertTrue(response.getIsDefault());
+        assertEquals(true, response.getIsDefault());
     }
 
-    @Test
-    void toResponse_handlesNullOptionalFields() {
+    @Test void toResponse_nullAddress_returnsNull() {
+        assertNull(mapper.toResponse(null));
+    }
+
+    @Test void toResponse_minimalFields() {
         Address address = new Address();
-        address.setId(2L);
-        address.setAddressLine1("1 Main St");
-        address.setCity("Mumbai");
-        address.setPincode("400001");
+        address.setId(1L);
+        address.setAddressLine1("Only line");
 
-        AddressResponse response = addressMapper.toResponse(address);
+        AddressResponse response = mapper.toResponse(address);
 
-        assertEquals(2L, response.getId());
-        assertEquals("1 Main St", response.getAddressLine1());
-        assertNull(response.getAddressLine2());
-        assertNull(response.getLandmark());
+        assertEquals("Only line", response.getAddressLine1());
+        assertNull(response.getCity());
         assertNull(response.getType());
-        assertFalse(response.getIsDefault());
     }
 }

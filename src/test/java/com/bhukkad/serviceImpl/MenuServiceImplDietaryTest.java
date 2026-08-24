@@ -2,7 +2,6 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.config.InventoryProperties;
-import com.bhukkad.config.LocalCacheProperties;
 import com.bhukkad.inventory.StockReservationService;
 import com.bhukkad.mapper.MenuItemMapper;
 import com.bhukkad.dto.response.MenuItemResponse;
@@ -13,10 +12,6 @@ import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;
-import com.bhukkad.service.MenuService;
-import com.bhukkad.storage.ImageStorageProperties;
-import com.bhukkad.storage.MenuImageService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

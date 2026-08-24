@@ -2,7 +2,6 @@ package com.bhukkad.delivery;
 
 import com.bhukkad.config.DeliveryTruthProperties;
 import com.bhukkad.entity.DeliveryAgent;
-import com.bhukkad.entity.DeliveryZone;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.util.Constants;
@@ -26,6 +25,7 @@ public class OrderEtaService {
     private final DeliveryZoneService deliveryZoneService;
     private final ZoneSurgeService zoneSurgeService;
     private final OrderEtaHistoryService etaHistoryService;
+    private final RoadDistanceService roadDistanceService;
 
     public EtaSnapshot computeLiveEta(Order order) {
         Restaurant restaurant = order.getRestaurant();
@@ -80,9 +80,15 @@ public class OrderEtaService {
                 || order.getDeliveryAddress().getLongitude() == null) {
             return scaleMinutes(Math.max(5, fallback / 2), trafficFactor);
         }
-        double km = DistanceCalculator.calculateDistance(
+        double km;
+        RoadDistanceService.RoadRoute route = roadDistanceService.route(
                 agent.getCurrentLatitude(), agent.getCurrentLongitude(),
                 order.getDeliveryAddress().getLatitude(), order.getDeliveryAddress().getLongitude());
+        if (route.fromOsrm()) {
+            // Road distance already accounts for real travel time.
+            return scaleMinutes(Math.max(5, (int) Math.ceil(route.durationMin())), trafficFactor);
+        }
+        km = route.distanceKm();
         int travel = (int) Math.ceil(km / properties.getAvgSpeedKmPerMin());
         return scaleMinutes(Math.max(5, travel), trafficFactor);
     }
@@ -115,7 +121,7 @@ public class OrderEtaService {
 
     private int minutesUntil(LocalDateTime target) {
         if (target == null) return 0;
-        return (int) Math.max(0, ChronoUnit.MINUTES.between(LocalDateTime.now(), target));
+        return (int) Math.max(0, ChronoUnit.MINUTES.between(LocalDateTime.now().atZone(java.time.ZoneId.systemDefault()), target.atZone(java.time.ZoneId.systemDefault())));
     }
 
     public record EtaSnapshot(

@@ -68,6 +68,14 @@ public class User {
     @Column(name = "referrer_id")
     private Long referrerId;
 
+    /** Base32-encoded TOTP secret for multi-factor auth; null when not enrolled. */
+    @Column(name = "totp_secret")
+    private String totpSecret;
+
+    /** Whether the account requires a TOTP code at login (ADMIN / RESTAURANT_OWNER). */
+    @Column(name = "totp_enabled")
+    private Boolean totpEnabled = false;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_referral_codes", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "code", length = 20, unique = true)

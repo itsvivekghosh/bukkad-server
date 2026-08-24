@@ -1,12 +1,23 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.dto.request.ReviewResponseRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.CursorPagedResponse;
+import com.bhukkad.dto.response.PagedResponse;
+import com.bhukkad.dto.response.RestaurantAnalyticsResponse;
+import com.bhukkad.dto.response.RestaurantDashboardResponse;
+import com.bhukkad.dto.response.RestaurantOnboardingStatusResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
+import com.bhukkad.dto.response.RestaurantSettlementResponse;
 import com.bhukkad.entity.Review;
+import com.bhukkad.restaurant.RestaurantBusyService;
+import com.bhukkad.restaurant.RestaurantDashboardService;
+import com.bhukkad.service.RestaurantAnalyticsService;
 import com.bhukkad.service.RestaurantService;
 import com.bhukkad.service.ReviewService;
+import com.bhukkad.settlement.RestaurantSettlementService;
 import com.bhukkad.cache.http.HttpCacheSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,7 +33,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import static org.springframework.http.HttpHeaders.IF_NONE_MATCH;
 import org.junit.jupiter.api.Tag;
 
 @Tag("regression")
@@ -38,6 +48,18 @@ public class RestaurantControllerTest {
 
     @Mock
     private HttpCacheSupport httpCacheSupport;
+
+    @Mock
+    private RestaurantAnalyticsService restaurantAnalyticsService;
+
+    @Mock
+    private RestaurantSettlementService restaurantSettlementService;
+
+    @Mock
+    private RestaurantBusyService restaurantBusyService;
+
+    @Mock
+    private RestaurantDashboardService restaurantDashboardService;
 
     @InjectMocks
     private RestaurantController restaurantController;
@@ -165,5 +187,141 @@ public class RestaurantControllerTest {
         assertEquals("Response added to review", response.getBody().getMessage());
         assertSame(review, response.getBody().getData());
         verify(reviewService).respondToReview(7L, "Thanks for the feedback!");
+    }
+
+    @Test
+    void getAllRestaurants_returns304WhenNotModified() {
+        List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
+        when(restaurantService.getAllActiveRestaurants(null)).thenReturn(restaurants);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setETag("W/\"abc\"");
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(headers);
+        when(httpCacheSupport.isNotModified("W/\"abc\"", "W/\"abc\"")).thenReturn(true);
+
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
+                restaurantController.getAllRestaurants("W/\"abc\"", null, null);
+
+        assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
+    }
+
+    @Test
+    void getRestaurantById_returns304WhenNotModified() {
+        RestaurantResponse restaurant = new RestaurantResponse();
+        when(restaurantService.getRestaurantById(1L)).thenReturn(restaurant);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setETag("W/\"def\"");
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(headers);
+        when(httpCacheSupport.isNotModified("W/\"def\"", "W/\"def\"")).thenReturn(true);
+
+        ResponseEntity<ApiResponse<RestaurantResponse>> response =
+                restaurantController.getRestaurantById(1L, "W/\"def\"", null);
+
+        assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
+    }
+
+    @Test
+    void findNearbyRestaurants_returnsNearby() {
+        List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
+        when(restaurantService.findNearbyRestaurants(12.9, 77.6, 5.0, 20)).thenReturn(restaurants);
+
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
+                restaurantController.findNearbyRestaurants(12.9, 77.6, 5.0, 20);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(restaurants, response.getBody().getData());
+    }
+
+    @Test
+    void onboardingSignup_returnsApplication() {
+        RestaurantRequest request = new RestaurantRequest();
+        RestaurantResponse restaurant = new RestaurantResponse();
+        when(restaurantService.createOnboardingApplication(request)).thenReturn(restaurant);
+
+        ResponseEntity<ApiResponse<RestaurantResponse>> response = restaurantController.onboardingSignup(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Onboarding application submitted for verification", response.getBody().getMessage());
+        assertEquals(restaurant, response.getBody().getData());
+    }
+
+    @Test
+    void onboardingStatus_returnsStatus() {
+        RestaurantOnboardingStatusResponse status = RestaurantOnboardingStatusResponse.builder().build();
+        when(restaurantService.getOnboardingStatus()).thenReturn(status);
+
+        ResponseEntity<ApiResponse<RestaurantOnboardingStatusResponse>> response = restaurantController.onboardingStatus();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(status, response.getBody().getData());
+    }
+
+    @Test
+    void getRestaurantAnalytics_returnsAnalytics() {
+        RestaurantAnalyticsResponse analytics = RestaurantAnalyticsResponse.builder().build();
+        when(restaurantAnalyticsService.getAnalytics(1L, 30)).thenReturn(analytics);
+
+        ResponseEntity<ApiResponse<RestaurantAnalyticsResponse>> response =
+                restaurantController.getRestaurantAnalytics(1L, 30);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(analytics, response.getBody().getData());
+    }
+
+    @Test
+    void getSettlements_returnsPagedSettlements() {
+        PagedResponse<RestaurantSettlementResponse> page =
+                PagedResponse.<RestaurantSettlementResponse>builder().build();
+        when(restaurantSettlementService.getRestaurantSettlements(1L, 0, 20)).thenReturn(page);
+
+        ResponseEntity<ApiResponse<PagedResponse<RestaurantSettlementResponse>>> response =
+                restaurantController.getSettlements(1L, 0, 20);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(page, response.getBody().getData());
+    }
+
+    @Test
+    void getSettlementsByCursor_returnsCursorPage() {
+        CursorPagedResponse<RestaurantSettlementResponse> page =
+                CursorPagedResponse.<RestaurantSettlementResponse>builder().build();
+        when(restaurantSettlementService.getRestaurantSettlementsByCursor(1L, "c1", 25)).thenReturn(page);
+
+        ResponseEntity<ApiResponse<CursorPagedResponse<RestaurantSettlementResponse>>> response =
+                restaurantController.getSettlementsByCursor(1L, "c1", 25);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(page, response.getBody().getData());
+    }
+
+    @Test
+    void enableBusyMode_returnsSuccess() {
+        RestaurantBusyModeRequest request = new RestaurantBusyModeRequest();
+
+        ResponseEntity<ApiResponse<Void>> response = restaurantController.enableBusyMode(1L, request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Busy mode enabled", response.getBody().getMessage());
+        verify(restaurantBusyService).setBusyMode(1L, request);
+    }
+
+    @Test
+    void disableBusyMode_returnsSuccess() {
+        ResponseEntity<ApiResponse<Void>> response = restaurantController.disableBusyMode(1L);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Busy mode cleared", response.getBody().getMessage());
+        verify(restaurantBusyService).clearBusyMode(1L);
+    }
+
+    @Test
+    void getDashboard_returnsDashboard() {
+        RestaurantDashboardResponse dashboard = RestaurantDashboardResponse.builder().build();
+        when(restaurantDashboardService.getDashboard(1L, 30)).thenReturn(dashboard);
+
+        ResponseEntity<ApiResponse<RestaurantDashboardResponse>> response =
+                restaurantController.getDashboard(1L, 30);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(dashboard, response.getBody().getData());
     }
 }

@@ -13,13 +13,13 @@ import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Cuisine;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
-import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.repository.CuisineRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.RestaurantRepository;
+import com.bhukkad.search.AutocompleteService;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +31,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -49,6 +50,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     private final RedisCacheService cacheService;
     private final RestaurantGeoIndexService restaurantGeoIndexService;
     private final AddressMapper addressMapper;
+    private final AutocompleteService autocompleteService;
 
     @Value("${cache.ttl.restaurant:1800}")
     private long restaurantTtl;
@@ -144,8 +146,17 @@ public class RestaurantServiceImpl implements RestaurantService {
                 log.debug("RESTAURANT_FULLTEXT_FALLBACK | keyword={}", keyword);
                 results = restaurantRepository.searchByNameWithDetails(keyword);
             }
-            return results.stream()
-                    .map(restaurant -> restaurantRepository.findByIdWithDetails(restaurant.getId()).orElse(restaurant))
+            // Batch-fetch lazy associations for all results in ONE query instead of
+            // one findByIdWithDetails per restaurant (N+1).
+            List<Long> ids = results.stream().map(Restaurant::getId).toList();
+            if (ids.isEmpty()) {
+                return List.of();
+            }
+            Map<Long, Restaurant> byId = restaurantRepository.findAllByIdsWithDetails(ids).stream()
+                    .collect(Collectors.toMap(Restaurant::getId, r -> r));
+            return ids.stream()
+                    .map(byId::get)
+                    .filter(Objects::nonNull)
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
         });
@@ -164,8 +175,15 @@ public class RestaurantServiceImpl implements RestaurantService {
             if (ids.isEmpty()) {
                 ids = restaurantRepository.findNearbyRestaurantIds(latitude, longitude, safeRadius, safeLimit);
             }
+            if (ids.isEmpty()) {
+                return List.of();
+            }
+            // Batch-fetch all nearby restaurants in ONE query instead of one
+            // findByIdWithDetails per id (N+1).
+            Map<Long, Restaurant> byId = restaurantRepository.findAllByIdsWithDetails(ids).stream()
+                    .collect(Collectors.toMap(Restaurant::getId, r -> r));
             return ids.stream()
-                    .map(id -> restaurantRepository.findByIdWithDetails(id).orElse(null))
+                    .map(byId::get)
                     .filter(Objects::nonNull)
                     .map(this::mapToResponse)
                     .collect(Collectors.toList());
@@ -179,7 +197,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () ->
                 restaurantRepository.findByFilters(cuisineId, isPureVeg)
                         .stream()
-                        .map(this::mapToResponseSafe)
+                        .map(this::mapToResponse)
                         .collect(Collectors.toList()));
     }
 
@@ -225,18 +243,15 @@ public class RestaurantServiceImpl implements RestaurantService {
             restaurant.setAddress(address);
         }
 
-        // Cuisines
+        // Cuisines (batch fetch: one IN query instead of one findById per id)
         if (request.getCuisineIds() != null && !request.getCuisineIds().isEmpty()) {
-            Set<Cuisine> cuisines = request.getCuisineIds().stream()
-                    .map(id -> cuisineRepository.findById(id)
-                            .orElseThrow(() -> new ResourceNotFoundException("Cuisine not found: " + id)))
-                    .collect(Collectors.toSet());
-            restaurant.setCuisines(cuisines);
+            restaurant.setCuisines(resolveCuisines(request.getCuisineIds()));
         }
 
         restaurant = restaurantRepository.save(restaurant);
         restaurantGeoIndexService.indexRestaurant(restaurant);
         invalidateRestaurantCaches();
+        autocompleteService.indexRestaurant(restaurant.getId(), restaurant.getName());
 
         return mapToResponse(restaurant);
     }
@@ -287,11 +302,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
 
         if (request.getCuisineIds() != null && !request.getCuisineIds().isEmpty()) {
-            Set<Cuisine> cuisines = request.getCuisineIds().stream()
-                    .map(id -> cuisineRepository.findById(id)
-                            .orElseThrow(() -> new ResourceNotFoundException("Cuisine not found: " + id)))
-                    .collect(Collectors.toSet());
-            restaurant.setCuisines(cuisines);
+            restaurant.setCuisines(resolveCuisines(request.getCuisineIds()));
         }
 
         restaurant = restaurantRepository.save(restaurant);
@@ -300,6 +311,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
+    @UseReadReplica
     public RestaurantOnboardingStatusResponse getOnboardingStatus() {
         Long ownerId = securityUtils.getCurrentUserId();
         List<RestaurantOnboardingStatusResponse.RestaurantOnboardingItem> items =
@@ -378,6 +390,7 @@ public class RestaurantServiceImpl implements RestaurantService {
 
         cacheService.delete(CacheKeyGenerator.restaurant(id));
         invalidateRestaurantCaches();
+        autocompleteService.indexRestaurant(restaurant.getId(), restaurant.getName());
 
         return mapToResponse(restaurant);
     }
@@ -427,10 +440,16 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== MAPPERS ====================
 
     /**
-     * Safe mapper - handles lazy loading gracefully
-     * Use this when entity might have unloaded lazy fields
+     * Maps a Restaurant entity to its response DTO.
+     *
+     * <p>Address and cuisines are lazy associations. When the entity was loaded
+     * with a JOIN FETCH query they are already initialized and the try/catch is a
+     * no-op; when loaded without the fetch (e.g. nearby-search paths) the guard
+     * degrades gracefully to {@code null} / an empty set instead of throwing a
+     * LazyInitializationException. This single method replaces the previous
+     * duplicated {@code mapToResponseSafe}/{@code mapToResponse} pair.</p>
      */
-    private RestaurantResponse mapToResponseSafe(Restaurant restaurant) {
+    private RestaurantResponse mapToResponse(Restaurant restaurant) {
         AddressResponse addressResponse = null;
         Set<String> cuisineNames = new HashSet<>();
 
@@ -479,45 +498,18 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     /**
-     * Full mapper - requires all lazy fields to be loaded via JOIN FETCH
+     * Resolves cuisine ids to entities in a single batch query, throwing on any
+     * id that does not exist. Replaces the previous N+1 loop of per-id lookups.
      */
-    private RestaurantResponse mapToResponse(Restaurant restaurant) {
-        AddressResponse addressResponse = null;
-        Set<String> cuisineNames = new HashSet<>();
-
-        if (restaurant.getAddress() != null) {
-            addressResponse = addressMapper.toResponse(restaurant.getAddress());
+    private Set<Cuisine> resolveCuisines(Set<Long> cuisineIds) {
+        List<Long> distinctIds = cuisineIds.stream().distinct().toList();
+        Map<Long, Cuisine> byId = cuisineRepository.findAllById(distinctIds).stream()
+                .collect(Collectors.toMap(Cuisine::getId, c -> c));
+        for (Long id : distinctIds) {
+            if (!byId.containsKey(id)) {
+                throw new ResourceNotFoundException("Cuisine not found: " + id);
+            }
         }
-
-        if (restaurant.getCuisines() != null) {
-            cuisineNames = restaurant.getCuisines().stream()
-                    .map(Cuisine::getName)
-                    .collect(Collectors.toSet());
-        }
-
-        return RestaurantResponse.builder()
-                .id(restaurant.getId())
-                .name(restaurant.getName())
-                .description(restaurant.getDescription())
-                .address(addressResponse)
-                .cuisines(cuisineNames)
-                .imageUrl(restaurant.getImageUrl())
-                .openingTime(restaurant.getOpeningTime())
-                .closingTime(restaurant.getClosingTime())
-                .isOpen(restaurant.getIsOpen())
-                .isActive(restaurant.getIsActive())
-                .averageRating(restaurant.getAverageRating())
-                .totalReviews(restaurant.getTotalReviews())
-                .averageDeliveryTime(restaurant.getAverageDeliveryTime())
-                .minimumOrderAmount(restaurant.getMinimumOrderAmount())
-                .deliveryFee(restaurant.getDeliveryFee())
-                .freeDeliveryAvailable(restaurant.getFreeDeliveryAvailable())
-                .freeDeliveryAbove(restaurant.getFreeDeliveryAbove())
-                .isPureVeg(restaurant.getIsPureVeg())
-                .features(restaurant.getFeatures())
-                .virtualBrandName(restaurant.getVirtualBrandName())
-                .onboardingStatus(restaurant.getOnboardingStatus() != null ? restaurant.getOnboardingStatus().name() : null)
-                .tenantId(restaurant.getTenantId())
-                .build();
+        return new HashSet<>(byId.values());
     }
 }

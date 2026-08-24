@@ -39,4 +39,10 @@ public interface MenuService {
     List<MenuItemResponse> getGlutenFreeItems(Long restaurantId);
 
     MenuImageUploadResponse createMenuItemImageUploadUrl(Long menuItemId, MenuImageUploadRequest request);
+
+    com.bhukkad.dto.response.BulkUploadReport bulkUploadCsv(
+            org.springframework.web.multipart.MultipartFile file, Long restaurantId, Long ownerId);
+
+    /** Returns a restaurant's menu items filtered by dietary preference (veg/jain/vegan). */
+    java.util.List<MenuItemResponse> getMenuItemsByRestaurant(Long restaurantId, String diet);
 }

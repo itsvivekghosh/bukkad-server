@@ -1,9 +1,12 @@
 package com.bhukkad.live;
 
+import com.bhukkad.entity.Customer;
+import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import org.junit.jupiter.api.Test;
@@ -102,5 +105,123 @@ class OrderLiveAccessServiceTest {
         restaurant.setId(restaurantId);
         restaurant.setOwner(owner);
         return restaurant;
+    }
+
+    // ==================== additional coverage ====================
+
+    @Test
+    void canSubscribeKitchen_returnsFalseWhenRestaurantHasNullOwner() {
+        User owner = ownerUser(5L);
+        Restaurant restaurant = new Restaurant();
+        restaurant.setId(10L);
+        restaurant.setOwner(null);
+        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
+
+        assertFalse(accessService.canSubscribeKitchen(owner, 10L));
+    }
+
+    @Test
+    void canSubscribeCustomer_returnsTrueForOwnOrder() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+        Order order = orderOwnedBy(1L, 42L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+
+        assertTrue(accessService.canSubscribeCustomer(customer, 42L));
+    }
+
+    @Test
+    void canSubscribeCustomer_returnsFalseForOthersOrder() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+        Order order = orderOwnedBy(2L, 42L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+
+        assertFalse(accessService.canSubscribeCustomer(customer, 42L));
+    }
+
+    @Test
+    void canSubscribeCustomer_returnsFalseForMissingOrder() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.empty());
+
+        assertFalse(accessService.canSubscribeCustomer(customer, 42L));
+    }
+
+    @Test
+    void canSubscribeCustomer_returnsFalseForNonCustomer() {
+        User agent = userWithRole(User.UserRole.DELIVERY_AGENT, 1L);
+
+        assertFalse(accessService.canSubscribeCustomer(agent, 42L));
+    }
+
+    @Test
+    void verifyKitchenAccess_throwsForNonOwner() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+
+        assertThrows(UnauthorizedException.class,
+                () -> accessService.verifyKitchenAccess(customer, 10L));
+    }
+
+    @Test
+    void verifyKitchenAccess_throwsWhenNotOwningRestaurant() {
+        User owner = ownerUser(5L);
+        Restaurant restaurant = restaurantOwnedBy(99L, 10L);
+        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
+
+        assertThrows(UnauthorizedException.class,
+                () -> accessService.verifyKitchenAccess(owner, 10L));
+    }
+
+    @Test
+    void verifyKitchenAccess_passesForActualOwner() {
+        User owner = ownerUser(5L);
+        Restaurant restaurant = restaurantOwnedBy(5L, 10L);
+        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
+
+        assertDoesNotThrow(() -> accessService.verifyKitchenAccess(owner, 10L));
+    }
+
+    @Test
+    void verifyCustomerAccess_throwsForNonCustomer() {
+        User agent = userWithRole(User.UserRole.DELIVERY_AGENT, 1L);
+
+        assertThrows(UnauthorizedException.class,
+                () -> accessService.verifyCustomerAccess(agent, 42L));
+    }
+
+    @Test
+    void verifyCustomerAccess_throwsForMissingOrder() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> accessService.verifyCustomerAccess(customer, 42L));
+    }
+
+    @Test
+    void verifyCustomerAccess_throwsForOthersOrder() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+        Order order = orderOwnedBy(2L, 42L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+
+        assertThrows(UnauthorizedException.class,
+                () -> accessService.verifyCustomerAccess(customer, 42L));
+    }
+
+    @Test
+    void verifyCustomerAccess_passesForOwnOrder() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+        Order order = orderOwnedBy(1L, 42L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+
+        assertDoesNotThrow(() -> accessService.verifyCustomerAccess(customer, 42L));
+    }
+
+    private static Order orderOwnedBy(Long customerId, Long orderId) {
+        Customer customer = new Customer();
+        customer.setId(customerId);
+        Order order = new Order();
+        order.setId(orderId);
+        order.setCustomer(customer);
+        return order;
     }
 }

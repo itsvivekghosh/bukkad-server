@@ -12,7 +12,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.IOException;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -29,8 +29,10 @@ class WafFilterTest {
         wafFilter = new WafFilter();
     }
 
-    private void doFilter(MockHttpServletRequest request) throws ServletException, IOException {
-        wafFilter.doFilter(request, new MockHttpServletResponse(), filterChain);
+    private MockHttpServletResponse doFilter(MockHttpServletRequest request) throws ServletException, IOException {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        wafFilter.doFilter(request, response, filterChain);
+        return response;
     }
 
     @Test
@@ -44,44 +46,45 @@ class WafFilterTest {
     }
 
     @Test
-    void sqliTautology_isBlocked() {
+    void sqliTautology_isBlocked() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/restaurants");
         request.addParameter("name", "foo' OR '1'='1");
 
-        assertThrows(com.bhukkad.exception.BusinessException.class, () -> doFilter(request));
+        MockHttpServletResponse response = doFilter(request);
+        assertEquals(400, response.getStatus());
         verifyNoInteractions(filterChain);
     }
 
     @Test
-    void sqliUnionSelect_isBlocked() {
+    void sqliUnionSelect_isBlocked() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/restaurants");
         request.addParameter("q", "x UNION SELECT password FROM users");
 
-        assertThrows(com.bhukkad.exception.BusinessException.class, () -> doFilter(request));
+        assertEquals(400, doFilter(request).getStatus());
     }
 
     @Test
-    void sqliComment_isBlocked() {
+    void sqliComment_isBlocked() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/restaurants");
         request.addParameter("id", "1--");
 
-        assertThrows(com.bhukkad.exception.BusinessException.class, () -> doFilter(request));
+        assertEquals(400, doFilter(request).getStatus());
     }
 
     @Test
-    void xssScriptTag_isBlocked() {
+    void xssScriptTag_isBlocked() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/reviews");
         request.addParameter("comment", "<script>alert(1)</script>");
 
-        assertThrows(com.bhukkad.exception.BusinessException.class, () -> doFilter(request));
+        assertEquals(400, doFilter(request).getStatus());
     }
 
     @Test
-    void xssJavascriptUri_isBlocked() {
+    void xssJavascriptUri_isBlocked() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/restaurants");
         request.addParameter("url", "javascript:alert(1)");
 
-        assertThrows(com.bhukkad.exception.BusinessException.class, () -> doFilter(request));
+        assertEquals(400, doFilter(request).getStatus());
     }
 
     @Test

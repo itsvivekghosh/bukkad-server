@@ -104,7 +104,7 @@ public class ResilientEmailSender {
     }
 
     @SuppressWarnings("unused")
-    private void emailUnavailable(SimpleMailMessage message, Throwable cause) {
+    void emailUnavailable(SimpleMailMessage message, Throwable cause) {
         log.warn("EMAIL_CIRCUIT_OPEN | to={} | subject={} | error={}",
                 message.getTo(), message.getSubject(), cause.getMessage());
     }

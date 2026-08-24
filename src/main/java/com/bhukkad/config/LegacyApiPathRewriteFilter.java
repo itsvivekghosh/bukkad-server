@@ -31,6 +31,12 @@ public class LegacyApiPathRewriteFilter extends OncePerRequestFilter {
         String uri = request.getRequestURI();
         if (shouldRewrite(uri)) {
             String rewritten = ApiPaths.V1_PREFIX + uri.substring("/api".length());
+            // Legacy /api/** is a deprecated alias: tell clients to migrate to the
+            // versioned path so they can stop relying on the rewrite once v1 is
+            // removed (standard HTTP deprecation signalling, RFC 8594 Sunset).
+            response.setHeader("Deprecation", "true");
+            response.setHeader("Sunset", "2026-12-31T23:59:59Z");
+            response.setHeader("Link", "</api/v1" + uri.substring("/api".length()) + ">; rel=\"successor-version\"");
             filterChain.doFilter(new RewrittenUriRequest(request, rewritten), response);
             return;
         }

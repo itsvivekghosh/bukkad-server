@@ -5,6 +5,7 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerSecurityAutoConfiguration
 
   profiles:
     active: dev
@@ -53,6 +54,7 @@ spring:
 
   flyway:
     enabled: true
+    out-of-order: true
     baseline-on-migrate: true
     locations: classpath:db/migration
     ignore-migration-patterns: "*:missing"
@@ -63,6 +65,40 @@ spring:
     time-zone: UTC
     default-property-inclusion: non_null
 
+  # Internationalization: locale is resolved from the Accept-Language header by
+  # AcceptHeaderLocaleResolver (see I18nConfig). Bundle lives in
+  # src/main/resources/messages*.properties.
+  messages:
+    basename: messages
+    fallback-to-system-locale: false
+
+  # OAuth2 social login (Google / Apple / Facebook). Each provider is enabled
+  # only when its client-id env var is set. Registration maps to the existing
+  # User entity by verified email; account linking happens in AuthServiceImpl.
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${OAUTH_GOOGLE_CLIENT_ID:dev-google}
+            client-secret: ${OAUTH_GOOGLE_CLIENT_SECRET:dev-secret}
+            scope: openid,email,profile
+          apple:
+            client-id: ${OAUTH_APPLE_CLIENT_ID:dev-apple}
+            client-secret: ${OAUTH_APPLE_CLIENT_SECRET:dev-secret}
+            scope: openid,name,email
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+          facebook:
+            client-id: ${OAUTH_FACEBOOK_CLIENT_ID:dev-facebook}
+            client-secret: ${OAUTH_FACEBOOK_CLIENT_SECRET:dev-secret}
+            scope: email,public_profile
+            authorization-grant-type: authorization_code
+        provider:
+          apple:
+            authorization-uri: https://appleid.apple.com/auth/authorize
+            token-uri: https://appleid.apple.com/auth/token
+
 server:
   port: 8080
   shutdown: graceful
@@ -70,6 +106,9 @@ server:
     include-message: always
     include-binding-errors: always
     include-stacktrace: on_param
+  # HTTP/2 configuration for production (feature #10)
+  http2:
+    enabled: ${SERVER_HTTP2_ENABLED:false}
   # Response compression — gzip on the application server.
   #
   # Brotli is intentionally not enabled at the Tomcat layer: Tomcat 10.1's built-in
@@ -88,11 +127,16 @@ server:
 app:
   environment: local
   debug: false
+ 
   feature-flags:
     flags:
       autocomplete-enabled: true
       search-provider-es: false
       new-checkout-flow: false
+    # Percentage-based rollout per flag (0-100). When set, overrides the boolean
+    # switch for user-scoped checks (isEnabled(key, userId)).
+    rollout:
+      new-checkout-flow: 10
   chaos:
     enabled: ${CHAOS_ENABLED:false}
     latency-probability: 0.0
@@ -103,6 +147,10 @@ app:
       core-pool-size: 4
       max-pool-size: 16
       queue-capacity: 200
+    low:
+      core-pool-size: 2
+      max-pool-size: 4
+      queue-capacity: 100
   cloud-kitchen:
     kitchen-queue-default-limit: 50
     order-list-default-size: 20
@@ -161,6 +209,13 @@ app:
     batch-size: 50
     dead-letter-batch-size: 50
     dead-letter-repoll-ms: 60000
+
+  # Distributed locking for scheduled jobs (ShedLock). The lock lives in Redis;
+  # lock_at_most_for must comfortably exceed the longest job run.
+  shedlock:
+    enabled: ${SHEDLOCK_ENABLED:true}
+    lock-at-most-for: PT30M
+    lock-at-least-for: PT1S
   datasource:
     read-replica:
       enabled: true
@@ -175,6 +230,9 @@ app:
 
   rate-limit:
     enabled: true
+    # When true, responses carry X-RateLimit-Limit / X-RateLimit-Remaining /
+    # X-RateLimit-Reset headers so clients can self-throttle.
+    headers-enabled: ${RATE_LIMIT_HEADERS_ENABLED:false}
     buckets:
       order-track:
         limit: 20
@@ -183,6 +241,9 @@ app:
         limit: 30
         window-seconds: 60
       search:
+        limit: 30
+        window-seconds: 60
+      mobile-feed:
         limit: 30
         window-seconds: 60
       auth-login:
@@ -258,6 +319,13 @@ app:
       key-prefix: menu-items
       upload-url-expiry-seconds: 900
       download-url-expiry-seconds: 3600
+      # CloudFront CDN for menu images (feature #10)
+      cloudfront:
+        enabled: ${CLOUDFRONT_ENABLED:false}
+        domain: ${CLOUDFRONT_DOMAIN:}
+        key-pair-id: ${CLOUDFRONT_KEY_PAIR_ID:}
+        private-key: ${CLOUDFRONT_PRIVATE_KEY:}
+        signed-url-expiry-seconds: 3600
 
   payment:
     provider: simulated
@@ -302,6 +370,55 @@ app:
     bonus-amount: 50.0
     referee-bonus-amount: 25.0
 
+  # DPDP/GDPR compliance (feature #16): data export, consent tracking and
+  # retention-based cleanup of expired compliance artifacts.
+  compliance:
+    enabled: ${COMPLIANCE_ENABLED:true}
+    # Data export payloads older than this are purged by DataRetentionService.
+    retention-days: 90
+    # How often the retention sweep runs (ms).
+    retention-cleanup-ms: ${COMPLIANCE_RETENTION_CLEANUP_MS:86400000}
+
+  # Social login redirect target (frontend route that receives the JWT pair
+  # from OAuth2LoginSuccessHandler).
+  oauth2:
+    redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:3000/oauth/callback}
+
+  # A/B experiments (feature #7). Weights are percentages and may sum to less
+  # than 100 — the remainder is excluded from the experiment. Assignments are
+  # deterministic per (experiment, user) via consistent hashing.
+  experiments:
+    enabled: ${EXPERIMENTS_ENABLED:true}
+    experiments:
+      checkout-cta-copy:
+        enabled: false
+        description: "Example: new checkout CTA wording"
+        variants:
+          - name: control
+            weight: 50
+          - name: treatment
+            weight: 50
+
+  # Personalized recommendations (feature #4): max items returned per endpoint.
+  recommendations:
+    max-items: ${RECOMMENDATION_MAX_ITEMS:10}
+
+  # Churn prediction & proactive retention (feature #12).
+  churn:
+    enabled: ${CHURN_PREDICTION_ENABLED:true}
+    scoring-cron: "0 0 3 * * MON"
+    retention-threshold: 65
+    batch-size: 500
+    recency-decay-days: 30
+
+  # ML-based order fraud scoring (feature #10). Enforcement stays off during
+  # rollout — scores are logged and flagged for review only.
+  fraud-scoring:
+    enabled: ${FRAUD_SCORING_ENABLED:true}
+    enforcement-enabled: ${FRAUD_SCORING_ENFORCEMENT:false}
+    review-threshold: 60
+    reject-threshold: 85
+
   settlement:
     commission-percent: 15.0
     auto-settle-enabled: true
@@ -314,11 +431,47 @@ app:
     confidence-band-minutes: 5
     record-snapshots: true
 
+  road-distance:
+    # Real road-distance ETA (P1-2). Disabled by default → haversine fallback.
+    # Enable with APP_ROAD_DISTANCE_ENABLED=true and set an OSRM URL.
+    enabled: ${APP_ROAD_DISTANCE_ENABLED:false}
+    osrm-url: ${OSRM_URL:}
+    connect-timeout-ms: 2000
+    read-timeout-ms: 2000
+    fallback-speed-km-per-min: 0.6
+
   cache:
     local:
       enabled: true
       max-size: 5000
       ttl-seconds: 60
+    # Dynamic TTLs: optional per-bucket time-of-day multipliers applied on top of
+    # the static `cache.ttl.*` values. When enabled, peak-hour traffic uses shorter
+    # TTLs (fresher data) and off-peak uses longer ones (higher hit ratio).
+    dynamic-ttl:
+      enabled: false
+      peak-hours: "11:00-14:00,19:00-22:00"
+      peak-multiplier: 0.5
+      off-peak-multiplier: 1.5
+    # Pub/sub invalidation: when enabled, cache evictions are broadcast on the
+    # Redis channel below so every instance drops the key, not just the writer.
+    pubsub-invalidation:
+      enabled: false
+      channel: bhukkad:cache:invalidate
+    # Static TTLs per cache bucket (seconds). Consumed by RedisCacheService.
+    ttl:
+      restaurant: 1800
+      restaurant-list: 600
+      menu-item: 900
+      menu-category: 1800
+      cuisine: 86400
+      user-profile: 3600
+      cart: 1800
+      order: 300
+      review: 1800
+      coupon: 3600
+      search: 300
+      home-feed: 60
 
   geo:
     redis-geo-enabled: true
@@ -392,6 +545,30 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 60s
         permitted-number-of-calls-in-half-open-state: 3
+      notificationSms:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      notificationWhatsApp:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      notificationPush:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      osrm:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
 
 management:
   endpoints:
@@ -401,6 +578,20 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+  # Distributed tracing (OpenTelemetry). Two exporters are supported:
+  #   - Zipkin (default): MANAGEMENT_ZIPKIN_TRACING_ENDPOINT
+  #   - OTLP (Jaeger / Tempo / collector): MANAGEMENT_OTLP_TRACING_ENDPOINT
+  # Disabled by default; enable with MANAGEMENT_TRACING_ENABLED=true.
+  tracing:
+    enabled: ${MANAGEMENT_TRACING_ENABLED:false}
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.1}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://jaeger:4318/v1/traces}
   endpoint:
     health:
       probes:
@@ -483,3 +674,11 @@ springdoc:
   default-consumes-media-type: application/json
   packages-to-scan: com.bhukkad.controller
   show-actuator: false
+
+# gRPC server for internal high-throughput service-to-service endpoints (feature #9).
+# Disabled by default (net.devh convention: port = -1 means "do not start").
+# Enable with GRPC_SERVER_PORT=9090. net.devh reads the top-level grpc.*
+# namespace, NOT server.grpc.
+grpc:
+  server:
+    port: ${GRPC_SERVER_PORT:-1}

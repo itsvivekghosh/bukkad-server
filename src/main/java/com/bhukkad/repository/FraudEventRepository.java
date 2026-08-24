@@ -44,4 +44,7 @@ public interface FraudEventRepository extends JpaRepository<FraudEvent, Long> {
 
     /** Most recent events, newest first — backs the admin fraud feed. */
     List<FraudEvent> findTop100ByOrderByCreatedAtDesc();
+
+    /** Deletes events older than the given timestamp — backs the data retention purge. */
+    long deleteByCreatedAtBefore(LocalDateTime cutoff);
 }

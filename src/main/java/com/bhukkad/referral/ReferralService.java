@@ -1,6 +1,8 @@
 package com.bhukkad.referral;
 
 import com.bhukkad.config.ReferralProperties;
+import com.bhukkad.ratelimit.RateLimitDecision;
+import com.bhukkad.ratelimit.RateLimitService;
 import com.bhukkad.dto.response.ReferralInfoResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.WalletTransaction;
@@ -24,6 +26,7 @@ public class ReferralService {
     private final WalletService walletService;
     private final WalletTransactionRepository walletTransactionRepository;
     private final ReferralProperties referralProperties;
+    private final RateLimitService rateLimitService;
 
     @Transactional
     public void initializeNewCustomer(Customer customer, String referralCodeInput) {
@@ -49,6 +52,34 @@ public class ReferralService {
                 .referralsCount((int) referralsCount)
                 .referralBonusEarned(bonusEarned)
                 .build();
+    }
+
+    /**
+     * Lightweight in-process rate guard for referral actions. Throws when the
+     * caller exceeds the configured per-source allowance for the bucket.
+     */
+    public boolean isValidReferralCode(String code) {
+        return StringUtils.hasText(code) && customerRepository.findByReferralCode(code).isPresent();
+    }
+
+    public void assertNotRateLimited(String key) {
+        RateLimitDecision decision = rateLimitService.check("referral", key);
+        if (!decision.allowed()) {
+            throw new com.bhukkad.exception.RateLimitExceededException(
+                    "Too many requests. Try again later.", decision.retryAfterSeconds());
+        }
+    }
+
+    /** Generates (if absent) and persists the customer's referral code. */
+    @Transactional
+    public String generateAndSaveReferralCode(Long customerId) {
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new BusinessException("Customer not found"));
+        if (!StringUtils.hasText(customer.getReferralCode())) {
+            customer.setReferralCode(generateUniqueCode(customer));
+            customerRepository.save(customer);
+        }
+        return customer.getReferralCode();
     }
 
     private void applyReferral(Customer newCustomer, String referralCode) {

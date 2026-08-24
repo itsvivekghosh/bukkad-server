@@ -10,4 +10,6 @@ public interface PaymentService {
     PaymentResponse getPaymentForOrder(Long orderId);
     void refundPayment(Long paymentId);
     void completeWebhookPayment(String gatewayOrderId, String gatewayPaymentId);
+    /** Returns enriched payment status for an order, including gateway info. */
+    java.util.Map<String, Object> getPaymentStatus(Long orderId, Long customerId);
 }

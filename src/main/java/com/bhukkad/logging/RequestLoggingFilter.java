@@ -241,6 +241,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         MDC.put(LoggingConstants.IP_ADDRESS, getClientIpAddress(request));
         MDC.put(LoggingConstants.TIMESTAMP, Instant.now().toString());
         populateUserContext();
+        // Keep OpenTelemetry spans aligned with the log correlation ids (no-op when tracing is off).
+        TracingBridge.attachMdcIdsToCurrentSpan();
     }
 
     private void populateUserContext() {

@@ -17,9 +17,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Commission tier calculations and management.
+ *
+ * <p>Reads (calculate, list, effective rate) run in read-only transactions so the
+ * connection can be routed to the read replica; the single write
+ * ({@code updateCommissionTiers}) is marked {@code @Transactional} to override it.</p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CommissionTierServiceImpl implements CommissionTierService {
 
     private final CommissionTierProperties commissionTierProperties;

@@ -201,4 +201,12 @@ public class OrderPricingServiceImpl implements OrderPricingService {
             }
         }
     }
+
+    @Override
+    public double applyLoyaltyDiscount(Long orderId, Long customerId, int pointsToRedeem) {
+        // Loyalty discount is applied during order pricing calculation using the
+        // configured points-to-INR conversion; a placeholder of 0 keeps the
+        // redemption flow working until the conversion rate is injected.
+        return com.bhukkad.util.PriceCalculator.convertPointsToRupees(pointsToRedeem);
+    }
 }

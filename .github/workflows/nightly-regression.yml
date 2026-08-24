@@ -2,7 +2,7 @@ name: Nightly Regression
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # Every night at 2 AM IST
+    - cron: '0 2 * * *'  # Every night at 02:00 UTC (07:30 IST) — GitHub cron is UTC-only
   workflow_dispatch:
 
 permissions:

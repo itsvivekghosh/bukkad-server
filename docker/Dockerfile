@@ -32,7 +32,7 @@ RUN apt-get update \
     && echo "$TZ" > /etc/timezone \
     && groupadd -r -g 1001 bhukkad \
     && useradd -r -u 1001 -g bhukkad -d /app -s /usr/sbin/nologin bhukkad \
-    && mkdir -p /app/logs /app/scripts \
+    && mkdir -p /tmp/logs/bhukkad /app/scripts \
     && chown -R bhukkad:bhukkad /app
 
 WORKDIR /app

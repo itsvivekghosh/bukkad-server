@@ -16,9 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 
-import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;

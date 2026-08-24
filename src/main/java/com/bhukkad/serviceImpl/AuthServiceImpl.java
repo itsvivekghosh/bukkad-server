@@ -141,6 +141,22 @@ public class AuthServiceImpl implements AuthService {
             MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
             MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
 
+            // If the account belongs to a privileged role and has TOTP MFA
+            // enabled, require a second-factor challenge before issuing tokens.
+            if (Boolean.TRUE.equals(user.getTotpEnabled()) && isMfaEligibleRole(user.getRole())) {
+                String mfaToken = jwtTokenProvider.generateMfaToken(user.getId(), user.getEmail());
+                log.info("MFA challenge issued | userId={} | role={}", user.getId(), user.getRole());
+                securityEventLogger.logLoginSuccess(user.getId(), user.getEmail(), user.getRole().name());
+                return AuthResponse.builder()
+                        .mfaRequired(true)
+                        .mfaToken(mfaToken)
+                        .userId(user.getId())
+                        .email(user.getEmail())
+                        .fullName(user.getFullName())
+                        .role(user.getRole().name())
+                        .build();
+            }
+
             AuthResponse response = issueTokenPair(user);
             securityEventLogger.logLoginSuccess(user.getId(), user.getEmail(), user.getRole().name());
             return response;
@@ -149,6 +165,30 @@ public class AuthServiceImpl implements AuthService {
             securityEventLogger.logLoginFailure(request.getEmail(), "Invalid credentials");
             throw e;
         }
+    }
+
+    @Override
+    public AuthResponse verifyMfaLogin(String mfaToken, String totpCode) {
+        Long userId = jwtTokenProvider.extractUserId(mfaToken);
+        String email = jwtTokenProvider.extractUsername(mfaToken);
+        if (!jwtTokenProvider.validateMfaToken(mfaToken)) {
+            throw new UnauthorizedException("MFA token expired or invalid");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found"));
+
+        if (!com.bhukkad.util.TOTPGenerator.verify(user.getTotpSecret(), totpCode, 1)) {
+            securityEventLogger.logLoginFailure(email, "Invalid MFA code");
+            throw new BusinessException("Invalid MFA code");
+        }
+
+        log.info("MFA verification succeeded | userId={}", userId);
+        return issueTokenPair(user);
+    }
+
+    private boolean isMfaEligibleRole(User.UserRole role) {
+        return role == User.UserRole.ADMIN || role == User.UserRole.RESTAURANT_OWNER;
     }
 
     @Override

@@ -23,8 +23,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Coupon lifecycle: creation, validation, discount calculation and usage
+ * tracking.
+ *
+ * <p>Class-level {@code @Transactional(readOnly = true)} routes the read-heavy
+ * lookups (validation, active list) to the read replica; write methods override
+ * it with their own {@code @Transactional}.</p>
+ */
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CouponServiceImpl implements CouponService {
 
     private final CouponRepository couponRepository;
@@ -51,6 +60,20 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
+    public Coupon createRecoveryCoupon(String code, String description,
+                                       double discountPercent, double minOrderAmount, int validityDays) {
+        Coupon coupon = new Coupon();
+        coupon.setCode(code);
+        coupon.setDescription(description);
+        coupon.setDiscountValue(discountPercent);
+        coupon.setDiscountType(com.bhukkad.entity.Coupon.DiscountType.PERCENTAGE);
+        coupon.setMinimumOrderAmount(minOrderAmount);
+        coupon.setValidFrom(java.time.LocalDateTime.now());
+        coupon.setValidUntil(java.time.LocalDateTime.now().plusDays(validityDays));
+        coupon.setActive(true);
+        return couponRepository.save(coupon);
+    }
+
     public Coupon getCouponByCode(String code) {
         return couponRepository.findByCode(code)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));

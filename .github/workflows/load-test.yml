@@ -1,0 +1,44 @@
+name: Load Test
+
+# Performance gate (FEATURE #17): runs k6 scenarios against a deployed
+# environment and fails when P95 latency or error budgets are exceeded.
+#
+# Manual by default; schedule nightly against staging by setting the
+# STAGING_BASE_URL repository variable and enabling the cron line below.
+# Requires k6 Cloud or a runner with network access to BASE_URL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target environment base URL"
+        required: true
+        default: "http://localhost:8080"
+      scenario:
+        description: "k6 scenario to run"
+        required: false
+        default: "browse"
+  # schedule:
+  #   - cron: "0 2 * * *"  # nightly soak against staging
+
+jobs:
+  loadtest:
+    name: k6 ${{ github.event.inputs.scenario || 'browse' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run k6 scenario
+        uses: grafana/run-k6-action@v1
+        with:
+          path: |
+            loadtest/config.js
+            loadtest/${{ github.event.inputs.scenario }}.js
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TEST_EMAIL: ${{ secrets.LOADTEST_EMAIL }}
+          TEST_PASSWORD: ${{ secrets.LOADTEST_PASSWORD }}
+
+      - name: Publish summary
+        if: always()
+        run: echo "Load test completed. Check thresholds in the step above."

@@ -8,6 +8,7 @@ import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.util.TOTPGenerator;
 import com.bhukkad.logging.SecurityEventLogger;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
@@ -32,7 +33,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -598,5 +601,103 @@ class AuthServiceImplTest {
         authService.logout("x");
 
         assertNotNull(authService);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // TOTP MFA (Point 2)
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    void login_mfaEnabledAdmin_returnsMfaChallenge() {
+        User admin = activeUser();
+        admin.setRole(User.UserRole.ADMIN);
+        admin.setTotpEnabled(true);
+        admin.setTotpSecret("JBSWY3DPEHPK3PXP");
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(admin));
+        when(jwtTokenProvider.generateMfaToken(1L, "user@example.com")).thenReturn("mfa-token");
+
+        AuthResponse response = authService.login(loginRequest());
+
+        assertTrue(response.isMfaRequired());
+        assertEquals("mfa-token", response.getMfaToken());
+        assertNull(response.getToken(), "no access token before MFA completes");
+        verify(jwtTokenProvider, never()).generateAccessToken(any(UserDetails.class));
+    }
+
+    @Test
+    void login_mfaEnabledOwner_returnsMfaChallenge() {
+        User owner = activeUser();
+        owner.setRole(User.UserRole.RESTAURANT_OWNER);
+        owner.setTotpEnabled(true);
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(owner));
+        when(jwtTokenProvider.generateMfaToken(1L, "user@example.com")).thenReturn("mfa-token");
+
+        AuthResponse response = authService.login(loginRequest());
+
+        assertTrue(response.isMfaRequired());
+    }
+
+    @Test
+    void login_mfaEnabledCustomer_issuesTokensDirectly() {
+        // MFA is only enforced for privileged roles; customers keep the old flow.
+        User customer = activeUser();
+        customer.setRole(User.UserRole.CUSTOMER);
+        customer.setTotpEnabled(true);
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(customer));
+
+        AuthResponse response = authService.login(loginRequest());
+
+        assertFalse(response.isMfaRequired());
+        assertEquals("access-token", response.getToken());
+    }
+
+    @Test
+    void verifyMfaLogin_validCode_issuesTokenPair() {
+        User user = activeUser();
+        user.setRole(User.UserRole.ADMIN);
+        user.setTotpSecret("JBSWY3DPEHPK3PXP");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(jwtTokenProvider.extractUserId("mfa-token")).thenReturn(1L);
+        when(jwtTokenProvider.extractUsername("mfa-token")).thenReturn("user@example.com");
+        when(jwtTokenProvider.validateMfaToken("mfa-token")).thenReturn(true);
+        // Compute the current TOTP code against the fixed secret.
+        String code = TOTPGenerator.generateCode("JBSWY3DPEHPK3PXP");
+
+        AuthResponse response = authService.verifyMfaLogin("mfa-token", code);
+
+        assertEquals("access-token", response.getToken());
+        assertEquals("refresh-token", response.getRefreshToken());
+    }
+
+    @Test
+    void verifyMfaLogin_wrongCode_throws() {
+        User user = activeUser();
+        user.setRole(User.UserRole.ADMIN);
+        user.setTotpSecret("JBSWY3DPEHPK3PXP");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(jwtTokenProvider.extractUserId("mfa-token")).thenReturn(1L);
+        when(jwtTokenProvider.extractUsername("mfa-token")).thenReturn("user@example.com");
+        when(jwtTokenProvider.validateMfaToken("mfa-token")).thenReturn(true);
+
+        assertThrows(BusinessException.class,
+                () -> authService.verifyMfaLogin("mfa-token", "000000"));
+        verify(jwtTokenProvider, never()).generateAccessToken(any(UserDetails.class));
+    }
+
+    @Test
+    void verifyMfaLogin_expiredToken_throws() {
+        when(jwtTokenProvider.extractUserId("expired")).thenReturn(1L);
+        when(jwtTokenProvider.extractUsername("expired")).thenReturn("user@example.com");
+        when(jwtTokenProvider.validateMfaToken("expired")).thenReturn(false);
+
+        assertThrows(com.bhukkad.exception.UnauthorizedException.class,
+                () -> authService.verifyMfaLogin("expired", "123456"));
+    }
+
+    private LoginRequest loginRequest() {
+        LoginRequest request = new LoginRequest();
+        request.setEmail("user@example.com");
+        request.setPassword("secret1");
+        return request;
     }
 }

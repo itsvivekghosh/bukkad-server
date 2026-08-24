@@ -41,6 +41,29 @@ class LegacyApiPathRewriteFilterTest {
     }
 
     @Test
+    void legacyPathEmitsDeprecationAndSunsetHeaders() throws ServletException, IOException {
+        when(request.getRequestURI()).thenReturn("/api/orders/customer/1");
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(response).setHeader("Deprecation", "true");
+        verify(response).setHeader("Sunset", "2026-12-31T23:59:59Z");
+        verify(response).setHeader(org.mockito.ArgumentMatchers.eq("Link"),
+                org.mockito.ArgumentMatchers.contains("successor-version"));
+    }
+
+    @Test
+    void versionedPathDoesNotEmitDeprecationHeaders() throws ServletException, IOException {
+        when(request.getRequestURI()).thenReturn("/api/v1/orders/customer/1");
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(response, org.mockito.Mockito.never()).setHeader(
+                org.mockito.ArgumentMatchers.eq("Deprecation"),
+                org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
     void leavesVersionedPathsUnchanged() throws ServletException, IOException {
         when(request.getRequestURI()).thenReturn("/api/v1/orders/customer/1");
 

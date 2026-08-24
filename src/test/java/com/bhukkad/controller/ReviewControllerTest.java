@@ -1,8 +1,11 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.dto.request.MenuItemRatingRequest;
 import com.bhukkad.dto.request.ReviewRequest;
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.dto.response.MenuItemRatingResponse;
 import com.bhukkad.entity.Review;
+import com.bhukkad.service.MenuItemRatingService;
 import com.bhukkad.service.ReviewService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +27,9 @@ public class ReviewControllerTest {
 
     @Mock
     private ReviewService reviewService;
+
+    @Mock
+    private MenuItemRatingService menuItemRatingService;
 
     @InjectMocks
     private ReviewController reviewController;
@@ -81,5 +87,30 @@ public class ReviewControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Review deleted successfully", response.getBody().getMessage());
         verify(reviewService).deleteReview(4L);
+    }
+
+    @Test
+    void rateMenuItem_returnsRating() {
+        MenuItemRatingRequest request = new MenuItemRatingRequest();
+        MenuItemRatingResponse rating = MenuItemRatingResponse.builder().build();
+        when(menuItemRatingService.rateMenuItem(request)).thenReturn(rating);
+
+        ResponseEntity<ApiResponse<MenuItemRatingResponse>> response = reviewController.rateMenuItem(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Menu item rated successfully", response.getBody().getMessage());
+        assertEquals(rating, response.getBody().getData());
+    }
+
+    @Test
+    void getMenuItemRatings_returnsRatings() {
+        List<MenuItemRatingResponse> ratings = List.of(MenuItemRatingResponse.builder().build());
+        when(menuItemRatingService.getMenuItemRatings(6L)).thenReturn(ratings);
+
+        ResponseEntity<ApiResponse<List<MenuItemRatingResponse>>> response =
+                reviewController.getMenuItemRatings(6L);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(ratings, response.getBody().getData());
     }
 }
