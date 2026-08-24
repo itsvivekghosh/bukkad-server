@@ -24,7 +24,8 @@ import org.springframework.context.annotation.Configuration;
         OutboxProperties.class,
         com.bhukkad.featureflag.FeatureFlagProperties.class,
         com.bhukkad.chaos.ChaosProperties.class,
-        com.bhukkad.compliance.ComplianceProperties.class
+        com.bhukkad.compliance.ComplianceProperties.class,
+        com.bhukkad.experiment.ExperimentProperties.class
 })
 public class PlatformEnhancementsConfig {
 }
