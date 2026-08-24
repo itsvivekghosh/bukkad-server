@@ -324,4 +324,27 @@ public class RestaurantControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(dashboard, response.getBody().getData());
     }
+
+    @Test
+    void getAllRestaurants_withIds_returnsBatchLookup() {
+        List<RestaurantResponse> batch = List.of(new RestaurantResponse());
+        when(restaurantService.getRestaurantsByIds(List.of(1L, 2L))).thenReturn(batch);
+
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
+                restaurantController.getAllRestaurants(List.of(1L, 2L), null, null, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(batch, response.getBody().getData());
+        verify(restaurantService).getRestaurantsByIds(List.of(1L, 2L));
+        verify(restaurantService, never()).getAllActiveRestaurants(any());
+    }
+
+    @Test
+    void getAllRestaurants_tooManyIds_throwsBusinessException() {
+        java.util.List<Long> many = java.util.stream.LongStream.rangeClosed(1, 101)
+                .boxed().collect(java.util.stream.Collectors.toList());
+        assertThrows(com.bhukkad.exception.BusinessException.class,
+                () -> restaurantController.getAllRestaurants(many, null, null, null));
+        verify(restaurantService, never()).getRestaurantsByIds(any());
+    }
 }
