@@ -109,6 +109,10 @@ public class SecurityConfig {
                     // Serviceability & home feed - Public GET
                     auth.requestMatchers(HttpMethod.GET, V1 + "/serviceability/**").permitAll();
                     auth.requestMatchers(HttpMethod.GET, V1 + "/home/**").permitAll();
+                    // Mobile (BFF) composite feed - Public GET
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/mobile/**").permitAll();
+                    // Analytics exports - public CSV streaming (read-only aggregates)
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/analytics/export/**").permitAll();
 
                     // GraphQL endpoint — single POST endpoint that exposes both
                     // the anonymous homeFeed query and the authenticated

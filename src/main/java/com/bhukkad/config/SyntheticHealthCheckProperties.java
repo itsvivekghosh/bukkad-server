@@ -14,7 +14,7 @@ public class SyntheticHealthCheckProperties {
      */
     private List<String> endpoints = List.of(
             "/actuator/health",
-            "/api/v1/serviceability"
+            "/api/v1/serviceability/check"
     );
 
     /**

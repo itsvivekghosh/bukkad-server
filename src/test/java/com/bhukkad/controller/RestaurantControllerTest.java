@@ -70,7 +70,7 @@ public class RestaurantControllerTest {
         when(restaurantService.getAllActiveRestaurants(null)).thenReturn(restaurants);
         when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
-        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null, null);
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(restaurants, response.getBody().getData());
@@ -199,7 +199,7 @@ public class RestaurantControllerTest {
         when(httpCacheSupport.isNotModified("W/\"abc\"", "W/\"abc\"")).thenReturn(true);
 
         ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
-                restaurantController.getAllRestaurants("W/\"abc\"", null, null);
+                restaurantController.getAllRestaurants(null, "W/\"abc\"", null, null);
 
         assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
     }

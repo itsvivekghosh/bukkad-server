@@ -24,6 +24,7 @@ public interface MenuService {
     MenuItemResponse getMenuItemById(Long id);
     List<MenuItemResponse> getMenuItemsByCategory(Long categoryId);
     List<MenuItemResponse> getMenuItemsByRestaurant(Long restaurantId);
+    java.util.List<MenuItemResponse> getMenuItemsByIds(java.util.List<Long> ids);
     MenuItemResponse updateMenuItem(Long id, MenuItemRequest request);
     void deleteMenuItem(Long id);
     void toggleItemAvailability(Long itemId, Boolean available);
