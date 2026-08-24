@@ -2,9 +2,12 @@ name: Pull Request CI
 
 on:
   pull_request:
+  # workflow_dispatch registers the workflow with GitHub's dispatcher so push
+  # events to other branches don't create phantom "workflow file issue" runs.
+  workflow_dispatch:
 
 concurrency:
-  group: pr-ci-${{ github.event.pull_request.number }}
+  group: pr-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
