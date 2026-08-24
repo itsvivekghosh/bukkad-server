@@ -23,7 +23,8 @@ import org.springframework.context.annotation.Configuration;
         GiftCardProperties.class,
         OutboxProperties.class,
         com.bhukkad.featureflag.FeatureFlagProperties.class,
-        com.bhukkad.chaos.ChaosProperties.class
+        com.bhukkad.chaos.ChaosProperties.class,
+        com.bhukkad.compliance.ComplianceProperties.class
 })
 public class PlatformEnhancementsConfig {
 }
