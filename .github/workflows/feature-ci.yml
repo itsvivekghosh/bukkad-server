@@ -143,7 +143,7 @@ jobs:
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' && secrets.SONAR_TOKEN != '' }}
+    if: ${{ github.event_name == 'pull_request' }}
 
     steps:
       - name: Checkout repository
