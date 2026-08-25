@@ -43,8 +43,7 @@ public abstract class AbstractJpaIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
             .withDatabaseName("bhukkad_test")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw")
-            .withRootPassword("root_test_pw");
+            .withPassword("bhukkad_test_pw");
 
     static {
         // Skip (abort) the whole class when Docker is unavailable instead of
