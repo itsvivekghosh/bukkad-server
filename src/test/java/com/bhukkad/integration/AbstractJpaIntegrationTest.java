@@ -62,7 +62,7 @@ public abstract class AbstractJpaIntegrationTest {
         try {
             org.testcontainers.containers.Container.ExecResult result = MYSQL.execInContainer(
                     "bash", "-c",
-                    "mysql -uroot -proot_test_pw -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
+                    "mysql -uroot -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
             if (result.getExitCode() != 0) {
                 throw new IllegalStateException("GRANT failed: " + result.getStdout() + result.getStderr());
             }
