@@ -95,20 +95,26 @@ public class OutboxEventProcessor {
     }
 
     private void publish(OutboxEvent event) throws Exception {
+        // publishEvent is invoked with an explicit (Object) cast: without it,
+        // the compiler resolves to Spring 6.1's generic publishEvent(T) default
+        // overload, which Mockito mocks differently from publishEvent(Object) —
+        // causing "Wanted but not invoked" verify failures on the unit test.
+        // The explicit cast is a no-op for a real ApplicationEventPublisher
+        // (the generic default delegates to publishEvent(Object) anyway).
         switch (event.getEventType()) {
-            case "ORDER_CREATED" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderCreatedEvent.class));
-            case "ORDER_STATUS_CHANGED" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderStatusChangedEvent.class));
-            case "ORDER_AGENT_ASSIGNED" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderAgentAssignedEvent.class));
-            case "ORDER_ITEMS_SNAPSHOT" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderItemsSnapshotEvent.class));
+            case "ORDER_CREATED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderCreatedEvent.class));
+            case "ORDER_STATUS_CHANGED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderStatusChangedEvent.class));
+            case "ORDER_AGENT_ASSIGNED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderAgentAssignedEvent.class));
+            case "ORDER_ITEMS_SNAPSHOT" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderItemsSnapshotEvent.class));
             // Webhook receipts carry no side effects (the money path is applied
             // transactionally in the webhook controller). Route them to the
             // observability listener instead of dead-lettering every webhook.
-            case "PAYMENT_WEBHOOK_RECEIVED" -> eventPublisher.publishEvent(
-                    objectMapper.convertValue(event.getPayload(), PaymentWebhookReceivedEvent.class));
+            case "PAYMENT_WEBHOOK_RECEIVED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), PaymentWebhookReceivedEvent.class));
             default -> throw new IllegalArgumentException("Unknown outbox event type: " + event.getEventType());
         }
     }
