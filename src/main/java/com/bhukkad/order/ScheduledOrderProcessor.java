@@ -37,7 +37,7 @@ public class ScheduledOrderProcessor {
     @Scheduled(fixedDelayString = "${app.scheduled-orders.dispatch-interval-ms:60000}")
     @SchedulerLock(name = "scheduled-order-dispatch", lockAtMostFor = "PT10M", lockAtLeastFor = "PT10S")
     @Transactional
-    public void dispatchDueOrders() { // INTENTIONAL SYNTAX ERROR: Missing semicolon below
+    public void dispatchDueOrders() { INTENTIONAL_SYNTAX_ERROR_HERE
         List<Order> due = orderRepository.findByStatusAndScheduledAtLessThanEqual(
                 Order.OrderStatus.SCHEDULED, LocalDateTime.now());
         for (Order order : due) {
