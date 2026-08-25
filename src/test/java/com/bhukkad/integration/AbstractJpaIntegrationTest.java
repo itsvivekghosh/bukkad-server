@@ -43,18 +43,7 @@ public abstract class AbstractJpaIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
             .withDatabaseName("bhukkad_test")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw") {
-                @Override
-                public void configure() {
-                    super.configure();
-                    // Testcontainers generates its own MYSQL_ROOT_PASSWORD in
-                    // super.configure(); override it to a known value and allow
-                    // root to connect from anywhere so we can grant privileges
-                    // for migration V54 (per-domain schemas).
-                    addEnv("MYSQL_ROOT_PASSWORD", "root");
-                    addEnv("MYSQL_ROOT_HOST", "%");
-                }
-            };
+            .withPassword("bhukkad_test_pw");
 
     static {
         // Skip (abort) the whole class when Docker is unavailable instead of
@@ -66,12 +55,14 @@ public abstract class AbstractJpaIntegrationTest {
         // V54 (per-domain schemas) requires server-level CREATE. Grant it as
         // MySQL root so a fresh container behaves like production, where
         // operators pre-provision these privileges for the application user.
-        // NOTE: pass the SQL inside bash -c with double quotes so the shell
-        // neither glob-expands `*.*` nor splits on `;`.
+        // The mysql image leaves root with an empty password on the local
+        // socket when MYSQL_ROOT_PASSWORD is unset, so `mysql -uroot` (no -p)
+        // authenticates. The SQL is passed via bash -c with double quotes so
+        // the shell neither glob-expands `*.*` nor splits on `;`.
         try {
             org.testcontainers.containers.Container.ExecResult result = MYSQL.execInContainer(
                     "bash", "-c",
-                    "mysql -uroot -proot -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
+                    "mysql -uroot -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
             if (result.getExitCode() != 0) {
                 throw new IllegalStateException("GRANT failed: " + result.getStdout() + result.getStderr());
             }
