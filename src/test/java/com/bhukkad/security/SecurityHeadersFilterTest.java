@@ -39,12 +39,14 @@ class SecurityHeadersFilterTest {
     void apiRequest_addsSecurityHeaders() throws ServletException, IOException {
         MockHttpServletResponse response = doFilter(new MockHttpServletRequest("GET", "/api/v1/auth/login"));
 
-        assertEquals("default-src 'self'", response.getHeader("Content-Security-Policy"));
-        assertEquals("max-age=31536000; includeSubDomains", response.getHeader("Strict-Transport-Security"));
+        assertEquals("default-src 'self'; frame-ancestors 'none'", response.getHeader("Content-Security-Policy"));
+        assertEquals("max-age=31536000; includeSubDomains; preload", response.getHeader("Strict-Transport-Security"));
         assertEquals("nosniff", response.getHeader("X-Content-Type-Options"));
         assertEquals("DENY", response.getHeader("X-Frame-Options"));
         assertEquals("no-referrer", response.getHeader("Referrer-Policy"));
         assertEquals("camera=(), microphone=(), geolocation=()", response.getHeader("Permissions-Policy"));
+        assertEquals("same-origin", response.getHeader("Cross-Origin-Opener-Policy"));
+        assertEquals("same-origin", response.getHeader("Cross-Origin-Resource-Policy"));
         verify(filterChain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 

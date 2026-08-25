@@ -19,6 +19,7 @@ AUTH_HEADERS = {
     "owner": "{{owner_token}}",
     "agent": "{{agent_token}}",
     "admin": "{{admin_token}}",
+    "customer_refresh": "{{customer_refresh_token}}",
     None: None,
 }
 
@@ -52,17 +53,18 @@ def build_request(spec):
         for key, value in spec["headers"].items():
             headers.append({"key": key, "value": value})
 
-    # Body
+    # Body: catalog entries reference BODY_TEMPLATES via `body_key`.
+    # DELETE endpoints may also carry a body (e.g. device-token unregister).
     body = None
-    body_ref = spec.get("body_template")
+    body_key = spec.get("body_key")
     content_type = spec.get("content_type", "json")
-    if method in ("POST", "PUT", "PATCH") and body_ref and body_ref in BODY_TEMPLATES:
-        template = BODY_TEMPLATES[body_ref]
+    if method in ("POST", "PUT", "PATCH", "DELETE") and body_key and body_key in BODY_TEMPLATES:
+        template = BODY_TEMPLATES[body_key]
         if content_type == "csv":
             body = {"mode": "raw", "raw": template}
         else:
             body = {"mode": "raw", "raw": json.dumps(template, indent=2)}
-    elif method in ("POST", "PUT", "PATCH") and spec.get("body"):
+    elif method in ("POST", "PUT", "PATCH", "DELETE") and spec.get("body"):
         body = {"mode": "raw", "raw": json.dumps(spec["body"], indent=2)}
 
     return {
@@ -82,15 +84,8 @@ def build_request(spec):
 
 
 def build_collection():
-    # Group by catalog group
-    groups = {}
-    for spec in API_CATALOG:
-        grp = spec.get("group", "General")
-        if grp not in groups:
-            groups[grp] = []
-        groups[grp].append(spec)
-
-    # Sort groups: use a preferred order, then alphabetical for the rest
+    # Preferred group display order; group order does NOT affect execution
+    # order (the runner sorts by x-order, the catalog flat index).
     preferred = [
         "Health & Platform", "Authentication", "Customer", "Admin", "Restaurant",
         "Menu", "Cart", "Orders", "Payments", "Delivery", "Home Feed",
@@ -99,34 +94,51 @@ def build_collection():
         "Validation", "Cache", "Not Found", "Growth & Operations",
         "Delivery Truth (V14)", "Scale Operations (V16)", "Trust & Compliance (V17)",
     ]
-    all_groups = list(groups.keys())
-    sorted_groups = [g for g in preferred if g in groups] + \
-                    sorted([g for g in all_groups if g not in preferred])
 
     items = []
-    for grp in sorted_groups:
-        if grp not in groups:
+    # The catalog's flat order is the natural dependency order (cart before
+    # order, order before delivery, destructive tests after dependent tests).
+    # Groups in Postman are only for organisation, so x-order is the catalog's
+    # flat index and the runner sorts by it.
+    flat_index = {id(spec): i for i, spec in enumerate(API_CATALOG)}
+
+    group_items = {}
+    for spec in API_CATALOG:
+        name = spec["name"]
+        # Skip internal/setup entries
+        if name.startswith("_setup") or name.startswith("_teardown"):
             continue
-        group_items = []
-        for spec in groups[grp]:
-            name = spec["name"]
-            # Skip internal/setup entries
-            if name.startswith("_setup") or name.startswith("_teardown"):
-                continue
-            request = build_request(spec)
-            item = {
-                "name": name,
-                "request": request,
-                "response": [],
-            }
-            # Expected status codes
-            if spec.get("expected"):
-                item["response"] = [{"name": f"Expected {spec['expected']}", "code": spec["expected"][0]}]
-            group_items.append(item)
-        items.append({
-            "name": grp,
-            "item": group_items,
-        })
+        request = build_request(spec)
+        item = {
+            "name": name,
+            "request": request,
+            "response": [],
+        }
+        # Expected status codes
+        if spec.get("expected"):
+            item["response"] = [{"name": f"Expected {spec['expected']}", "code": spec["expected"][0]}]
+            # Full expected list so the runner can classify without name heuristics
+            item["x-expected"] = spec["expected"]
+        # Metadata for the sequential runner: phase ordering, dependency
+        # extraction and required state. Kept out of the request itself so
+        # the collection remains valid Postman.
+        if spec.get("phase"):
+            item["x-phase"] = spec["phase"]
+        if spec.get("extract"):
+            item["x-extract"] = spec["extract"]
+        if spec.get("requires"):
+            item["x-requires"] = spec["requires"]
+        if spec.get("body_key"):
+            item["x-body-key"] = spec["body_key"]
+        item["x-order"] = flat_index[id(spec)]
+        grp = spec.get("group", "General")
+        group_items.setdefault(grp, []).append(item)
+
+    # Emit groups in the preferred display order, keeping each group's items in
+    # catalog flat order so the collection itself stays dependency-ordered.
+    sorted_groups = [g for g in preferred if g in group_items] + \
+                    sorted([g for g in group_items if g not in preferred])
+    items = [{"name": grp, "item": group_items[grp]} for grp in sorted_groups]
 
     collection = {
         "info": {
@@ -142,6 +154,7 @@ def build_collection():
             {"key": "owner_token", "value": "", "type": "string"},
             {"key": "agent_token", "value": "", "type": "string"},
             {"key": "admin_token", "value": "", "type": "string"},
+            {"key": "customer_refresh_token", "value": "", "type": "string"},
         ],
         "auth": {
             "type": "bearer",

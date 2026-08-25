@@ -43,6 +43,7 @@ import com.bhukkad.timeline.OrderTimelineService;
 import com.bhukkad.settlement.RestaurantSettlementService;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.wallet.WalletService;
+import jakarta.persistence.EntityManager;
 import com.bhukkad.idempotency.OrderIdempotencyService;
 import com.bhukkad.metrics.BusinessMetrics;
 import com.bhukkad.metrics.OrderMetrics;
@@ -61,6 +62,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
@@ -140,6 +144,10 @@ class OrderServiceImplTest {
     private DeliveryProofService deliveryProofService;
     @Mock
     private BusinessMetrics businessMetrics;
+    @Mock
+    private EntityManager entityManager;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private OrderPlacementService orderPlacementService;
@@ -158,13 +166,21 @@ class OrderServiceImplTest {
                 orderCacheService, orderEventPublisher, orderPricingService, couponService,
                 paymentService, orderMapper, orderIdempotencyService, orderMetrics,
                 businessMetrics, walletService, scheduledOrderValidator, orderEtaService,
-                stockReservationService, orderTimelineService, restaurantBusyService);
+                stockReservationService, orderTimelineService, restaurantBusyService,
+                entityManager, transactionTemplate);
+        // TransactionTemplate runs the callback inline in unit tests.
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(inv -> {
+            TransactionCallback<?> callback = inv.getArgument(0);
+            TransactionStatus status = mock(TransactionStatus.class);
+            return callback.doInTransaction(status);
+        });
         orderStatusService = new OrderStatusService(
                 orderRepository, customerRepository, deliveryAgentRepository, securityUtils,
                 orderCacheService, orderEventPublisher, orderMapper, orderMetrics,
                 businessMetrics, paymentService, riderDispatchService, riderEarningService,
                 orderEtaService, deliveryProofService, restaurantSettlementService,
-                orderTimelineService, orderInvoiceService);
+                orderTimelineService, orderInvoiceService, menuItemRepository,
+                entityManager, stockReservationService);
         orderService = new OrderServiceImpl(
                 orderRepository, restaurantRepository, securityUtils, orderCacheService,
                 redisCacheService, orderMapper, orderEtaService, orderPlacementService,

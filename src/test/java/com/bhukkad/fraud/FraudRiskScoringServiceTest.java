@@ -115,4 +115,113 @@ class FraudRiskScoringServiceTest {
         service.recordReviewFlag(5L, 10L, assessment, "1.2.3.4", "fp-123");
         verify(fraudEventRepository).save(any(com.bhukkad.entity.FraudEvent.class));
     }
+
+    @Test
+    void shouldBlock_nullAssessment_returnsFalse() {
+        properties.setEnforcementEnabled(true);
+        assertFalse(service.shouldBlock(null, 1L));
+    }
+
+    @Test
+    void shouldBlock_unscoredAssessment_returnsFalse() {
+        properties.setEnforcementEnabled(true);
+        assertFalse(service.shouldBlock(FraudRiskAssessment.noScore(), 1L));
+    }
+
+    @Test
+    void shouldBlock_reviewRange_doesNotBlock() {
+        properties.setEnforcementEnabled(true);
+        FraudRiskAssessment review =
+                new FraudRiskAssessment(true, properties.getReviewThreshold(),
+                        FraudRiskAssessment.Level.HIGH, List.of("late_night_hour"));
+        assertFalse(service.shouldBlock(review, 1L));
+    }
+
+    @Test
+    void shouldBlock_disabledEnforcement_highScoreDoesNotBlock() {
+        properties.setEnforcementEnabled(false);
+        FraudRiskAssessment critical =
+                new FraudRiskAssessment(true, 95, FraudRiskAssessment.Level.CRITICAL,
+                        List.of("prior_fraud_events_30d=3"));
+        assertFalse(service.shouldBlock(critical, 1L));
+    }
+
+    @Test
+    void scoreOrder_nullUser_withLateNightHour_returnsScored() {
+        when(userRepository.findById(3L)).thenReturn(Optional.empty());
+        when(orderRepository.countByCustomerIdAndCreatedAtAfter(eq(3L), any())).thenReturn(0L);
+
+        FraudRiskAssessment assessment = service.scoreOrder(3L, 100);
+
+        assertTrue(assessment.scored());
+    }
+
+    @Test
+    void scoreOrder_userWithoutCreatedAt_doesNotFlagAge() {
+        Customer user = new Customer();
+        user.setCreatedAt(null);
+        when(userRepository.findById(4L)).thenReturn(Optional.of(user));
+
+        FraudRiskAssessment assessment = service.scoreOrder(4L, 100);
+
+        assertTrue(assessment.reasons().stream().noneMatch(r -> r.startsWith("account_age")));
+    }
+
+    @Test
+    void scoreOrder_safeCountQueryFailure_fallsBackToZero() {
+        Customer user = new Customer();
+        user.setCreatedAt(LocalDateTime.now().minusYears(1));
+        when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+        when(orderRepository.countByCustomerIdAndCreatedAtAfter(eq(5L), any()))
+                .thenThrow(new RuntimeException("db down"));
+        when(fraudEventRepository.countByEventTypeAndCustomerIdAndCreatedAtAfter(
+                any(), eq(5L), any())).thenThrow(new RuntimeException("db down"));
+
+        FraudRiskAssessment assessment = service.scoreOrder(5L, 100);
+
+        assertTrue(assessment.scored());
+        assertTrue(assessment.reasons().stream().noneMatch(r -> r.contains("velocity")));
+        assertTrue(assessment.reasons().stream().noneMatch(r -> r.contains("prior_fraud")));
+    }
+
+    @Test
+    void scoreOrder_largeFirstOrderWithNoHistory_flagsLargeOrder() {
+        Customer user = new Customer();
+        user.setCreatedAt(LocalDateTime.now().minusYears(1));
+        when(userRepository.findById(6L)).thenReturn(Optional.of(user));
+        when(orderRepository.countByCustomerIdAndCreatedAtAfter(eq(6L), any())).thenReturn(0L);
+
+        FraudRiskAssessment assessment = service.scoreOrder(6L, 5000);
+
+        assertTrue(assessment.reasons().stream().anyMatch(r -> r.equals("large_first_order")));
+    }
+
+    @Test
+    void scoreOrder_highVelocity_flagsVelocity() {
+        Customer user = new Customer();
+        user.setCreatedAt(LocalDateTime.now().minusYears(1));
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(orderRepository.countByCustomerIdAndCreatedAtAfter(eq(7L), any())).thenReturn(7L);
+
+        FraudRiskAssessment assessment = service.scoreOrder(7L, 100);
+
+        assertTrue(assessment.reasons().stream().anyMatch(r -> r.startsWith("high_order_velocity")));
+    }
+
+    @Test
+    void recordReviewFlag_nullCustomerIdAndOrderId_usesDefaults() {
+        FraudRiskAssessment assessment =
+                new FraudRiskAssessment(true, 60, FraudRiskAssessment.Level.MEDIUM, List.of());
+        service.recordReviewFlag(null, null, assessment, "1.2.3.4", "fp");
+        verify(fraudEventRepository).save(any(com.bhukkad.entity.FraudEvent.class));
+    }
+
+    @Test
+    void recordReviewFlag_repositoryFailure_swallowed() {
+        FraudRiskAssessment assessment =
+                new FraudRiskAssessment(true, 60, FraudRiskAssessment.Level.MEDIUM, List.of());
+        org.mockito.Mockito.doThrow(new RuntimeException("db down"))
+                .when(fraudEventRepository).save(any());
+        service.recordReviewFlag(1L, 1L, assessment, "ip", "fp");
+    }
 }

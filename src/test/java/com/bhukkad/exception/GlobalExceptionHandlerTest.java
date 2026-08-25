@@ -22,6 +22,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 
@@ -55,6 +56,19 @@ class GlobalExceptionHandlerTest {
         ResponseEntity<ApiResponse<Void>> resp = handler.handleResourceNotFoundException(
                 new ResourceNotFoundException("Not found"), mock(WebRequest.class));
         assertEquals(HttpStatus.NOT_FOUND, resp.getStatusCode());
+    }
+
+    @Test
+    void handleNoResourceFoundReturns404() {
+        // A path that matches no controller mapping (e.g. a typo'd endpoint)
+        // must yield 404, not fall through to the unexpected-error 500 path.
+        NoResourceFoundException ex = new NoResourceFoundException(
+                org.springframework.http.HttpMethod.PUT, "/api/v1/restaurants/owner/365/toggle-open");
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleNoResourceFound(ex, mock(WebRequest.class));
+        assertEquals(HttpStatus.NOT_FOUND, resp.getStatusCode());
+        assertNotNull(resp.getBody());
+        assertEquals("No such endpoint: /api/v1/restaurants/owner/365/toggle-open",
+                resp.getBody().getMessage());
     }
 
     @Test

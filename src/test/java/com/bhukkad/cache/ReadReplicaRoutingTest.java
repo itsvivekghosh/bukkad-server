@@ -1,29 +1,27 @@
 package com.bhukkad.cache;
 
-import com.bhukkad.config.DataSourceConfig;
 import com.bhukkad.datasource.ReadReplicaContext;
-import com.bhukkad.datasource.ReadReplicaProperties;
+import com.bhukkad.datasource.ReadReplicaRoutingDataSource;
 import com.bhukkad.datasource.ReadReplicaType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
-import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
-import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Verifies the read/write routing decision of {@link ReadReplicaRoutingDataSource}:
+ * plain reads → primary, read-only transactions → replica, read-write
+ * transactions → primary, explicit {@link ReadReplicaContext} → replica.
+ */
 class ReadReplicaRoutingTest {
-
-    private final DataSourceConfig config = new DataSourceConfig();
 
     @AfterEach
     void tearDown() {
@@ -32,18 +30,23 @@ class ReadReplicaRoutingTest {
         TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
     }
 
-    private AbstractRoutingDataSource buildRouting(DataSource write, DataSource read) throws Exception {
-        when(write.getConnection()).thenReturn(mock(Connection.class));
-        DataSource result = config.dataSource(write, read);
-        assertInstanceOf(LazyConnectionDataSourceProxy.class, result);
-        return (AbstractRoutingDataSource) ((LazyConnectionDataSourceProxy) result).getTargetDataSource();
+    private ReadReplicaRoutingDataSource buildRouting(DataSource write, DataSource read) {
+        ReadReplicaRoutingDataSource routing = new ReadReplicaRoutingDataSource();
+        routing.setTargetDataSources(java.util.Map.of(
+                ReadReplicaType.PRIMARY, write,
+                ReadReplicaType.REPLICA, read));
+        routing.setDefaultTargetDataSource(write);
+        routing.afterPropertiesSet();
+        return routing;
     }
 
     @Test
     void noTransaction_routesToPrimary() throws Exception {
         DataSource write = mock(DataSource.class);
         DataSource read = mock(DataSource.class);
-        AbstractRoutingDataSource routing = buildRouting(write, read);
+        when(write.getConnection()).thenReturn(mock(Connection.class));
+        when(read.getConnection()).thenReturn(mock(Connection.class));
+        ReadReplicaRoutingDataSource routing = buildRouting(write, read);
 
         routing.getConnection();
 
@@ -54,7 +57,9 @@ class ReadReplicaRoutingTest {
     void readOnlyTransaction_routesToReplica() throws Exception {
         DataSource write = mock(DataSource.class);
         DataSource read = mock(DataSource.class);
-        AbstractRoutingDataSource routing = buildRouting(write, read);
+        when(write.getConnection()).thenReturn(mock(Connection.class));
+        when(read.getConnection()).thenReturn(mock(Connection.class));
+        ReadReplicaRoutingDataSource routing = buildRouting(write, read);
 
         TransactionSynchronizationManager.setActualTransactionActive(true);
         TransactionSynchronizationManager.setCurrentTransactionReadOnly(true);
@@ -67,7 +72,9 @@ class ReadReplicaRoutingTest {
     void readWriteTransaction_routesToPrimary() throws Exception {
         DataSource write = mock(DataSource.class);
         DataSource read = mock(DataSource.class);
-        AbstractRoutingDataSource routing = buildRouting(write, read);
+        when(write.getConnection()).thenReturn(mock(Connection.class));
+        when(read.getConnection()).thenReturn(mock(Connection.class));
+        ReadReplicaRoutingDataSource routing = buildRouting(write, read);
 
         TransactionSynchronizationManager.setActualTransactionActive(true);
         TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
@@ -80,7 +87,9 @@ class ReadReplicaRoutingTest {
     void replicaContext_routesToReplica() throws Exception {
         DataSource write = mock(DataSource.class);
         DataSource read = mock(DataSource.class);
-        AbstractRoutingDataSource routing = buildRouting(write, read);
+        when(write.getConnection()).thenReturn(mock(Connection.class));
+        when(read.getConnection()).thenReturn(mock(Connection.class));
+        ReadReplicaRoutingDataSource routing = buildRouting(write, read);
 
         ReadReplicaContext.set(ReadReplicaType.REPLICA);
         routing.getConnection();
@@ -89,21 +98,33 @@ class ReadReplicaRoutingTest {
     }
 
     @Test
-    void replicaNotConfigured_routesReadsToPrimary() throws Exception {
-        ReadReplicaProperties replicaProperties = new ReadReplicaProperties();
+    void replicaContext_routesToPrimaryAfterClear() throws Exception {
         DataSource write = mock(DataSource.class);
+        DataSource read = mock(DataSource.class);
         when(write.getConnection()).thenReturn(mock(Connection.class));
-
-        DataSource read = config.readDataSource(replicaProperties, write, new DataSourceProperties());
-        assertSame(write, read, "unconfigured replica must fall back to the primary datasource");
-
-        DataSource result = config.dataSource(write, read);
-        AbstractRoutingDataSource routing =
-                (AbstractRoutingDataSource) ((LazyConnectionDataSourceProxy) result).getTargetDataSource();
+        when(read.getConnection()).thenReturn(mock(Connection.class));
+        ReadReplicaRoutingDataSource routing = buildRouting(write, read);
 
         ReadReplicaContext.set(ReadReplicaType.REPLICA);
+        ReadReplicaContext.clear();
         routing.getConnection();
 
         verify(write, atLeastOnce()).getConnection();
+    }
+
+    @Test
+    void singleReplicaRepeatedlyReused() throws Exception {
+        DataSource write = mock(DataSource.class);
+        DataSource read = mock(DataSource.class);
+        when(write.getConnection()).thenReturn(mock(Connection.class));
+        when(read.getConnection()).thenReturn(mock(Connection.class));
+        ReadReplicaRoutingDataSource routing = buildRouting(write, read);
+
+        ReadReplicaContext.set(ReadReplicaType.REPLICA);
+        routing.getConnection();
+        routing.getConnection();
+
+        verify(read, atLeastOnce()).getConnection();
+        assertInstanceOf(ReadReplicaRoutingDataSource.class, routing);
     }
 }

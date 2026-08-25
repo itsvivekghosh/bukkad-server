@@ -372,4 +372,348 @@ class SubscriptionServiceTest {
         plan.setItemsJson("[{\"menuItemId\":1,\"quantity\":1}]");
         return plan;
     }
+
+    // ═══════════ Branch-gap coverage: createPlan validation ═══════════
+
+    @Test
+    void createPlan_invalidWeekday_throwsBusiness() {
+        SubscriptionPlanRequest bad = new SubscriptionPlanRequest(
+                1L, "Weekly", "FUNDAY", LocalTime.of(13, 0), 10L, "COD",
+                LocalDate.now(), List.of(new SubscriptionPlanRequest.Item(1L, 2)));
+
+        assertThrows(BusinessException.class, () -> service.createPlan(1L, bad));
+    }
+
+    @Test
+    void createPlan_nullDeliveryTime_throwsBusiness() {
+        SubscriptionPlanRequest bad = new SubscriptionPlanRequest(
+                1L, "Weekly", "MON", null, 10L, "COD",
+                LocalDate.now(), List.of(new SubscriptionPlanRequest.Item(1L, 2)));
+
+        assertThrows(BusinessException.class, () -> service.createPlan(1L, bad));
+    }
+
+    @Test
+    void createPlan_restaurantNotFound_throwsResourceNotFound() {
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.createPlan(1L, request()));
+    }
+
+    @Test
+    void createPlan_addressNotFound_throwsResourceNotFound() {
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant()));
+        when(addressRepository.findByIdWithCustomer(10L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> service.createPlan(1L, request()));
+    }
+
+    @Test
+    void createPlan_menuItemCountMismatch_throwsBusiness() {
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant()));
+        when(addressRepository.findByIdWithCustomer(10L)).thenReturn(Optional.of(addressWithCustomer(1L)));
+        when(menuItemRepository.findAllById(any())).thenReturn(List.of());
+
+        assertThrows(BusinessException.class, () -> service.createPlan(1L, request()));
+    }
+
+    @Test
+    void createPlan_invalidPaymentMethod_throwsBusiness() {
+        SubscriptionPlanRequest bad = new SubscriptionPlanRequest(
+                1L, "Weekly", "MON", LocalTime.of(13, 0), 10L, "BITCOIN",
+                LocalDate.now(), List.of(new SubscriptionPlanRequest.Item(1L, 2)));
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant()));
+        when(addressRepository.findByIdWithCustomer(10L)).thenReturn(Optional.of(addressWithCustomer(1L)));
+        when(menuItemRepository.findAllById(any())).thenReturn(List.of(menuItem(1L, 1L)));
+
+        assertThrows(BusinessException.class, () -> service.createPlan(1L, bad));
+    }
+
+    @Test
+    void createPlan_nullPaymentMethod_throwsBusiness() {
+        SubscriptionPlanRequest bad = new SubscriptionPlanRequest(
+                1L, "Weekly", "MON", LocalTime.of(13, 0), 10L, null,
+                LocalDate.now(), List.of(new SubscriptionPlanRequest.Item(1L, 2)));
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant()));
+        when(addressRepository.findByIdWithCustomer(10L)).thenReturn(Optional.of(addressWithCustomer(1L)));
+        when(menuItemRepository.findAllById(any())).thenReturn(List.of(menuItem(1L, 1L)));
+
+        assertThrows(BusinessException.class, () -> service.createPlan(1L, bad));
+    }
+
+    // ═══════════ Branch-gap coverage: pause/resume/cancel/skip ═══════════
+
+    @Test
+    void pausePlan_cancelledPlan_throwsBusiness() {
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.CANCELLED);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        assertThrows(BusinessException.class, () -> service.pausePlan(1L, 1L));
+    }
+
+    @Test
+    void pausePlan_alreadyPaused_noop() {
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.PAUSED);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        service.pausePlan(1L, 1L);
+
+        verify(planRepository, never()).save(any());
+    }
+
+    @Test
+    void resumePlan_activePlan_noop() {
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(activePlan()));
+
+        service.resumePlan(1L, 1L);
+
+        verify(planRepository, never()).save(any());
+    }
+
+    @Test
+    void resumePlan_cancelledPlan_throwsBusiness() {
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.CANCELLED);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        assertThrows(BusinessException.class, () -> service.resumePlan(1L, 1L));
+    }
+
+    @Test
+    void resumePlan_pausedWithNullNextDelivery_recomputesDate() {
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.PAUSED);
+        plan.setNextDeliveryDate(null);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        service.resumePlan(1L, 1L);
+
+        assertNotNull(plan.getNextDeliveryDate());
+        verify(planRepository).save(plan);
+    }
+
+    @Test
+    void cancelPlan_alreadyCancelled_noop() {
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.CANCELLED);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        service.cancelPlan(1L, 1L);
+
+        verify(planRepository, never()).save(any());
+    }
+
+    @Test
+    void skipNextDelivery_notActive_throwsBusiness() {
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.PAUSED);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        assertThrows(BusinessException.class, () -> service.skipNextDelivery(1L, 1L));
+    }
+
+    @Test
+    void skipNextDelivery_noNextDelivery_throwsBusiness() {
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(null);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+
+        assertThrows(BusinessException.class, () -> service.skipNextDelivery(1L, 1L));
+    }
+
+    @Test
+    void skipNextDelivery_existingDeliveryRow_reusedAndAdvanced() {
+        SubscriptionPlan plan = activePlan();
+        LocalDate originalDue = plan.getNextDeliveryDate();
+        SubscriptionDelivery existing = new SubscriptionDelivery();
+        existing.setPlan(plan);
+        existing.setScheduledDate(originalDue);
+        when(planRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(plan));
+        when(deliveryRepository.findByPlanIdAndScheduledDate(1L, originalDue))
+                .thenReturn(Optional.of(existing));
+
+        service.skipNextDelivery(1L, 1L);
+
+        assertEquals(SubscriptionDelivery.DeliveryStatus.SKIPPED, existing.getStatus());
+        assertEquals(originalDue.plusDays(7), plan.getNextDeliveryDate());
+        verify(planRepository).save(plan);
+    }
+
+    // ═══════════ Branch-gap coverage: materializeDue edges ═══════════
+
+    @Test
+    void materializeDue_noDuePlans_returnsZero() {
+        properties.setEnabled(true);
+        when(planRepository.findActivePlansDueOnOrBefore(any())).thenReturn(List.of());
+
+        assertEquals(0, service.materializeDue());
+    }
+
+    @Test
+    void materializeDue_nonActivePlan_returnsZero() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setStatus(SubscriptionPlan.SubscriptionStatus.PAUSED);
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+
+        assertEquals(0, service.materializeDue());
+    }
+
+    @Test
+    void materializeDue_nullDueDate_returnsZero() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(null);
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+
+        assertEquals(0, service.materializeDue());
+    }
+
+    @Test
+    void materializeDue_skippedDelivery_advancesAndReturnsZero() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(LocalDate.now());
+        SubscriptionDelivery delivery = new SubscriptionDelivery();
+        delivery.setPlan(plan);
+        delivery.setScheduledDate(plan.getNextDeliveryDate());
+        delivery.setStatus(SubscriptionDelivery.DeliveryStatus.SKIPPED);
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(deliveryRepository.findByPlanIdAndScheduledDate(1L, plan.getNextDeliveryDate()))
+                .thenReturn(Optional.of(delivery));
+        when(planRepository.save(any(SubscriptionPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals(0, service.materializeDue());
+        assertEquals(LocalDate.now().plusDays(7), plan.getNextDeliveryDate());
+    }
+
+    @Test
+    void materializeDue_alreadyPlaced_advancesAndReturnsZero() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(LocalDate.now());
+        SubscriptionDelivery delivery = new SubscriptionDelivery();
+        delivery.setPlan(plan);
+        delivery.setScheduledDate(plan.getNextDeliveryDate());
+        delivery.setStatus(SubscriptionDelivery.DeliveryStatus.PLACED);
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(deliveryRepository.findByPlanIdAndScheduledDate(1L, plan.getNextDeliveryDate()))
+                .thenReturn(Optional.of(delivery));
+        when(planRepository.save(any(SubscriptionPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals(0, service.materializeDue());
+        assertEquals(LocalDate.now().plusDays(7), plan.getNextDeliveryDate());
+    }
+
+    @Test
+    void materializeDue_missingCustomer_marksFailedAndReturnsZero() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(LocalDate.now());
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(deliveryRepository.findByPlanIdAndScheduledDate(1L, plan.getNextDeliveryDate()))
+                .thenReturn(Optional.empty());
+        when(deliveryRepository.save(any(SubscriptionDelivery.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(customerRepository.findById(1L)).thenReturn(Optional.empty());
+
+        assertEquals(0, service.materializeDue());
+
+        var captor = ArgumentCaptor.forClass(SubscriptionDelivery.class);
+        verify(deliveryRepository, atLeastOnce()).save(captor.capture());
+        assertTrue(captor.getAllValues().stream()
+                .anyMatch(d -> d.getStatus() == SubscriptionDelivery.DeliveryStatus.FAILED));
+        assertEquals(LocalDate.now().plusDays(7), plan.getNextDeliveryDate());
+    }
+
+    @Test
+    void materializeDue_missingMenuItemInSnapshot_marksFailed() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(LocalDate.now());
+        // items_json references menu item 99 that is not in the findAllById result
+        plan.setItemsJson("[{\"menuItemId\":99,\"quantity\":1}]");
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(deliveryRepository.findByPlanIdAndScheduledDate(1L, plan.getNextDeliveryDate()))
+                .thenReturn(Optional.empty());
+        when(deliveryRepository.save(any(SubscriptionDelivery.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant()));
+        when(addressRepository.findByIdWithCustomer(10L)).thenReturn(Optional.of(addressWithCustomer(1L)));
+        when(menuItemRepository.findAllById(any())).thenReturn(List.of(menuItem(1L, 1L)));
+
+        assertEquals(0, service.materializeDue());
+        verify(deliveryRepository, atLeastOnce()).save(argThat(
+                d -> d.getStatus() == SubscriptionDelivery.DeliveryStatus.FAILED));
+    }
+
+    @Test
+    void buildOrder_nullDeliveryFeeAndNullAvgTime_usesDefaults() {
+        properties.setEnabled(true);
+        SubscriptionPlan plan = activePlan();
+        plan.setNextDeliveryDate(LocalDate.now());
+        Restaurant bare = restaurant();
+        bare.setDeliveryFee(null);
+        bare.setAverageDeliveryTime(null);
+        when(planRepository.findActivePlansDueOnOrBefore(any(LocalDate.class))).thenReturn(List.of(plan));
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(inv -> {
+            TransactionCallback<Boolean> callback = inv.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        when(planRepository.findById(1L)).thenReturn(Optional.of(plan));
+        when(deliveryRepository.findByPlanIdAndScheduledDate(1L, plan.getNextDeliveryDate()))
+                .thenReturn(Optional.empty());
+        when(deliveryRepository.save(any(SubscriptionDelivery.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(bare));
+        when(addressRepository.findByIdWithCustomer(10L)).thenReturn(Optional.of(addressWithCustomer(1L)));
+        when(menuItemRepository.findAllById(any())).thenReturn(List.of(menuItem(1L, 1L)));
+        when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(planRepository.save(any(SubscriptionPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals(1, service.materializeDue());
+
+        var captor = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(captor.capture());
+        assertEquals(0.0, captor.getValue().getDeliveryFee());
+        assertEquals(com.bhukkad.util.Constants.DEFAULT_DELIVERY_TIME,
+                captor.getValue().getEstimatedDeliveryTime());
+    }
+
+    private Customer customer(Long id) {
+        Customer customer = new Customer();
+        customer.setId(id);
+        return customer;
+    }
 }

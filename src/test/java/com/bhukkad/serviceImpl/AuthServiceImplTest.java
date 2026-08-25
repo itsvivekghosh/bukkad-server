@@ -263,6 +263,42 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void login_legacyPasswordHash_isRehashedToArgon2() {
+        // Legacy hash (no {argon2} prefix) -> successful login must re-encode it.
+        LoginRequest request = new LoginRequest();
+        request.setEmail("user@example.com");
+        request.setPassword("secret1");
+        User user = activeUser(); // stored password is "encoded-password" (legacy)
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(org.mockito.Mockito.mock(Authentication.class));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+        when(passwordEncoder.encode("secret1")).thenReturn("{argon2}$argon2id$new-hash");
+
+        authService.login(request);
+
+        assertEquals("{argon2}$argon2id$new-hash", user.getPassword());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void login_argon2Hash_isNotRehashed() {
+        LoginRequest request = new LoginRequest();
+        request.setEmail("user@example.com");
+        request.setPassword("secret1");
+        User user = activeUser();
+        user.setPassword("{argon2}$argon2id$v=19$m=65536,t=3,p=1$salt$hash");
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(org.mockito.Mockito.mock(Authentication.class));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+
+        authService.login(request);
+
+        verify(userRepository, never()).save(any());
+        verify(passwordEncoder, never()).encode(anyString());
+    }
+
+    @Test
     void login_inactiveAccount_throwsBusinessException() {
         LoginRequest request = new LoginRequest();
         request.setEmail("user@example.com");
@@ -686,12 +722,22 @@ class AuthServiceImplTest {
 
     @Test
     void verifyMfaLogin_expiredToken_throws() {
-        when(jwtTokenProvider.extractUserId("expired")).thenReturn(1L);
-        when(jwtTokenProvider.extractUsername("expired")).thenReturn("user@example.com");
         when(jwtTokenProvider.validateMfaToken("expired")).thenReturn(false);
 
         assertThrows(com.bhukkad.exception.UnauthorizedException.class,
                 () -> authService.verifyMfaLogin("expired", "123456"));
+    }
+
+    @Test
+    void verifyMfaLogin_malformedToken_throwsUnauthorizedWithoutExtractingClaims() {
+        // A malformed token must fail fast with 401 before any claim extraction
+        // (extractUserId would otherwise throw a JWT parse exception -> 500).
+        when(jwtTokenProvider.validateMfaToken("garbage")).thenReturn(false);
+
+        assertThrows(com.bhukkad.exception.UnauthorizedException.class,
+                () -> authService.verifyMfaLogin("garbage", "123456"));
+        verify(jwtTokenProvider, never()).extractUserId(anyString());
+        verify(jwtTokenProvider, never()).extractUsername(anyString());
     }
 
     private LoginRequest loginRequest() {

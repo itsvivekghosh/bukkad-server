@@ -2,25 +2,31 @@ package com.bhukkad.survey;
 
 import com.bhukkad.cache.LocalCacheService;
 import com.bhukkad.dto.response.TrendingDishResponse;
-import com.bhukkad.repository.OrderItemRepository;
+import com.bhukkad.entity.TrendingDish;
+import com.bhukkad.repository.TrendingDishRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.function.Supplier;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class TrendingDishServiceTest {
 
     @Mock
-    private OrderItemRepository orderItemRepository;
+    private TrendingDishRepository trendingDishRepository;
 
     @Mock
     private LocalCacheService localCacheService;
@@ -37,12 +43,19 @@ class TrendingDishServiceTest {
                 });
     }
 
+    private TrendingDish dish(long id, String name, long qty) {
+        return TrendingDish.builder()
+                .menuItemId(id)
+                .restaurantId(1L)
+                .dishName(name)
+                .quantitySold(qty)
+                .build();
+    }
+
     @Test
-    void trending_mapsQueryRowsInOrder() {
-        when(orderItemRepository.findTrendingByCreatedSince(any()))
-                .thenReturn(List.of(
-                        new Object[]{1L, "Butter Chicken", 3L},
-                        new Object[]{2L, "Paneer Tikka", 1L}));
+    void trending_mapsMaterializedRowsInOrder() {
+        when(trendingDishRepository.findTopByQuantitySoldDesc(any(Pageable.class)))
+                .thenReturn(List.of(dish(1L, "Butter Chicken", 3L), dish(2L, "Paneer Tikka", 1L)));
         stubCacheToInvokeSupplier();
 
         List<TrendingDishResponse> result = service.trending(2);
@@ -58,10 +71,8 @@ class TrendingDishServiceTest {
 
     @Test
     void trending_appliesRequestedLimit() {
-        when(orderItemRepository.findTrendingByCreatedSince(any()))
-                .thenReturn(List.of(
-                        new Object[]{1L, "Butter Chicken", 3L},
-                        new Object[]{2L, "Paneer Tikka", 1L}));
+        when(trendingDishRepository.findTopByQuantitySoldDesc(any(Pageable.class)))
+                .thenReturn(List.of(dish(1L, "Butter Chicken", 3L), dish(2L, "Paneer Tikka", 1L)));
         stubCacheToInvokeSupplier();
 
         List<TrendingDishResponse> result = service.trending(1);
@@ -72,8 +83,8 @@ class TrendingDishServiceTest {
 
     @Test
     void trending_defaultsLimitWhenNonPositive() {
-        when(orderItemRepository.findTrendingByCreatedSince(any()))
-                .thenReturn(List.<Object[]>of(new Object[]{1L, "Butter Chicken", 3L}));
+        when(trendingDishRepository.findTopByQuantitySoldDesc(any(Pageable.class)))
+                .thenReturn(List.of(dish(1L, "Butter Chicken", 3L)));
         stubCacheToInvokeSupplier();
 
         List<TrendingDishResponse> result = service.trending(0);
@@ -84,7 +95,7 @@ class TrendingDishServiceTest {
 
     @Test
     void trending_returnsEmptyWhenQueryFails() {
-        when(orderItemRepository.findTrendingByCreatedSince(any()))
+        when(trendingDishRepository.findTopByQuantitySoldDesc(any(Pageable.class)))
                 .thenThrow(new RuntimeException("db down"));
         stubCacheToInvokeSupplier();
 

@@ -13,9 +13,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -53,12 +56,20 @@ class AutoRefundServiceTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Mock
+    private ValueOperations<String, String> valueOps;
+
     private AutoRefundService service;
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
         service = new AutoRefundService(
-                refundPolicyService, paymentServiceImpl, walletService, orderRepository, paymentRepository);
+                refundPolicyService, paymentServiceImpl, walletService, orderRepository, paymentRepository,
+                stringRedisTemplate);
     }
 
     private Order order() {
@@ -87,9 +98,21 @@ class AutoRefundServiceTest {
                         100.0, RefundPolicyService.TARGET_GATEWAY, 30)));
     }
 
+    /** Simulates the Redis SETNX claim: returns true once, then false until released. */
+    private void stubRedisClaim() {
+        AtomicBoolean claimed = new AtomicBoolean(false);
+        org.mockito.Mockito.lenient().when(valueOps.setIfAbsent(anyString(), anyString(), any()))
+                .thenAnswer(inv -> claimed.compareAndSet(false, true));
+        org.mockito.Mockito.lenient().doAnswer(inv -> {
+            claimed.set(false);
+            return true;
+        }).when(stringRedisTemplate).delete(anyString());
+    }
+
     @Test
     void autoRefund_gatewayTarget_callsProcessRefundWithFullAmount() {
         stubGatewayPolicy();
+        stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
 
         boolean refunded = service.autoRefund(order(), REASON);
@@ -104,6 +127,7 @@ class AutoRefundServiceTest {
         when(refundPolicyService.computeRefund(any(Order.class), anyString()))
                 .thenReturn(Optional.of(new RefundPolicyService.RefundPolicy(
                         100.0, RefundPolicyService.TARGET_WALLET, 30)));
+        stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
 
         Order order = order();
@@ -130,6 +154,7 @@ class AutoRefundServiceTest {
     @Test
     void autoRefund_paymentAlreadyRefunded_noSecondRefund() {
         stubGatewayPolicy();
+        stubRedisClaim();
         Payment payment = pendingPayment();
         payment.setStatus(Payment.PaymentStatus.REFUNDED);
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(payment));
@@ -143,6 +168,7 @@ class AutoRefundServiceTest {
     @Test
     void autoRefund_doubleCall_preventedByIdempotency() {
         stubGatewayPolicy();
+        stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
 
         boolean first = service.autoRefund(order(), REASON);
@@ -150,14 +176,29 @@ class AutoRefundServiceTest {
 
         assertTrue(first);
         assertFalse(second);
-        // The refund path must run exactly once for the same order + reason.
         verify(paymentServiceImpl, times(1)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
         verify(walletService, never()).credit(any(), anyDouble(), any(), any(), anyString());
     }
 
     @Test
+    void autoRefund_secondReplica_doesNotDoubleRefund() {
+        stubGatewayPolicy();
+        stubRedisClaim();
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
+
+        AutoRefundService replicaB = new AutoRefundService(
+                refundPolicyService, paymentServiceImpl, walletService, orderRepository, paymentRepository,
+                stringRedisTemplate);
+
+        assertTrue(service.autoRefund(order(), REASON));
+        assertFalse(replicaB.autoRefund(order(), REASON));
+        verify(paymentServiceImpl, times(1)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+    }
+
+    @Test
     void autoRefund_exceptionInGateway_isSwallowedAndReportedAsNotRefunded() {
         stubGatewayPolicy();
+        stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
         org.mockito.Mockito.doThrow(new IllegalStateException("gateway down"))
                 .when(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
@@ -170,14 +211,27 @@ class AutoRefundServiceTest {
     @Test
     void autoRefund_failureDoesNotBlockLaterRetry() {
         stubGatewayPolicy();
+        stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
         org.mockito.Mockito.doThrow(new IllegalStateException("transient"))
                 .when(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
 
         assertFalse(service.autoRefund(order(), REASON));
-        // After the failed attempt the marker is released, so a later call retries.
         assertFalse(service.autoRefund(order(), REASON));
         verify(paymentServiceImpl, times(2)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+    }
+
+    @Test
+    void autoRefund_redisUnavailable_fallsBackToLocalClaim() {
+        stubGatewayPolicy();
+        when(valueOps.setIfAbsent(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("redis down"));
+        when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
+
+        boolean refunded = service.autoRefund(order(), REASON);
+
+        assertTrue(refunded);
+        verify(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
@@ -104,16 +105,18 @@ public class AuthControllerTest {
     }
 
     @Test
-    void refreshToken_extractsBearerToken() {
+    void refreshToken_readsRefreshTokenFromBody() {
         AuthResponse authResponse = AuthResponse.builder().token("new-jwt").build();
-        when(authService.refreshToken("tok")).thenReturn(authResponse);
+        RefreshTokenRequest request = new RefreshTokenRequest();
+        request.setRefreshToken("refresh-tok");
+        when(authService.refreshToken("refresh-tok")).thenReturn(authResponse);
 
-        ResponseEntity<ApiResponse<AuthResponse>> response = authController.refreshToken("Bearer tok");
+        ResponseEntity<ApiResponse<AuthResponse>> response = authController.refreshToken(request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Token refreshed", response.getBody().getMessage());
         assertEquals(authResponse, response.getBody().getData());
-        verify(authService).refreshToken("tok");
+        verify(authService).refreshToken("refresh-tok");
     }
 
     @Test

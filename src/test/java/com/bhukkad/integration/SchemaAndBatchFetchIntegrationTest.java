@@ -59,7 +59,7 @@ class SchemaAndBatchFetchIntegrationTest extends AbstractJpaIntegrationTest {
         jdbcTemplate.update("DELETE FROM users WHERE id IN (1,2)");
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════
     // Flyway migration integrity
     // ═══════════════════════════════════════════════════════════════
 
@@ -101,7 +101,7 @@ class SchemaAndBatchFetchIntegrationTest extends AbstractJpaIntegrationTest {
         assertThat(entityManager.getMetamodel().getEntities()).isNotEmpty();
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════
     // Batch-fetch query correctness (N+1 regression prevention)
     // ═══════════════════════════════════════════════════════════════
 

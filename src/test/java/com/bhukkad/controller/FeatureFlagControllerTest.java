@@ -3,12 +3,17 @@ package com.bhukkad.controller;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.featureflag.FeatureFlagProperties;
 import com.bhukkad.featureflag.FeatureFlagService;
+import com.bhukkad.testutil.InMemoryHashOperations;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FeatureFlagControllerTest {
 
@@ -19,7 +24,11 @@ class FeatureFlagControllerTest {
     private FeatureFlagService service() {
         FeatureFlagProperties props = new FeatureFlagProperties();
         props.getFlags().put("checkout.new", true);
-        return new FeatureFlagService(props);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        HashOperations<String, String, String> hashOps = (HashOperations<String, String, String>) (HashOperations<?, ?, ?>) new InMemoryHashOperations<>();
+        org.mockito.Mockito.doReturn(hashOps).when(redisTemplate).opsForHash();
+        return new FeatureFlagService(props, redisTemplate);
     }
 
     @Test

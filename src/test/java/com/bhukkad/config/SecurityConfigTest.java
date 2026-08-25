@@ -20,6 +20,7 @@ import org.springframework.security.config.annotation.web.configurers.AuthorizeH
 import org.springframework.security.config.annotation.web.configurers.CsrfConfigurer;
 import org.springframework.security.config.annotation.web.configurers.SessionManagementConfigurer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.SecurityFilterChain;
@@ -63,12 +64,29 @@ class SecurityConfigTest {
     }
 
     @Test
-    void passwordEncoder_beanIsBCryptFromPasswordEncoderConfig() {
+    void passwordEncoder_isArgon2idDelegatingEncoder() {
         // The PasswordEncoder bean now lives in PasswordEncoderConfig; verify the
-        // real bean (not the mock) is a BCryptPasswordEncoder.
+        // real bean (not the mock) hashes new passwords with Argon2id while
+        // still verifying legacy plain-BCrypt hashes.
         PasswordEncoder encoder = new PasswordEncoderConfig().passwordEncoder();
-        assertInstanceOf(BCryptPasswordEncoder.class, encoder);
-        assertTrue(encoder.matches("secret", encoder.encode("secret")));
+        assertInstanceOf(DelegatingPasswordEncoder.class, encoder);
+
+        String encoded = encoder.encode("secret");
+        assertTrue(encoded.startsWith("{argon2}$argon2id$"),
+                "new passwords must be hashed with Argon2id");
+        assertTrue(encoder.matches("secret", encoded));
+        assertFalse(encoder.matches("wrong", encoded));
+
+        // Legacy hash produced by the pre-upgrade BCryptPasswordEncoder (no {id}
+        // prefix) must remain verifiable so existing accounts keep logging in.
+        BCryptPasswordEncoder legacyBcrypt = new BCryptPasswordEncoder();
+        String legacyHash = legacyBcrypt.encode("legacy-pass");
+        assertTrue(encoder.matches("legacy-pass", legacyHash));
+        assertFalse(encoder.matches("nope", legacyHash));
+
+        // Explicitly prefixed BCrypt hashes are accepted as well.
+        String prefixed = "{bcrypt}" + legacyBcrypt.encode("prefixed-pass");
+        assertTrue(encoder.matches("prefixed-pass", prefixed));
     }
 
     @Test

@@ -24,12 +24,16 @@ import com.bhukkad.service.OrderPricingService;
 import com.bhukkad.service.PaymentService;
 import com.bhukkad.timeline.OrderTimelineService;
 import com.bhukkad.wallet.WalletService;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -65,6 +69,8 @@ class OrderPlacementServiceTest {
     @Mock private StockReservationService stockReservationService;
     @Mock private OrderTimelineService orderTimelineService;
     @Mock private RestaurantBusyService restaurantBusyService;
+    @Mock private EntityManager entityManager;
+    @Mock private TransactionTemplate transactionTemplate;
 
     private OrderPlacementService service;
 
@@ -81,7 +87,14 @@ class OrderPlacementServiceTest {
                 orderCacheService, orderEventPublisher, orderPricingService, couponService,
                 paymentService, orderMapper, orderIdempotencyService, orderMetrics,
                 businessMetrics, walletService, scheduledOrderValidator, orderEtaService,
-                stockReservationService, orderTimelineService, restaurantBusyService);
+                stockReservationService, orderTimelineService, restaurantBusyService,
+                entityManager, transactionTemplate);
+        // TransactionTemplate runs the callback inline in unit tests.
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(inv -> {
+            TransactionCallback<?> callback = inv.getArgument(0);
+            TransactionStatus status = mock(TransactionStatus.class);
+            return callback.doInTransaction(status);
+        });
 
         Address address = new Address();
         address.setId(60L);
@@ -172,6 +185,12 @@ class OrderPlacementServiceTest {
         lenient().when(paymentService.createPayment(anyLong(), anyString(), any()))
                 .thenReturn(paymentWithId());
         lenient().when(paymentService.processPayment(anyLong(), any())).thenReturn(paymentWithId());
+        lenient().when(menuItemRepository.decrementStockAtomic(anyLong(), anyInt()))
+                .thenAnswer(inv -> {
+                    int quantity = inv.getArgument(1);
+                    Integer stock = cartItem.getMenuItem().getStockQuantity();
+                    return (stock != null && stock >= quantity) ? 1 : 0;
+                });
     }
 
     private Payment paymentWithId() {
@@ -254,6 +273,12 @@ class OrderPlacementServiceTest {
                 OrderResponse.builder().id(((Order) inv.getArgument(0)).getId()).build());
         when(paymentService.createPayment(anyLong(), anyString(), any())).thenReturn(paymentWithId());
         when(paymentService.processPayment(anyLong(), any())).thenReturn(paymentWithId());
+        when(menuItemRepository.decrementStockAtomic(anyLong(), anyInt()))
+                .thenAnswer(inv -> {
+                    int quantity = inv.getArgument(1);
+                    Integer stock = cartItem.getMenuItem().getStockQuantity();
+                    return (stock != null && stock >= quantity) ? 1 : 0;
+                });
 
         BatchOrderResponse response = service.createBatchOrders(request, null);
 
@@ -528,7 +553,8 @@ class OrderPlacementServiceTest {
 
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
-        verify(menuItemRepository).saveAll(anyList());
+        // Stock is decremented atomically at the DB with an oversell guard
+        verify(menuItemRepository).decrementStockAtomic(30L, 2);
         verify(stockReservationService).syncStock(any(MenuItem.class));
     }
 

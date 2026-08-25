@@ -19,8 +19,14 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>Subclasses only need to declare {@code @DataJpaTest} (and any
  * {@code @Import} of repository-only helpers) and write tests.</p>
+ *
+ * <p>{@code disabledWithoutDocker = true} keeps the suite green in
+ * environments without a Docker daemon (local laptops): the tests SKIP with a
+ * clear reason instead of failing with
+ * {@code "Could not find a valid Docker environment"}. In CI (GitHub Actions,
+ * which provides Docker) they run in full.</p>
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 public abstract class AbstractJpaIntegrationTest {
 
     /** MySQL 8.x image matching the production MySQL version family. */

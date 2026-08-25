@@ -21,11 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,27 +39,27 @@ class RiderLocationTrackingServiceTest {
     @Mock
     private ValueOperations<String, String> valueOperations;
     @Mock
-    private OrderSseStreamService sseStreamService;
+    private OrderLiveUpdateBroadcaster orderLiveUpdateBroadcaster;
 
     private RiderLocationTrackingService service;
 
     @BeforeEach
     void setUp() {
-        service = new RiderLocationTrackingService(stringRedisTemplate, sseStreamService);
-        // doReturn form: invoking opsForGeo()/opsForValue() on the mock would
-        // return null (they are concrete methods), so stub by return value.
+        service = new RiderLocationTrackingService(stringRedisTemplate, orderLiveUpdateBroadcaster);
         lenient().doReturn(geoOperations).when(stringRedisTemplate).opsForGeo();
         lenient().doReturn(valueOperations).when(stringRedisTemplate).opsForValue();
     }
 
     @Test
-    void publishRiderLocation_storesGeoFixAndBroadcastsToCustomer() {
+    void publishRiderLocation_storesGeoFixAndBroadcastsViaRelay() {
         service.publishRiderLocation(7L, 100L, 1L, 3L, "ORD-100",
                 12.97, 77.59, 18, LocalDateTime.now().plusMinutes(18));
 
         verify(geoOperations).add(eq("geo:rider:locations"),
                 any(Point.class), eq("7"));
-        verify(sseStreamService).broadcastCustomer(eq(100L), any(OrderLiveUpdate.class));
+        verify(orderLiveUpdateBroadcaster).broadcastRiderLocation(
+                eq(100L), eq(1L), eq(3L), eq(7L),
+                eq(12.97), eq(77.59), eq("ORD-100"), eq(18), any());
     }
 
     @Test
@@ -76,6 +77,11 @@ class RiderLocationTrackingServiceTest {
                 .thenReturn(java.util.Arrays.asList((Point) null));
 
         assertNull(service.getRiderLocation(7L));
+    }
+
+    @Test
+    void getRiderLocation_returnsNullForNullAgent() {
+        assertNull(service.getRiderLocation(null));
     }
 
     @Test
@@ -100,16 +106,16 @@ class RiderLocationTrackingServiceTest {
     }
 
     @Test
-    void publishRiderLocation_redisGeoFailure_stillBroadcasts() {
+    void publishRiderLocation_redisGeoFailure_stillBroadcastsViaRelay() {
         when(geoOperations.add(eq("geo:rider:locations"), any(Point.class), eq("7")))
                 .thenThrow(new RuntimeException("redis down"));
 
-        // Must not throw; the SSE broadcast still fires so the customer keeps
-        // seeing location updates even if the GEO store is unavailable.
         service.publishRiderLocation(7L, 100L, 1L, 3L, "ORD-100",
                 12.97, 77.59, 18, LocalDateTime.now());
 
-        verify(sseStreamService).broadcastCustomer(eq(100L), any(OrderLiveUpdate.class));
+        verify(orderLiveUpdateBroadcaster).broadcastRiderLocation(
+                eq(100L), eq(1L), eq(3L), eq(7L),
+                eq(12.97), eq(77.59), eq("ORD-100"), eq(18), any());
     }
 
     @Test
@@ -126,8 +132,6 @@ class RiderLocationTrackingServiceTest {
                 .when(valueOperations)
                 .set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
 
-        // Fail open: a token is still handed out (it will simply not validate
-        // if Redis stays down, but the caller experience is preserved).
         assertNotNull(service.createTrackingToken(42L));
     }
 
@@ -135,7 +139,6 @@ class RiderLocationTrackingServiceTest {
     void isValidTrackingToken_returnsFalseOnRedisFailure() {
         when(valueOperations.get(anyString())).thenThrow(new RuntimeException("redis down"));
 
-        // Fail closed: unknown/unverifiable tokens must never grant access.
         assertFalse(service.isValidTrackingToken(42L, "abc"));
     }
 

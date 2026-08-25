@@ -77,6 +77,103 @@ class RateLimitAspectTest {
         verify(securityUtils, never()).getCurrentUserId();
     }
 
+    @Test
+    void enforceRateLimit_authLogin_blankEmail_usesUnknown() throws Throwable {
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        LoginRequest loginRequest = new LoginRequest();
+        loginRequest.setEmail("   ");
+        when(joinPoint.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(SampleController.class.getMethod("login", LoginRequest.class));
+        when(joinPoint.getArgs()).thenReturn(new Object[]{loginRequest});
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("auth-login"), eq("login:unknown"), eq("free")))
+                .thenReturn(RateLimitDecision.allowed(1, 10, 60));
+        when(joinPoint.proceed()).thenReturn("ok");
+
+        assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("auth-login")));
+    }
+
+    @Test
+    void enforceRateLimit_search_withKeyword_andAnonymousUser() throws Throwable {
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        when(joinPoint.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(SampleController.class.getMethod("search", String.class, int.class));
+        when(joinPoint.getArgs()).thenReturn(new Object[]{"Biryani", 10});
+        when(securityUtils.getCurrentUserId()).thenThrow(new com.bhukkad.exception.UnauthorizedException("no auth"));
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("search"), eq("search:biryani:user:anonymous"), eq("free")))
+                .thenReturn(RateLimitDecision.allowed(1, 30, 60));
+        when(joinPoint.proceed()).thenReturn("ok");
+
+        assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("search")));
+    }
+
+    @Test
+    void enforceRateLimit_search_blankKeyword_usesAll() throws Throwable {
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        when(joinPoint.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(SampleController.class.getMethod("search", String.class, int.class));
+        when(joinPoint.getArgs()).thenReturn(new Object[]{"", 10});
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("search"), eq("search:all:user:5"), eq("free")))
+                .thenReturn(RateLimitDecision.allowed(1, 30, 60));
+        when(joinPoint.proceed()).thenReturn("ok");
+
+        assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("search")));
+    }
+
+    @Test
+    void enforceRateLimit_cartMutation_bucket() throws Throwable {
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        when(joinPoint.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(SampleController.class.getMethod("addToCart", Long.class, int.class));
+        when(joinPoint.getArgs()).thenReturn(new Object[]{100L, 2});
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("cart-mutation"), eq("user:5:cart"), eq("free")))
+                .thenReturn(RateLimitDecision.allowed(1, 20, 60));
+        when(joinPoint.proceed()).thenReturn("ok");
+
+        assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("cart-mutation")));
+    }
+
+    @Test
+    void enforceRateLimit_defaultBucket_usesUserId() throws Throwable {
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        when(joinPoint.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(SampleController.class.getMethod("trackOrder", Long.class, int.class));
+        when(joinPoint.getArgs()).thenReturn(new Object[]{100L, 50});
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(userTierResolver.resolveCurrentTier()).thenReturn("premium");
+        when(rateLimitService.check(eq("some-other-bucket"), eq("user:5"), eq("premium")))
+                .thenReturn(RateLimitDecision.allowed(1, 20, 60));
+        when(joinPoint.proceed()).thenReturn("ok");
+
+        assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("some-other-bucket")));
+    }
+
+    @Test
+    void enforceRateLimit_orderTrack_unnamedParam_fallsBackToFirstLong() throws Throwable {
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        MethodSignature signature = mock(MethodSignature.class);
+        when(joinPoint.getSignature()).thenReturn(signature);
+        when(signature.getMethod()).thenReturn(SampleController.class.getMethod("unnamedParams", Long.class, Long.class));
+        when(joinPoint.getArgs()).thenReturn(new Object[]{11L, 99L});
+        when(securityUtils.getCurrentUserId()).thenReturn(5L);
+        when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+        when(rateLimitService.check(eq("order-track"), eq("user:5:order:11"), eq("free")))
+                .thenReturn(RateLimitDecision.allowed(1, 20, 60));
+        when(joinPoint.proceed()).thenReturn("ok");
+
+        assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("order-track")));
+    }
+
     private RateLimited rateLimited(String bucket) {
         return new RateLimited() {
             @Override
@@ -110,5 +207,11 @@ class RateLimitAspectTest {
         public void getKitchenQueue(Long restaurantId, int limit) {}
 
         public void login(LoginRequest request) {}
+
+        public void search(String keyword, int limit) {}
+
+        public void addToCart(Long menuItemId, int quantity) {}
+
+        public void unnamedParams(Long a, Long b) {}
     }
 }

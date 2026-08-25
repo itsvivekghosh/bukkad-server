@@ -115,16 +115,16 @@ class PaymentServiceImplTest {
     void createPayment_createsPaymentWithIdempotencyKey() {
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(paymentGateway.createOrder(any())).thenReturn(
-                PaymentGateway.GatewayOrderResult.builder()
-                        .gatewayOrderId("gateway-123")
-                        .rawResponse("{}")
-                        .build());
 
         Payment result = service.createPayment(1L, "CREDIT_CARD", "idem-key");
 
         assertEquals(Payment.PaymentStatus.PENDING, result.getStatus());
-        assertEquals("gateway-123", result.getGatewayOrderId());
+        // Gateway order creation moved out of createPayment: it happens lazily in
+        // GatewayPaymentStrategy#process (outside any DB transaction), so the
+        // PENDING payment row is created without holding the DB tx across the
+        // external gateway call.
+        assertNull(result.getGatewayOrderId());
+        verify(paymentGateway, never()).createOrder(any());
     }
 
     @Test
@@ -186,7 +186,7 @@ class PaymentServiceImplTest {
         order.setCustomer(customer);
         payment.setOrder(order);
 
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
         when(paymentRepository.save(any())).thenReturn(payment);
 
         service.refundPayment(1L);
@@ -197,7 +197,7 @@ class PaymentServiceImplTest {
     @Test
     void refundPayment_throws_whenNotCompleted() {
         payment.setStatus(Payment.PaymentStatus.FAILED);
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
 
         assertThrows(BusinessException.class,
                 () -> service.refundPayment(1L));
@@ -264,17 +264,12 @@ class PaymentServiceImplTest {
         order.setTotalAmount(150.0);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(paymentGateway.createOrder(any())).thenReturn(
-                PaymentGateway.GatewayOrderResult.builder()
-                        .gatewayOrderId("gw-9")
-                        .rawResponse("{}")
-                        .build());
 
         Payment result = service.createPayment(1L, "UPI", null);
 
         assertEquals(150.0, result.getAmount());
         assertEquals(0.0, result.getWalletAmount());
-        assertEquals("gw-9", result.getGatewayOrderId());
+        assertNull(result.getGatewayOrderId());
         assertNull(result.getIdempotencyKey());
     }
 
@@ -290,13 +285,14 @@ class PaymentServiceImplTest {
     }
 
     @Test
-    void createPayment_gatewayDisabled_skipsGatewayCall() {
-        when(razorpay.isEnabled()).thenReturn(false);
+    void createPayment_neverCallsGateway() {
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.createPayment(1L, "CREDIT_CARD", null);
 
+        // Gateway order creation is deferred to GatewayPaymentStrategy#process,
+        // so createPayment must never hit the gateway.
         verify(paymentGateway, never()).createOrder(any());
     }
 
@@ -449,7 +445,7 @@ class PaymentServiceImplTest {
     @Test
     void refundPayment_alreadyRefunded_returnsSilently() {
         payment.setStatus(Payment.PaymentStatus.REFUNDED);
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
 
         service.refundPayment(1L);
 
@@ -458,7 +454,7 @@ class PaymentServiceImplTest {
 
     @Test
     void refundPayment_paymentNotFound_throws() {
-        when(paymentRepository.findById(1L)).thenReturn(Optional.empty());
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> service.refundPayment(1L));
     }
@@ -470,7 +466,7 @@ class PaymentServiceImplTest {
         payment.setGatewayAmount(null);
         payment.setStatus(Payment.PaymentStatus.COMPLETED);
         payment.setAmount(120.0);
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
         when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.refundPayment(1L);
@@ -488,7 +484,7 @@ class PaymentServiceImplTest {
         payment.setPaymentMethod(Payment.PaymentMethod.CREDIT_CARD);
         payment.setGatewayPaymentId("pay_1");
         payment.setAmount(100.0);
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
         when(paymentGateway.refundPayment(any())).thenReturn(
                 PaymentGateway.GatewayRefundResult.builder()
                         .refundId("rf-1")
@@ -508,7 +504,7 @@ class PaymentServiceImplTest {
         payment.setGatewayPaymentId("pay_2");
         payment.setAmount(100.0);
         order.setStatus(Order.OrderStatus.CONFIRMED);
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
         when(paymentGateway.refundPayment(any())).thenReturn(
                 PaymentGateway.GatewayRefundResult.builder()
                         .refundId("rf-2")
@@ -534,7 +530,7 @@ class PaymentServiceImplTest {
         payment.setPaymentMethod(Payment.PaymentMethod.UPI);
         payment.setAmount(110.0);
         order.setStatus(Order.OrderStatus.PLACED);
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
         when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         doThrow(new RuntimeException("timeline down"))
                 .when(orderTimelineService).recordEvent(any(), anyString(), any(), anyString(), any(), anyString());
