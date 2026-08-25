@@ -18,18 +18,27 @@ class PaymentStrategyFactoryTest {
     private CODPaymentStrategy codPaymentStrategy;
     @Mock
     private WalletPaymentStrategy walletPaymentStrategy;
+    @Mock
+    private BNPLStrategy bnplStrategy;
 
     private PaymentStrategyFactory factory;
 
     @BeforeEach
     void setUp() {
-        factory = new PaymentStrategyFactory(gatewayPaymentStrategy, codPaymentStrategy, walletPaymentStrategy);
+        factory = new PaymentStrategyFactory(
+                gatewayPaymentStrategy, codPaymentStrategy, walletPaymentStrategy, bnplStrategy);
     }
 
     @Test
     void testGetStrategy_CashOnDelivery_ReturnsCODStrategy() {
         PaymentStrategy strategy = factory.getStrategy(Payment.PaymentMethod.CASH_ON_DELIVERY);
         assertSame(codPaymentStrategy, strategy);
+    }
+
+    @Test
+    void testGetStrategy_Bnpl_ReturnsBnplStrategy() {
+        PaymentStrategy strategy = factory.getStrategy(Payment.PaymentMethod.BNPL);
+        assertSame(bnplStrategy, strategy);
     }
 
     @Test

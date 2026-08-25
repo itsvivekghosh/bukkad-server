@@ -116,6 +116,38 @@ public class GlobalExceptionHandler {
                 .body(buildError(ex.getMessage()));
     }
 
+    /**
+     * Maps a duplicate idempotency-key request (already being processed) to
+     * {@code 409 Conflict}, matching the documented API contract ("Already
+     * processing"). More specific than the generic {@link BusinessException}
+     * handler, so 400 stays reserved for genuine input/validation errors.
+     */
+    @ExceptionHandler(DuplicateRequestException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateRequest(
+            DuplicateRequestException ex, WebRequest request) {
+        log.warn("DuplicateRequest | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
+    }
+
+    /**
+     * Maps an SSE stream that has reached its per-stream connection cap to
+     * {@code 503 Service Unavailable}: the resource is healthy but temporarily
+     * cannot accept more subscribers. Clients should retry with backoff (or
+     * fall back to HTTP polling) rather than treating it as a permanent error.
+     */
+    @ExceptionHandler(SseCapacityExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSseCapacityExceeded(
+            SseCapacityExceededException ex, WebRequest request) {
+        log.warn("SseCapacityExceeded | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
+    }
+
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnauthorizedException(
             UnauthorizedException ex, WebRequest request) {

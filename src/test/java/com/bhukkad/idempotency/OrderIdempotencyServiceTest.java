@@ -1,5 +1,6 @@
 package com.bhukkad.idempotency;
 
+import com.bhukkad.dto.response.BatchOrderResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.exception.BusinessException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -261,5 +262,77 @@ class OrderIdempotencyServiceTest {
         Optional<OrderResponse> result = orderIdempotencyService.findCompletedResponse("idem-key");
 
         assertTrue(result.isEmpty());
+    }
+
+    // ==================== batch order idempotency ====================
+
+    @Test
+    void testFindCompletedBatchResponse_WithStoredRecord_ReturnsBatch() throws JsonProcessingException {
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
+        record.setResponsePayload("{\"successCount\":2}");
+
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE, "batch-key"))
+                .thenReturn(Optional.of(record));
+        BatchOrderResponse mocked = BatchOrderResponse.builder().successCount(2).build();
+        when(objectMapper.readValue("{\"successCount\":2}", BatchOrderResponse.class))
+                .thenReturn(mocked);
+
+        Optional<BatchOrderResponse> result = orderIdempotencyService.findCompletedBatchResponse("batch-key");
+
+        assertTrue(result.isPresent());
+        assertEquals(2, result.get().getSuccessCount());
+    }
+
+    @Test
+    void testFindCompletedBatchResponse_WithEmptyKey_ReturnsEmpty() {
+        assertTrue(orderIdempotencyService.findCompletedBatchResponse("").isEmpty());
+        assertTrue(orderIdempotencyService.findCompletedBatchResponse(null).isEmpty());
+    }
+
+    @Test
+    void testBeginBatchOrderCreate_NewRecord_UsesBatchScope() {
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE, "batch-key"))
+                .thenReturn(Optional.empty());
+
+        orderIdempotencyService.beginBatchOrderCreate("batch-key", 7L);
+
+        ArgumentCaptor<IdempotencyRecord> captor = ArgumentCaptor.forClass(IdempotencyRecord.class);
+        verify(idempotencyRecordRepository).save(captor.capture());
+        assertEquals(IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE, captor.getValue().getScope());
+        assertEquals(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS, captor.getValue().getStatus());
+    }
+
+    @Test
+    void testBeginBatchOrderCreate_InProgress_ThrowsDuplicateRequest() {
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE, "batch-key"))
+                .thenReturn(Optional.of(record));
+
+        com.bhukkad.exception.DuplicateRequestException ex = assertThrows(
+                com.bhukkad.exception.DuplicateRequestException.class,
+                () -> orderIdempotencyService.beginBatchOrderCreate("batch-key", 7L));
+        assertTrue(ex.getMessage().contains("Duplicate order request"));
+    }
+
+    @Test
+    void testCompleteBatchOrderCreate_MarksRecordCompleted() throws JsonProcessingException {
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
+        when(idempotencyRecordRepository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE, "batch-key"))
+                .thenReturn(Optional.of(record));
+        when(objectMapper.writeValueAsString(any(BatchOrderResponse.class)))
+                .thenReturn("{\"successCount\":1}");
+
+        orderIdempotencyService.completeBatchOrderCreate("batch-key", BatchOrderResponse.builder().successCount(1).build());
+
+        assertEquals(IdempotencyRecord.IdempotencyStatus.COMPLETED, record.getStatus());
+        assertEquals("{\"successCount\":1}", record.getResponsePayload());
+        verify(idempotencyRecordRepository).save(record);
     }
 }

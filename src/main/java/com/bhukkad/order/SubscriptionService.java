@@ -34,7 +34,7 @@ import java.util.UUID;
  * into a real {@link Order} without relying on the customer's current cart.
  * Materialised orders are created with {@link Order.OrderStatus#SCHEDULED} and
  * a {@code scheduledAt} equal to the delivery slot; the existing scheduled-order
- * path ({@link ScheduledOrderScheduler}) then dispatches them when due.</p>
+ * path ({@link ScheduledOrderProcessor}) then dispatches them when due.</p>
  *
  * <p>Each plan is processed in its own transaction (via
  * {@link TransactionTemplate}, because self-invocation would bypass

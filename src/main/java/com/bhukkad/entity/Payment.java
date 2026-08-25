@@ -88,7 +88,7 @@ public class Payment {
 
     public enum PaymentMethod {
         CASH_ON_DELIVERY, CREDIT_CARD, DEBIT_CARD,
-        UPI, WALLET, NET_BANKING
+        UPI, WALLET, NET_BANKING, BNPL
     }
 
     public enum PaymentStatus {

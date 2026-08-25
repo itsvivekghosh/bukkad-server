@@ -152,80 +152,100 @@ public class OrderPlacementService {
      * Splits a multi-restaurant cart into one order per restaurant. Each group
      * is placed independently; failures in one group do not roll back the others
      * and are reported in the batch response.
+     *
+     * <p>The batch operation itself is idempotent: the {@code Idempotency-Key}
+     * header (required by the controller) is claimed up-front, so a retried
+     * request returns the original {@link BatchOrderResponse} instead of
+     * creating a second set of duplicate orders.
      */
     public BatchOrderResponse createBatchOrders(BatchOrderRequest request, String idempotencyKey) {
         Long customerId = securityUtils.getCurrentUserId();
-        Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
-                .orElseThrow(() -> new BusinessException("Cart is empty"));
-        List<CartItem> allItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
-        if (allItems.isEmpty()) {
-            throw new BusinessException("Cart is empty");
+        if (StringUtils.hasText(idempotencyKey)) {
+            var cached = orderIdempotencyService.findCompletedBatchResponse(idempotencyKey);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            orderIdempotencyService.beginBatchOrderCreate(idempotencyKey, customerId);
         }
 
-        Map<Long, List<CartItem>> byRestaurant = groupCartItemsByRestaurant(allItems);
-        double cartSubtotal = allItems.stream()
-                .mapToDouble(item -> PriceCalculator.calculateSubtotal(
-                        item.getMenuItem().getPrice(), item.getQuantity()))
-                .sum();
-        double totalTip = request.getTipAmount() != null ? Math.max(0, request.getTipAmount()) : 0.0;
+        try {
+            Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
+                    .orElseThrow(() -> new BusinessException("Cart is empty"));
+            List<CartItem> allItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
+            if (allItems.isEmpty()) {
+                throw new BusinessException("Cart is empty");
+            }
 
-        List<OrderResponse> orders = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-        int successCount = 0;
-        int failureCount = 0;
-
-        for (Map.Entry<Long, List<CartItem>> entry : byRestaurant.entrySet()) {
-            Long restaurantId = entry.getKey();
-            double groupSubtotal = entry.getValue().stream()
+            Map<Long, List<CartItem>> byRestaurant = groupCartItemsByRestaurant(allItems);
+            double cartSubtotal = allItems.stream()
                     .mapToDouble(item -> PriceCalculator.calculateSubtotal(
                             item.getMenuItem().getPrice(), item.getQuantity()))
                     .sum();
-            double groupTip = cartSubtotal > 0
-                    ? PriceCalculator.roundToTwoDecimals(totalTip * (groupSubtotal / cartSubtotal))
-                    : 0.0;
+            double totalTip = request.getTipAmount() != null ? Math.max(0, request.getTipAmount()) : 0.0;
 
-            OrderRequest orderRequest = new OrderRequest();
-            orderRequest.setRestaurantId(restaurantId);
-            orderRequest.setDeliveryAddressId(request.getDeliveryAddressId());
-            orderRequest.setSpecialInstructions(request.getSpecialInstructions());
-            orderRequest.setContactlessDelivery(request.getContactlessDelivery());
-            orderRequest.setPaymentMethod(request.getPaymentMethod());
-            orderRequest.setTipAmount(groupTip);
+            List<OrderResponse> orders = new ArrayList<>();
+            List<String> errors = new ArrayList<>();
+            int successCount = 0;
+            int failureCount = 0;
 
-            try {
-                OrderPlacementResult result = transactionTemplate.execute(status ->
-                        doCreateOrder(orderRequest, null, customerId));
-                if (result != null && result.needsGatewayProcessing()) {
-                    try {
-                        Payment processed = paymentService.processPayment(
-                                result.payment().getId(), result.paymentIdempotencyKey());
-                        result.order().setPayment(processed);
-                        orders.add(orderMapper.toResponse(result.order()));
-                    } catch (RuntimeException ex) {
-                        compensateFailedPaymentOrder(result, customerId);
-                        throw ex;
+            for (Map.Entry<Long, List<CartItem>> entry : byRestaurant.entrySet()) {
+                Long restaurantId = entry.getKey();
+                double groupSubtotal = entry.getValue().stream()
+                        .mapToDouble(item -> PriceCalculator.calculateSubtotal(
+                                item.getMenuItem().getPrice(), item.getQuantity()))
+                        .sum();
+                double groupTip = cartSubtotal > 0
+                        ? PriceCalculator.roundToTwoDecimals(totalTip * (groupSubtotal / cartSubtotal))
+                        : 0.0;
+
+                OrderRequest orderRequest = new OrderRequest();
+                orderRequest.setRestaurantId(restaurantId);
+                orderRequest.setDeliveryAddressId(request.getDeliveryAddressId());
+                orderRequest.setSpecialInstructions(request.getSpecialInstructions());
+                orderRequest.setContactlessDelivery(request.getContactlessDelivery());
+                orderRequest.setPaymentMethod(request.getPaymentMethod());
+                orderRequest.setTipAmount(groupTip);
+
+                try {
+                    OrderPlacementResult result = transactionTemplate.execute(status ->
+                            doCreateOrder(orderRequest, null, customerId));
+                    if (result != null && result.needsGatewayProcessing()) {
+                        try {
+                            Payment processed = paymentService.processPayment(
+                                    result.payment().getId(), result.paymentIdempotencyKey());
+                            result.order().setPayment(processed);
+                            orders.add(orderMapper.toResponse(result.order()));
+                        } catch (RuntimeException ex) {
+                            compensateFailedPaymentOrder(result, customerId);
+                            throw ex;
+                        }
+                    } else if (result != null) {
+                        orders.add(result.response());
                     }
-                } else if (result != null) {
-                    orders.add(result.response());
+                    successCount++;
+                } catch (RuntimeException ex) {
+                    log.warn("Batch order sub-order failed | customerId={} | restaurantId={} | error={}",
+                            customerId, restaurantId, ex.getMessage());
+                    errors.add("Restaurant " + restaurantId + ": " + ex.getMessage());
+                    failureCount++;
                 }
-                successCount++;
-            } catch (RuntimeException ex) {
-                log.warn("Batch order sub-order failed | customerId={} | restaurantId={} | error={}",
-                        customerId, restaurantId, ex.getMessage());
-                errors.add("Restaurant " + restaurantId + ": " + ex.getMessage());
-                failureCount++;
             }
+
+            log.info("Batch order created | customerId={} | success={} | failure={} | totalOrders={}",
+                    customerId, successCount, failureCount, orders.size());
+
+            BatchOrderResponse response = BatchOrderResponse.builder()
+                    .orders(orders)
+                    .successCount(successCount)
+                    .failureCount(failureCount)
+                    .errors(errors)
+                    .build();
+            orderIdempotencyService.completeBatchOrderCreate(idempotencyKey, response);
+            return response;
+        } catch (RuntimeException ex) {
+            orderIdempotencyService.failBatchOrderCreate(idempotencyKey);
+            throw ex;
         }
-
-        log.info("Batch order created | customerId={} | success={} | failure={} | totalOrders={}",
-                customerId, successCount, failureCount, orders.size());
-
-        return BatchOrderResponse.builder()
-                .orders(orders)
-                .successCount(successCount)
-                .failureCount(failureCount)
-                .errors(errors)
-                .build();
     }
 
     /**

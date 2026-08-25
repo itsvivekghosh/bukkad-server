@@ -1,7 +1,9 @@
 package com.bhukkad.idempotency;
 
+import com.bhukkad.dto.response.BatchOrderResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.exception.DuplicateRequestException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,8 @@ public class OrderIdempotencyService {
     private final IdempotencyService idempotencyService;
     private final ObjectMapper objectMapper;
 
+    // ==================== Single order ====================
+
     public Optional<OrderResponse> findCompletedResponse(String idempotencyKey) {
         if (!StringUtils.hasText(idempotencyKey)) {
             return Optional.empty();
@@ -36,10 +40,9 @@ public class OrderIdempotencyService {
             return cached;
         }
 
-        return idempotencyRecordRepository
-                .findByScopeAndIdempotencyKey(IdempotencyRecord.IdempotencyScope.ORDER_CREATE, idempotencyKey)
-                .filter(record -> record.getStatus() == IdempotencyRecord.IdempotencyStatus.COMPLETED)
-                .map(record -> deserialize(record.getResponsePayload()));
+        return findCompletedRecord(idempotencyKey, IdempotencyRecord.IdempotencyScope.ORDER_CREATE)
+                .map(IdempotencyRecord::getResponsePayload)
+                .map(this::deserializeOrderResponse);
     }
 
     @Transactional
@@ -47,9 +50,78 @@ public class OrderIdempotencyService {
         if (!StringUtils.hasText(idempotencyKey)) {
             return;
         }
+        begin(idempotencyKey, customerId, IdempotencyRecord.IdempotencyScope.ORDER_CREATE);
+    }
 
-        Optional<IdempotencyRecord> existing = idempotencyRecordRepository.findByScopeAndIdempotencyKey(
-                IdempotencyRecord.IdempotencyScope.ORDER_CREATE, idempotencyKey);
+    @Transactional
+    public void completeOrderCreate(String idempotencyKey, OrderResponse response) {
+        if (!StringUtils.hasText(idempotencyKey) || response == null) {
+            return;
+        }
+
+        String payload = serialize(response);
+        complete(idempotencyKey, payload, IdempotencyRecord.IdempotencyScope.ORDER_CREATE);
+
+        idempotencyService.storeOrderResult(idempotencyKey, response, ORDER_TTL);
+    }
+
+    @Transactional
+    public void failOrderCreate(String idempotencyKey) {
+        fail(idempotencyKey, IdempotencyRecord.IdempotencyScope.ORDER_CREATE);
+    }
+
+    // ==================== Batch order ====================
+
+    /**
+     * Returns the stored {@link BatchOrderResponse} for a completed batch key,
+     * or empty when the key is unknown, failed, or still in progress.
+     */
+    public Optional<BatchOrderResponse> findCompletedBatchResponse(String idempotencyKey) {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            return Optional.empty();
+        }
+        return findCompletedRecord(idempotencyKey, IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE)
+                .map(IdempotencyRecord::getResponsePayload)
+                .map(this::deserializeBatchResponse);
+    }
+
+    /**
+     * Claims a batch-order idempotency key. In-flight duplicates (same key
+     * concurrently) are rejected with {@link DuplicateRequestException} (409).
+     */
+    @Transactional
+    public void beginBatchOrderCreate(String idempotencyKey, Long customerId) {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            return;
+        }
+        begin(idempotencyKey, customerId, IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE);
+    }
+
+    @Transactional
+    public void completeBatchOrderCreate(String idempotencyKey, BatchOrderResponse response) {
+        if (!StringUtils.hasText(idempotencyKey) || response == null) {
+            return;
+        }
+        complete(idempotencyKey, serialize(response), IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE);
+    }
+
+    @Transactional
+    public void failBatchOrderCreate(String idempotencyKey) {
+        fail(idempotencyKey, IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE);
+    }
+
+    // ==================== Shared primitives ====================
+
+    private Optional<IdempotencyRecord> findCompletedRecord(String idempotencyKey,
+                                                            IdempotencyRecord.IdempotencyScope scope) {
+        return idempotencyRecordRepository
+                .findByScopeAndIdempotencyKey(scope, idempotencyKey)
+                .filter(record -> record.getStatus() == IdempotencyRecord.IdempotencyStatus.COMPLETED);
+    }
+
+    private void begin(String idempotencyKey, Long customerId, IdempotencyRecord.IdempotencyScope scope) {
+        Optional<IdempotencyRecord> existing = idempotencyRecordRepository
+                .findByScopeAndIdempotencyKey(scope, idempotencyKey);
 
         if (existing.isPresent()) {
             IdempotencyRecord record = existing.get();
@@ -57,7 +129,7 @@ public class OrderIdempotencyService {
                 return;
             }
             if (record.getStatus() == IdempotencyRecord.IdempotencyStatus.IN_PROGRESS) {
-                throw new BusinessException("Duplicate order request is already being processed");
+                throw new DuplicateRequestException("Duplicate order request is already being processed");
             }
             record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
             record.setOwnerId(customerId);
@@ -68,7 +140,7 @@ public class OrderIdempotencyService {
 
         IdempotencyRecord record = new IdempotencyRecord();
         record.setIdempotencyKey(idempotencyKey);
-        record.setScope(IdempotencyRecord.IdempotencyScope.ORDER_CREATE);
+        record.setScope(scope);
         record.setOwnerId(customerId);
         record.setStatus(IdempotencyRecord.IdempotencyStatus.IN_PROGRESS);
         record.setExpiresAt(LocalDateTime.now().plus(ORDER_TTL));
@@ -76,55 +148,53 @@ public class OrderIdempotencyService {
         try {
             idempotencyRecordRepository.save(record);
         } catch (DataIntegrityViolationException ex) {
-            throw new BusinessException("Duplicate order request is already being processed");
+            throw new DuplicateRequestException("Duplicate order request is already being processed");
         }
     }
 
-    @Transactional
-    public void completeOrderCreate(String idempotencyKey, OrderResponse response) {
-        if (!StringUtils.hasText(idempotencyKey) || response == null) {
-            return;
-        }
-
-        String payload = serialize(response);
-        idempotencyRecordRepository.findByScopeAndIdempotencyKey(
-                        IdempotencyRecord.IdempotencyScope.ORDER_CREATE, idempotencyKey)
+    private void complete(String idempotencyKey, String payload, IdempotencyRecord.IdempotencyScope scope) {
+        idempotencyRecordRepository.findByScopeAndIdempotencyKey(scope, idempotencyKey)
                 .ifPresent(record -> {
                     record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
                     record.setResponsePayload(payload);
                     idempotencyRecordRepository.save(record);
                 });
-
-        idempotencyService.storeOrderResult(idempotencyKey, response, ORDER_TTL);
     }
 
-    @Transactional
-    public void failOrderCreate(String idempotencyKey) {
+    private void fail(String idempotencyKey, IdempotencyRecord.IdempotencyScope scope) {
         if (!StringUtils.hasText(idempotencyKey)) {
             return;
         }
-        idempotencyRecordRepository.findByScopeAndIdempotencyKey(
-                        IdempotencyRecord.IdempotencyScope.ORDER_CREATE, idempotencyKey)
+        idempotencyRecordRepository.findByScopeAndIdempotencyKey(scope, idempotencyKey)
                 .ifPresent(record -> {
                     record.setStatus(IdempotencyRecord.IdempotencyStatus.FAILED);
                     idempotencyRecordRepository.save(record);
                 });
     }
 
-    private OrderResponse deserialize(String payload) {
+    private OrderResponse deserializeOrderResponse(String payload) {
         try {
             return objectMapper.readValue(payload, OrderResponse.class);
         } catch (JsonProcessingException e) {
-            log.warn("Failed to deserialize idempotency payload: {}", e.getMessage());
+            log.warn("Failed to deserialize order idempotency payload: {}", e.getMessage());
             return null;
         }
     }
 
-    private String serialize(OrderResponse response) {
+    private BatchOrderResponse deserializeBatchResponse(String payload) {
+        try {
+            return objectMapper.readValue(payload, BatchOrderResponse.class);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to deserialize batch idempotency payload: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String serialize(Object response) {
         try {
             return objectMapper.writeValueAsString(response);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize order response for idempotency", e);
+            throw new IllegalStateException("Failed to serialize idempotency payload", e);
         }
     }
 }

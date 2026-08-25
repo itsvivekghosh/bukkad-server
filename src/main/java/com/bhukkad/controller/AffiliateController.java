@@ -7,9 +7,11 @@ import com.bhukkad.dto.response.AffiliateStatsResponse;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.referral.AffiliateService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,6 +25,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @RequestMapping(ApiPaths.V1_PREFIX + "/admin/affiliates")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
+@Validated
 @Tag(name = "Affiliate", description = "REST endpoints for Affiliate")
 public class AffiliateController {
 
@@ -44,19 +47,19 @@ public class AffiliateController {
     @PutMapping("/{affiliateId}")
     @Operation(summary = "Update")
     public ResponseEntity<ApiResponse<AffiliateCodeResponse>> update(
-            @PathVariable Long affiliateId, @Valid @RequestBody AffiliateCodeRequest request) {
+            @PathVariable @Positive Long affiliateId, @Valid @RequestBody AffiliateCodeRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Affiliate code updated",
                 affiliateService.update(affiliateId, request)));
     }
 
     @DeleteMapping("/{affiliateId}")
-    public ResponseEntity<ApiResponse<Void>> deactivate(@PathVariable Long affiliateId) {
+    public ResponseEntity<ApiResponse<Void>> deactivate(@PathVariable @Positive Long affiliateId) {
         affiliateService.deactivate(affiliateId);
         return ResponseEntity.ok(ApiResponse.success("Affiliate code deactivated", null));
     }
 
     @GetMapping("/{affiliateId}/stats")
-    public ResponseEntity<ApiResponse<AffiliateStatsResponse>> stats(@PathVariable Long affiliateId) {
+    public ResponseEntity<ApiResponse<AffiliateStatsResponse>> stats(@PathVariable @Positive Long affiliateId) {
         return ResponseEntity.ok(ApiResponse.success(affiliateService.getStats(affiliateId)));
     }
 }

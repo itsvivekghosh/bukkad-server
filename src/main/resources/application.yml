@@ -175,7 +175,6 @@ app:
     order-list-default-size: 20
     order-list-max-size: 100
   scheduled-orders:
-    scheduler-interval-ms: 60000
     minimum-lead-minutes: 30
     max-days-ahead: 7
     dispatch-interval-ms: 60000
@@ -337,6 +336,10 @@ app:
   live:
     sse:
       heartbeat-interval-ms: 25000
+      # Hard cap on concurrent SSE connections per stream key (an order, a
+      # restaurant's kitchen, or a rider). New subscribers beyond the cap get
+      # 503 Service Unavailable. Bounds pod memory against reconnect floods.
+      max-emitters-per-stream: 50
       replay:
         max-events-per-stream: 200
         ttl-seconds: 3600
@@ -500,11 +503,16 @@ app:
       peak-hours: "11:00-14:00,19:00-22:00"
       peak-multiplier: 0.5
       off-peak-multiplier: 1.5
-    # Pub/sub invalidation: when enabled, cache evictions are broadcast on the
-    # Redis channel below so every instance drops the key, not just the writer.
+    # Pub/sub invalidation: cache evictions are broadcast on the Redis channel
+    # below so every instance drops the key in both Redis (L2) and the local
+    # Caffeine (L1) cache, not just the writer. The subscriber and publisher are
+    # registered unconditionally; this flag documents the behavior and can be
+    # used to disable cross-instance invalidation in single-instance topologies.
+    # The channel value must match the hardcoded constant in
+    # CacheInvalidationSubscriber / DistributedCacheInvalidator.
     pubsub-invalidation:
-      enabled: false
-      channel: bhukkad:cache:invalidate
+      enabled: true
+      channel: bhukkad:cache:invalidation
     # Static TTLs per cache bucket (seconds). Consumed by RedisCacheService.
     ttl:
       restaurant: 1800

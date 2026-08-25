@@ -1,6 +1,7 @@
 package com.bhukkad.live;
 
 import com.bhukkad.dto.response.OrderLiveUpdate;
+import com.bhukkad.exception.SseCapacityExceededException;
 import com.bhukkad.live.OrderLiveReplayStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -288,5 +289,28 @@ class OrderSseStreamServiceTest {
         // Heartbeat sweep catches it, removes the dead emitter, and completes it
         assertDoesNotThrow(() -> service.sendHeartbeats());
         assertEquals(0, service.activeConnectionCount());
+    }
+
+    // ==================== per-stream capacity cap ====================
+
+    @Test
+    void subscribe_rejectsNewEmitterWhenStreamAtCapacity() {
+        service.maxEmittersPerStream = 2;
+        service.subscribeKitchen(1L, null);
+        service.subscribeKitchen(1L, null);
+
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeKitchen(1L, null));
+    }
+
+    @Test
+    void subscribe_capacityIsPerStreamKey() {
+        service.maxEmittersPerStream = 1;
+        service.subscribeKitchen(1L, null);
+
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeKitchen(1L, null));
+        // A different stream key is unaffected
+        assertNotNull(service.subscribeKitchen(2L, null));
+        assertNotNull(service.subscribeRider(9L, null));
+        assertNotNull(service.subscribeCustomer(3L, null, null));
     }
 }

@@ -105,6 +105,25 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleSseCapacityExceeded() {
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleSseCapacityExceeded(
+                new SseCapacityExceededException("Stream capacity reached for order 42"),
+                mock(WebRequest.class));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, resp.getStatusCode());
+        assertNotNull(resp.getBody());
+        assertEquals("Stream capacity reached for order 42", resp.getBody().getMessage());
+    }
+
+    @Test
+    void handleDuplicateRequest_returns409() {
+        DuplicateRequestException ex = new DuplicateRequestException("Duplicate order request is already being processed");
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleDuplicateRequest(ex, mock(WebRequest.class));
+        assertEquals(HttpStatus.CONFLICT, resp.getStatusCode());
+        assertNotNull(resp.getBody());
+        assertEquals("Duplicate order request is already being processed", resp.getBody().getMessage());
+    }
+
+    @Test
     void handleAccessDeniedException() {
         ResponseEntity<ApiResponse<Void>> resp = handler.handleAccessDeniedException(
                 new org.springframework.security.access.AccessDeniedException("denied"), mock(WebRequest.class));

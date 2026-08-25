@@ -115,6 +115,30 @@ public class AsyncConfig implements SchedulingConfigurer {
     }
 
     /**
+     * Dedicated bounded pool for live-update fan-out (SSE/STOMP dispatch).
+     *
+     * <p>Live updates arrive on the Redis pub/sub listener thread. Fan-out to
+     * SSE emitters performs blocking socket writes, and a slow client can stall
+     * its worker. Running that fan-out on this dedicated pool (instead of the
+     * Redis listener thread or the shared scheduler) keeps one slow SSE
+     * subscriber from blocking Redis message delivery, the scheduled jobs, or
+     * the order path. Queue is bounded: when it is full, an update is dropped
+     * for that delivery cycle and the affected client recovers via the replay
+     * store on its next reconnect.
+     */
+    @Bean(name = "sseDispatchExecutor")
+    public Executor sseDispatchExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("sse-dispatch-");
+        executor.setTaskDecorator(new MdcTaskDecorator());
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * Hooks Spring's @Scheduled machinery to use {@link #scheduledTaskExecutor()}.
      * The MDC wrap is applied at the executor level (see above), so this method
      * is a thin pass-through; we only need to wire the scheduler into the

@@ -47,11 +47,27 @@ class LocalCacheServiceTest {
         service.put("k", null);
         assertTrue(service.get("k", String.class).isEmpty());
     }
-
-    @Test void invalidate_removesValue() {
+    @Test
+    void invalidate_removesValue() {
         service.put("k", "v");
         service.invalidate("k");
         assertTrue(service.get("k", String.class).isEmpty());
+    }
+
+    @Test
+    void clearAll_evictsEveryValue() {
+        service.put("k1", "v1");
+        service.put("k2", "v2");
+        service.clearAll();
+        assertTrue(service.get("k1", String.class).isEmpty());
+        assertTrue(service.get("k2", String.class).isEmpty());
+    }
+
+    @Test
+    void clearAll_disabledCache_isNoOp() {
+        LocalCacheService disabled = build(false, 60);
+        disabled.put("k1", "v1");
+        assertDoesNotThrow(disabled::clearAll);
     }
 
     @Test void get_hit_incrementsHits() {
