@@ -43,8 +43,18 @@ public abstract class AbstractJpaIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
             .withDatabaseName("bhukkad_test")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw")
-            .withEnv("MYSQL_ROOT_PASSWORD", "root");
+            .withPassword("bhukkad_test_pw") {
+                @Override
+                public void configure() {
+                    super.configure();
+                    // Testcontainers generates its own MYSQL_ROOT_PASSWORD in
+                    // super.configure(); override it to a known value and allow
+                    // root to connect from anywhere so we can grant privileges
+                    // for migration V54 (per-domain schemas).
+                    addEnv("MYSQL_ROOT_PASSWORD", "root");
+                    addEnv("MYSQL_ROOT_HOST", "%");
+                }
+            };
 
     static {
         // Skip (abort) the whole class when Docker is unavailable instead of
