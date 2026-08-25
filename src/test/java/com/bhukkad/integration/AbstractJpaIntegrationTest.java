@@ -31,7 +31,7 @@ public abstract class AbstractJpaIntegrationTest {
 
     /** MySQL 8.x image matching the production MySQL version family. */
     protected static final DockerImageName MYSQL_IMAGE =
-            DockerImageName.parse("mysql:8.0.36").asCompatibleSubstituteFor("mysql");
+            DockerImageName.parse("mysql:8.0").asCompatibleSubstituteFor("mysql");
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
