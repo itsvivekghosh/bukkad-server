@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -38,6 +39,9 @@ class WalletServiceTest {
         customer = new Customer();
         customer.setId(1L);
         customer.setWalletBalance(100.0);
+        // findByIdWithLock returns the same entity (identity map); the lock is a
+        // DB-level serialisation guard, not a different instance.
+        lenient().when(customerRepository.findByIdWithLock(1L)).thenReturn(java.util.Optional.of(customer));
     }
 
     @Test

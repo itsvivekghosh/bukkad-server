@@ -5,6 +5,7 @@ import com.bhukkad.entity.Order;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -373,4 +374,29 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     /** Counts orders placed by a customer since the given timestamp (recovery/risk queries). */
     long countByCustomerIdAndCreatedAtAfter(Long customerId, java.time.LocalDateTime since);
+
+    /**
+     * Moves a bounded batch of orders older than {@code cutoff} into the
+     * range-partitioned {@code orders_archive} table (Phase 2 retention).
+     */
+    @Modifying
+    @Query(value = "INSERT INTO orders_archive " +
+            "(id, order_number, customer_id, restaurant_id, status, total_amount, " +
+            " delivery_address_id, special_instructions, created_at, updated_at, " +
+            " delivered_at, estimated_delivery_at, archived_at) " +
+            "SELECT id, order_number, customer_id, restaurant_id, status, total_amount, " +
+            " delivery_address_id, special_instructions, created_at, updated_at, " +
+            " delivered_at, estimated_delivery_at, NOW() " +
+            "FROM orders WHERE created_at < :cutoff LIMIT :limit", nativeQuery = true)
+    int archiveOrdersBefore(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
+
+    /**
+     * Deletes the archived batch from the hot {@code orders} table (must run
+     * after {@link #archiveOrdersBefore} so no data is lost).
+     */
+    @Modifying
+    @Query(value = "DELETE FROM orders WHERE id IN (" +
+            "SELECT id FROM (SELECT id FROM orders WHERE created_at < :cutoff LIMIT :limit) t)",
+            nativeQuery = true)
+    int deleteOrdersBefore(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
 }

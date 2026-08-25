@@ -30,7 +30,17 @@ public class KafkaPlatformEventPublisher {
                     Instant.now());
             String json = objectMapper.writeValueAsString(message);
             String topic = externalEventsProperties.getKafka().getPlatformTopic();
-            kafkaTemplate.send(topic, event.getEventType(), json);
+            // Propagate W3C traceparent in Kafka headers so downstream consumers
+            // (other services) continue the same trace (Phase 4 observability).
+            org.apache.kafka.clients.producer.ProducerRecord<String, String> record =
+                    new org.apache.kafka.clients.producer.ProducerRecord<>(topic, event.getEventType(), json);
+            String traceId = com.bhukkad.logging.TraceContext.getTraceId();
+            if (traceId != null && !traceId.isBlank()) {
+                record.headers().add("traceparent",
+                        ("00-" + traceId + "-" + com.bhukkad.logging.TraceContext.newSpanId() + "-01")
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            kafkaTemplate.send(record);
             log.debug("KAFKA_EVENT_PUBLISHED | topic={} | type={} | aggregateId={}",
                     topic, event.getEventType(), event.getAggregateId());
         } catch (Exception ex) {

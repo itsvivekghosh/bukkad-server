@@ -394,6 +394,7 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
+    @Transactional
     public ReorderResponse rebookOrder(Long orderId, Long customerId) {
         // Ownership is enforced inside reorderFromOrder against the current user.
         return reorderFromOrder(orderId);

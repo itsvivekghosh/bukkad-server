@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +39,8 @@ import java.util.Map;
 @Tag(name = "Survey", description = "Post-delivery satisfaction surveys and trending dishes")
 public class SurveyController {
 
+    private static final String COMMENT_FIELD = "comment";
+
     private final SurveyService surveyService;
     private final TrendingDishService trendingDishService;
     private final SecurityUtils securityUtils;
@@ -45,17 +48,29 @@ public class SurveyController {
     @PostMapping("/reviews/survey")
     @PreAuthorize("hasRole('CUSTOMER')")
     @Operation(summary = "Submit post-delivery satisfaction survey")
-    public ResponseEntity<ApiResponse<DeliverySurvey>> submitSurvey(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> submitSurvey(@RequestBody Map<String, Object> body) {
         Long orderId = asLong(body.get("orderId"));
         Integer ratingDelivery = asRating(body.get("ratingDelivery"));
         Integer ratingFood = asRating(body.get("ratingFood"));
         Integer ratingSpeed = asRating(body.get("ratingSpeed"));
-        String comment = body.get("comment") != null ? String.valueOf(body.get("comment")) : null;
+        String comment = body.get(COMMENT_FIELD) != null ? String.valueOf(body.get(COMMENT_FIELD)) : null;
 
         DeliverySurvey survey = surveyService.submitSurvey(
                 securityUtils.getCurrentUserId(), orderId,
                 ratingDelivery, ratingFood, ratingSpeed, comment);
-        return ResponseEntity.ok(ApiResponse.success("Survey submitted successfully", survey));
+
+        // Return a flat projection instead of the JPA entity: lazy associations
+        // on DeliverySurvey (order -> customer/restaurant) would otherwise throw
+        // during serialization once the transaction has closed.
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", survey.getId());
+        response.put("orderId", survey.getOrder() != null ? survey.getOrder().getId() : null);
+        response.put("ratingDelivery", survey.getRatingDelivery());
+        response.put("ratingFood", survey.getRatingFood());
+        response.put("ratingSpeed", survey.getRatingSpeed());
+        response.put(COMMENT_FIELD, survey.getComment());
+        response.put("submittedAt", survey.getSubmittedAt());
+        return ResponseEntity.ok(ApiResponse.success("Survey submitted successfully", response));
     }
 
     @GetMapping("/restaurants/public/{restaurantId}/survey-ratings")
@@ -75,13 +90,31 @@ public class SurveyController {
     }
 
     private Long asLong(Object value) {
-        return value instanceof Number number ? number.longValue() : null;
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        // JSON clients may send ids as numeric strings ("1441"); tolerate both.
+        if (value instanceof String s && s.matches("\\d+")) {
+            try {
+                return Long.parseLong(s);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private Integer asRating(Object value) {
-        if (!(value instanceof Number number)) {
-            return null;
+        if (value instanceof Number number) {
+            return number.intValue();
         }
-        return number.intValue();
+        if (value instanceof String s && s.matches("\\d+")) {
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 }

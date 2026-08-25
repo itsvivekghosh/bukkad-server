@@ -85,14 +85,22 @@ public class OrderControllerTest {
         OrderRequest request = new OrderRequest();
         OrderResponse order = new OrderResponse();
         when(securityUtils.getCurrentUserId()).thenReturn(5L);
-        when(orderService.createOrder(request, null)).thenReturn(order);
+        when(orderService.createOrder(request, "idem-key-1")).thenReturn(order);
 
-        ResponseEntity<ApiResponse<?>> response = orderController.createOrder(request, null, false);
+        ResponseEntity<ApiResponse<?>> response = orderController.createOrder(request, "idem-key-1", false);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Order placed successfully", response.getBody().getMessage());
         assertEquals(order, response.getBody().getData());
         verify(fraudDetectionService).checkAndBlock(5L, FraudEventTypes.ORDER_CREATE);
+    }
+
+    @Test
+    void createOrder_rejectsMissingIdempotencyKey() {
+        OrderRequest request = new OrderRequest();
+
+        assertThrows(BusinessException.class, () -> orderController.createOrder(request, "  ", false));
+        verify(orderService, never()).createOrder(any(), any());
     }
 
     @Test

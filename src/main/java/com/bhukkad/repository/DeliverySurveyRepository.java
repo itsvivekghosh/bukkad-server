@@ -25,12 +25,12 @@ public interface DeliverySurveyRepository extends JpaRepository<DeliverySurvey, 
      * <p>Returns a single row {@code [avgRatingDelivery, avgRatingFood, avgRatingSpeed, count]}.
      * Any of the average columns can be {@code null} when no survey for that
      * restaurant answered the corresponding question; the caller treats them as
-     * "no data". When the restaurant has no surveys at all the row is absent.
+     * "no data". When the restaurant has no surveys at all the list is empty.
      *
      * @param restaurantId restaurant scope
      * @return aggregate row if the restaurant has at least one survey, empty otherwise
      */
     @Query("SELECT AVG(s.ratingDelivery), AVG(s.ratingFood), AVG(s.ratingSpeed), COUNT(s) " +
             "FROM DeliverySurvey s WHERE s.order.restaurant.id = :restaurantId")
-    Optional<Object[]> findRestaurantAverages(@Param("restaurantId") Long restaurantId);
+    List<Object[]> findRestaurantAverages(@Param("restaurantId") Long restaurantId);
 }

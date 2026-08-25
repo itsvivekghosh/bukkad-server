@@ -26,7 +26,7 @@ class ServiceLogDiscriminatorTest {
     @Test void orderServiceImpl_isOrder() { assertEquals("order", value("com.bhukkad.serviceImpl.OrderServiceImpl")); }
     @Test void orderController_isOrder() { assertEquals("order", value("com.bhukkad.controller.OrderController")); }
     @Test void orderPackage_isOrder() { assertEquals("order", value("com.bhukkad.order.OrderCreateJobService")); }
-    @Test void orderScheduled_isOrder() { assertEquals("order", value("com.bhukkad.order.ScheduledOrderScheduler")); }
+    @Test void orderScheduled_isOrder() { assertEquals("order", value("com.bhukkad.order.ScheduledOrderProcessor")); }
     @Test void orderEta_isOrder() { assertEquals("order", value("com.bhukkad.delivery.OrderEtaService")); }
 
     @Test void paymentLogger_isPayment() { assertEquals("payment", value("PAYMENT")); }

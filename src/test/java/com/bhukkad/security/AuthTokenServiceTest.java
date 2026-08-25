@@ -116,7 +116,17 @@ class AuthTokenServiceTest {
     void createPasswordResetToken_returnsToken() {
         String token = service.createPasswordResetToken("user@example.com", Duration.ofMinutes(10));
         assertNotNull(token);
+        // 256-bit random tokens are URL-safe base64 without padding (43 chars).
+        assertEquals(43, token.length());
+        assertTrue(token.matches("[A-Za-z0-9_-]+"), "reset token must be URL-safe base64");
         verify(valueOps).set(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void createPasswordResetToken_isUniquePerInvocation() {
+        String first = service.createPasswordResetToken("a@example.com", Duration.ofMinutes(10));
+        String second = service.createPasswordResetToken("a@example.com", Duration.ofMinutes(10));
+        assertFalse(first.equals(second), "each reset token must carry fresh entropy");
     }
 
     @Test

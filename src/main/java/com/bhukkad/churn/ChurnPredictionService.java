@@ -101,7 +101,11 @@ public class ChurnPredictionService {
         List<ChurnScore> updated = new ArrayList<>();
         Map<Long, ChurnScore> existing = new HashMap<>();
         if (!factorsById.isEmpty()) {
-            for (ChurnScore row : churnScoreRepository.findByUserIdIn(factorsById.keySet())) {
+            // Hibernate 6.3 fails to plan an `IN` query over a `Set`/`Collection`
+            // parameter (ArrayIndexOutOfBounds during query-plan construction);
+            // binding an ordered List avoids the defect.
+            List<Long> userIds = new ArrayList<>(factorsById.keySet());
+            for (ChurnScore row : churnScoreRepository.findByUserIdIn(userIds)) {
                 existing.put(row.getUserId(), row);
             }
         }

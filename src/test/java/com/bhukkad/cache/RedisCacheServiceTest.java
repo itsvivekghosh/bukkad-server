@@ -5,14 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.Cursor;
-import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.time.Duration;
 import java.util.List;
@@ -33,7 +35,11 @@ class RedisCacheServiceTest {
     @Mock
     private RedisTemplate<String, Object> redisTemplate;
     @Mock
+    private StringRedisTemplate stringRedisTemplate;
+    @Mock
     private ValueOperations<String, Object> valueOps;
+    @Mock
+    private ValueOperations<String, String> stringValueOps;
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -45,13 +51,18 @@ class RedisCacheServiceTest {
     @Mock
     private HashOperations<String, Object, Object> hashOps;
 
-    @InjectMocks
     private RedisCacheService service;
 
     @BeforeEach
     void setUp() {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
         lenient().when(redisTemplate.opsForHash()).thenReturn(hashOps);
+        lenient().when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOps);
+        // Constructed explicitly (not @InjectMocks): StringRedisTemplate is a
+        // subtype of RedisTemplate, which makes Mockito's constructor injection
+        // ambiguous about which mock goes into which parameter.
+        service = new RedisCacheService(
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator);
     }
 
     @Test
@@ -89,7 +100,7 @@ class RedisCacheServiceTest {
     @Test
     void set_handlesException() {
         doThrow(new RuntimeException("Redis error")).when(valueOps).set(anyString(), any(), any(Duration.class));
-        
+
         // Should not throw
         service.set("test-key", "test-value", 300);
     }
@@ -159,17 +170,6 @@ class RedisCacheServiceTest {
         when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new RuntimeException("Scan error"));
         // Should not throw
         service.deletePattern("pattern");
-    }
-
-@Test
-    void getList_returnsListFromRedis() {
-        when(valueOps.get("bhukkad:key")).thenReturn(List.of("a", "b"));
-        
-        Optional<List<String>> result = service.getList("key", String.class);
-
-        // The method internally calls convertValue which we can't easily mock due to overloaded methods
-        // but we verify the flow executes without throwing
-        // Result may be empty if convertValue returns null, but the method was invoked
     }
 
     @Test
@@ -296,8 +296,6 @@ class RedisCacheServiceTest {
 
     @Test
     void getCacheStats_handlesException() {
-        // scanKeys catches exceptions internally and returns empty set
-        // So we test the normal flow with empty keys
         when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
         when(cursor.hasNext()).thenReturn(false);
         when(localCacheService.getStats()).thenReturn(Map.of("size", 100));
@@ -336,14 +334,50 @@ class RedisCacheServiceTest {
     void getOrCompute_computesCachesAndReturnsWhenLockAcquired() {
         when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
 
         String result = service.getOrCompute("k", String.class, 60, () -> "computed");
 
         assertEquals("computed", result);
         verify(valueOps).set(eq("bhukkad:k"), eq("computed"), eq(Duration.ofSeconds(60)));
         verify(localCacheService).put("k", "computed");
-        verify(redisTemplate).delete("bhukkad:cache-lock:k");
+    }
+
+    @Test
+    void getOrCompute_releasesLockWithAcquiredToken() {
+        when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        service.getOrCompute("k", String.class, 60, () -> "computed");
+
+        // The ownership token used to acquire the lock must be the token passed
+        // to the Lua compare-and-delete release, so a stale release is a no-op
+        // and can never delete another thread's lock.
+        ArgumentCaptor<String> acquireToken = ArgumentCaptor.forClass(String.class);
+        verify(stringValueOps).setIfAbsent(eq("bhukkad:cache-lock:k"), acquireToken.capture(), any(Duration.class));
+        verify(stringRedisTemplate).execute(
+                any(DefaultRedisScript.class),
+                eq(List.of("bhukkad:cache-lock:k")),
+                eq(acquireToken.getValue()));
+    }
+
+    @Test
+    void getOrCompute_lockTokenIsUniquePerAcquisition() {
+        when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        service.getOrCompute("k", String.class, 60, () -> "computed");
+        service.getOrCompute("k", String.class, 60, () -> "computed");
+
+        ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
+        verify(stringValueOps, times(2))
+                .setIfAbsent(eq("bhukkad:cache-lock:k"), tokenCaptor.capture(), any(Duration.class));
+        assertNotEquals(tokenCaptor.getAllValues().get(0), tokenCaptor.getAllValues().get(1));
     }
 
     @Test
@@ -351,7 +385,8 @@ class RedisCacheServiceTest {
         when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null, "from-other-instance");
         when(objectMapper.convertValue("from-other-instance", String.class)).thenReturn("from-other-instance");
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
 
         String result = service.getOrCompute("k", String.class, 60, () -> "computed");
 
@@ -362,29 +397,31 @@ class RedisCacheServiceTest {
     void getOrCompute_nullSupplierResult_skipsCacheWrite() {
         when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
 
         Supplier<String> nullSupplier = () -> null;
         String result = service.getOrCompute("k", String.class, 60, nullSupplier);
 
         assertNull(result);
         verify(valueOps, never()).set(anyString(), any(), any(Duration.class));
-        verify(redisTemplate).delete("bhukkad:cache-lock:k");
     }
 
     @Test
-    void getOrCompute_lockNotAcquired_waitsThenFallsBackToSupplier() {
+    void getOrCompute_lockNotAcquired_waitsBrieflyThenFallsBackToSupplier() {
         when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(false);
 
         long start = System.currentTimeMillis();
         String result = service.getOrCompute("k", String.class, 60, () -> "fallback");
         long elapsed = System.currentTimeMillis() - start;
 
         assertEquals("fallback", result);
-        // 8 retries with backoff 50+100+...+400 = 1800ms minimum
-        assertTrue(elapsed >= 1500, "should have backed off, took " + elapsed + "ms");
+        // Wait-poll is capped at 3 retries (20+40+60 = 120ms) so a losing thread
+        // never blocks for ~1.8s on a cache miss.
+        assertTrue(elapsed < 500, "wait-poll should be capped, took " + elapsed + "ms");
     }
 
     @Test
@@ -393,7 +430,8 @@ class RedisCacheServiceTest {
         when(objectMapper.convertValue("late-value", String.class)).thenReturn("late-value");
         // First get (initial check) misses; the waitForValue loop's first retry finds it.
         when(valueOps.get("bhukkad:k")).thenReturn(null, "late-value");
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(false);
 
         String result = service.getOrCompute("k", String.class, 60, () -> "fallback");
 
@@ -404,7 +442,7 @@ class RedisCacheServiceTest {
     void getOrCompute_lockAcquisitionThrows_waitsThenComputes() {
         when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
                 .thenThrow(new RuntimeException("lock error"));
 
         String result = service.getOrCompute("k", String.class, 60, () -> "fallback");
@@ -416,7 +454,8 @@ class RedisCacheServiceTest {
     void getOrCompute_redisGetThrowsDuringInitialCheck_computes() {
         when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenThrow(new RuntimeException("redis down"));
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
 
         String result = service.getOrCompute("k", String.class, 60, () -> "computed");
 
@@ -438,7 +477,7 @@ class RedisCacheServiceTest {
     void getListOrCompute_returnsL2List() {
         // Use a real ObjectMapper so the cached list is genuinely converted
         RedisCacheService realMapperService = new RedisCacheService(
-                redisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator);
+                redisTemplate, stringRedisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator);
         when(localCacheService.get("k", List.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(List.of("a"));
 
@@ -451,21 +490,22 @@ class RedisCacheServiceTest {
     void getListOrCompute_lockAcquired_computesAndCaches() {
         when(localCacheService.get("k", List.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
 
         List<String> result = service.getListOrCompute("k", String.class, 60, () -> List.of("x"));
 
         assertEquals(List.of("x"), result);
         verify(valueOps).set(eq("bhukkad:k"), eq(List.of("x")), eq(Duration.ofSeconds(60)));
         verify(localCacheService).put("k", List.of("x"));
-        verify(redisTemplate).delete("bhukkad:cache-lock:k");
     }
 
     @Test
     void getListOrCompute_nullSupplierResult_yieldsEmptyList() {
         when(localCacheService.get("k", List.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
 
         Supplier<List<String>> nullSupplier = () -> null;
         List<String> result = service.getListOrCompute("k", String.class, 60, nullSupplier);
@@ -477,7 +517,8 @@ class RedisCacheServiceTest {
     void getListOrCompute_lockNotAcquired_fallsBackAfterBackoff() {
         when(localCacheService.get("k", List.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(null);
-        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(false);
 
         List<String> result = service.getListOrCompute("k", String.class, 60, () -> List.of("fb"));
 

@@ -2,6 +2,7 @@ package com.bhukkad.support;
 
 import com.bhukkad.dto.request.DisputeRequest;
 import com.bhukkad.dto.request.DisputeResolveRequest;
+import com.bhukkad.dto.response.DisputeResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Dispute;
 import com.bhukkad.entity.Order;
@@ -84,6 +85,161 @@ class DisputeResolutionServiceTest {
         request.setType(type);
         request.setCustomerEvidence("Photo attached showing the delivery bag is empty");
         return request;
+    }
+
+    @Test
+    void fileDispute_orderNotReceivedZeroTotal_goesUnderReview() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 0.0);
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DisputeResponse response = service.fileDispute(7L, 1L, request("ORDER_NOT_RECEIVED"));
+
+        assertEquals(Dispute.DisputeStatus.UNDER_REVIEW.toString(), response.getStatus());
+        verify(walletService, never()).credit(any(), anyDouble(), any(), any(), any());
+    }
+
+    @Test
+    void fileDispute_lateDeliveryNotDelivered_goesUnderReview() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 500.0);
+        order.setStatus(Order.OrderStatus.CONFIRMED);
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DisputeResponse response = service.fileDispute(7L, 1L, request("LATE_DELIVERY"));
+
+        assertEquals(Dispute.DisputeStatus.UNDER_REVIEW.toString(), response.getStatus());
+    }
+
+    @Test
+    void fileDispute_lateDeliveryNotLate_goesUnderReview() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 500.0);
+        // delivered 5 minutes BEFORE the estimate -> not late
+        order.setDeliveredAt(LocalDateTime.now());
+        order.setEstimatedDeliveryAt(LocalDateTime.now().plusMinutes(30));
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DisputeResponse response = service.fileDispute(7L, 1L, request("LATE_DELIVERY"));
+
+        assertEquals(Dispute.DisputeStatus.UNDER_REVIEW.toString(), response.getStatus());
+        verify(walletService, never()).credit(any(), anyDouble(), any(), any(), any());
+    }
+
+    @Test
+    void fileDispute_lateDeliveryMissingTimestamps_goesUnderReview() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 500.0);
+        order.setDeliveredAt(null);
+        order.setEstimatedDeliveryAt(null);
+        when(orderRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(order));
+        when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DisputeResponse response = service.fileDispute(7L, 1L, request("LATE_DELIVERY"));
+
+        assertEquals(Dispute.DisputeStatus.UNDER_REVIEW.toString(), response.getStatus());
+    }
+
+    @Test
+    void manualResolve_fullRefundExactTotal_allowed() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 500.0);
+        Dispute dispute = new Dispute();
+        dispute.setId(1L);
+        dispute.setOrder(order);
+        dispute.setType(Dispute.DisputeType.ORDER_NOT_RECEIVED);
+        dispute.setStatus(Dispute.DisputeStatus.OPEN);
+        when(disputeRepository.findById(1L)).thenReturn(Optional.of(dispute));
+        when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
+        User admin = new User();
+        admin.setId(2L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(admin));
+
+        DisputeResolveRequest resolve = new DisputeResolveRequest();
+        resolve.setResolution("FULL_REFUND");
+        resolve.setRefundAmount(500.0);  // equals total -> allowed (not > total)
+
+        DisputeResponse response = service.manualResolve(2L, 1L, resolve);
+
+        assertEquals(Dispute.DisputeStatus.MANUAL_RESOLVED.toString(), response.getStatus());
+        verify(walletService).credit(eq(customer), eq(500.0), any(), any(), any());
+    }
+
+    @Test
+    void manualResolve_noRefundNullRequested_doesNotTouchWallet() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 500.0);
+        Dispute dispute = new Dispute();
+        dispute.setId(1L);
+        dispute.setOrder(order);
+        dispute.setType(Dispute.DisputeType.FOOD_QUALITY);
+        dispute.setStatus(Dispute.DisputeStatus.OPEN);
+        when(disputeRepository.findById(1L)).thenReturn(Optional.of(dispute));
+        when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
+        User admin = new User();
+        admin.setId(2L);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(admin));
+
+        DisputeResolveRequest resolve = new DisputeResolveRequest();
+        resolve.setResolution("NO_REFUND");
+
+        DisputeResponse response = service.manualResolve(2L, 1L, resolve);
+
+        assertEquals(Dispute.DisputeStatus.MANUAL_RESOLVED.toString(), response.getStatus());
+        verify(walletService, never()).credit(any(), anyDouble(), any(), any(), any());
+        assertNull(response.getRefundAmount());
+    }
+
+    @Test
+    void triggerAutoResolution_noOpenDisputes_returnsZero() {
+        when(disputeRepository.findByStatusInOrderByCreatedAtAsc(any())).thenReturn(List.of());
+
+        assertEquals(0, service.triggerAutoResolution());
+    }
+
+    @Test
+    void triggerAutoResolution_underReviewDispute_staysUnderReview() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 500.0);
+        Dispute dispute = new Dispute();
+        dispute.setId(1L);
+        dispute.setOrder(order);
+        dispute.setStatus(Dispute.DisputeStatus.UNDER_REVIEW);
+        dispute.setType(Dispute.DisputeType.FOOD_QUALITY);
+        when(disputeRepository.findByStatusInOrderByCreatedAtAsc(any())).thenReturn(List.of(dispute));
+
+        int resolved = service.triggerAutoResolution();
+
+        assertEquals(0, resolved);
+        // already UNDER_REVIEW -> not OPEN, stays as-is (no save)
+        verify(disputeRepository, never()).save(any());
+    }
+
+    @Test
+    void listForAdmin_sortsNewestFirst() {
+        Customer customer = customer(7L);
+        Order order = deliveredPaidOrder(1L, customer, 100.0);
+        Dispute older = new Dispute();
+        older.setId(1L);
+        older.setOrder(order);
+        older.setType(Dispute.DisputeType.FOOD_QUALITY);
+        older.setStatus(Dispute.DisputeStatus.OPEN);
+        older.setCreatedAt(LocalDateTime.now().minusHours(2));
+        Dispute newer = new Dispute();
+        newer.setId(2L);
+        newer.setOrder(order);
+        newer.setType(Dispute.DisputeType.FOOD_QUALITY);
+        newer.setStatus(Dispute.DisputeStatus.OPEN);
+        newer.setCreatedAt(LocalDateTime.now());
+        when(disputeRepository.findAll()).thenReturn(List.of(older, newer));
+
+        List<DisputeResponse> result = service.listForAdmin();
+
+        assertEquals(2L, result.get(0).getId());
+        assertEquals(1L, result.get(1).getId());
     }
 
     @Test

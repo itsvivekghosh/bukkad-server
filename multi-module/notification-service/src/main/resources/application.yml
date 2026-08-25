@@ -1,0 +1,44 @@
+# Notification Service — standalone configuration.
+# Channel modes are switchable per environment; providers are activated by
+# mode + environment variables so no secret lives in this file.
+server:
+  port: 8085
+
+spring:
+  application:
+    name: notification-service
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: MANUAL_IMMEDIATE
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  notification:
+    consumer:
+      enabled: ${NOTIFICATION_CONSUMER_ENABLED:true}
+      topic: ${NOTIFICATION_TOPIC:bhukkad.platform.events}
+      group-id: notification-service
+    email:
+      enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
+    sms:
+      mode: ${NOTIFICATION_SMS_MODE:log}
+    whatsapp:
+      mode: ${NOTIFICATION_WHATSAPP_MODE:log}
+    push:
+      mode: ${NOTIFICATION_PUSH_MODE:log}

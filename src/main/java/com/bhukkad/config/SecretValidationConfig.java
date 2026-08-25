@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 
@@ -16,11 +17,15 @@ import java.util.Set;
 @Profile("prod")
 public class SecretValidationConfig {
 
+    /** HS512 signing requires at least 512 bits (64 bytes) of decoded key material. */
+    private static final int MIN_JWT_SECRET_BYTES = 64;
+
     private static final Set<String> WEAK_JWT_SECRETS = Set.of(
-            "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970",
+            "Wz6ZY4rjTh8TXTAsD25DB3+vPAnlJtL8iIms5CgJpWQqK6ZwXW6u+1PxMmNOj7N0akCSkweqlxighGqSKosZsA==",
             "changeme",
             "secret",
-            "your-secret-key"
+            "your-secret-key",
+            "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970"
     );
 
     private static final Set<String> WEAK_DB_PASSWORDS = Set.of(
@@ -42,10 +47,18 @@ public class SecretValidationConfig {
 
         if (!StringUtils.hasText(jwtSecret)) {
             violations.add("JWT_SECRET is required in production");
-        } else if (jwtSecret.length() < 32) {
-            violations.add("JWT_SECRET must be at least 32 characters in production");
         } else if (WEAK_JWT_SECRETS.contains(jwtSecret)) {
             violations.add("JWT_SECRET must not use a default or weak value in production");
+        } else {
+            try {
+                int decodedBytes = Base64.getDecoder().decode(jwtSecret).length;
+                if (decodedBytes < MIN_JWT_SECRET_BYTES) {
+                    violations.add("JWT_SECRET must decode to at least "
+                            + MIN_JWT_SECRET_BYTES + " bytes (512 bits) for HS512 in production");
+                }
+            } catch (IllegalArgumentException e) {
+                violations.add("JWT_SECRET must be a valid base64 value in production");
+            }
         }
 
         if (!StringUtils.hasText(dbPassword)) {

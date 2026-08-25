@@ -168,6 +168,21 @@ public class LocalCacheService {
         }
     }
 
+    /**
+     * Evicts every entry from the L1 cache. Used by distributed cache
+     * invalidation when a pattern-based eviction arrives: Caffeine offers no
+     * prefix eviction, and dropping a bounded (max 5000, TTL 60 s) cache
+     * wholesale on a rare pattern invalidation is cheaper than maintaining a
+     * per-key index.
+     */
+    public void clearAll() {
+        if (isEnabled()) {
+            cache.invalidateAll();
+            ttlDeadlines.clear();
+            ttlDurations.clear();
+        }
+    }
+
     public Map<String, Object> getStats() {
         return Map.of(
                 "enabled", isEnabled(),

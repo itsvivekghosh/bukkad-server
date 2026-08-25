@@ -4,9 +4,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -17,6 +18,10 @@ public class AuthTokenService {
     private static final String REFRESH_INDEX_PREFIX = "auth:refresh:index:";
     private static final String RESET_PREFIX = "auth:reset:";
     private static final String BLACKLIST_PREFIX = "auth:blacklist:";
+
+    /** 256 bits of entropy for password-reset tokens. */
+    private static final int RESET_TOKEN_BYTES = 32;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final StringRedisTemplate stringRedisTemplate;
 
@@ -63,7 +68,9 @@ public class AuthTokenService {
     }
 
     public String createPasswordResetToken(String email, Duration ttl) {
-        String token = UUID.randomUUID().toString();
+        byte[] random = new byte[RESET_TOKEN_BYTES];
+        SECURE_RANDOM.nextBytes(random);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
         stringRedisTemplate.opsForValue().set(RESET_PREFIX + token, email, ttl);
         return token;
     }

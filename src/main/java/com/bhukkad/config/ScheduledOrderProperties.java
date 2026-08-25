@@ -8,5 +8,4 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ScheduledOrderProperties {
     private int minimumLeadMinutes = 30;
     private int maxDaysAhead = 7;
-    private long schedulerIntervalMs = 60000;
 }

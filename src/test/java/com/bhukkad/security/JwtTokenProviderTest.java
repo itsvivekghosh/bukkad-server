@@ -24,7 +24,8 @@ class JwtTokenProviderTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        String secret = Base64.getEncoder().encodeToString("test-secret-32bytes-minimum-length!!".getBytes());
+        String secret = Base64.getEncoder().encodeToString(
+                "test-secret-64bytes-minimum-length-for-hs512-signing-0123456789a".getBytes());
         JwtSecretRotationService rotationService = new JwtSecretRotationService(secret, false);
         provider = new JwtTokenProvider(rotationService);
         setField(provider, "jwtExpirationMs", 60000L);
@@ -44,6 +45,14 @@ class JwtTokenProviderTest {
         String token = provider.generateAccessToken(user);
         assertNotNull(token);
         assertEquals("bob", provider.extractUsername(token));
+    }
+
+    @Test
+    void generateAccessToken_isSignedWithHS512() {
+        String token = provider.generateAccessToken(user);
+        String header = new String(Base64.getUrlDecoder().decode(token.split("\\.")[0]));
+        assertTrue(header.contains("\"alg\":\"HS512\""),
+                "tokens must be signed with the strongest HMAC algorithm HS512, got: " + header);
     }
 
     @Test

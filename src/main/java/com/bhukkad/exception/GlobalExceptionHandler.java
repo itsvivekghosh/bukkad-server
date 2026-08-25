@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -19,7 +20,9 @@ import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -83,8 +86,25 @@ public class GlobalExceptionHandler {
         log.warn("ResourceNotFound | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
+    }
+
+    /**
+     * Spring MVC 6.1 throws NoResourceFoundException when a request path does
+     * not match any controller mapping (it falls through to static-resource
+     * resolution). Without this handler it surfaces as a 500; it must be a
+     * 404 so unknown URLs and typos (e.g. a wrong toggle endpoint) fail
+     * predictably instead of tripping the unexpected-error path.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(
+            NoResourceFoundException ex, WebRequest request) {
+        log.warn("NoResourceFound | {} | traceId={} | requestId={}",
+                ex.getResourcePath(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("No such endpoint: " + ex.getResourcePath()));
     }
 
     @ExceptionHandler(BusinessException.class)
@@ -93,7 +113,39 @@ public class GlobalExceptionHandler {
         log.warn("BusinessException | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
+    }
+
+    /**
+     * Maps a duplicate idempotency-key request (already being processed) to
+     * {@code 409 Conflict}, matching the documented API contract ("Already
+     * processing"). More specific than the generic {@link BusinessException}
+     * handler, so 400 stays reserved for genuine input/validation errors.
+     */
+    @ExceptionHandler(DuplicateRequestException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateRequest(
+            DuplicateRequestException ex, WebRequest request) {
+        log.warn("DuplicateRequest | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError(ex.getMessage()));
+    }
+
+    /**
+     * Maps an SSE stream that has reached its per-stream connection cap to
+     * {@code 503 Service Unavailable}: the resource is healthy but temporarily
+     * cannot accept more subscribers. Clients should retry with backoff (or
+     * fall back to HTTP polling) rather than treating it as a permanent error.
+     */
+    @ExceptionHandler(SseCapacityExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSseCapacityExceeded(
+            SseCapacityExceededException ex, WebRequest request) {
+        log.warn("SseCapacityExceeded | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -104,7 +156,7 @@ public class GlobalExceptionHandler {
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         alertService.alertHttpError("UNKNOWN", "unauthorized", 401, 0);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -166,7 +218,7 @@ public class GlobalExceptionHandler {
         log.warn("MediaTypeNotAcceptable | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Media type not acceptable for this endpoint"));
     }
 
@@ -176,7 +228,7 @@ public class GlobalExceptionHandler {
         log.warn("MediaTypeNotSupported | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Unsupported media type"));
     }
 
@@ -186,7 +238,7 @@ public class GlobalExceptionHandler {
         log.warn("HttpMessageNotReadable | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Malformed request body"));
     }
 
@@ -196,8 +248,18 @@ public class GlobalExceptionHandler {
         log.warn("MissingParam | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Missing required parameter: " + ex.getParameterName()));
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingHeader(
+            MissingRequestHeaderException ex, WebRequest request) {
+        log.warn("MissingHeader | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Missing required header: " + ex.getHeaderName()));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -206,7 +268,7 @@ public class GlobalExceptionHandler {
         log.warn("TypeMismatch | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Invalid parameter value"));
     }
 
@@ -221,6 +283,7 @@ public class GlobalExceptionHandler {
         } else {
             log.error("Exception message: {}", ex.getMessage());
         }
+        log.error("RuntimeException stack trace", ex);
         alertService.alertException("GlobalExceptionHandler", ex.getMessage(), ex);
         return new ResponseEntity<>(buildError("An unexpected error occurred. Please try again later."),
                 HttpStatus.INTERNAL_SERVER_ERROR);

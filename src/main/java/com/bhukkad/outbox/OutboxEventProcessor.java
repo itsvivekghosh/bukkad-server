@@ -4,14 +4,16 @@ import com.bhukkad.config.OutboxProperties;
 import com.bhukkad.event.ExternalEventBridge;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
+import com.bhukkad.event.OrderItemsSnapshotEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
+import com.bhukkad.event.PaymentWebhookReceivedEvent;
 import com.bhukkad.logging.TracingBridge;
 import com.bhukkad.logging.alert.AlertService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,12 +34,20 @@ public class OutboxEventProcessor {
     private final OutboxProperties outboxProperties;
     private final AlertService alertService;
 
+    /**
+     * Sweeps the outbox. The claim query uses {@code FOR UPDATE SKIP LOCKED}
+     * (see {@link OutboxEventRepository#findPendingForProcessing}) so exactly
+     * one replica processes each event even though every replica runs this
+     * poller; the ShedLock annotation below is defense-in-depth so the sweep
+     * itself is single-runner when ShedLock is enabled.
+     */
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:2000}")
+    @SchedulerLock(name = "outbox-processing", lockAtMostFor = "PT2M", lockAtLeastFor = "PT10S")
     @Transactional
     public void processPendingEvents() {
-        List<OutboxEvent> pending = outboxEventRepository.findByStatus(
-                OutboxEvent.OutboxStatus.PENDING,
-                PageRequest.of(0, outboxProperties.getBatchSize()));
+        List<OutboxEvent> pending = outboxEventRepository.findPendingForProcessing(
+                OutboxEvent.OutboxStatus.PENDING.name(),
+                outboxProperties.getBatchSize());
 
         for (OutboxEvent event : pending) {
             // When tracing is enabled, each outbox event gets its own child span so
@@ -85,13 +95,26 @@ public class OutboxEventProcessor {
     }
 
     private void publish(OutboxEvent event) throws Exception {
+        // publishEvent is invoked with an explicit (Object) cast: without it,
+        // the compiler resolves to Spring 6.1's generic publishEvent(T) default
+        // overload, which Mockito mocks differently from publishEvent(Object) —
+        // causing "Wanted but not invoked" verify failures on the unit test.
+        // The explicit cast is a no-op for a real ApplicationEventPublisher
+        // (the generic default delegates to publishEvent(Object) anyway).
         switch (event.getEventType()) {
-            case "ORDER_CREATED" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderCreatedEvent.class));
-            case "ORDER_STATUS_CHANGED" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderStatusChangedEvent.class));
-            case "ORDER_AGENT_ASSIGNED" -> eventPublisher.publishEvent(
-                    objectMapper.readValue(event.getPayload(), OrderAgentAssignedEvent.class));
+            case "ORDER_CREATED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderCreatedEvent.class));
+            case "ORDER_STATUS_CHANGED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderStatusChangedEvent.class));
+            case "ORDER_AGENT_ASSIGNED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderAgentAssignedEvent.class));
+            case "ORDER_ITEMS_SNAPSHOT" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), OrderItemsSnapshotEvent.class));
+            // Webhook receipts carry no side effects (the money path is applied
+            // transactionally in the webhook controller). Route them to the
+            // observability listener instead of dead-lettering every webhook.
+            case "PAYMENT_WEBHOOK_RECEIVED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), PaymentWebhookReceivedEvent.class));
             default -> throw new IllegalArgumentException("Unknown outbox event type: " + event.getEventType());
         }
     }

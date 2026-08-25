@@ -11,8 +11,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +41,10 @@ class AlertServiceTest {
     private ObjectMapper objectMapper;
     @Mock
     private WebhookAlertNotifier webhookAlertNotifier;
+    @Mock
+    private StringRedisTemplate stringRedisTemplate;
+    @Mock
+    private ValueOperations<String, String> valueOps;
 
     @InjectMocks
     private AlertService service;
@@ -48,6 +56,17 @@ class AlertServiceTest {
         when(httpError.isAlertOn5xx()).thenReturn(true);
         when(httpError.isAlertOn4xx()).thenReturn(true);
         when(alertingProperties.getSlowRequest()).thenReturn(slowRequest);
+        when(alertingProperties.getDedupWindowSeconds()).thenReturn(60L);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        // Default: every dedup claim succeeds so each alert fires.
+        org.mockito.Mockito.lenient().when(valueOps.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
+    }
+
+    /** Simulates Redis SETNX: first claim wins, subsequent claims within the window are deduped. */
+    private void stubSequentialClaims() {
+        AtomicBoolean claimed = new AtomicBoolean(false);
+        when(valueOps.setIfAbsent(anyString(), anyString(), any()))
+                .thenAnswer(inv -> claimed.compareAndSet(false, true));
     }
 
     @Test
@@ -78,8 +97,36 @@ class AlertServiceTest {
     @Test
     void alert_deduplicatesRepeatedAlerts() throws JsonProcessingException {
         doReturn("{}").when(objectMapper).writeValueAsString(anyMap());
+        stubSequentialClaims();
         service.alert(AlertSeverity.WARNING, AlertCategory.EXCEPTION, "duplicate");
         service.alert(AlertSeverity.WARNING, AlertCategory.EXCEPTION, "duplicate");
+        // Redis dedup fires the webhook only once for the same key within the window.
+        verify(webhookAlertNotifier, times(1)).sendIfEnabled(any(), any(), anyString(), anyMap());
+    }
+
+    @Test
+    void alert_deduplicatesAcrossReplicas_sharedRedisClaim() throws JsonProcessingException {
+        doReturn("{}").when(objectMapper).writeValueAsString(anyMap());
+        stubSequentialClaims();
+
+        // Two service instances = two replicas sharing one Redis dedup store.
+        AlertService replicaB = new AlertService(alertingProperties, objectMapper, webhookAlertNotifier, stringRedisTemplate);
+        service.alert(AlertSeverity.WARNING, AlertCategory.EXCEPTION, "shared");
+        replicaB.alert(AlertSeverity.WARNING, AlertCategory.EXCEPTION, "shared");
+
+        verify(webhookAlertNotifier, times(1)).sendIfEnabled(any(), any(), anyString(), anyMap());
+    }
+
+    @Test
+    void alert_redisUnavailable_fallsBackToLocalDedup() throws JsonProcessingException {
+        doReturn("{}").when(objectMapper).writeValueAsString(anyMap());
+        when(valueOps.setIfAbsent(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("redis down"));
+
+        service.alert(AlertSeverity.WARNING, AlertCategory.EXCEPTION, "fallback");
+        service.alert(AlertSeverity.WARNING, AlertCategory.EXCEPTION, "fallback");
+
+        verify(webhookAlertNotifier, times(1)).sendIfEnabled(any(), any(), anyString(), anyMap());
     }
 
     @Test

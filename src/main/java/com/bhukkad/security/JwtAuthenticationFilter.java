@@ -81,7 +81,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             }
         } catch (Exception ex) {
-            log.error("Could not set user authentication: {}", ex.getMessage());
+            // Expected auth-failure path (expired token, deleted user, bad
+            // signature): the request proceeds unauthenticated and the
+            // security layer returns 401. Log at WARN, not ERROR, so these
+            // routine rejections do not masquerade as server faults.
+            log.warn("Could not set user authentication: {}", ex.getMessage());
             MDC.put(LoggingConstants.USER_ID, "INVALID_TOKEN");
         }
 

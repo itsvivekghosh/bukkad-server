@@ -99,4 +99,39 @@ class AsyncConfigTest {
             scheduler.shutdown();
         }
     }
+
+    @Test
+    void lowPriorityTaskExecutor_usesConfiguredSizesAndNaming() {
+        AsyncConfig config = new AsyncConfig();
+        ReflectionTestUtils.setField(config, "lowCorePoolSize", 1);
+        ReflectionTestUtils.setField(config, "lowMaxPoolSize", 2);
+        ReflectionTestUtils.setField(config, "lowQueueCapacity", 5);
+
+        ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) config.lowPriorityTaskExecutor();
+        try {
+            assertEquals(1, executor.getCorePoolSize());
+            assertEquals(2, executor.getMaxPoolSize());
+            assertEquals(5, executor.getQueueCapacity());
+            assertEquals("low-priority-async-", executor.getThreadNamePrefix());
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
+    void lowPriorityTaskExecutor_installsMdcTaskDecorator() {
+        AsyncConfig config = new AsyncConfig();
+        ReflectionTestUtils.setField(config, "lowCorePoolSize", 1);
+        ReflectionTestUtils.setField(config, "lowMaxPoolSize", 1);
+        ReflectionTestUtils.setField(config, "lowQueueCapacity", 1);
+
+        Executor executor = config.lowPriorityTaskExecutor();
+        try {
+            Object decorator = ReflectionTestUtils.getField(executor, "taskDecorator");
+            assertNotNull(decorator);
+            assertTrue(decorator instanceof MdcTaskDecorator);
+        } finally {
+            ((ThreadPoolTaskExecutor) executor).shutdown();
+        }
+    }
 }

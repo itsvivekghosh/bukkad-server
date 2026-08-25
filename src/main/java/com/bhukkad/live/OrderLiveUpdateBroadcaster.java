@@ -48,24 +48,37 @@ public class OrderLiveUpdateBroadcaster {
         dispatch(update);
     }
 
-    /**
-     * Streams a rider GPS snapshot to the customer's order-live topic so the
-     * app can render a live map. Called from {@code RiderLocationService} on
-     * every agent location ping.
+/**
+     * Streams a rider GPS snapshot to the customer's order-live topic, including
+     * live ETA and the order number for display in the mobile track screen.
+     * Published through the Redis relay so every replica delivers the update
+     * to its connected SSE clients.
      */
     public void broadcastRiderLocation(Long orderId, Long customerId, Long restaurantId,
-                                       Long agentId, double latitude, double longitude) {
+                                        Long agentId, double latitude, double longitude,
+                                        String orderNumber, Integer liveEtaMinutes,
+                                        java.time.LocalDateTime liveEtaAt) {
         OrderLiveUpdate update = OrderLiveUpdate.builder()
                 .eventType(OrderLiveUpdate.EventType.RIDER_LOCATION)
                 .orderId(orderId)
+                .orderNumber(orderNumber)
                 .customerId(customerId)
                 .restaurantId(restaurantId)
                 .deliveryAgentId(agentId)
                 .changedAt(java.time.LocalDateTime.now())
                 .latitude(latitude)
                 .longitude(longitude)
+                .liveEtaMinutes(liveEtaMinutes)
+                .liveEtaAt(liveEtaAt)
                 .build();
         dispatch(update);
+    }
+
+    /** Overload without live ETA / order number (backward compat). */
+    public void broadcastRiderLocation(Long orderId, Long customerId, Long restaurantId,
+                                        Long agentId, double latitude, double longitude) {
+        broadcastRiderLocation(orderId, customerId, restaurantId, agentId,
+                latitude, longitude, null, null, null);
     }
 
     private OrderLiveUpdate baseUpdate(Long orderId, String orderNumber, Long customerId, Long restaurantId,

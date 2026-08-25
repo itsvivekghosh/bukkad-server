@@ -3,6 +3,7 @@ package com.bhukkad.controller;
 import com.bhukkad.config.ApiPaths;
 
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
@@ -128,10 +129,9 @@ public class AuthController {
     @PostMapping("/refresh-token")
     @Operation(summary = "Refresh token")
     public ResponseEntity<ApiResponse<AuthResponse>> refreshToken(
-            @RequestHeader("Authorization") String authHeader) {
+            @Valid @RequestBody RefreshTokenRequest request) {
 
-        String token = RequestUtils.extractTokenFromRequestHeaders(authHeader);
-        AuthResponse response = authService.refreshToken(token);
+        AuthResponse response = authService.refreshToken(request.getRefreshToken());
         return ResponseEntity.ok(ApiResponse.success("Token refreshed", response));
     }
 

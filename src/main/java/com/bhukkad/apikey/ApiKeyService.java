@@ -1,12 +1,14 @@
 package com.bhukkad.apikey;
 
 import com.bhukkad.exception.ResourceNotFoundException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.codec.Hex;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -18,19 +20,31 @@ import java.util.Optional;
 
 /**
  * Manages partner API keys. Full keys are shown exactly once at creation;
- * only their SHA-256 digest is persisted. A key looks like
- * {@code bhk_<prefix>_<secret>} where the prefix allows a quick lookup
+ * only their <strong>HMAC-SHA-256</strong> digest is persisted. A key looks
+ * like {@code bhk_<prefix>_<secret>} where the prefix allows a quick lookup
  * before the (slower) hash comparison.
+ *
+ * <p>The digest is keyed with a server-side pepper
+ * ({@code app.api-key.pepper}) that is never persisted alongside the keys:
+ * a database leak alone no longer lets an attacker recompute or brute-force
+ * stored key hashes offline.</p>
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ApiKeyService {
 
     private static final String KEY_PREFIX_SEED = "bhk_";
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ApiKeyRepository apiKeyRepository;
+    private final byte[] pepper;
+
+    public ApiKeyService(ApiKeyRepository apiKeyRepository,
+                         @Value("${app.api-key.pepper}") String pepper) {
+        this.apiKeyRepository = apiKeyRepository;
+        this.pepper = pepper == null ? new byte[0] : pepper.getBytes(StandardCharsets.UTF_8);
+    }
 
     /**
      * Creates a key and returns the plaintext secret. Callers must store it
@@ -85,6 +99,11 @@ public class ApiKeyService {
     /**
      * Validates a presented key. Returns the key record on success, or empty
      * if unknown, revoked or expired.
+     *
+     * <p>Legacy keys whose stored digest was written with the pre-upgrade plain
+     * SHA-256 are still accepted: when the HMAC-pepper lookup misses, the key is
+     * re-checked against the legacy digest and, on success, the stored hash is
+     * transparently upgraded to the pepper-keyed HMAC form.</p>
      */
     @Transactional
     public Optional<ApiKey> validate(String presentedKey) {
@@ -93,7 +112,14 @@ public class ApiKeyService {
         }
         Optional<ApiKey> byHash = apiKeyRepository.findByKeyHash(hash(presentedKey));
         if (byHash.isEmpty()) {
-            return Optional.empty();
+            // Legacy plain SHA-256 fallback so pre-upgrade keys keep working.
+            Optional<ApiKey> legacy = apiKeyRepository.findByKeyHash(legacySha256(presentedKey));
+            if (legacy.isEmpty() || !legacy.get().isActive()) {
+                return Optional.empty();
+            }
+            legacy.get().setKeyHash(hash(presentedKey)); // transparent upgrade
+            apiKeyRepository.save(legacy.get());
+            return Optional.of(legacy.get());
         }
         ApiKey key = byHash.get();
         if (!key.isActive()) {
@@ -115,12 +141,32 @@ public class ApiKeyService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(buffer);
     }
 
-    static String hash(String value) {
+    /**
+     * Pre-upgrade digest format (plain SHA-256), used only to recognise keys
+     * created before the pepper-keyed HMAC was introduced.
+     */
+    private static String legacySha256(String value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return new String(Hex.encode(digest.digest(value.getBytes(StandardCharsets.UTF_8))));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    /**
+     * HMAC-SHA-256 of the key material keyed by the server-side pepper.
+     * Produces a 64-character lowercase hex digest (same column width as the
+     * previous plain SHA-256 so existing schema/rows are unaffected).
+     * <p>Package-visible for unit-test assertions.</p>
+     */
+    String hash(String value) {
+        try {
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            mac.init(new SecretKeySpec(pepper, HMAC_ALGORITHM));
+            return new String(Hex.encode(mac.doFinal(value.getBytes(StandardCharsets.UTF_8))));
+        } catch (Exception e) {
+            throw new IllegalStateException("HMAC-SHA-256 unavailable", e);
         }
     }
 

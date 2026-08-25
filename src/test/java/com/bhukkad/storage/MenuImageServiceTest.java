@@ -43,6 +43,7 @@ class MenuImageServiceTest {
         lenient().when(properties.getKeyPrefix()).thenReturn("images");
         lenient().when(properties.getUploadUrlExpirySeconds()).thenReturn(900L);
         lenient().when(properties.getDownloadUrlExpirySeconds()).thenReturn(3600L);
+        lenient().when(properties.getCloudfront()).thenReturn(new ImageStorageProperties.CloudFront());
     }
 
     @Test
@@ -140,6 +141,35 @@ class MenuImageServiceTest {
         when(properties.isEnabled()).thenReturn(false);
         String url = service.resolvePublicUrl("images/1/2/test.jpg");
         assertEquals("images/1/2/test.jpg", url);
+    }
+
+    @Test
+    void resolvePublicUrl_cloudfrontEnabled_servesFromCdn() {
+        ImageStorageProperties.CloudFront cloudFront = new ImageStorageProperties.CloudFront();
+        cloudFront.setEnabled(true);
+        cloudFront.setDomain("d2abc3xyz.cloudfront.net");
+        when(properties.getCloudfront()).thenReturn(cloudFront);
+
+        String url = service.resolvePublicUrl("images/1/2/test.jpg");
+
+        assertEquals("https://d2abc3xyz.cloudfront.net/images/1/2/test.jpg", url);
+    }
+
+    @Test
+    void resolvePublicUrl_cloudfrontNotConfigured_fallsBackToS3Presign() throws Exception {
+        ImageStorageProperties.CloudFront cloudFront = new ImageStorageProperties.CloudFront();
+        cloudFront.setEnabled(true);
+        cloudFront.setDomain(""); // not configured
+        when(properties.getCloudfront()).thenReturn(cloudFront);
+
+        URL url = new URL("https://s3.example.com/test-bucket/images/1/2/test.jpg?X-Amz-Signature=abc");
+        PresignedGetObjectRequest presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(url);
+        when(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenReturn(presigned);
+
+        String result = service.resolvePublicUrl("images/1/2/test.jpg");
+
+        assertEquals(url.toString(), result);
     }
 
 }

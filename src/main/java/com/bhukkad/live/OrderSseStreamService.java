@@ -1,9 +1,11 @@
 package com.bhukkad.live;
 
 import com.bhukkad.dto.response.OrderLiveUpdate;
+import com.bhukkad.exception.SseCapacityExceededException;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -22,6 +24,17 @@ public class OrderSseStreamService {
     private static final long DEFAULT_TIMEOUT = 60_000L; // 60 seconds
 
     private final OrderLiveReplayStore replayStore;
+
+    /**
+     * Maximum concurrent emitters per stream key (an order, a restaurant's
+     * kitchen, or a rider). Bounds pod memory: every connection holds a servlet
+     * async context, and a flood of guests reconnecting to one order would
+     * otherwise exhaust the pod. New subscribers beyond the cap are rejected
+     * with {@link SseCapacityExceededException} (mapped to 503) instead of
+     * degrading existing subscribers.
+     */
+    @Value("${app.live.sse.max-emitters-per-stream:50}")
+    int maxEmittersPerStream = 50;
 
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
@@ -76,7 +89,21 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
                                   String lastEventId,
                                   Object snapshot) {
         SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
-        streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>()).add(emitter);
+        CopyOnWriteArrayList<SseEmitter> emitters =
+                streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>());
+        // Check-then-add inside the list monitor so concurrent subscriptions
+        // cannot exceed the per-stream cap. Subscriptions are infrequent, so
+        // the brief serialization is immaterial.
+        synchronized (emitters) {
+            if (emitters.size() >= maxEmittersPerStream) {
+                log.warn("SSE_CAPACITY_EXCEEDED | channel={} | id={} | current={} | max={}",
+                        channel, key, emitters.size(), maxEmittersPerStream);
+                throw new SseCapacityExceededException(
+                        "Stream capacity reached for " + channel + " " + key
+                                + " (" + maxEmittersPerStream + " connections); retry shortly");
+            }
+            emitters.add(emitter);
+        }
 
         Runnable cleanup = () -> remove(streams, key, emitter);
         emitter.onCompletion(cleanup);

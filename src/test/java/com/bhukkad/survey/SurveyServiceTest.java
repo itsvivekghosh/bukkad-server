@@ -1,5 +1,6 @@
 package com.bhukkad.survey;
 
+import com.bhukkad.dto.response.SurveyRatingsResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliverySurvey;
 import com.bhukkad.entity.Order;
@@ -17,6 +18,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -122,10 +124,74 @@ class SurveyServiceTest {
     }
 
     @Test
+    void submitSurvey_acceptsNullRatings() {
+        // Regression: ratings are optional, so null values must not NPE in
+        // validation (List.of throws on null elements).
+        when(orderRepository.findById(100L)).thenReturn(Optional.of(deliveredOrder));
+        when(surveyRepository.findByOrderId(100L)).thenReturn(Optional.empty());
+        when(surveyRepository.save(any(DeliverySurvey.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        DeliverySurvey result = service.submitSurvey(1L, 100L, null, null, null, "no ratings");
+
+        assertNotNull(result);
+        assertNull(result.getRatingDelivery());
+        assertNull(result.getRatingFood());
+        assertNull(result.getRatingSpeed());
+    }
+
+    @Test
     void submitSurvey_throwsWhenCommentTooLong() {
         String tooLong = "x".repeat(1001);
         assertThrows(BusinessException.class,
                 () -> service.submitSurvey(1L, 100L, 5, 4, 5, tooLong));
         verifyNoInteractions(orderRepository);
+    }
+
+    @Test
+    void getRestaurantRatings_returnsZerosWhenNoSurveys() {
+        when(surveyRepository.findRestaurantAverages(1L)).thenReturn(List.of());
+
+        SurveyRatingsResponse result = service.getRestaurantRatings(1L);
+
+        assertEquals(1L, result.restaurantId());
+        assertEquals(0.0, result.ratingDelivery());
+        assertEquals(0.0, result.ratingFood());
+        assertEquals(0.0, result.ratingSpeed());
+        assertEquals(0L, result.surveyCount());
+    }
+
+    @Test
+    void getRestaurantRatings_handlesFlatAggregateRow() {
+        when(surveyRepository.findRestaurantAverages(1L))
+                .thenReturn(List.<Object[]>of(new Object[]{4.5, 4.0, 5.0, 4L}));
+
+        SurveyRatingsResponse result = service.getRestaurantRatings(1L);
+
+        assertEquals(4.5, result.ratingDelivery());
+        assertEquals(4.0, result.ratingFood());
+        assertEquals(5.0, result.ratingSpeed());
+        assertEquals(4L, result.surveyCount());
+    }
+
+    @Test
+    void getRestaurantRatings_unwrapsNestedAggregateRow() {
+        // Regression for the Hibernate 6 quirk that wraps the single aggregate
+        // row in a nested Object[]; previously this surfaced as a
+        // ClassCastException -> HTTP 500.
+        when(surveyRepository.findRestaurantAverages(1L))
+                .thenReturn(List.<Object[]>of(new Object[]{new Object[]{3.5, 4.25, null, 2L}}));
+
+        SurveyRatingsResponse result = service.getRestaurantRatings(1L);
+
+        assertEquals(3.5, result.ratingDelivery());
+        assertEquals(4.25, result.ratingFood());
+        assertEquals(0.0, result.ratingSpeed(), "null averages must surface as 0.0");
+        assertEquals(2L, result.surveyCount());
+    }
+
+    @Test
+    void getRestaurantRatings_throwsWhenRestaurantIdNull() {
+        assertThrows(BusinessException.class, () -> service.getRestaurantRatings(null));
     }
 }

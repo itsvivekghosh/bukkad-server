@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.7
+# Per-service image template (Phase 3). Reuses the monolith's multi-stage
+# pattern; the module artifact is built from the aggregator first:
+#   mvn -f multi-module/pom.xml -pl order-service -am package -DskipTests
+# then:
+#   docker build -f multi-module/order-service/Dockerfile \
+#     --build-arg MODULE=order-service -t ghcr.io/itsvivekghosh/order-service .
+FROM --platform=$BUILDPLATFORM maven:3.9.9-eclipse-temurin-17 AS builder
+WORKDIR /build
+COPY multi-module/pom.xml .
+COPY multi-module/bukkad-common ./bukkad-common
+ARG MODULE
+COPY multi-module/${MODULE} ./${MODULE}
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    mvn -B -q -pl ${MODULE} -am package -DskipTests
+
+FROM eclipse-temurin:17-jre-jammy AS runtime
+ENV TZ=Asia/Kolkata \
+    LANG=C.UTF-8 \
+    SERVER_PORT=8080 \
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=50.0 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 -Djava.security.egd=file:/dev/./urandom"
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r -g 1001 bhukkad && useradd -r -u 1001 -g bhukkad -d /app -s /usr/sbin/nologin bhukkad \
+    && mkdir -p /app && chown -R bhukkad:bhukkad /app
+WORKDIR /app
+ARG MODULE
+COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/app.jar
+USER bhukkad
+EXPOSE 8080
+HEALTHCHECK --interval=20s --timeout=5s --start-period=60s --retries=5 \
+  CMD curl -fsS "http://127.0.0.1:${SERVER_PORT}/actuator/health/liveness" >/dev/null || exit 1
+ENTRYPOINT ["sh", "-c", "exec java ${JAVA_OPTS} -jar /app/app.jar"]

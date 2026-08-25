@@ -24,11 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class JwtSecretRotationServiceTest {
 
-    /** Fake 48-byte bootstrap seed material, mirroring the production seed length. */
+    /** Fake 64-byte bootstrap seed material, mirroring the production seed length. */
     private static final String FAKE_BOOTSTRAP_SECRET =
             Base64.getEncoder().encodeToString(
-                    "unit-test-bootstrap-secret-not-a-real-credential"
-                            .getBytes(StandardCharsets.UTF_8));
+                    "unit-test-bootstrap-secret-not-a-real-credential-1234567890abcde".getBytes(StandardCharsets.UTF_8));
 
     private static String base64Of(String fakeSecretMaterial) {
         return Base64.getEncoder().encodeToString(fakeSecretMaterial.getBytes(StandardCharsets.UTF_8));
@@ -41,7 +40,7 @@ class JwtSecretRotationServiceTest {
         SecretKey signingKey = service.currentSigningKey();
 
         assertNotNull(signingKey);
-        assertEquals(48, signingKey.getEncoded().length,
+        assertEquals(64, signingKey.getEncoded().length,
                 "the full configured bootstrap secret must become the key material");
         assertSame(signingKey, service.validationKeys().get(0),
                 "with rotation disabled the bootstrap key is also the only signing key");
@@ -54,7 +53,7 @@ class JwtSecretRotationServiceTest {
         List<SecretKey> keys = service.validationKeys();
 
         assertEquals(1, keys.size());
-        assertEquals(48, keys.get(0).getEncoded().length);
+        assertEquals(64, keys.get(0).getEncoded().length);
     }
 
     @Test
@@ -141,10 +140,20 @@ class JwtSecretRotationServiceTest {
     }
 
     @Test
-    void constructor_secretShorterThan256Bits_rejectedAsWeak() {
+    void constructor_secretShorterThan512Bits_rejectedAsWeak() {
         String shortFakeSecret = base64Of("short-test-key!"); // 15 bytes = 120 bits
 
         assertThrows(WeakKeyException.class,
                 () -> new JwtSecretRotationService(shortFakeSecret, false));
+    }
+
+    @Test
+    void constructor_secretExactly512Bits_accepted() {
+        // 64 raw bytes = 512 bits, the minimum for HS512 signing.
+        String secret = Base64.getEncoder().encodeToString(new byte[64]);
+
+        JwtSecretRotationService service = new JwtSecretRotationService(secret, false);
+
+        assertEquals(64, service.currentSigningKey().getEncoded().length);
     }
 }

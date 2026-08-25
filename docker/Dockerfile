@@ -6,6 +6,12 @@
 FROM --platform=$BUILDPLATFORM maven:3.9.9-eclipse-temurin-17 AS builder
 WORKDIR /build
 COPY pom.xml .
+# lombok.config is required for Lombok to copy @Lazy (and other copyable
+# annotations) onto generated constructor parameters. Without it the
+# paymentServiceImpl<->dunningService constructor cycle survives the Docker
+# build and the app crashes at startup with "dependency cycle between beans
+# could not be broken" (production/staging health checks timed out).
+COPY lombok.config .
 RUN --mount=type=cache,target=/root/.m2,sharing=locked \
     mvn -B -q dependency:go-offline -DskipTests
 COPY src ./src

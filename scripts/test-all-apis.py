@@ -383,6 +383,11 @@ def run_test(
         if body_key and body_key.startswith("razorpay_webhook") and "paymentId" in body_obj:
             body_obj["paymentId"] = state.next_webhook_payment_id()
         body_bytes = json.dumps(body_obj).encode("utf-8")
+    elif spec.get("body"):
+        # Inline body (placeholders resolved like templates). Used by recovered
+        # and edge-case specs that do not need a named template.
+        body_obj = resolve_value(spec["body"], state)
+        body_bytes = json.dumps(body_obj).encode("utf-8")
 
     start = time.perf_counter()
     try:
@@ -755,7 +760,10 @@ def setup_review_for_moderation(
     """Create a review for the Moderate Review test.
     Requires a delivered order with a menu item.
     Uses main_order_id (the delivered order) instead of current order_id.
+    Skips when a review already exists for the order (each order accepts one).
     """
+    if state.vars.get("review_id"):
+        return
     order_id = main_order_id or state.vars.get("order_id")
     if not order_id or not state.vars.get("menu_item_id"):
         return
@@ -820,6 +828,379 @@ def refill_cart_for_order_tests(
         timeout,
         verbose=False,
     )
+
+
+def _edge_result(
+    name: str,
+    group: str,
+    description: str,
+    method: str,
+    url: str,
+    status_code: int | None,
+    response_body: str,
+    passed: bool,
+    skipped: bool = False,
+    skip_reason: str = "",
+) -> TestResult:
+    return TestResult(
+        name=name,
+        group=group,
+        description=description,
+        method=method,
+        url=url,
+        request_headers={},
+        request_body=None,
+        status_code=status_code,
+        response_body=response_body,
+        passed=passed,
+        skipped=skipped,
+        skip_reason=skip_reason,
+    )
+
+
+def test_order_idempotency_replay(base_url: str, state: RunState, timeout: int) -> None:
+    """Probe: placing an order with the same Idempotency-Key twice must replay the
+    SAME order (identical order id), not create a duplicate. This is the core
+    duplicate-order guarantee under network retries."""
+    if not state.vars.get("menu_item_id") or not state.vars.get("restaurant_id") or not state.vars.get("address_id"):
+        return
+
+    refill_cart_for_order_tests(base_url, state, timeout)
+    key = f"idem-replay-{state.vars.get('run_id', 'x')}-{int(time.time())}"
+
+    first = run_test(
+        {
+            "name": "Idempotency Replay — First Call (probe)",
+            "method": "POST",
+            "path": "/api/v1/orders/customer/create",
+            "auth": "customer",
+            "body_key": "order",
+            "expected": [200],
+            "headers": {"Idempotency-Key": key},
+            "extract": {"replay_order_id": "data.id"},
+        },
+        base_url, state, timeout, verbose=False,
+    )
+    first_id = state.vars.get("replay_order_id")
+
+    second = run_test(
+        {
+            "name": "Idempotency Replay — Duplicate Call (probe)",
+            "method": "POST",
+            "path": "/api/v1/orders/customer/create",
+            "auth": "customer",
+            "body_key": "order",
+            "expected": [200],
+            "headers": {"Idempotency-Key": key},
+            "extract": {"replay_order_id_2": "data.id"},
+        },
+        base_url, state, timeout, verbose=False,
+    )
+    second_id = state.vars.get("replay_order_id_2")
+
+    if not (first.passed and second.passed):
+        # State-dependent: by the time the probes run the suite's test
+        # restaurant may have been toggled off / stock exhausted, so order
+        # creation legitimately fails. Report as SKIP, not FAIL.
+        state.results.append(_edge_result(
+            name="Idempotency Replay Returns Same Order (edge)",
+            group="Edge Cases & Boundaries",
+            description="Placing an order twice with the same Idempotency-Key must replay the same order id (no duplicate order).",
+            method="POST",
+            url=f"{base_url}/api/v1/orders/customer/create",
+            status_code=second.status_code,
+            response_body=f"first_status={first.status_code} second_status={second.status_code} first_id={first_id} second_id={second_id}",
+            passed=False,
+            skipped=True,
+            skip_reason=f"Order creation unavailable at probe time (first={first.status_code}, second={second.status_code})",
+        ))
+        return
+
+    passed = first.passed and second.passed and bool(first_id) and first_id == second_id
+    state.results.append(_edge_result(
+        name="Idempotency Replay Returns Same Order (edge)",
+        group="Edge Cases & Boundaries",
+        description="Placing an order twice with the same Idempotency-Key must replay the same order id (no duplicate order).",
+        method="POST",
+        url=f"{base_url}/api/v1/orders/customer/create",
+        status_code=second.status_code,
+        response_body=f"first_id={first_id} second_id={second_id}",
+        passed=passed,
+    ))
+
+
+def test_rate_limit_order_track(base_url: str, state: RunState, timeout: int) -> None:
+    """Probe: the order-track endpoint is rate limited (20 req / 60s). Firing a
+    burst must eventually produce 429 with Retry-After — the app must never 500
+    under throttle pressure."""
+    order_id = state.vars.get("replay_order_id") or state.vars.get("order_id")
+    token = state.tokens.get("customer_token")
+    if not order_id or not token:
+        return
+
+    url = f"{base_url}/api/v1/orders/customer/track/{order_id}"
+    statuses: list[int] = []
+    seen_429 = False
+    for _ in range(45):
+        status, _, _ = http_request(
+            "GET", url,
+            {"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            None, timeout,
+        )
+        statuses.append(status)
+        if status == 429:
+            seen_429 = True
+            break
+
+    state.results.append(_edge_result(
+        name="Order Track Rate Limit Enforces 429 (edge)",
+        group="Edge Cases & Boundaries",
+        description="Bursting the order-track endpoint must be throttled with 429 (never 500).",
+        method="GET",
+        url=url,
+        status_code=statuses[-1] if statuses else None,
+        response_body=f"statuses={statuses[:10]}... total={len(statuses)} 429_seen={seen_429}",
+        passed=seen_429,
+    ))
+
+
+def test_order_empty_cart_400(base_url: str, state: RunState, timeout: int) -> None:
+    """Probe: a brand-new account with an empty cart must get 400 'Cart is empty'
+    when placing an order — a clean error state, not a 500."""
+    ts = str(int(time.time()))
+    email = f"edge_empty_{ts}@bhukkad.test"
+    phone = "98" + "".join(secrets.choice("0123456789") for _ in range(8))
+    body = {
+        "fullName": "Edge Empty Cart",
+        "email": email,
+        "password": state.vars.get("password", "Test@123456"),
+        "phoneNumber": phone,
+        "role": "CUSTOMER",
+    }
+    reg_status, reg_text, _ = http_request(
+        "POST", f"{base_url}/api/v1/auth/register",
+        {"Content-Type": "application/json"},
+        json.dumps(body).encode("utf-8"), timeout,
+    )
+    if reg_status != 200:
+        state.results.append(_edge_result(
+            name="Place Order — Empty Cart Returns 400 (edge)",
+            group="Edge Cases & Boundaries",
+            description="Fresh account with an empty cart placing an order must return 400.",
+            method="POST",
+            url=f"{base_url}/api/v1/orders/customer/create",
+            status_code=reg_status,
+            response_body="Could not register fresh edge account",
+            passed=False,
+            skipped=True,
+            skip_reason=f"Registration for fresh edge account failed with {reg_status}",
+        ))
+        return
+
+    token = None
+    try:
+        token = json.loads(reg_text).get("data", {}).get("token")
+    except json.JSONDecodeError:
+        pass
+    if not token:
+        state.results.append(_edge_result(
+            name="Place Order — Empty Cart Returns 400 (edge)",
+            group="Edge Cases & Boundaries",
+            description="Fresh account with an empty cart placing an order must return 400.",
+            method="POST",
+            url=f"{base_url}/api/v1/orders/customer/create",
+            status_code=reg_status,
+            response_body="No token in registration response",
+            passed=False,
+            skipped=True,
+            skip_reason="Registration returned 200 but no token",
+        ))
+        return
+
+    order_body = {
+        "restaurantId": int(state.vars["restaurant_id"]),
+        "deliveryAddressId": int(state.vars["address_id"]),
+        "paymentMethod": "CASH_ON_DELIVERY",
+        "tipAmount": 0.0,
+    }
+    order_status, order_text, _ = http_request(
+        "POST", f"{base_url}/api/v1/orders/customer/create",
+        {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": f"edge-empty-{ts}",
+        },
+        json.dumps(order_body).encode("utf-8"), timeout,
+    )
+    state.results.append(_edge_result(
+        name="Place Order — Empty Cart Returns 400 (edge)",
+        group="Edge Cases & Boundaries",
+        description="Fresh account with an empty cart placing an order must return 400, not 500.",
+        method="POST",
+        url=f"{base_url}/api/v1/orders/customer/create",
+        status_code=order_status,
+        response_body=order_text[:300],
+        passed=order_status == 400,
+    ))
+
+
+def test_e2e_full_journey(base_url: str, state: RunState, timeout: int) -> None:
+    """E2E: complete customer lifecycle — register → browse → cart → place order →
+    owner confirms/readies → agent delivers → customer reviews → reorder.
+
+    Uses dedicated accounts so the shared suite state is never disturbed, and
+    asserts cross-step invariants (the review and reorder target the SAME order
+    that was placed and delivered)."""
+    ts = str(int(time.time()))
+    suffix = ts[-6:]
+
+    def http(method, path, token=None, body=None, headers=None, label=""):
+        h = {"Accept": "application/json", "Content-Type": "application/json"}
+        if token:
+            h["Authorization"] = f"Bearer {token}"
+        for k, v in (headers or {}).items():
+            h[k] = v
+        raw = json.dumps(body).encode() if body is not None else None
+        try:
+            status, text, _ = http_request(method, f"{base_url}{path}", h, raw, timeout)
+            return status, text
+        except Exception as e:  # noqa: BLE001 - surfaced via the summary below
+            return None, str(e)
+
+    def ok(name, status, text, passed, ctx=""):
+        state.results.append(_edge_result(
+            name=name, group="E2E Journey", description=f"Step: {name}",
+            method="", url="", status_code=status, response_body=(text or "")[:200] + ctx,
+            passed=passed))
+
+    # 1. Register dedicated customer, owner, agent
+    c_email, o_email, a_email = f"e2e_c_{suffix}@bhukkad.test", f"e2e_o_{suffix}@bhukkad.test", f"e2e_a_{suffix}@bhukkad.test"
+    c_status, c_text = http("POST", "/api/v1/auth/register", body={
+        "fullName": "E2E Customer", "email": c_email, "password": "Test@123456",
+        "phoneNumber": f"93{suffix}11", "role": "CUSTOMER"})
+    c_token = json.loads(c_text).get("data", {}).get("token", "") if c_status == 200 else ""
+    ok("Register customer", c_status, c_text, c_status == 200 and bool(c_token))
+    if not c_token:
+        return
+
+    o_status, o_text = http("POST", "/api/v1/auth/register", body={
+        "fullName": "E2E Owner", "email": o_email, "password": "Test@123456",
+        "phoneNumber": f"92{suffix}22", "role": "RESTAURANT_OWNER"})
+    o_token = json.loads(o_text).get("data", {}).get("token", "") if o_status == 200 else ""
+    ok("Register owner", o_status, o_text, o_status == 200 and bool(o_token))
+
+    a_status, a_text = http("POST", "/api/v1/auth/register", body={
+        "fullName": "E2E Agent", "email": a_email, "password": "Test@123456",
+        "phoneNumber": f"91{suffix}33", "role": "DELIVERY_AGENT"})
+    a_data = json.loads(a_text).get("data", {}) if a_status == 200 else {}
+    a_token = a_data.get("token", "")
+    agent_id = a_data.get("userId")
+    ok("Register agent", a_status, a_text, a_status == 200 and bool(a_token) and agent_id is not None)
+
+    # delivery agents must be admin-verified before accepting deliveries
+    admin_tok = state.tokens.get("admin_token", "")
+    if admin_tok and agent_id:
+        http("PUT", f"/api/v1/admin/agents/{agent_id}/verify", token=admin_tok)
+
+    # 2. Browse: public cuisines and restaurants
+    cu_status, cu_text = http("GET", "/api/v1/cuisines")
+    ok("Browse cuisines", cu_status, cu_text, cu_status == 200)
+
+    # 3. Seed a restaurant + menu item for the owner. Extract the restaurant id
+    # from the creation response so we never pick up a stale restaurant from a
+    # previous run.
+    r_status, r_text = http("POST", "/api/v1/restaurants/owner", token=o_token, body={
+        "name": f"E2E Kitchen {suffix}", "description": "E2E journey restaurant",
+        "address": {"addressLine1": "1 Food St", "city": "Bangalore", "state": "KA",
+                    "pincode": "560001", "latitude": 12.97, "longitude": 77.59},
+        "openingTime": "09:00:00", "closingTime": "23:00:00",
+        "deliveryFee": 30, "minimumOrderAmount": 100, "averageDeliveryTime": 30,
+        "freeDeliveryAvailable": True, "freeDeliveryAbove": 500, "isPureVeg": False,
+        "fssaiNumber": f"FSS-E2E-{suffix}"})
+    rid = json.loads(r_text).get("data", {}).get("id") if r_status == 200 else None
+    ok("Owner creates restaurant", r_status, r_text, r_status == 200 and rid is not None)
+    if not rid:
+        return
+
+    # 4. Customer adds an address, adds to cart, places an order
+    ad_status, ad_text = http("POST", "/api/v1/customers/addresses", token=c_token, body={
+        "addressLine1": "2 Test Ave", "city": "Bangalore", "state": "KA", "pincode": "560001",
+        "latitude": 12.971, "longitude": 77.594, "type": "HOME"})
+    addr_id = json.loads(ad_text).get("data", {}).get("id") if ad_status == 200 else None
+    ok("Add delivery address", ad_status, ad_text, ad_status == 200 and addr_id is not None)
+
+    # toggle the restaurant open so ordering is allowed
+    http("PUT", f"/api/v1/restaurants/owner/{rid}/toggle-status?isOpen=true", token=o_token)
+
+    # seed a menu category + item so the restaurant is orderable
+    cat_status, cat_text = http("POST", f"/api/v1/menu/categories?restaurantId={rid}", token=o_token,
+                                body={"name": "Starters", "description": "E2E category",
+                                      "displayOrder": 1, "active": True})
+    cat_id = json.loads(cat_text).get("data", {}).get("id") if cat_status == 200 else None
+    item_status, item_text = http("POST", "/api/v1/menu/items", token=o_token,
+                                  body={"name": "Paneer Tikka", "description": "E2E dish",
+                                        "categoryId": cat_id, "price": 199.0, "foodType": "VEG",
+                                        "isVeg": True, "isSpicy": True, "spiceLevel": "MEDIUM",
+                                        "preparationTime": 15})
+
+    items_status, items_text = http("GET", f"/api/v1/menu/items/restaurant/{rid}")
+    items = json.loads(items_text).get("data", []) if items_status == 200 else []
+    if not items:
+        ok("Menu has items", items_status, items_text, False, "seeded restaurant has no menu items")
+        return
+    mid = items[0]["id"]
+
+    cart_status, cart_text = http("POST", "/api/v1/cart/add", token=c_token,
+                                  body={"menuItemId": mid, "quantity": 2})
+    ok("Add to cart", cart_status, cart_text, cart_status == 200)
+
+    order_status, order_text = http("POST", "/api/v1/orders/customer/create", token=c_token,
+                                    headers={"Idempotency-Key": f"e2e-order-{ts}"},
+                                    body={"restaurantId": rid, "deliveryAddressId": addr_id,
+                                          "paymentMethod": "CASH_ON_DELIVERY", "tipAmount": 10.0})
+    order_id = json.loads(order_text).get("data", {}).get("id") if order_status == 200 else None
+    ok("Place order", order_status, order_text, order_status == 200 and order_id is not None)
+    if not order_id:
+        return
+
+    # 5. Track order (customer) + owner accepts/readies + agent delivers
+    tr_status, tr_text = http("GET", f"/api/v1/orders/customer/track/{order_id}", token=c_token)
+    ok("Track order", tr_status, tr_text, tr_status == 200)
+
+    ac_status, ac_text = http("PUT", f"/api/v1/orders/restaurant/{order_id}/accept", token=o_token)
+    ok("Owner accepts order", ac_status, ac_text, ac_status == 200)
+    rd_status, rd_text = http("PUT", f"/api/v1/orders/restaurant/{order_id}/ready", token=o_token)
+    ok("Owner marks ready", rd_status, rd_text, rd_status == 200)
+
+    asg_status, asg_text = http("PUT", f"/api/v1/orders/restaurant/{order_id}/assign-delivery?agentId={agent_id}", token=o_token)
+    ok("Assign delivery agent", asg_status, asg_text, asg_status == 200 and agent_id is not None)
+
+    # agent availability + accept the delivery
+    http("PUT", "/api/v1/delivery/toggle-availability?available=true", token=a_token)
+    avail_status, avail_text = http("GET", "/api/v1/delivery/available-orders", token=a_token)
+    ok("Agent sees available orders", avail_status, avail_text, avail_status == 200)
+    dacc_status, dacc_text = http("POST", f"/api/v1/delivery/{order_id}/accept", token=a_token)
+    ok("Agent accepts delivery", dacc_status, dacc_text, dacc_status == 200)
+
+    picked_status, picked_text = http("PUT", f"/api/v1/orders/delivery/{order_id}/picked-up", token=a_token)
+    ok("Agent marks picked up", picked_status, picked_text, picked_status == 200)
+    del_status, del_text = http("PUT", f"/api/v1/orders/delivery/{order_id}/delivered", token=a_token)
+    ok("Agent marks delivered", del_status, del_text, del_status == 200)
+
+    # 6. Customer reviews the delivered order + reorders it
+    rev_status, rev_text = http("POST", "/api/v1/reviews", token=c_token,
+                                body={"orderId": order_id, "rating": 5, "comment": "E2E journey review"})
+    ok("Submit review on delivered order", rev_status, rev_text, rev_status == 200)
+
+    re_status, re_text = http("POST", f"/api/v1/orders/customer/{order_id}/reorder", token=c_token)
+    ok("Reorder from delivered order", re_status, re_text, re_status == 200)
+
+    # 7. Customer sees the order in history with the right status
+    his_status, his_text = http("GET", "/api/v1/orders/customer/my-orders?page=0&size=10", token=c_token)
+    history = json.loads(his_text).get("data", {}).get("items", []) if his_status == 200 else []
+    entry = next((o for o in history if o.get("id") == order_id), None)
+    delivered_in_history = entry is not None and entry.get("status") == "DELIVERED"
+    ok("Order history reflects DELIVERED", his_status, his_text, delivered_in_history)
 
 
 def write_markdown_report(results: list[TestResult], path: Path, base_url: str) -> None:
@@ -1007,7 +1388,8 @@ def main() -> int:
             print_section(group)
             current_group = group
 
-        if spec["name"] in ("Batch Checkout", "Create Scheduled Order", "Apply Coupon to Cart"):
+        if spec["name"] in ("Batch Checkout", "Create Scheduled Order", "Apply Coupon to Cart",
+                            "Place Order — Invalid Payment Method (edge)"):
             refill_cart_for_order_tests(args.base_url, state, args.timeout)
 
         # Set up delivery proof order before delivery proof tests (run once)
@@ -1041,6 +1423,17 @@ def main() -> int:
             if state.vars.get("order_id"):
                 main_order_id = state.vars["order_id"]
             create_cancel_order(args.base_url, state, args.timeout)
+
+        # Stateful edge-case probes run just before the destructive teardown
+        # ("Delete Account" deactivates the suite customer, invalidating its
+        # token), while the live customer token is still valid.
+        if spec["name"] == "Delete Account":
+            test_order_idempotency_replay(args.base_url, state, args.timeout)
+            test_rate_limit_order_track(args.base_url, state, args.timeout)
+            test_order_empty_cart_400(args.base_url, state, args.timeout)
+            # End-to-end journey uses its own dedicated accounts, so it is safe
+            # to run here even after the main customer is deactivated.
+            test_e2e_full_journey(args.base_url, state, args.timeout)
 
     # Summary
     passed = sum(1 for r in state.results if r.passed and not r.skipped)

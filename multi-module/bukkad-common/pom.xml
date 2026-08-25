@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.bhukkad</groupId>
+        <artifactId>bhukkad-services</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>bukkad-common</artifactId>
+    <name>Bhukkad Common (shared libraries)</name>
+
+    <dependencies>
+        <!-- Minimal runtime deps: JSON + validation + SLF4J only. No Spring
+             MVC/JPA here so every service can depend on this module without
+             dragging in unwanted starters. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

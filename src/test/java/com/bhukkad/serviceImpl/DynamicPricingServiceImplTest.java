@@ -396,7 +396,12 @@ class DynamicPricingServiceImplTest {
         when(ruleRepository.findByRestaurantAndType(1L, DynamicPricingRule.RuleType.HAPPY_HOUR))
                 .thenReturn(List.of(rule));
 
-        assertTrue(service.isHappyHourActive(1L));
+        // Deterministic: exercise the 3-arg overload with explicit times instead
+        // of LocalTime.now() (the single-arg variant made this test time-of-day
+        // dependent and flaky when run near midnight).
+        assertTrue(service.isHappyHourActive(1L, LocalTime.of(0, 0), 1));
+        assertTrue(service.isHappyHourActive(1L, LocalTime.of(12, 0), 1));
+        assertTrue(service.isHappyHourActive(1L, LocalTime.of(23, 59), 1));
     }
 
     @Test

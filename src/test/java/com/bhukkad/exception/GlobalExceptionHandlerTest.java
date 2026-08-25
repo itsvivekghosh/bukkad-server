@@ -22,6 +22,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 
@@ -58,6 +59,19 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleNoResourceFoundReturns404() {
+        // A path that matches no controller mapping (e.g. a typo'd endpoint)
+        // must yield 404, not fall through to the unexpected-error 500 path.
+        NoResourceFoundException ex = new NoResourceFoundException(
+                org.springframework.http.HttpMethod.PUT, "/api/v1/restaurants/owner/365/toggle-open");
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleNoResourceFound(ex, mock(WebRequest.class));
+        assertEquals(HttpStatus.NOT_FOUND, resp.getStatusCode());
+        assertNotNull(resp.getBody());
+        assertEquals("No such endpoint: /api/v1/restaurants/owner/365/toggle-open",
+                resp.getBody().getMessage());
+    }
+
+    @Test
     void handleBusinessException() {
         ResponseEntity<ApiResponse<Void>> resp = handler.handleBusinessException(
                 new BusinessException("Invalid op"), mock(WebRequest.class));
@@ -88,6 +102,25 @@ class GlobalExceptionHandlerTest {
         FraudBlockedException ex = new FraudBlockedException("Fraud detected", "BRUTE_FORCE", 60);
         ResponseEntity<ApiResponse<Void>> resp = handler.handleFraudBlocked(ex);
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, resp.getStatusCode());
+    }
+
+    @Test
+    void handleSseCapacityExceeded() {
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleSseCapacityExceeded(
+                new SseCapacityExceededException("Stream capacity reached for order 42"),
+                mock(WebRequest.class));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, resp.getStatusCode());
+        assertNotNull(resp.getBody());
+        assertEquals("Stream capacity reached for order 42", resp.getBody().getMessage());
+    }
+
+    @Test
+    void handleDuplicateRequest_returns409() {
+        DuplicateRequestException ex = new DuplicateRequestException("Duplicate order request is already being processed");
+        ResponseEntity<ApiResponse<Void>> resp = handler.handleDuplicateRequest(ex, mock(WebRequest.class));
+        assertEquals(HttpStatus.CONFLICT, resp.getStatusCode());
+        assertNotNull(resp.getBody());
+        assertEquals("Duplicate order request is already being processed", resp.getBody().getMessage());
     }
 
     @Test

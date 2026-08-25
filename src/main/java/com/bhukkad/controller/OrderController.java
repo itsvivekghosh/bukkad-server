@@ -17,6 +17,7 @@ import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.dto.response.OrderSummaryResponse;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.entity.Order;
+import com.bhukkad.exception.BusinessException;
 import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.fraud.FraudEventTypes;
 import com.bhukkad.ratelimit.RateLimited;
@@ -87,8 +88,9 @@ public class OrderController {
     @Operation(summary = "Create order")
     public ResponseEntity<ApiResponse<?>> createOrder(
             @Valid @RequestBody OrderRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key", required = true) String idempotencyKey,
             @RequestParam(defaultValue = "false") boolean async) {
+        requireIdempotencyKey(idempotencyKey);
         fraudDetectionService.checkAndBlock(securityUtils.getCurrentUserId(), FraudEventTypes.ORDER_CREATE);
         if (async) {
             String jobId = orderCreateJobService.createJob(idempotencyKey);
@@ -137,7 +139,8 @@ public class OrderController {
     @Operation(summary = "Create batch orders")
     public ResponseEntity<ApiResponse<BatchOrderResponse>> createBatchOrders(
             @Valid @RequestBody BatchOrderRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = true) String idempotencyKey) {
+        requireIdempotencyKey(idempotencyKey);
         BatchOrderResponse response = orderService.createBatchOrders(request, idempotencyKey);
         return ResponseEntity.ok(ApiResponse.success("Batch orders processed", response));
     }
@@ -479,5 +482,16 @@ public class OrderController {
                             + com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE);
         }
         return ResponseEntity.ok(ApiResponse.success(orderService.getOrdersByIds(ids)));
+    }
+
+    /**
+     * Order creation requires a caller-supplied idempotency key so network-level
+     * retries (common under load) can never create duplicate orders. Rejects
+     * missing or blank keys with a 400.
+     */
+    private void requireIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new BusinessException("Idempotency-Key header is required for order creation");
+        }
     }
 }

@@ -150,6 +150,15 @@ public class AuthServiceImpl implements AuthService {
                 throw new BusinessException("Account is deactivated");
             }
 
+            // Rehash the stored password to Argon2id when it was encoded with a
+            // legacy scheme (plain BCrypt before the upgrade). The raw password is
+            // known here because authenticationManager already verified it above;
+            // this becomes a no-op once the stored hash carries the {argon2} prefix.
+            if (passwordEncoder.upgradeEncoding(user.getPassword()) || !user.getPassword().startsWith("{argon2}")) {
+                user.setPassword(passwordEncoder.encode(request.getPassword()));
+                userRepository.save(user);
+            }
+
             MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
             MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
 
@@ -181,11 +190,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse verifyMfaLogin(String mfaToken, String totpCode) {
-        Long userId = jwtTokenProvider.extractUserId(mfaToken);
-        String email = jwtTokenProvider.extractUsername(mfaToken);
         if (!jwtTokenProvider.validateMfaToken(mfaToken)) {
             throw new UnauthorizedException("MFA token expired or invalid");
         }
+        // extractUserId and extractUsername are safe to call after validation.
+        Long userId = jwtTokenProvider.extractUserId(mfaToken);
+        String email = jwtTokenProvider.extractUsername(mfaToken);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found"));

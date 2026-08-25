@@ -90,7 +90,7 @@ public class JwtTokenProvider {
                 .setSubject(email)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + mfaExpirationMs))
-                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS256)
+                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
 
@@ -157,7 +157,7 @@ public class JwtTokenProvider {
                 .setSubject(userDetails.getUsername())
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
-                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS256)
+                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
 

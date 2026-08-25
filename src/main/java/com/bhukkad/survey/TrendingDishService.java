@@ -1,37 +1,40 @@
 package com.bhukkad.survey;
 
 import com.bhukkad.cache.LocalCacheService;
+import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.dto.response.TrendingDishResponse;
-import com.bhukkad.repository.OrderItemRepository;
+import com.bhukkad.entity.TrendingDish;
+import com.bhukkad.repository.TrendingDishRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
- * Real-time trending dishes for the home feed.
+ * Trending dishes for the home feed.
  *
- * <p>Ranks menu items by order-item count over the last 60 minutes and caches
- * the result in-process for 60 seconds (via {@link LocalCacheService}) so the
- * anonymous home feed never hits the database more than once per minute. Query
- * failures degrade to an empty list rather than an error response.
+ * <p>Ranks menu items by quantity sold from the ANALYTICS-owned
+ * {@code trending_dishes} summary table (fed by the ORDER_ITEMS_SNAPSHOT outbox
+ * event — see {@link TrendingDishMaterializer}). The home feed no longer joins
+ * order_items with menu_items across domain boundaries. Results are cached
+ * in-process for 60 seconds so the anonymous home feed never hits the database
+ * more than once per minute. Failures degrade to an empty list.</p>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@UseReadReplica
 public class TrendingDishService {
 
     private static final String CACHE_KEY = "trending-dishes";
     private static final long CACHE_TTL_SECONDS = 60;
-    private static final int WINDOW_MINUTES = 60;
     private static final int DEFAULT_LIMIT = 10;
     private static final int MAX_LIMIT = 50;
 
-    private final OrderItemRepository orderItemRepository;
+    private final TrendingDishRepository trendingDishRepository;
     private final LocalCacheService localCacheService;
 
     /**
@@ -60,14 +63,13 @@ public class TrendingDishService {
     }
 
     private List<TrendingDishResponse> queryTrending() {
-        List<Object[]> rows = orderItemRepository.findTrendingByCreatedSince(
-                LocalDateTime.now().minusMinutes(WINDOW_MINUTES));
-        return rows.stream()
-                .map(row -> new TrendingDishResponse(
-                        (Long) row[0],
-                        (String) row[1],
-                        ((Number) row[2]).longValue()))
-                .limit(MAX_LIMIT)
-                .collect(Collectors.toList());
+        List<TrendingDish> dishes = trendingDishRepository
+                .findTopByQuantitySoldDesc(PageRequest.of(0, MAX_LIMIT));
+        return dishes.stream()
+                .map(d -> new TrendingDishResponse(
+                        d.getMenuItemId(),
+                        d.getDishName(),
+                        d.getQuantitySold()))
+                .toList();
     }
 }

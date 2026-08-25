@@ -46,10 +46,14 @@ class BatchEndpointsConfigTest {
     }
 
     @Test
-    void syntheticHealthCheck_hasServiceabilityCheckPath() {
+    void syntheticHealthCheck_doesNotIncludeParamDependentEndpoints() {
         SyntheticHealthCheckProperties props = new SyntheticHealthCheckProperties();
-        assertTrue(props.getEndpoints().stream()
-                .anyMatch(e -> e.contains("/serviceability/check")));
+        // The serviceability endpoint requires mandatory query params
+        // (restaurantId, latitude, longitude) — a health check call without
+        // them would 400, so it must NOT be in the synthetic check list.
+        assertFalse(props.getEndpoints().stream()
+                .anyMatch(e -> e.contains("/serviceability/check")),
+                "Param-dependent endpoints must not be in synthetic health check list");
     }
 
     @Test

@@ -10,14 +10,20 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -79,10 +85,88 @@ class ChurnPredictionServiceTest {
         assertFalse(score.isRetentionActionTaken());
     }
 
-    @Test
-    void scoreCustomers_noopsWhenDisabled() {
+@Test
+    void scoreCustomer_noopsWhenDisabled() {
         properties.setEnabled(false);
         service.scoreCustomers();
-        verify(queryService, never()).findScorableCustomerIds(org.mockito.ArgumentMatchers.anyInt());
+        verify(queryService, never()).findScorableCustomerIds(anyInt());
+    }
+
+    @Test
+    void scoreCustomer_emptyFactors_returnsNull() {
+        when(queryService.customerOrderAggregates(List.of(1L))).thenReturn(List.of());
+
+        ChurnScore result = service.scoreCustomer(1L);
+
+        assertNull(result);
+    }
+
+    @Test
+    void scoreCustomer_neverPurchased_returnsLowRisk() {
+        when(queryService.customerOrderAggregates(List.of(1L)))
+                .thenReturn(List.<Object[]>of(new Object[]{1L, app(), 0L, 0L, 0L, 0L, 0L}));
+
+        ChurnScore result = service.scoreCustomer(1L);
+
+        assertNotNull(result);
+        assertEquals(ChurnScore.RiskLevel.LOW, result.getRiskLevel());
+    }
+
+    @Test
+    void scoreCustomer_nullLastOrder_usesRecencyDecayDays() {
+        when(queryService.customerOrderAggregates(List.of(1L)))
+                .thenReturn(List.<Object[]>of(new Object[]{1L, null, 10L, 5L, 3L, 0L, 0L}));
+
+        ChurnScore result = service.scoreCustomer(1L);
+
+        assertNotNull(result);
+        assertTrue(result.getScore() > 0);
+    }
+
+    @Test
+    void scoreCustomer_highRisk_triggersRetention() {
+        when(queryService.customerOrderAggregates(List.of(1L)))
+                .thenReturn(List.<Object[]>of(new Object[]{1L, LocalDateTime.now().minusDays(90), 10L, 0L, 8L, 2L, 5L}));
+        when(churnScoreRepository.findByUserIdIn(any())).thenReturn(List.of());
+        when(churnScoreRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(churnScoreRepository.save(any(ChurnScore.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ChurnScore result = service.scoreCustomer(1L);
+
+        assertNotNull(result);
+        assertEquals(ChurnScore.RiskLevel.HIGH, result.getRiskLevel());
+        verify(auditService).recordEvent(eq("RETENTION_OUTREACH"), any(), any(), any(), any(), any());
+        assertTrue(result.isRetentionActionTaken());
+    }
+
+    @Test
+    void scoreCustomer_mediumRisk_doesNotTriggerRetention() {
+        when(queryService.customerOrderAggregates(List.of(1L)))
+                .thenReturn(List.<Object[]>of(new Object[]{1L, LocalDateTime.now().minusDays(30), 10L, 2L, 5L, 0L, 0L}));
+        when(churnScoreRepository.findByUserIdIn(any())).thenReturn(List.of());
+        when(churnScoreRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ChurnScore result = service.scoreCustomer(1L);
+
+        assertNotNull(result);
+        assertEquals(ChurnScore.RiskLevel.MEDIUM, result.getRiskLevel());
+        verify(auditService, never()).recordEvent(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void scoreCustomer_highRiskWithoutPreviousAction_triggersOutreach() {
+        when(queryService.customerOrderAggregates(List.of(1L)))
+                .thenReturn(List.<Object[]>of(new Object[]{1L, LocalDateTime.now().minusDays(90), 10L, 0L, 8L, 2L, 5L}));
+        when(churnScoreRepository.findByUserIdIn(any())).thenReturn(List.of());
+        when(churnScoreRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(churnScoreRepository.save(any(ChurnScore.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.scoreCustomer(1L);
+
+        verify(auditService).recordEvent(eq("RETENTION_OUTREACH"), any(), any(), any(), any(), any());
+    }
+
+    private LocalDateTime app() {
+        return LocalDateTime.now();
     }
 }

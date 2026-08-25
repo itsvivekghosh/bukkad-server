@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -106,19 +107,26 @@ public class SurveyService {
         if (restaurantId == null) {
             throw new BusinessException("Restaurant id is required");
         }
-        return surveyRepository.findRestaurantAverages(restaurantId)
-                .map(row -> {
-                    Double delivery = nullableAverage(row[0]);
-                    Double food = nullableAverage(row[1]);
-                    Double speed = nullableAverage(row[2]);
-                    Long count = row[3] != null ? ((Number) row[3]).longValue() : 0L;
-                    return new SurveyRatingsResponse(restaurantId, delivery, food, speed, count);
-                })
-                .orElseGet(() -> new SurveyRatingsResponse(restaurantId, 0.0, 0.0, 0.0, 0L));
+        List<Object[]> rows = surveyRepository.findRestaurantAverages(restaurantId);
+        if (rows.isEmpty()) {
+            return new SurveyRatingsResponse(restaurantId, 0.0, 0.0, 0.0, 0L);
+        }
+        // Hibernate 6 may wrap the single aggregate row in a nested array
+        // ([ [avgDelivery, avgFood, avgSpeed, count] ]); unwrap defensively.
+        Object[] row = rows.get(0);
+        if (row.length == 1 && row[0] instanceof Object[] nested) {
+            row = nested;
+        }
+        Double delivery = nullableAverage(row[0]);
+        Double food = nullableAverage(row[1]);
+        Double speed = nullableAverage(row[2]);
+        Long count = row.length > 3 && row[3] != null ? ((Number) row[3]).longValue() : 0L;
+        return new SurveyRatingsResponse(restaurantId, delivery, food, speed, count);
     }
 
     private void validateRatings(Integer ratingDelivery, Integer ratingFood, Integer ratingSpeed) {
-        for (Integer rating : List.of(ratingDelivery, ratingFood, ratingSpeed)) {
+        // Ratings are optional (any may be null); List.of would NPE on nulls.
+        for (Integer rating : Arrays.asList(ratingDelivery, ratingFood, ratingSpeed)) {
             if (rating != null && (rating < MIN_RATING || rating > MAX_RATING)) {
                 throw new BusinessException("Ratings must be between 1 and 5");
             }

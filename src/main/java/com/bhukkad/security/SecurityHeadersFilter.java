@@ -56,12 +56,14 @@ public class SecurityHeadersFilter extends OncePerRequestFilter {
 
     private static Map<String, String> buildDefaultHeaders() {
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Content-Security-Policy", "default-src 'self'");
-        headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+        headers.put("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'");
+        headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
         headers.put("X-Content-Type-Options", "nosniff");
         headers.put("X-Frame-Options", "DENY");
         headers.put("Referrer-Policy", "no-referrer");
         headers.put("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+        headers.put("Cross-Origin-Opener-Policy", "same-origin");
+        headers.put("Cross-Origin-Resource-Policy", "same-origin");
         return headers;
     }
 }

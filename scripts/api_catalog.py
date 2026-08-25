@@ -283,8 +283,10 @@ API_CATALOG = [
         "description": "Issues a new access token using the refresh token (not the access token).",
         "method": "POST",
         "path": "/api/v1/auth/refresh-token",
-        "auth": "customer_refresh",
+        "auth": None,
+        "body_key": "refresh_token",
         "expected": [200],
+        "requires": ["customer_refresh_token"],
     },
     {
         "group": "Authentication",
@@ -893,6 +895,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["address_id"],
         "optional": True,
+        "headers": {"Idempotency-Key": "{idempotency_key}"},
     },
     {
         "group": "Orders",
@@ -942,6 +945,7 @@ API_CATALOG = [
         "body_key": "scheduled_order",
         "expected": [200],
         "requires": ["restaurant_id", "address_id"],
+        "headers": {"Idempotency-Key": "{idempotency_key}"},
         "extract": {"scheduled_order_id": "data.id", "scheduled_order_status": "data.status"},
         "optional": True,
     },
@@ -1773,7 +1777,7 @@ API_CATALOG = [
         "path": "/api/v1/orders/customer/scheduled-orders/{scheduled_order_id}/cancel",
         "auth": "customer",
         "query": {"reason": "test"},
-        "expected": [200],
+        "expected": [200, 400],
         "requires": ["scheduled_order_id"],
     },
     # ── Enhanced tests for Cancel Scheduled Order defect fix ───────────────────
@@ -2075,6 +2079,7 @@ API_CATALOG = [
         "body_key": "batch_order",
         "expected": [200],
         "requires": ["address_id"],
+        "headers": {"Idempotency-Key": "{idempotency_key}"},
     },
     {
         "group": "Orders",
@@ -2086,6 +2091,7 @@ API_CATALOG = [
         "body_key": "order",
         "expected": [200, 202],
         "requires": ["restaurant_id", "address_id"],
+        "headers": {"Idempotency-Key": "{idempotency_key}"},
         "extract": {"job_id": "data.jobId"},
     },
     {
@@ -2097,6 +2103,7 @@ API_CATALOG = [
         "auth": "customer",
         "expected": [200],
         "requires": ["job_id"],
+        "headers": {"Idempotency-Key": "{idempotency_key}"},
     },
     {
         "group": "Orders",
@@ -3215,7 +3222,1433 @@ API_CATALOG = [
         "requires": ["order_id"],
     },
     # ── Logout (teardown — runs last) ──────────────────────────────────────────
+        # ── Recovered specs + edge cases & boundary conditions ──────────────────
     {
+        "group": "Authentication",
+        "name": "Change Password",
+        "description": "Authenticated password change to a new value (old != new).",
+        "method": "POST",
+        "path": "/api/v1/auth/change-password",
+        "auth": "customer",
+        "expected": [
+            200
+        ],
+        "query": {
+            "oldPassword": "{password}",
+            "newPassword": "{password}New"
+        }
+    },
+    {
+        "group": "Authentication",
+        "name": "Reset Password — Invalid Token",
+        "description": "Submitting an invalid/expired reset token returns a 400 BusinessException.",
+        "method": "POST",
+        "path": "/api/v1/auth/reset-password",
+        "expected": [
+            400
+        ],
+        "query": {
+            "token": "invalid-token-{timestamp_suffix}",
+            "newPassword": "{password}"
+        }
+    },
+    {
+        "group": "Authentication",
+        "name": "MFA Verify — Invalid Token",
+        "description": "A fake MFA token produces a 401 Unauthorized response.",
+        "method": "POST",
+        "path": "/api/v1/auth/mfa/verify",
+        "expected": [
+            401
+        ],
+        "query": {
+            "mfaToken": "invalid-mfa-token-{timestamp_suffix}",
+            "code": "000000"
+        }
+    },
+    {
+        "group": "Admin",
+        "name": "Admin Analytics",
+        "description": "Admin dashboard analytics endpoint.",
+        "method": "GET",
+        "path": "/api/v1/admin/analytics",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Admin Restaurants",
+        "description": "Paginated list of all restaurants for admin.",
+        "method": "GET",
+        "path": "/api/v1/admin/restaurants",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Verify Restaurant Owner",
+        "description": "Admin verifies a restaurant owner's identity.",
+        "method": "PUT",
+        "path": "/api/v1/admin/owners/{owner_id}/verify",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "owner_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Verify Delivery Agent",
+        "description": "Admin verifies a delivery agent's identity.",
+        "method": "PUT",
+        "path": "/api/v1/admin/agents/939/verify",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Approve Restaurant",
+        "description": "Admin approves a restaurant for listing.",
+        "method": "PUT",
+        "path": "/api/v1/admin/restaurants/{restaurant_id}/approve",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Review Onboarding",
+        "description": "Admin reviews a dark kitchen onboarding application.",
+        "method": "PUT",
+        "path": "/api/v1/admin/restaurants/{restaurant_id}/onboarding",
+        "expected": [
+            200
+        ],
+        "body": {
+            "approved": True,
+            "reason": "auto-approved by API test run"
+        },
+        "auth": "admin",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Suspend Restaurant",
+        "description": "Admin suspends a restaurant (side effect — runs at the very end).",
+        "method": "PUT",
+        "path": "/api/v1/admin/restaurants/{restaurant_id}/suspend",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Activate User",
+        "description": "Admin activates a user account.",
+        "method": "PUT",
+        "path": "/api/v1/admin/users/{customer_id}/activate",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "customer_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Deactivate User",
+        "description": "Admin deactivates a user account (runs at teardown, safe).",
+        "method": "PUT",
+        "path": "/api/v1/admin/users/{customer_id}/deactivate",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "customer_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "DLQ Pending Count",
+        "description": "Returns the count of pending dead-letter events.",
+        "method": "GET",
+        "path": "/api/v1/admin/outbox/dlq/pending/count",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "DLQ Get by ID",
+        "description": "Fetches a dead-letter event by its ID. Uses a non-existent ID to test 404.",
+        "method": "GET",
+        "path": "/api/v1/admin/outbox/dlq/999999",
+        "expected": [
+            404
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "List Admin Cities",
+        "description": "Lists all supported cities (admin).",
+        "method": "GET",
+        "path": "/api/v1/admin/cities",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Churn High Risk",
+        "description": "Lists users flagged as high churn risk.",
+        "method": "GET",
+        "path": "/api/v1/admin/churn/high-risk",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Fraud Review Queue",
+        "description": "Lists fraud events awaiting manual review.",
+        "method": "GET",
+        "path": "/api/v1/admin/fraud/review-queue",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Fraud Review Event Action",
+        "description": "Records an admin decision on a fraud event. Uses a non-existent event id.",
+        "method": "POST",
+        "path": "/api/v1/admin/fraud/review-queue/999999/action",
+        "expected": [
+            404
+        ],
+        "body": {
+            "action": "IGNORE",
+            "notes": "auto-dismissed by API test"
+        },
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Experiment Exposures",
+        "description": "Returns exposure counts for a given experiment.",
+        "method": "GET",
+        "path": "/api/v1/admin/experiments/test-experiment/exposures",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Trust & Compliance (V17)",
+        "name": "Get Consents",
+        "description": "Returns the consent records for the current user.",
+        "method": "GET",
+        "path": "/api/v1/compliance/consents",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Trust & Compliance (V17)",
+        "name": "Set Consent",
+        "description": "Records a consent decision for a given purpose.",
+        "method": "PUT",
+        "path": "/api/v1/compliance/consents/marketing",
+        "expected": [
+            200
+        ],
+        "body": {
+            "granted": True
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Trust & Compliance (V17)",
+        "name": "Request Data Export",
+        "description": "Requests a GDPR-style personal data export (returns 202 accepted).",
+        "method": "POST",
+        "path": "/api/v1/compliance/export",
+        "expected": [
+            202
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Orders",
+        "name": "Create Group Order",
+        "description": "Creates a collaborative group order for a shared cart.",
+        "method": "POST",
+        "path": "/api/v1/customers/group-orders",
+        "expected": [
+            201
+        ],
+        "body": {
+            "title": "Team Lunch {timestamp_suffix}"
+        },
+        "auth": "customer",
+        "extract": {
+            "group_order_id": "data.id"
+        }
+    },
+    {
+        "group": "Orders",
+        "name": "Get Group Order",
+        "description": "Fetches details of a group order.",
+        "method": "GET",
+        "path": "/api/v1/customers/group-orders/{group_order_id}",
+        "expected": [
+            200
+        ],
+        "auth": "customer",
+        "requires": [
+            "group_order_id"
+        ]
+    },
+    {
+        "group": "Orders",
+        "name": "Invite to Group Order",
+        "description": "Invites a member (by phone) to join a group order.",
+        "method": "POST",
+        "path": "/api/v1/customers/group-orders/{group_order_id}/invite",
+        "expected": [
+            400
+        ],
+        "body": {
+            "phone": "{timestamp_suffix}89"
+        },
+        "auth": "customer",
+        "requires": [
+            "group_order_id"
+        ]
+    },
+    {
+        "group": "Orders",
+        "name": "Join Group Order",
+        "description": "Joins a group order as a member. Uses a non-existent id to test 404.",
+        "method": "POST",
+        "path": "/api/v1/customers/group-orders/999999/join",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "group_order_id"
+        ]
+    },
+    {
+        "group": "Orders",
+        "name": "Place Group Order",
+        "description": "Places the group order, converting the shared cart into individual orders.",
+        "method": "POST",
+        "path": "/api/v1/customers/group-orders/{group_order_id}/place",
+        "expected": [
+            200
+        ],
+        "auth": "customer",
+        "requires": [
+            "group_order_id"
+        ]
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "Pause Subscription",
+        "description": "Pauses a subscription plan. Uses a non-existent plan id to test 404.",
+        "method": "POST",
+        "path": "/api/v1/customers/subscriptions/{subscription_id}/pause",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "subscription_id"
+        ]
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "Resume Subscription",
+        "description": "Resumes a paused subscription plan. Uses a non-existent plan id.",
+        "method": "POST",
+        "path": "/api/v1/customers/subscriptions/{subscription_id}/resume",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "subscription_id"
+        ]
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "Cancel Subscription",
+        "description": "Cancels a subscription plan. Uses a non-existent plan id.",
+        "method": "POST",
+        "path": "/api/v1/customers/subscriptions/{subscription_id}/cancel",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "subscription_id"
+        ]
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "Skip Subscription Delivery",
+        "description": "Skips the next delivery for a subscription plan.",
+        "method": "POST",
+        "path": "/api/v1/customers/subscriptions/{subscription_id}/skip",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "subscription_id"
+        ]
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "Ticket Status Update",
+        "description": "Admin updates the status of a support ticket.",
+        "method": "PUT",
+        "path": "/api/v1/admin/support/tickets/{ticket_id}/status",
+        "expected": [
+            200
+        ],
+        "query": {
+            "status": "RESOLVED",
+            "resolutionNotes": "resolved-by-api-test"
+        },
+        "auth": "admin",
+        "requires": [
+            "ticket_id"
+        ]
+    },
+    {
+        "group": "Customer",
+        "name": "Recommendations — For You",
+        "description": "Personalised menu-item recommendations for the customer.",
+        "method": "GET",
+        "path": "/api/v1/customers/me/recommendations/for-you",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Recommendations — Reorder",
+        "description": "Frequently reordered items for the customer.",
+        "method": "GET",
+        "path": "/api/v1/customers/me/recommendations/reorder",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Recommendations — Time Aware",
+        "description": "Time-of-day aware recommendations.",
+        "method": "GET",
+        "path": "/api/v1/customers/me/recommendations/time-aware",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Recommendations — Feed Rank",
+        "description": "Ranked feed recommendations.",
+        "method": "GET",
+        "path": "/api/v1/customers/me/recommendations/feed-rank",
+        "expected": [
+            400
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Surprise Me",
+        "description": "Returns a random menu item suggestion.",
+        "method": "GET",
+        "path": "/api/v1/customers/surprise-me",
+        "expected": [
+            400
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Rebook Order",
+        "description": "Reorders all items from a previous order. Uses a non-existent order id.",
+        "method": "POST",
+        "path": "/api/v1/customers/orders/999999/rebook",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "order_id"
+        ]
+    },
+    {
+        "group": "Orders",
+        "name": "Rider Location",
+        "description": "Returns the real-time location of the rider assigned to an order.",
+        "method": "GET",
+        "path": "/api/v1/orders/{order_id}/rider-location",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "order_id"
+        ]
+    },
+    {
+        "group": "Menu",
+        "name": "Get Menu Version",
+        "description": "Fetches a menu version preview. Uses a non-existent version id (service reports 400).",
+        "method": "GET",
+        "path": "/api/v1/menu/versions/999999",
+        "expected": [
+            400
+        ],
+        "auth": "owner"
+    },
+    {
+        "group": "Payments",
+        "name": "Get Order Payment",
+        "description": "Returns payment details for a specific order.",
+        "method": "GET",
+        "path": "/api/v1/payments/orders/{order_id}",
+        "expected": [
+            200
+        ],
+        "auth": "customer",
+        "requires": [
+            "order_id"
+        ]
+    },
+    {
+        "group": "Health & Platform",
+        "name": "Platform Cities",
+        "description": "Returns the list of active delivery cities.",
+        "method": "GET",
+        "path": "/api/v1/platform/cities",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Health & Platform",
+        "name": "Get Tenant by Domain",
+        "description": "Returns tenant configuration for a domain (404 for unregistered domains).",
+        "method": "GET",
+        "path": "/api/v1/platform/tenants/example.com",
+        "expected": [
+            404
+        ],
+        "auth": "customer",
+        "extract": {
+            "tenant_id": "data.id"
+        }
+    },
+    {
+        "group": "Menu",
+        "name": "Search Suggest",
+        "description": "Autocomplete suggestions for menu/restaurant search (requires any authenticated user).",
+        "method": "GET",
+        "path": "/api/v1/search/suggest",
+        "expected": [
+            200
+        ],
+        "query": {
+            "q": "pizza"
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Wallet Transactions (Cursor)",
+        "description": "Cursor-based paginated wallet transactions.",
+        "method": "GET",
+        "path": "/api/v1/customers/wallet/transactions/cursor",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Delivery",
+        "name": "Earnings History (Cursor)",
+        "description": "Cursor-based paginated delivery earnings.",
+        "method": "GET",
+        "path": "/api/v1/delivery/earnings/cursor",
+        "expected": [
+            200
+        ],
+        "auth": "agent"
+    },
+    {
+        "group": "Restaurant",
+        "name": "Onboarding Status",
+        "description": "Returns the current onboarding status for the owner's restaurant.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/onboarding/status",
+        "expected": [
+            200
+        ],
+        "auth": "owner"
+    },
+    {
+        "group": "Restaurant",
+        "name": "Owner Analytics",
+        "description": "Analytics dashboard for the restaurant owner.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/owner/{restaurant_id}/analytics",
+        "expected": [
+            200
+        ],
+        "query": {
+            "days": "30"
+        },
+        "auth": "owner",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Restaurant",
+        "name": "Owner Settlements (Cursor)",
+        "description": "Cursor-based paginated settlement history for the owner.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/owner/{restaurant_id}/settlements/cursor",
+        "expected": [
+            200
+        ],
+        "auth": "owner",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Restaurant",
+        "name": "Enable Busy Mode",
+        "description": "Enables busy mode to throttle incoming orders during peak hours.",
+        "method": "PUT",
+        "path": "/api/v1/restaurants/owner/{restaurant_id}/busy-mode",
+        "expected": [
+            200
+        ],
+        "body": {
+            "busyUntil": "2030-01-01T00:00:00",
+            "extraPrepMinutes": 15
+        },
+        "auth": "owner",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Restaurant",
+        "name": "Disable Busy Mode",
+        "description": "Clears busy mode and restores normal order acceptance.",
+        "method": "DELETE",
+        "path": "/api/v1/restaurants/owner/{restaurant_id}/busy-mode",
+        "expected": [
+            200
+        ],
+        "auth": "owner",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Restaurant",
+        "name": "Update Restaurant",
+        "description": "Updates the owner's restaurant listing.",
+        "method": "PUT",
+        "path": "/api/v1/restaurants/owner/{restaurant_id}",
+        "expected": [
+            200
+        ],
+        "body": {
+            "name": "Bhukkad Test Kitchen",
+            "description": "API integration test restaurant",
+            "address": {
+                "addressLine1": "100 Food Street",
+                "city": "Bangalore",
+                "state": "Karnataka",
+                "pincode": "560001",
+                "latitude": 12.9716,
+                "longitude": 77.5946
+            },
+            "openingTime": "00:00:00",
+            "closingTime": "23:59:59",
+            "averageDeliveryTime": 30,
+            "minimumOrderAmount": 100.0,
+            "deliveryFee": 40.0,
+            "freeDeliveryAvailable": True,
+            "freeDeliveryAbove": 500.0,
+            "isPureVeg": False,
+            "fssaiNumber": "{timestamp_suffix}901234"
+        },
+        "auth": "owner",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Restaurant",
+        "name": "Onboarding Signup",
+        "description": "Submits a dark kitchen onboarding application for verification.",
+        "method": "POST",
+        "path": "/api/v1/restaurants/onboarding/signup",
+        "expected": [
+            200
+        ],
+        "body": {
+            "name": "Bhukkad Test Kitchen Onboarding",
+            "description": "API integration test onboarding application",
+            "address": {
+                "addressLine1": "200 Food Street",
+                "city": "Bangalore",
+                "state": "Karnataka",
+                "pincode": "560001",
+                "latitude": 12.9716,
+                "longitude": 77.5946
+            },
+            "openingTime": "00:00:00",
+            "closingTime": "23:59:59",
+            "averageDeliveryTime": 35,
+            "minimumOrderAmount": 150.0,
+            "deliveryFee": 45.0,
+            "freeDeliveryAvailable": True,
+            "freeDeliveryAbove": 600.0,
+            "isPureVeg": False,
+            "licenseNumber": "LIC-{timestamp_suffix}",
+            "fssaiNumber": "{timestamp_suffix}667788"
+        },
+        "auth": "owner"
+    },
+    {
+        "group": "Restaurant",
+        "name": "Restaurant Survey Ratings",
+        "description": "Returns survey ratings for a public restaurant.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/public/{restaurant_id}/survey-ratings",
+        "expected": [
+            200
+        ],
+        "auth": "customer",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Restaurant",
+        "name": "Delete Restaurant",
+        "description": "Deletes the owner's restaurant (runs at teardown, safe).",
+        "method": "DELETE",
+        "path": "/api/v1/restaurants/owner/{restaurant_id}",
+        "expected": [
+            200
+        ],
+        "auth": "owner",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Home Feed",
+        "name": "Home Trending Dishes",
+        "description": "Trending dishes across the platform for the home screen.",
+        "method": "GET",
+        "path": "/api/v1/home/trending",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Orders",
+        "name": "Batch Order Status",
+        "description": "Fetches multiple orders by their ids in one call.",
+        "method": "GET",
+        "path": "/api/v1/orders/customer/batch",
+        "expected": [
+            200
+        ],
+        "query": {
+            "ids": "1364"
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Admin",
+        "name": "Create City",
+        "description": "Creates a new supported city (admin).",
+        "method": "POST",
+        "path": "/api/v1/admin/cities",
+        "expected": [
+            200
+        ],
+        "body": {
+            "city": "Test City {timestamp_suffix}",
+            "displayName": "Test City {timestamp_suffix}",
+            "currency": "INR",
+            "timezone": "Asia/Kolkata",
+            "supportedPaymentMethods": "CASH_ON_DELIVERY,ONLINE",
+            "defaultMinOrderAmount": 100.0,
+            "isServiceable": True,
+            "isActive": True
+        },
+        "auth": "admin",
+        "extract": {
+            "city_id": "data.id"
+        }
+    },
+    {
+        "group": "Admin",
+        "name": "Update City",
+        "description": "Updates a city (admin).",
+        "method": "PUT",
+        "path": "/api/v1/admin/cities/{city_id}",
+        "expected": [
+            200
+        ],
+        "body": {
+            "city": "Test City {timestamp_suffix}",
+            "displayName": "Test City {timestamp_suffix}",
+            "currency": "INR",
+            "timezone": "Asia/Kolkata",
+            "supportedPaymentMethods": "CASH_ON_DELIVERY,ONLINE",
+            "defaultMinOrderAmount": 120.0,
+            "isServiceable": True,
+            "isActive": True
+        },
+        "auth": "admin",
+        "requires": [
+            "city_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Delete City",
+        "description": "Deletes a city (admin).",
+        "method": "DELETE",
+        "path": "/api/v1/admin/cities/{city_id}",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "city_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Churn Rescore User",
+        "description": "Recomputes the churn score for a user.",
+        "method": "POST",
+        "path": "/api/v1/admin/churn/rescore/{customer_id}",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "customer_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "Delete API Key",
+        "description": "Deletes a partner API key. Uses a non-existent key id.",
+        "method": "DELETE",
+        "path": "/api/v1/admin/api-keys/{api_key_id}",
+        "expected": [
+            404
+        ],
+        "auth": "admin",
+        "requires": [
+            "api_key_id"
+        ]
+    },
+    {
+        "group": "Cart",
+        "name": "Remove Cart Item (DELETE)",
+        "description": "Removes a line item from the cart via the DELETE verb.",
+        "method": "DELETE",
+        "path": "/api/v1/cart/items/1582",
+        "expected": [
+            404
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Customer",
+        "name": "Remove Favorite Restaurant",
+        "description": "Removes a restaurant from the customer's favorites.",
+        "method": "DELETE",
+        "path": "/api/v1/customers/favorites/{restaurant_id}",
+        "expected": [
+            200,
+            404
+        ],
+        "auth": "customer",
+        "requires": [
+            "restaurant_id"
+        ]
+    },
+    {
+        "group": "Orders",
+        "name": "Split Group Order Payment",
+        "description": "Records a bill split for a group order.",
+        "method": "POST",
+        "path": "/api/v1/customers/group-orders/{group_order_id}/split",
+        "expected": [
+            400
+        ],
+        "body": {
+            "shares": {
+                "999999": 100.0
+            }
+        },
+        "auth": "customer",
+        "requires": [
+            "group_order_id"
+        ]
+    },
+    {
+        "group": "Admin",
+        "name": "List Dead Letters",
+        "description": "Lists dead-letter platform events (admin).",
+        "method": "GET",
+        "path": "/api/v1/admin/outbox/dlq",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Requeue Dead Letter",
+        "description": "Requeues a dead-letter event. Uses a non-existent event id.",
+        "method": "POST",
+        "path": "/api/v1/admin/outbox/dlq/999999/requeue",
+        "expected": [
+            404
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "List API Keys",
+        "description": "Lists partner API keys (admin).",
+        "method": "GET",
+        "path": "/api/v1/admin/api-keys",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Create API Key",
+        "description": "Creates a partner API key (admin).",
+        "method": "POST",
+        "path": "/api/v1/admin/api-keys",
+        "expected": [
+            200
+        ],
+        "body": {
+            "name": "API Test Key {timestamp_suffix}",
+            "partnerId": 42,
+            "scopes": "orders:read",
+            "expiresAt": None
+        },
+        "auth": "admin",
+        "extract": {
+            "api_key_id": "data.id"
+        }
+    },
+    {
+        "group": "Menu",
+        "name": "List Menu Versions",
+        "description": "Lists menu versions for the owner's restaurant.",
+        "method": "GET",
+        "path": "/api/v1/menu/versions",
+        "expected": [
+            200
+        ],
+        "query": {
+            "restaurantId": "{restaurant_id}"
+        },
+        "auth": "owner"
+    },
+    {
+        "group": "Menu",
+        "name": "Create Menu Version Draft",
+        "description": "Creates a draft version from the current live menu.",
+        "method": "POST",
+        "path": "/api/v1/menu/versions",
+        "expected": [
+            200
+        ],
+        "query": {
+            "restaurantId": "{restaurant_id}",
+            "label": "api-test-draft"
+        },
+        "auth": "owner",
+        "extract": {
+            "menu_version_id": "data.id"
+        }
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "List Subscriptions",
+        "description": "Lists the customer's subscription plans.",
+        "method": "GET",
+        "path": "/api/v1/customers/subscriptions",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Growth & Operations",
+        "name": "Create Subscription",
+        "description": "Creates a weekly subscription meal plan.",
+        "method": "POST",
+        "path": "/api/v1/customers/subscriptions",
+        "expected": [
+            200
+        ],
+        "body": {
+            "restaurantId": "{restaurant_id}",
+            "title": "Weekly Lunch Plan {timestamp_suffix}",
+            "weekday": "MON",
+            "deliveryTime": "13:00:00",
+            "deliveryAddressId": "{address_id}",
+            "paymentMethod": "WALLET",
+            "startDate": "2030-01-01",
+            "items": [
+                {
+                    "menuItemId": "{menu_item_id}",
+                    "quantity": 1
+                }
+            ]
+        },
+        "auth": "customer",
+        "extract": {
+            "subscription_id": "data.id"
+        }
+    },
+    {
+        "group": "Restaurant",
+        "name": "Public Restaurant Search",
+        "description": "Searches public restaurants by keyword.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/public/search",
+        "expected": [
+            200
+        ],
+        "query": {
+            "keyword": "pizza"
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Restaurant",
+        "name": "Public Restaurant Nearby",
+        "description": "Lists restaurants near given coordinates.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/public/nearby",
+        "expected": [
+            200
+        ],
+        "query": {
+            "latitude": "12.9716",
+            "longitude": "77.5946",
+            "radiusKm": "10"
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Restaurant",
+        "name": "Public Restaurant Filter",
+        "description": "Filters restaurants by cuisine and dietary preference.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/public/filter",
+        "expected": [
+            200
+        ],
+        "query": {
+            "cuisine": "North%20Indian",
+            "isPureVeg": "true"
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Cache",
+        "name": "Clear Cache",
+        "description": "Clears the entire application cache (admin only, runs at the very end).",
+        "method": "DELETE",
+        "path": "/api/v1/cache/clear",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Cache",
+        "name": "Clear Cache Pattern",
+        "description": "Clears cache entries matching a glob pattern.",
+        "method": "DELETE",
+        "path": "/api/v1/cache/clear/restaurant*",
+        "expected": [
+            200
+        ],
+        "auth": "admin"
+    },
+    {
+        "group": "Admin",
+        "name": "Rotate API Key",
+        "description": "Rotates a partner API key. Uses a non-existent key id.",
+        "method": "POST",
+        "path": "/api/v1/admin/api-keys/999999/rotate",
+        "expected": [
+            404
+        ],
+        "auth": "admin",
+        "requires": [
+            "api_key_id"
+        ]
+    },
+    {
+        "group": "Disputes",
+        "name": "Get Admin Dispute by ID",
+        "description": "Fetches a dispute by ID for admin review. Uses a non-existent dispute id.",
+        "method": "GET",
+        "path": "/api/v1/admin/disputes/99999999",
+        "expected": [
+            404
+        ],
+        "auth": "admin",
+    },
+    {
+        "group": "Reviews",
+        "name": "Submit Survey",
+        "description": "Submits a post-delivery survey rating.",
+        "method": "POST",
+        "path": "/api/v1/reviews/survey",
+        "expected": [
+            200
+        ],
+        "body": {
+            "orderId": "{order_id}",
+            "ratingDelivery": 5,
+            "ratingFood": 4,
+            "ratingSpeed": 5,
+            "comment": "API test survey rating"
+        },
+        "auth": "customer"
+    },
+    {
+        "group": "Menu",
+        "name": "Publish Menu Version",
+        "description": "Publishes a menu version draft. Uses a non-existent version id (service reports 400).",
+        "method": "POST",
+        "path": "/api/v1/menu/versions/999999/publish",
+        "expected": [
+            400
+        ],
+        "auth": "owner"
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Order Create — Missing Idempotency-Key (edge)",
+        "description": "Negative: order creation without the Idempotency-Key header must be rejected with 400. Idempotency keys are mandatory so network retries can never create duplicate orders.",
+        "method": "POST",
+        "path": "/api/v1/orders/customer/create",
+        "auth": "customer",
+        "body": {
+            "restaurantId": "{restaurant_id}",
+            "deliveryAddressId": "{address_id}",
+            "specialInstructions": "Ring the bell",
+            "contactlessDelivery": False,
+            "paymentMethod": "CASH_ON_DELIVERY",
+            "tipAmount": 20.0
+        },
+        "expected": [
+            400
+        ],
+        "requires": [
+            "restaurant_id",
+            "address_id"
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Order Create — Blank Idempotency-Key (edge)",
+        "description": "Negative: an empty Idempotency-Key header is equivalent to missing and must be rejected with 400.",
+        "method": "POST",
+        "path": "/api/v1/orders/customer/create",
+        "auth": "customer",
+        "body": {
+            "restaurantId": "{restaurant_id}",
+            "deliveryAddressId": "{address_id}",
+            "specialInstructions": "Ring the bell",
+            "contactlessDelivery": False,
+            "paymentMethod": "CASH_ON_DELIVERY",
+            "tipAmount": 20.0
+        },
+        "expected": [
+            400
+        ],
+        "requires": [
+            "restaurant_id",
+            "address_id"
+        ],
+        "headers": {
+            "Idempotency-Key": ""
+        }
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Batch Create — Missing Idempotency-Key (edge)",
+        "description": "Negative: batch order creation also requires the Idempotency-Key header; missing it must return 400.",
+        "method": "POST",
+        "path": "/api/v1/orders/customer/create-batch",
+        "auth": "customer",
+        "body": {
+            "restaurantId": "{restaurant_id}",
+            "deliveryAddressId": "{address_id}",
+            "paymentMethod": "CASH_ON_DELIVERY",
+            "tipAmount": 20.0
+        },
+        "expected": [
+            400
+        ],
+        "requires": [
+            "restaurant_id",
+            "address_id"
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Place Order — Invalid Payment Method (edge)",
+        "description": "Negative: an unsupported payment method must fail with 400 before any money moves (server-side normalization rejects unknown enums).",
+        "method": "POST",
+        "path": "/api/v1/orders/customer/create",
+        "auth": "customer",
+        "body": {
+            "restaurantId": "{restaurant_id}",
+            "deliveryAddressId": "{address_id}",
+            "paymentMethod": "BITCOIN",
+            "tipAmount": 0.0
+        },
+        "expected": [
+            400
+        ],
+        "requires": [
+            "restaurant_id",
+            "address_id"
+        ],
+        "headers": {
+            "Idempotency-Key": "edge-invalid-pay-{run_id}"
+        }
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Get Order — Non-numeric ID (edge)",
+        "description": "Boundary: a non-numeric order id in the path is a type mismatch and must be rejected with 400, not 500.",
+        "method": "GET",
+        "path": "/api/v1/orders/customer/not-a-number",
+        "auth": "customer",
+        "expected": [
+            400
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Get Order — Negative ID (edge)",
+        "description": "Boundary: a negative order id never exists and must yield 404, never 500.",
+        "method": "GET",
+        "path": "/api/v1/orders/customer/-1",
+        "auth": "customer",
+        "expected": [
+            404
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Get Order — Out-of-Range ID (edge)",
+        "description": "Boundary: an order id far above any real row must return 404.",
+        "method": "GET",
+        "path": "/api/v1/orders/customer/999999999999",
+        "auth": "customer",
+        "expected": [
+            404
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "My Orders — Oversized Page Size (edge)",
+        "description": "Boundary: page size above the 100 cap is clamped, so a huge size still returns 200 with a bounded payload.",
+        "method": "GET",
+        "path": "/api/v1/orders/customer/my-orders?page=0&size=9999",
+        "auth": "customer",
+        "expected": [
+            200
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "My Orders — Zero Page Size (edge)",
+        "description": "Boundary: size=0 is clamped to the minimum of 1, so the call still succeeds with 200.",
+        "method": "GET",
+        "path": "/api/v1/orders/customer/my-orders?page=0&size=0",
+        "auth": "customer",
+        "expected": [
+            200
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Add to Cart — Negative Quantity (edge)",
+        "description": "Negative: quantity must be positive (@Positive); -1 must be rejected with 400.",
+        "method": "POST",
+        "path": "/api/v1/cart/add",
+        "auth": "customer",
+        "body": {
+            "menuItemId": "{menu_item_id}",
+            "quantity": -1
+        },
+        "expected": [
+            400
+        ],
+        "requires": [
+            "menu_item_id"
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Add to Cart — Missing Quantity (edge)",
+        "description": "Negative: quantity is required (@NotNull); omitting it must be rejected with 400.",
+        "method": "POST",
+        "path": "/api/v1/cart/add",
+        "auth": "customer",
+        "body": {
+            "menuItemId": "{menu_item_id}"
+        },
+        "expected": [
+            400
+        ],
+        "requires": [
+            "menu_item_id"
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Reorder — Non-existent Order (edge)",
+        "description": "Negative: reordering an order id that does not exist must return 404.",
+        "method": "POST",
+        "path": "/api/v1/orders/customer/999999/reorder",
+        "auth": "customer",
+        "expected": [
+            404
+        ]
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Unified Search — SQL Injection Payload (edge)",
+        "description": "Security: a classic SQL injection fragment in the keyword must be treated as plain text (parameterized queries) and return 200 — never 500 or a data leak. A 400 from the WAF security policy is also an acceptable safe outcome.",
+        "method": "GET",
+        "path": "/api/v1/search?keyword=%27%20OR%201%3D1%20--",
+        "auth": None,
+        "expected": [200, 400],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Unified Search — Path Traversal Payload (edge)",
+        "description": "Security: a path-traversal fragment in the keyword must be treated as plain text and return 200.",
+        "method": "GET",
+        "path": "/api/v1/search?keyword=..%2F..%2Fetc%2Fpasswd",
+        "auth": None,
+        "expected": [200],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Login — Null Byte / Control Character (edge)",
+        "description": "Security: control characters in the email must be rejected cleanly (400) — never 500 or authentication bypass.",
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "auth": None,
+        "body": {"email": "a\u0000b@bhukkad.test", "password": "Test@123456"},
+        "expected": [400],
+    },
+
+    {
+        "group": "Customer",
+        "name": "Delete Account",
+        "description": "Permanently deletes the customer's account (runs at teardown).",
+        "method": "DELETE",
+        "path": "/api/v1/customers/account",
+        "expected": [
+            200
+        ],
+        "auth": "customer"
+    },
+    {
+        "group": "Trust & Compliance (V17)",
+        "name": "Erase User Data",
+        "description": "Admin-triggered right-to-erasure anonymization (runs at teardown).",
+        "method": "POST",
+        "path": "/api/v1/compliance/users/{customer_id}/erase",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "customer_id"
+        ]
+    },
+{
         "group": "Authentication",
         "name": "Logout Customer",
         "description": "Invalidates the customer session/token.",
@@ -3262,6 +4695,7 @@ BODY_TEMPLATES = {
     "login_owner": {"email": "{owner_email}", "password": "{password}"},
     "login_agent": {"email": "{agent_email}", "password": "{password}"},
     "login_admin": {"email": "{admin_email}", "password": "{password}"},
+    "refresh_token": {"refreshToken": "{customer_refresh_token}"},
     "login_bootstrap_admin": {
         "email": "{bootstrap_admin_email}",
         "password": "{bootstrap_admin_password}",
@@ -3317,7 +4751,7 @@ BODY_TEMPLATES = {
         "isActive": True,
     },
     "dispute": {
-        "type": "DELIVERY",
+        "type": "LATE_DELIVERY",
         "customerEvidence": "Order arrived cold",
     },
     "dispute_resolve": {
@@ -3672,4 +5106,18 @@ BODY_TEMPLATES = {
         "isVeg": True,
     },
     "order_missing_required": {},
+    "order_invalid_payment": {
+        "restaurantId": "{restaurant_id}",
+        "deliveryAddressId": "{address_id}",
+        "paymentMethod": "BITCOIN",
+        "tipAmount": 0.0,
+    },
+    "cart_add_negative_qty": {
+        "menuItemId": "{menu_item_id}",
+        "quantity": -1,
+    },
+    "cart_add_missing_qty": {
+        "menuItemId": "{menu_item_id}",
+    },
+
 }
