@@ -8,25 +8,30 @@ import com.bhukkad.delivery.RiderEarningService;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
+import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Order;
+import com.bhukkad.entity.OrderItem;
 import com.bhukkad.entity.Payment;
 import com.bhukkad.entity.User;
 import com.bhukkad.event.OrderEventPublisher;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.inventory.StockReservationService;
 import com.bhukkad.invoice.OrderInvoiceService;
 import com.bhukkad.mapper.OrderMapper;
 import com.bhukkad.metrics.BusinessMetrics;
 import com.bhukkad.metrics.OrderMetrics;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
+import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.PaymentService;
 import com.bhukkad.settlement.RestaurantSettlementService;
 import com.bhukkad.timeline.OrderTimelineService;
 import com.bhukkad.util.PriceCalculator;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -75,6 +80,9 @@ public class OrderStatusService {
     private final RestaurantSettlementService restaurantSettlementService;
     private final OrderTimelineService orderTimelineService;
     private final OrderInvoiceService orderInvoiceService;
+    private final MenuItemRepository menuItemRepository;
+    private final EntityManager entityManager;
+    private final StockReservationService stockReservationService;
 
     /** Customer cancels a scheduled order; refunds a completed payment if any. */
     @Transactional
@@ -110,6 +118,7 @@ public class OrderStatusService {
 
         orderMetrics.orderCancelled();
         log.info("Scheduled order cancelled | orderId={} | reason={}", orderId, reason);
+        restoreStockForOrder(order);
         return response;
     }
 
@@ -141,6 +150,7 @@ public class OrderStatusService {
 
         orderMetrics.orderCancelled();
         log.info("Order cancelled | orderId={} | reason={}", orderId, reason);
+        restoreStockForOrder(order);
         return response;
     }
 
@@ -354,5 +364,29 @@ public class OrderStatusService {
             throw new UnauthorizedException("Not a delivery agent account");
         }
         return user.getId();
+    }
+
+    /**
+     * Restores the reserved stock for a cancelled order. Placement decremented
+     * stock atomically; cancellation must restore it (both DB and the Redis
+     * reservation) or the stock silently leaks. Runs inside the same
+     * transaction as the cancellation — an atomic restore failure rolls back
+     * the cancellation itself.
+     */
+    private void restoreStockForOrder(Order order) {
+        if (order.getOrderItems() == null) {
+            return;
+        }
+        for (OrderItem orderItem : order.getOrderItems()) {
+            MenuItem menuItem = orderItem.getMenuItem();
+            if (menuItem == null || menuItem.getId() == null || menuItem.getStockQuantity() == null) {
+                continue;
+            }
+            menuItemRepository.restoreStockAtomic(menuItem.getId(), orderItem.getQuantity());
+            // The bulk UPDATE bypasses the persistence context; re-read so the
+            // Redis sync below pushes the post-restore value.
+            entityManager.refresh(menuItem);
+            stockReservationService.syncStock(menuItem);
+        }
     }
 }

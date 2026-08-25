@@ -47,6 +47,15 @@ public class AsyncConfig implements SchedulingConfigurer {
     @Value("${app.async.order.queue-capacity:200}")
     private int orderQueueCapacity;
 
+    @Value("${app.async.low.core-pool-size:2}")
+    private int lowCorePoolSize;
+
+    @Value("${app.async.low.max-pool-size:4}")
+    private int lowMaxPoolSize;
+
+    @Value("${app.async.low.queue-capacity:100}")
+    private int lowQueueCapacity;
+
     @Bean(name = "orderTaskExecutor")
     public Executor orderTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -54,6 +63,23 @@ public class AsyncConfig implements SchedulingConfigurer {
         executor.setMaxPoolSize(orderMaxPoolSize);
         executor.setQueueCapacity(orderQueueCapacity);
         executor.setThreadNamePrefix("order-async-");
+        executor.setTaskDecorator(new MdcTaskDecorator());
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * Low-priority tier for non-urgent fan-out work (notifications, analytics
+     * materialization, cache warming) so it never starves the order-placement
+     * path. Uses the {@code app.async.low.*} configuration block.
+     */
+    @Bean(name = "lowPriorityTaskExecutor")
+    public Executor lowPriorityTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(lowCorePoolSize);
+        executor.setMaxPoolSize(lowMaxPoolSize);
+        executor.setQueueCapacity(lowQueueCapacity);
+        executor.setThreadNamePrefix("low-priority-async-");
         executor.setTaskDecorator(new MdcTaskDecorator());
         executor.initialize();
         return executor;

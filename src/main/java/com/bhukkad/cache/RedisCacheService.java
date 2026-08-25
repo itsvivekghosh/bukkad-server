@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -23,19 +25,39 @@ public class RedisCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisCacheService.class);
     private static final String LOCK_PREFIX = "cache-lock:";
-    private static final int LOCK_WAIT_RETRIES = 8;
-    private static final long LOCK_WAIT_BASE_MS = 50L;
+    private static final int LOCK_WAIT_RETRIES = 3;
+    private static final long LOCK_WAIT_BASE_MS = 20L;
+    private static final long LOCK_TTL_SECONDS = 10L;
+
+    /**
+     * Atomically releases the lock only if we still own it. The lock value is a
+     * per-acquisition UUID token stored via {@link StringRedisTemplate} (raw
+     * bytes), so the Lua {@code GET} comparison against {@code ARGV[1]} is exact.
+     * Releasing with a stale token (because the lock expired and another thread
+     * re-acquired it) is a no-op, which prevents the "lock theft" race where a
+     * slow {@code finally} deletes a lock that no longer belongs to it.
+     */
+    private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('GET', KEYS[1]) == ARGV[1] then
+              return redis.call('DEL', KEYS[1])
+            else
+              return 0
+            end
+            """, Long.class);
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final LocalCacheService localCacheService;
     private final DistributedCacheInvalidator distributedInvalidator;
 
     public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
+                             StringRedisTemplate stringRedisTemplate,
                              ObjectMapper objectMapper,
                              LocalCacheService localCacheService,
                              DistributedCacheInvalidator distributedInvalidator) {
         this.redisTemplate = redisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.localCacheService = localCacheService;
         this.distributedInvalidator = distributedInvalidator;
@@ -55,7 +77,8 @@ public class RedisCacheService {
         }
 
         String lockKey = LOCK_PREFIX + key;
-        if (tryAcquireLock(lockKey)) {
+        String lockToken = tryAcquireLock(lockKey);
+        if (lockToken != null) {
             try {
                 cached = get(key, type);
                 if (cached.isPresent()) {
@@ -68,7 +91,7 @@ public class RedisCacheService {
                 }
                 return value;
             } finally {
-                delete(lockKey);
+                releaseLock(lockKey, lockToken);
             }
         }
 
@@ -88,7 +111,8 @@ public class RedisCacheService {
         }
 
         String lockKey = LOCK_PREFIX + key;
-        if (tryAcquireLock(lockKey)) {
+        String lockToken = tryAcquireLock(lockKey);
+        if (lockToken != null) {
             try {
                 cached = getList(key, type);
                 if (cached.isPresent()) {
@@ -101,7 +125,7 @@ public class RedisCacheService {
                 }
                 return value != null ? value : List.of();
             } finally {
-                delete(lockKey);
+                releaseLock(lockKey, lockToken);
             }
         }
 
@@ -311,13 +335,35 @@ public class RedisCacheService {
 
     // ==================== HELPERS ====================
 
-    private boolean tryAcquireLock(String lockKey) {
+    /**
+     * Attempts to acquire the single-flight lock for {@code lockKey}. Returns
+     * the unique ownership token on success, or {@code null} when the lock is
+     * held by another thread or Redis is unavailable (the caller then falls
+     * through to {@link #waitForValue}).
+     */
+    private String tryAcquireLock(String lockKey) {
         try {
-            return Boolean.TRUE.equals(redisTemplate.opsForValue()
-                    .setIfAbsent(buildKey(lockKey), "1", Duration.ofSeconds(10)));
+            String token = UUID.randomUUID().toString();
+            Boolean acquired = stringRedisTemplate.opsForValue()
+                    .setIfAbsent(buildKey(lockKey), token, Duration.ofSeconds(LOCK_TTL_SECONDS));
+            return Boolean.TRUE.equals(acquired) ? token : null;
         } catch (Exception e) {
             log.warn("CACHE_LOCK_FAILED key={} error={}", lockKey, e.getMessage());
-            return false;
+            return null;
+        }
+    }
+
+    /**
+     * Releases the single-flight lock only if {@code token} still owns it (see
+     * {@link #RELEASE_LOCK_SCRIPT}). A stale token — the lock expired while the
+     * supplier was running and another thread re-acquired it — is a no-op, so a
+     * slow {@code finally} can never delete another thread's lock.
+     */
+    private void releaseLock(String lockKey, String token) {
+        try {
+            stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(buildKey(lockKey)), token);
+        } catch (Exception e) {
+            log.warn("CACHE_UNLOCK_FAILED key={} error={}", lockKey, e.getMessage());
         }
     }
 

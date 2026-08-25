@@ -57,7 +57,6 @@ public class PaymentServiceImpl implements PaymentService {
     private final com.bhukkad.payment.DunningService dunningService;
 
     @Override
-    @Transactional
     public Payment createPayment(Long orderId, String paymentMethod, String idempotencyKey) {
         if (StringUtils.hasText(idempotencyKey)) {
             var cached = paymentRepository.findByIdempotencyKey(idempotencyKey);
@@ -84,24 +83,21 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setStatus(Payment.PaymentStatus.PENDING);
         payment.setIdempotencyKey(idempotencyKey);
 
-        if (requiresGateway(payment.getPaymentMethod()) && gatewayAmount > 0) {
-            PaymentGateway.GatewayOrderResult gatewayOrder = paymentGateway.createOrder(
-                    PaymentGateway.GatewayOrderRequest.builder()
-                            .amount(gatewayAmount)
-                            .currency(paymentProperties.getRazorpay().getCurrency())
-                            .receipt(order.getOrderNumber())
-                            .idempotencyKey(idempotencyKey)
-                            .build());
-            payment.setGatewayOrderId(gatewayOrder.gatewayOrderId());
-            payment.setPaymentGatewayResponse(gatewayOrder.rawResponse());
-        }
+        // Gateway order (payment intent) is created lazily inside
+        // GatewayPaymentStrategy#process, which runs outside any DB transaction.
+        // This keeps the order-persistence transaction short and avoids holding
+        // a JDBC connection during the external gateway API call.
 
         return paymentRepository.save(payment);
     }
 
     @Override
-    @Transactional
     public Payment processPayment(Long paymentId, String idempotencyKey) {
+        // Deliberately NOT @Transactional: the gateway strategy performs external
+        // network I/O (create order + capture). Running that I/O inside a DB
+        // transaction would hold a JDBC connection for the gateway round-trip and
+        // exhaust the pool under load. Each DB write below runs in its own short
+        // transaction; the idempotency guard prevents duplicate processing.
         if (StringUtils.hasText(idempotencyKey)) {
             var cached = paymentIdempotencyService.findCompletedPayment(idempotencyKey);
             if (cached.isPresent()) {
@@ -201,7 +197,10 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public void refundPayment(Long paymentId) {
-        Payment payment = paymentRepository.findById(paymentId)
+        // Pessimistic row lock serialises concurrent refund requests: the second
+        // caller blocks until the first commits, then sees REFUNDED and returns.
+        // This prevents a double gateway refund under concurrent invocations.
+        Payment payment = paymentRepository.findByIdWithLock(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
         if (payment.getStatus() == Payment.PaymentStatus.REFUNDED) {

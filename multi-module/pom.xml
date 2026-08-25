@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        Phase 3 multi-module target architecture.
+
+        The monolith (../pom.xml, bhukkad-delivery-system) remains the default
+        runnable artifact for Nightly Regression until every module below is
+        proven. This aggregator builds the extracted services in-place:
+
+          mvn -f multi-module/pom.xml test          # build + test all modules
+          mvn -f multi-module/pom.xml -pl order-service -am package
+
+        Module → domain mapping:
+          bukkad-common       shared DTOs, security utils, outbox/saga clients, metrics
+          order-service       order, cart, group-order, subscription, gift
+          payment-service     payment, wallet, refund, dunning, settlement, GST invoice
+          restaurant-service  restaurant, menu, menu-version, kitchen/KDS, bulk upload
+          customer-service    customer, auth, address, referral, loyalty, membership
+          delivery-service    rider, batch, route optimization, delivery proof, geofence
+          admin-service       admin dashboards, analytics, fraud, compliance, exports
+          gateway             Spring Cloud Gateway OR /mobile/feed BFF + central JWT auth
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.bhukkad</groupId>
+    <artifactId>bhukkad-services</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Bhukkad Multi-Service (Phase 3)</name>
+
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+    </properties>
+
+    <modules>
+        <module>bukkad-common</module>
+        <module>order-service</module>
+        <module>notification-service</module>
+        <!-- Extend with the remaining services as each is extracted (see
+             docs/migration-runbook.md for the extraction order). -->
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.bhukkad</groupId>
+                <artifactId>bukkad-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

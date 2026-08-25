@@ -19,7 +19,9 @@ import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -85,6 +87,23 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
+    }
+
+    /**
+     * Spring MVC 6.1 throws NoResourceFoundException when a request path does
+     * not match any controller mapping (it falls through to static-resource
+     * resolution). Without this handler it surfaces as a 500; it must be a
+     * 404 so unknown URLs and typos (e.g. a wrong toggle endpoint) fail
+     * predictably instead of tripping the unexpected-error path.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(
+            NoResourceFoundException ex, WebRequest request) {
+        log.warn("NoResourceFound | {} | traceId={} | requestId={}",
+                ex.getResourcePath(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("No such endpoint: " + ex.getResourcePath()));
     }
 
     @ExceptionHandler(BusinessException.class)
@@ -200,6 +219,16 @@ public class GlobalExceptionHandler {
                 .body(buildError("Missing required parameter: " + ex.getParameterName()));
     }
 
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingHeader(
+            MissingRequestHeaderException ex, WebRequest request) {
+        log.warn("MissingHeader | {} | traceId={} | requestId={}",
+                ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(buildError("Missing required header: " + ex.getHeaderName()));
+    }
+
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(
             MethodArgumentTypeMismatchException ex, WebRequest request) {
@@ -221,6 +250,7 @@ public class GlobalExceptionHandler {
         } else {
             log.error("Exception message: {}", ex.getMessage());
         }
+        log.error("RuntimeException stack trace", ex);
         alertService.alertException("GlobalExceptionHandler", ex.getMessage(), ex);
         return new ResponseEntity<>(buildError("An unexpected error occurred. Please try again later."),
                 HttpStatus.INTERNAL_SERVER_ERROR);

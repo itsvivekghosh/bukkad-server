@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Slf4j
 @Component
@@ -42,6 +43,38 @@ public class OrderEventPublisher {
         outboxEventService.enqueue("ORDER_CREATED", order.getId(), event);
         log.debug("ORDER_CREATED_OUTBOX | orderId={} | restaurantId={}",
                 order.getId(), order.getRestaurant().getId());
+    }
+
+    /**
+     * Publishes a denormalized snapshot of the order's items so downstream
+     * ANALYTICS consumers (trending dishes) can materialize their own tables
+     * without joining the ORDER and RESTAURANT/MENU schemas.
+     */
+    public void publishItemsSnapshot(Order order) {
+        if (order == null || order.getId() == null || order.getOrderItems() == null) {
+            log.warn("Order items snapshot skipped | orderId={}", order != null ? order.getId() : null);
+            return;
+        }
+        List<OrderItemsSnapshotEvent.Item> items = order.getOrderItems().stream()
+                .filter(oi -> oi.getMenuItem() != null)
+                .map(oi -> new OrderItemsSnapshotEvent.Item(
+                        oi.getMenuItem().getId(),
+                        oi.getMenuItem().getName(),
+                        oi.getQuantity()))
+                .toList();
+        if (items.isEmpty()) {
+            log.debug("Order items snapshot skipped (no items) | orderId={}", order.getId());
+            return;
+        }
+        OrderItemsSnapshotEvent event = new OrderItemsSnapshotEvent(
+                order.getId(),
+                order.getOrderNumber(),
+                order.getRestaurant() != null ? order.getRestaurant().getId() : null,
+                items,
+                LocalDateTime.now()
+        );
+        outboxEventService.enqueue("ORDER_ITEMS_SNAPSHOT", order.getId(), event);
+        log.debug("ORDER_ITEMS_SNAPSHOT_OUTBOX | orderId={} | items={}", order.getId(), items.size());
     }
 
     public void publishAgentAssigned(Order order) {

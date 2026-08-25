@@ -1,5 +1,6 @@
 package com.bhukkad.cache;
 
+import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.dto.response.MembershipPlanResponse;
 import com.bhukkad.dto.response.PromoBannerResponse;
 import com.bhukkad.dto.response.PromotionCampaignResponse;
@@ -32,6 +33,7 @@ import java.util.function.Supplier;
  */
 @Service
 @RequiredArgsConstructor
+@UseReadReplica
 public class HomeFeedCacheService {
 
     private final RedisCacheService cacheService;

@@ -1,6 +1,5 @@
 package com.bhukkad.live;
 
-import com.bhukkad.dto.response.OrderLiveUpdate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.geo.Point;
@@ -17,10 +16,13 @@ import java.util.UUID;
  * issues short-lived anonymous tracking tokens.
  *
  * <p>Positions are stored in a Redis GEO set (keyed by rider) so any
- * application instance can read the latest fix, and each update is pushed to
- * the customer's SSE stream as a {@code RIDER_LOCATION} event. Tracking tokens
- * are random, TTL-bound, and validated against the order id so a guest without
- * an account can follow delivery without any auth header.</p>
+ * application instance can read the latest fix, and each update is pushed
+ * through the Redis live-update relay ({@link OrderLiveUpdateBroadcaster}) so
+ * every replica delivers the {@code RIDER_LOCATION} event to its connected SSE
+ * clients — a rider pinging one instance is visible to customers connected to
+ * any other instance. Tracking tokens are random, TTL-bound, and validated
+ * against the order id so a guest without an account can follow delivery
+ * without any auth header.</p>
  */
 @Slf4j
 @Service
@@ -32,7 +34,7 @@ public class RiderLocationTrackingService {
     private static final Duration TOKEN_TTL = Duration.ofHours(24);
 
     private final StringRedisTemplate stringRedisTemplate;
-    private final OrderSseStreamService sseStreamService;
+    private final OrderLiveUpdateBroadcaster orderLiveUpdateBroadcaster;
 
     /**
      * Records a rider GPS fix and broadcasts it to the order's customer stream.
@@ -61,20 +63,11 @@ public class RiderLocationTrackingService {
             log.warn("Redis GEO store failed | agentId={} | error={}", agentId, ex.getMessage());
         }
 
-        sseStreamService.broadcastCustomer(orderId, OrderLiveUpdate.builder()
-                .eventType(OrderLiveUpdate.EventType.RIDER_LOCATION)
-                .eventId(System.currentTimeMillis())
-                .orderId(orderId)
-                .orderNumber(orderNumber)
-                .customerId(customerId)
-                .restaurantId(restaurantId)
-                .deliveryAgentId(agentId)
-                .changedAt(LocalDateTime.now())
-                .liveEtaMinutes(liveEtaMinutes)
-                .liveEtaAt(liveEtaAt)
-                .latitude(latitude)
-                .longitude(longitude)
-                .build());
+        // Publish through the Redis relay (cluster-safe: reaches SSE clients on
+        // every replica), carrying the live ETA and order number for the map UI.
+        orderLiveUpdateBroadcaster.broadcastRiderLocation(
+                orderId, customerId, restaurantId, agentId, latitude, longitude,
+                orderNumber, liveEtaMinutes, liveEtaAt);
     }
 
     /**

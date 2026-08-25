@@ -43,11 +43,12 @@ import com.bhukkad.util.Constants;
 import com.bhukkad.util.DateTimeUtils;
 import com.bhukkad.util.PriceCalculator;
 import com.bhukkad.wallet.WalletService;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -95,12 +96,18 @@ public class OrderPlacementService {
     private final StockReservationService stockReservationService;
     private final OrderTimelineService orderTimelineService;
     private final RestaurantBusyService restaurantBusyService;
+    private final EntityManager entityManager;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * Creates a single order, replaying the cached response when the caller
      * supplies an idempotency key that has already completed successfully.
+     *
+     * <p>The order (with its PENDING payment row) is persisted in a short
+     * transaction; for gateway payment methods the money capture is executed
+     * <em>after</em> that transaction commits, so no JDBC connection is held
+     * open during the external gateway round-trip.
      */
-    @Transactional
     public OrderResponse createOrder(OrderRequest request, String idempotencyKey) {
         if (StringUtils.hasText(idempotencyKey)) {
             var cached = orderIdempotencyService.findCompletedResponse(idempotencyKey);
@@ -115,7 +122,26 @@ public class OrderPlacementService {
         }
 
         try {
-            return doCreateOrder(request, idempotencyKey, customerId);
+            OrderPlacementResult result = transactionTemplate.execute(status ->
+                    doCreateOrder(request, idempotencyKey, customerId));
+            if (result != null && result.needsGatewayProcessing()) {
+                try {
+                    Payment processed = paymentService.processPayment(
+                            result.payment().getId(), result.paymentIdempotencyKey());
+                    result.order().setPayment(processed);
+                    OrderResponse response = orderMapper.toResponse(result.order());
+                    orderIdempotencyService.completeOrderCreate(idempotencyKey, response);
+                    return response;
+                } catch (RuntimeException ex) {
+                    // Gateway capture failed after the order committed and no
+                    // money moved. Compensate so the order is not sent to the
+                    // kitchen with an uncollectable payment.
+                    compensateFailedPaymentOrder(result, customerId);
+                    throw ex;
+                }
+            }
+            orderIdempotencyService.completeOrderCreate(idempotencyKey, result != null ? result.response() : null);
+            return result != null ? result.response() : null;
         } catch (RuntimeException ex) {
             orderIdempotencyService.failOrderCreate(idempotencyKey);
             throw ex;
@@ -127,7 +153,6 @@ public class OrderPlacementService {
      * is placed independently; failures in one group do not roll back the others
      * and are reported in the batch response.
      */
-    @Transactional
     public BatchOrderResponse createBatchOrders(BatchOrderRequest request, String idempotencyKey) {
         Long customerId = securityUtils.getCurrentUserId();
         Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
@@ -168,8 +193,21 @@ public class OrderPlacementService {
             orderRequest.setTipAmount(groupTip);
 
             try {
-                OrderResponse response = doCreateOrder(orderRequest, null, customerId);
-                orders.add(response);
+                OrderPlacementResult result = transactionTemplate.execute(status ->
+                        doCreateOrder(orderRequest, null, customerId));
+                if (result != null && result.needsGatewayProcessing()) {
+                    try {
+                        Payment processed = paymentService.processPayment(
+                                result.payment().getId(), result.paymentIdempotencyKey());
+                        result.order().setPayment(processed);
+                        orders.add(orderMapper.toResponse(result.order()));
+                    } catch (RuntimeException ex) {
+                        compensateFailedPaymentOrder(result, customerId);
+                        throw ex;
+                    }
+                } else if (result != null) {
+                    orders.add(result.response());
+                }
                 successCount++;
             } catch (RuntimeException ex) {
                 log.warn("Batch order sub-order failed | customerId={} | restaurantId={} | error={}",
@@ -193,9 +231,13 @@ public class OrderPlacementService {
     /**
      * Core single-order creation. Validates the request, computes pricing,
      * persists the order, applies wallet/loyalty/coupon effects, creates the
-     * payment, and clears the consumed cart items.
+     * payment (PENDING, no gateway call), and clears the consumed cart items.
+     *
+     * <p>Gateway payment processing is deferred to the caller ({@link #createOrder}
+     * or {@link #createBatchOrders}) so that the external gateway I/O runs
+     * outside the database transaction.
      */
-    private OrderResponse doCreateOrder(OrderRequest request, String idempotencyKey, Long customerId) {
+    private OrderPlacementResult doCreateOrder(OrderRequest request, String idempotencyKey, Long customerId) {
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
 
@@ -310,28 +352,29 @@ public class OrderPlacementService {
                 couponService.recordCouponUsage(pricing.appliedCoupon(), customerId, order.getId());
             }
 
+            // Persist the PENDING payment row (no gateway call — the gateway
+            // order is created lazily by GatewayPaymentStrategy#process which
+            // runs after the DB transaction commits).
             String paymentMethod = normalizePaymentMethod(request.getPaymentMethod());
             String paymentIdempotencyKey = StringUtils.hasText(idempotencyKey)
                     ? "payment:" + idempotencyKey
                     : null;
             Payment payment = paymentService.createPayment(order.getId(), paymentMethod, paymentIdempotencyKey);
-            if (payment.getPaymentMethod() != Payment.PaymentMethod.CASH_ON_DELIVERY) {
-                payment = paymentService.processPayment(payment.getId(), paymentIdempotencyKey);
-            }
             order.setPayment(payment);
 
             clearCartItemsForRestaurant(cart, restaurant.getId());
 
             orderCacheService.invalidateOrder(order.getId(), customerId, restaurant.getId());
             orderEventPublisher.publishCreated(order);
+            orderEventPublisher.publishItemsSnapshot(order);
             orderMetrics.orderCreated();
             businessMetrics.checkout();
             businessMetrics.payment();
             log.info("Order created | orderId={} | customerId={} | total={}",
                     order.getId(), customerId, order.getTotalAmount());
             OrderResponse response = orderMapper.toResponse(order);
-            orderIdempotencyService.completeOrderCreate(idempotencyKey, response);
-            return response;
+
+            return new OrderPlacementResult(order, payment, response, paymentIdempotencyKey, cartItems);
         } catch (RuntimeException ex) {
             if (stockReserved) {
                 stockReservationService.releaseStock(cartItems);
@@ -373,25 +416,27 @@ public class OrderPlacementService {
     }
 
     private void decrementStock(List<CartItem> cartItems) {
-        List<MenuItem> toSave = new ArrayList<>();
         for (CartItem cartItem : cartItems) {
             MenuItem menuItem = cartItem.getMenuItem();
             if (menuItem.getStockQuantity() == null) {
                 continue;
             }
-            int remaining = menuItem.getStockQuantity() - cartItem.getQuantity();
-            if (remaining < 0) {
+            // Single atomic UPDATE guarded by `stock_quantity >= quantity` at the
+            // database. The row lock acquired by the UPDATE serialises concurrent
+            // checkouts, so two requests reading stock=10 and both persisting 9
+            // (the old read-modify-write oversell) can no longer happen.
+            int updated = menuItemRepository.decrementStockAtomic(
+                    menuItem.getId(), cartItem.getQuantity());
+            if (updated == 0) {
                 throw new BusinessException("Insufficient stock for: " + menuItem.getName());
             }
-            menuItem.setStockQuantity(remaining);
-            if (remaining == 0) {
+            // The bulk UPDATE bypasses the persistence context; re-read the row so
+            // the managed entity (and the Redis stock sync below) sees the
+            // post-decrement value instead of a stale snapshot.
+            entityManager.refresh(menuItem);
+            if (menuItem.getStockQuantity() != null && menuItem.getStockQuantity() <= 0) {
                 menuItem.setAvailable(false);
             }
-            toSave.add(menuItem);
-        }
-        // Single batched flush instead of one save() per menu item
-        if (!toSave.isEmpty()) {
-            menuItemRepository.saveAll(toSave);
         }
     }
 
@@ -446,6 +491,52 @@ public class OrderPlacementService {
             return normalized;
         } catch (IllegalArgumentException ex) {
             throw new BusinessException("Invalid payment method: " + paymentMethod);
+        }
+    }
+
+    /**
+     * Compensation for an order whose gateway payment failed <em>after</em> the
+     * order transaction committed. The order is cancelled and the reserved stock
+     * is restored so the failed order is never sent to the kitchen and stock is
+     * not leaked. Best-effort: a failure here is logged and surfaced via the
+     * payment's FAILED status / dunning loop rather than masking the original
+     * payment error.
+     */
+    private void compensateFailedPaymentOrder(OrderPlacementResult result, Long customerId) {
+        try {
+            Order order = result.order();
+            order.setStatus(Order.OrderStatus.CANCELLED);
+            order.setCancellationReason("Payment failed");
+            orderRepository.save(order);
+            orderCacheService.invalidateOrder(
+                    order.getId(), customerId,
+                    order.getRestaurant() != null ? order.getRestaurant().getId() : null);
+            for (CartItem cartItem : result.cartItems()) {
+                MenuItem menuItem = cartItem.getMenuItem();
+                if (menuItem.getStockQuantity() == null) {
+                    continue;
+                }
+                menuItemRepository.restoreStockAtomic(menuItem.getId(), cartItem.getQuantity());
+                entityManager.refresh(menuItem);
+                stockReservationService.syncStock(menuItem);
+            }
+            log.info("Order cancelled as payment-failure compensation | orderId={}", order.getId());
+        } catch (Exception ex) {
+            log.warn("Payment-failure compensation failed | orderId={} | error={}",
+                    result.order().getId(), ex.getMessage());
+        }
+    }
+
+    /**
+     * Result of {@link #doCreateOrder}: the persisted order, the PENDING payment
+     * row, the response built inside the transaction, and the idempotency key to
+     * use for the deferred gateway processing.
+     */
+    private record OrderPlacementResult(Order order, Payment payment, OrderResponse response,
+                                        String paymentIdempotencyKey, List<CartItem> cartItems) {
+
+        boolean needsGatewayProcessing() {
+            return payment.getPaymentMethod() != Payment.PaymentMethod.CASH_ON_DELIVERY;
         }
     }
 }

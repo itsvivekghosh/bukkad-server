@@ -88,7 +88,7 @@ public class OrderLiveStreamController {
      * valid tracking token for the order is supplied; the security chain allows
      * this path through without a CUSTOMER role.
      */
-    @GetMapping(value = "/customer-token/{orderId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/customer-token/{orderId}", produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
     @RateLimited("order-track")
     public SseEmitter streamCustomerOrderByToken(
             @PathVariable Long orderId,

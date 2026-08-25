@@ -79,6 +79,14 @@ public class MenuImageService {
             return storedValue;
         }
 
+        // CloudFront CDN in front of S3: serve the object directly from the
+        // distribution instead of issuing a presigned S3 URL. HTTP/2 + gzip are
+        // enabled at the distribution, offloading menu-image traffic from the API.
+        ImageStorageProperties.CloudFront cloudfront = properties.getCloudfront();
+        if (cloudfront.isConfigured()) {
+            return "https://" + cloudfront.getDomain() + "/" + storedValue;
+        }
+
         if (s3Presigner == null) {
             return storedValue;
         }

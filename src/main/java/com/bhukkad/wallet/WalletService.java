@@ -24,6 +24,7 @@ public class WalletService {
         if (amount <= 0) {
             throw new BusinessException("Credit amount must be positive");
         }
+        lockCustomerRow(customer);
         double newBalance = PriceCalculator.roundToTwoDecimals(customer.getWalletBalance() + amount);
         customer.setWalletBalance(newBalance);
         customerRepository.save(customer);
@@ -36,6 +37,7 @@ public class WalletService {
         if (amount <= 0) {
             throw new BusinessException("Debit amount must be positive");
         }
+        lockCustomerRow(customer);
         if (customer.getWalletBalance() < amount) {
             throw new BusinessException("Insufficient wallet balance");
         }
@@ -43,6 +45,21 @@ public class WalletService {
         customer.setWalletBalance(newBalance);
         customerRepository.save(customer);
         recordTransaction(customer, payment, type, -amount, newBalance, description);
+    }
+
+    /**
+     * Re-reads the customer row with a pessimistic write lock so concurrent
+     * debits/credits on the same account are serialised at the database. The
+     * returned instance is the same persistence-context entity (identity map),
+     * so the caller's balance read-modify-write becomes race-free. Requires the
+     * customer to already be persisted (id present).
+     */
+    private void lockCustomerRow(Customer customer) {
+        if (customer == null || customer.getId() == null) {
+            return;
+        }
+        customerRepository.findByIdWithLock(customer.getId())
+                .orElseThrow(() -> new BusinessException("Customer not found"));
     }
 
     private void recordTransaction(Customer customer, Payment payment, WalletTransaction.TransactionType type,

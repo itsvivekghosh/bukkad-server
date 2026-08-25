@@ -7,9 +7,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,8 +26,16 @@ public class AlertService {
     private final AlertingProperties alertingProperties;
     private final ObjectMapper objectMapper;
     private final WebhookAlertNotifier webhookAlertNotifier;
+    private final StringRedisTemplate stringRedisTemplate;
 
-    private final ConcurrentHashMap<String, Long> recentAlerts = new ConcurrentHashMap<>();
+    /** Redis key prefix for alert dedup claims. */
+    static final String DEDUP_PREFIX = "bhukkad:alert:dedup:";
+
+    /**
+     * Local dedup map as a fallback when Redis is unreachable. Written through
+     * on every successful cluster-wide dedup; Redis is the source of truth.
+     */
+    private final ConcurrentHashMap<String, Long> localDedup = new ConcurrentHashMap<>();
 
     public void alert(AlertSeverity severity, AlertCategory category, String message) {
         alert(severity, category, message, Map.of());
@@ -109,13 +119,33 @@ public class AlertService {
         alert(AlertSeverity.CRITICAL, AlertCategory.EXCEPTION, message, context);
     }
 
+    /**
+     * Cluster-wide dedup via Redis SETNX. Falls back to the local dedup map
+     * when Redis is unreachable.
+     */
     private boolean shouldFire(String key) {
         long now = System.currentTimeMillis();
         long windowMs = alertingProperties.getDedupWindowSeconds() * 1000L;
-        Long last = recentAlerts.put(key, now);
-        if (recentAlerts.size() > 2000) {
-            recentAlerts.entrySet().removeIf(entry -> now - entry.getValue() > windowMs);
+
+        try {
+            Boolean claimed = stringRedisTemplate.opsForValue()
+                    .setIfAbsent(redisKey(key), String.valueOf(now), Duration.ofMillis(windowMs));
+            boolean shouldFire = Boolean.TRUE.equals(claimed);
+            if (shouldFire) {
+                localDedup.put(key, now);
+            }
+            return shouldFire;
+        } catch (Exception ex) {
+            // Redis unavailable: fall back to local-only dedup.
+            Long last = localDedup.put(key, now);
+            if (localDedup.size() > 2000) {
+                localDedup.entrySet().removeIf(entry -> now - entry.getValue() > windowMs);
+            }
+            return last == null || now - last >= windowMs;
         }
-        return last == null || now - last >= windowMs;
+    }
+
+    private String redisKey(String key) {
+        return DEDUP_PREFIX + key;
     }
 }

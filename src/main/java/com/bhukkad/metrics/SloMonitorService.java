@@ -3,6 +3,7 @@ package com.bhukkad.metrics;
 import com.bhukkad.logging.alert.AlertCategory;
 import com.bhukkad.logging.alert.AlertSeverity;
 import com.bhukkad.logging.alert.AlertService;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.distribution.ValueAtPercentile;
@@ -17,6 +18,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Per-replica SLO monitor: tracks a rolling request/error window and fires
+ * latency and error-budget burn-rate alerts.
+ *
+ * <p>The window is intentionally per-instance so each replica evaluates its own
+ * SLO (the deployment scales horizontally); alert <i>deduplication</i> across
+ * replicas is handled by {@link AlertService}, which claims a Redis key before
+ * firing. Meter names match the producers in {@link EndpointSloMetrics}:
+ * {@code bhukkad.http.requests} (timer) and {@code bhukkad.http.errors}
+ * (counter).</p>
+ */
 @Slf4j
 @Service
 public class SloMonitorService {
@@ -38,11 +50,10 @@ public class SloMonitorService {
             return;
         }
         try {
-            List<Timer> timers = new java.util.ArrayList<>(registry.find("bhukkad.http.request").timers());
+            List<Timer> timers = new java.util.ArrayList<>(registry.find("bhukkad.http.requests").timers());
             long total = timers.stream().mapToLong(Timer::count).sum();
-            long errors = timers.stream()
-                    .filter(t -> "SERVER_ERROR".equals(t.getId().getTag("outcome")))
-                    .mapToLong(Timer::count).sum();
+            long errors = registry.find("bhukkad.http.errors").counters().stream()
+                    .mapToLong(counter -> (long) counter.count()).sum();
             double p95Ms = computeMaxP95Ms(timers);
             long now = System.currentTimeMillis();
 
@@ -98,12 +109,11 @@ public class SloMonitorService {
         }
     }
 
-    private static double computeMaxP95Ms(Collection<Timer> timers) {
+    /** @return the maximum p95 latency across all {@code bhukkad.http.requests} timers, in millis. */
+    static double computeMaxP95Ms(Collection<Timer> timers) {
         double max = 0.0;
         for (Timer t : timers) {
             try {
-                // Micrometer 1.12 exposes quantiles via percentileValues(); values
-                // are in the timer's base unit (seconds) unless converted.
                 double p95 = 0.0;
                 for (ValueAtPercentile vap : t.takeSnapshot().percentileValues()) {
                     if (vap.percentile() == 0.95) {

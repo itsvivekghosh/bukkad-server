@@ -75,7 +75,7 @@ public class RiderBatchDispatchService {
             batchOrderRepository.save(batchOrder);
         }
 
-        return toResponse(batch, batchOrders);
+        return toResponse(batch, batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batch.getId()), batchOrders);
     }
 
     /** Returns the agent's current active batch, if any. */
@@ -86,7 +86,7 @@ public class RiderBatchDispatchService {
                 .orElseThrow(() -> new ResourceNotFoundException("No active delivery batch"));
         List<RiderDeliveryBatchOrder> entries = batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batch.getId());
         List<Order> orders = fetchOrdersByIds(entries);
-        return toResponse(batch, orders);
+        return toResponse(batch, entries, orders);
     }
 
     /** Marks a batch as completed when all stops are delivered. */
@@ -94,12 +94,20 @@ public class RiderBatchDispatchService {
     public RiderBatchResponse completeBatch(Long batchId) {
         RiderDeliveryBatch batch = batchRepository.findById(batchId)
                 .orElseThrow(() -> new ResourceNotFoundException("Delivery batch not found"));
+
+        // Idempotent: completing an already-completed batch is a no-op, not an error.
+        if (batch.getStatus() == RiderDeliveryBatch.BatchStatus.COMPLETED) {
+            List<RiderDeliveryBatchOrder> done = batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batchId);
+            return toResponse(batch, done, fetchOrdersByIds(done));
+        }
+
         batch.setStatus(RiderDeliveryBatch.BatchStatus.COMPLETED);
         batch.setCompletedAt(LocalDateTime.now());
         batchRepository.save(batch);
+
         List<RiderDeliveryBatchOrder> entries = batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batchId);
         List<Order> orders = fetchOrdersByIds(entries);
-        return toResponse(batch, orders);
+        return toResponse(batch, entries, orders);
     }
 
     /**
@@ -143,7 +151,19 @@ public class RiderBatchDispatchService {
                 order.getRestaurant().getAddress().getLongitude());
     }
 
-    private RiderBatchResponse toResponse(RiderDeliveryBatch batch, List<Order> orders) {
+    /**
+     * Builds the response DTO. Sequence numbers come from the already-loaded
+     * batch entries (a map) rather than one repository query per order (N+1).
+     * The agent is guarded so an inconsistent/partially-created batch degrades
+     * to a clean error instead of a 500.
+     */
+    private RiderBatchResponse toResponse(RiderDeliveryBatch batch, List<RiderDeliveryBatchOrder> entries, List<Order> orders) {
+        if (batch.getAgent() == null) {
+            throw new BusinessException("Delivery batch is missing an assigned agent");
+        }
+        Map<Long, Integer> sequenceByOrderId = entries.stream()
+                .collect(Collectors.toMap(RiderDeliveryBatchOrder::getOrderId,
+                        RiderDeliveryBatchOrder::getSequenceNumber, (a, b) -> a));
         return RiderBatchResponse.builder()
                 .batchId(batch.getId())
                 .agentId(batch.getAgent().getId())
@@ -154,10 +174,7 @@ public class RiderBatchDispatchService {
                         .orderId(o.getId())
                         .orderNumber(o.getOrderNumber())
                         .status(o.getStatus().name())
-                        .sequenceNumber(batchOrderRepository.findByBatchIdOrderBySequenceNumberAsc(batch.getId()).stream()
-                                .filter(bo -> bo.getOrderId().equals(o.getId()))
-                                .map(RiderDeliveryBatchOrder::getSequenceNumber)
-                                .findFirst().orElse(0))
+                        .sequenceNumber(sequenceByOrderId.getOrDefault(o.getId(), 0))
                         .build()).toList())
                 .build();
     }

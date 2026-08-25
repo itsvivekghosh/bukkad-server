@@ -2,6 +2,7 @@ package com.bhukkad.repository;
 
 import com.bhukkad.entity.MenuItem;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -78,6 +79,36 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
                                             @Param("threshold") int threshold);
 
     int countByCategoryId(Long categoryId);
+
+    /**
+     * Atomically decrements stock by the given quantity, guarded by a
+     * {@code stock_quantity >= quantity} predicate evaluated by the database.
+     * The row lock acquired by the UPDATE serialises concurrent orders for the
+     * same item, so two simultaneous checkouts cannot oversell.
+     *
+     * @return number of rows updated (0 = insufficient stock or no stock tracking)
+     */
+    @Modifying
+    @Query("""
+            UPDATE MenuItem m
+            SET m.stockQuantity = m.stockQuantity - :quantity,
+                m.updatedAt = CURRENT_TIMESTAMP
+            WHERE m.id = :id AND m.stockQuantity IS NOT NULL AND m.stockQuantity >= :quantity
+            """)
+    int decrementStockAtomic(@Param("id") Long id, @Param("quantity") int quantity);
+
+    /**
+     * Atomically restores stock (increment) for a cancelled order. Used as
+     * part of the payment-failure compensation in {@code OrderPlacementService}.
+     */
+    @Modifying
+    @Query("""
+            UPDATE MenuItem m
+            SET m.stockQuantity = COALESCE(m.stockQuantity, 0) + :quantity,
+                m.updatedAt = CURRENT_TIMESTAMP
+            WHERE m.id = :id
+            """)
+    int restoreStockAtomic(@Param("id") Long id, @Param("quantity") int quantity);
 
     /**
      * Compact id/name pairs for all available menu items, used to build the

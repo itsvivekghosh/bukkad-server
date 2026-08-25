@@ -7,6 +7,12 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      service:
+        description: "Build only this service module (Phase 3 multi-module). Leave empty for the monolith build."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -33,7 +39,44 @@ jobs:
         run: chmod +x mvnw
 
       - name: Compile
-        run: ./mvnw -B compile -DskipTests
+        run: |
+          if [ -n "${{ inputs.service }}" ]; then
+            ./mvnw -B -f multi-module/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
+          else
+            ./mvnw -B compile -DskipTests
+          fi
+
+  # Phase 3: per-service build + test job, driven by the service matrix input.
+  service-test:
+    name: Service ${{ inputs.service || 'monolith' }} Tests
+    runs-on: ubuntu-latest
+    if: ${{ inputs.service != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Build and test service module
+        run: ./mvnw -B -f multi-module/pom.xml -pl ${{ inputs.service }} -am test
+
+      - name: Upload service test reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: service-${{ inputs.service }}-test-reports
+          path: multi-module/${{ inputs.service }}/target/surefire-reports/
+          retention-days: 14
 
   test:
     name: Test

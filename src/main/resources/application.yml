@@ -18,6 +18,20 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
+  # Write datasource connection pool. Size from MySQL max_connections ÷ expected
+  # pod count with headroom (e.g. 4-core pod × 10 replicas ≈ 100 connections).
+  # Gateway payment calls no longer hold connections here (payment processing
+  # runs outside the DB transaction), so the pool serves request concurrency
+  # rather than blocking on external I/O.
+  datasource:
+    hikari:
+      pool-name: BhukkadWritePool
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: ${DB_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}
+      max-lifetime: 1800000
+      validation-timeout: 5000
+
   # Redis Configuration
   data:
     redis:
@@ -202,12 +216,19 @@ app:
         commission-percent: 8.0
         description: "Best rate for top-performing restaurants"
   jwt:
-    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+    # HS512 signing requires >= 512 bits (64 bytes) of decoded key material.
+    # The fallback below is a development-only default; production MUST set
+    # JWT_SECRET to its own 64-byte (or longer) base64-encoded secret.
+    secret: ${JWT_SECRET:Wz6ZY4rjTh8TXTAsD25DB3+vPAnlJtL8iIms5CgJpWQqK6ZwXW6u+1PxMmNOj7N0akCSkweqlxighGqSKosZsA==}
     expiration: 86400000
     refresh-expiration: 604800000
     rotation:
       enabled: ${JWT_ROTATION_ENABLED:false}
       interval-ms: 86400000
+  api-key:
+    # Server-side pepper for HMAC-SHA256 API-key digests. Protects stored key
+    # hashes against offline attacks if the database is ever leaked.
+    pepper: ${API_KEY_PEPPER:zYHsmVfyqzrgU+RE/SXJ+Ep59FZMasTNccKToJT9yKpc6Ntk15gfWXCaPV3sGJr0Vw7X5uKeRIuaRUq4VKQECQ==}
   outbox:
     poll-interval-ms: 2000
     max-retries: 5
@@ -227,10 +248,19 @@ app:
       url: ${DB_REPLICA_URL:}
       username: ${DB_REPLICA_USERNAME:}
       password: ${DB_REPLICA_PASSWORD:}
+      # Multiple replicas for horizontal read scaling (additive to the single url above).
+      # When at least one replica is listed, the single url is ignored and read
+      # connections are round-robined across the list via ReadReplicaSelector.
+      # replicas:
+      #   - url: ${DB_REPLICA2_URL:}
+      #     username: ${DB_REPLICA2_USERNAME:}
+      #     password: ${DB_REPLICA2_PASSWORD:}
+      #   - url: ${DB_REPLICA3_URL:}
       hikari:
         pool-name: BhukkadReadReplicaPool
-        maximum-pool-size: 10
-        minimum-idle: 2
+        # Pool size formula: cores × 2 + 2. For a 4-core replica → 10.
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:10}
+        minimum-idle: ${DB_REPLICA_MIN_IDLE:2}
         read-only: true
 
   rate-limit:
@@ -388,6 +418,13 @@ app:
     retention-days: 90
     # How often the retention sweep runs (ms).
     retention-cleanup-ms: ${COMPLIANCE_RETENTION_CLEANUP_MS:86400000}
+
+  # Old-order archival into the range-partitioned orders_archive table (Phase 2).
+  archival:
+    orders:
+      retention-days: ${ORDER_ARCHIVE_RETENTION_DAYS:365}
+      batch-size: ${ORDER_ARCHIVE_BATCH_SIZE:500}
+      interval-ms: ${ORDER_ARCHIVE_INTERVAL_MS:3600000}
 
   # Social login redirect target (frontend route that receives the JWT pair
   # from OAuth2LoginSuccessHandler).

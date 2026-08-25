@@ -163,6 +163,13 @@
 			<version>1.3.32</version>
 		</dependency>
 
+		<!-- BouncyCastle (Argon2id password hashing via Spring Security's Argon2PasswordEncoder) -->
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>1.78.1</version>
+		</dependency>
+
 		<!-- MapStruct -->
 		<dependency>
 			<groupId>org.mapstruct</groupId>
@@ -492,6 +499,7 @@
 						<!-- jacoco matches excludes against class file paths incl. .class, and
 						     inner classes use $ suffixes, so patterns must cover both -->
 						<exclude>com/bhukkad/config/*Properties*</exclude>
+						<exclude>com/bhukkad/compliance/OrderArchiveProperties*</exclude>
 						<exclude>com/bhukkad/config/RestTemplateConfig.class</exclude>
 						<exclude>com/bhukkad/util/NotificationHelper.class</exclude>
 						<exclude>com/bhukkad/BackendServerApplication.class</exclude>

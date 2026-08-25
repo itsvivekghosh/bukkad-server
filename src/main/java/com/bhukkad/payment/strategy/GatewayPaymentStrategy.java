@@ -6,7 +6,6 @@ import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -18,7 +17,6 @@ public class GatewayPaymentStrategy implements PaymentStrategy {
     private final PaymentProperties paymentProperties;
 
     @Override
-    @Transactional
     public Payment process(PaymentContext context) {
         Payment payment = context.payment();
         Order order = context.order();

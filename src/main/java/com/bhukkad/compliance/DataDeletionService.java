@@ -5,6 +5,7 @@ import com.bhukkad.entity.Address;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.AddressRepository;
+import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.UserRepository;
 import com.bhukkad.security.AuthTokenService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class DataDeletionService {
 
     private final UserRepository userRepository;
     private final AddressRepository addressRepository;
+    private final OrderRepository orderRepository;
     private final AuthTokenService authTokenService;
     private final ConsentService consentService;
     private final AuditService auditService;
@@ -53,8 +55,17 @@ public class DataDeletionService {
         int removedAddresses = 0;
         if (!isAnonymized(user)) {
             List<Address> addresses = addressRepository.findByCustomerId(userId);
-            addressRepository.deleteAll(addresses);
-            removedAddresses = addresses.size();
+            for (Address address : addresses) {
+                if (orderRepository.countByDeliveryAddressId(address.getId()) > 0) {
+                    // Orders FK-reference the address (delivery_address_id is NOT
+                    // NULL), so the row must stay for financial-record integrity.
+                    // Clear every PII-bearing field instead of deleting.
+                    anonymizeAddress(address);
+                } else {
+                    addressRepository.delete(address);
+                }
+                removedAddresses++;
+            }
 
             // Unique-constraint-safe placeholders derived from the immutable id.
             user.setEmail("deleted-" + userId + ANONYMIZED_EMAIL_DOMAIN);
@@ -75,6 +86,25 @@ public class DataDeletionService {
 
         log.info("USER_DATA_ANONYMIZED | userId={} | addressesRemoved={}", userId, removedAddresses);
         return removedAddresses;
+    }
+
+    /**
+     * Clears the PII-bearing fields of an address whose row must be retained
+     * because retained orders reference it. NOT NULL columns receive neutral
+     * placeholders instead of nulls.
+     */
+    private void anonymizeAddress(Address address) {
+        address.setAddressLine1("deleted");
+        address.setAddressLine2(null);
+        address.setCity("deleted");
+        address.setState("deleted");
+        address.setPincode("000000");
+        address.setLandmark(null);
+        address.setLabel(null);
+        address.setLatitude(0.0);
+        address.setLongitude(0.0);
+        address.setIsDefault(false);
+        addressRepository.save(address);
     }
 
     /**
