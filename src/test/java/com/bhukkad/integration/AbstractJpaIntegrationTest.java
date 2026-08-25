@@ -56,9 +56,15 @@ public abstract class AbstractJpaIntegrationTest {
         // V54 (per-domain schemas) requires server-level CREATE. Grant it as
         // MySQL root so a fresh container behaves like production, where
         // operators pre-provision these privileges for the application user.
+        // NOTE: pass the SQL inside bash -c with double quotes so the shell
+        // neither glob-expands `*.*` nor splits on `;`.
         try {
-            MYSQL.execInContainer("mysql", "-uroot", "-proot", "-e",
-                    "GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;");
+            org.testcontainers.containers.Container.ExecResult result = MYSQL.execInContainer(
+                    "bash", "-c",
+                    "mysql -uroot -proot -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
+            if (result.getExitCode() != 0) {
+                throw new IllegalStateException("GRANT failed: " + result.getStdout() + result.getStderr());
+            }
         } catch (Exception e) {
             throw new IllegalStateException("Failed to grant privileges to test MySQL user", e);
         }
