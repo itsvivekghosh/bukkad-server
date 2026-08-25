@@ -164,13 +164,12 @@
 		</dependency>
 
 		<!-- BouncyCastle (Argon2id password hashing via Spring Security's Argon2PasswordEncoder).
-		     1.81.1 fixes GHSA-j7hp-h8j5-r4q8 (LDAP injection, <1.80) and the GOST
-		     28147 CTR keystream-reuse advisory that Dependency Review flags at
-		     critical/moderate severity on 1.78.1. -->
+		     1.85.2 fixes GHSA-c3fc-8qff-9hwx (LDAP injection, patched in 1.84) and the
+		     GOST 28147 CTR keystream-reuse advisory flagged on earlier versions. -->
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-jdk18on</artifactId>
-			<version>1.81.1</version>
+			<version>1.85.2</version>
 		</dependency>
 
 		<!-- MapStruct -->
