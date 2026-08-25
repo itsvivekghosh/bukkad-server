@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.Cursor;
@@ -52,7 +51,6 @@ class RedisCacheServiceTest {
     @Mock
     private HashOperations<String, Object, Object> hashOps;
 
-    @InjectMocks
     private RedisCacheService service;
 
     @BeforeEach
@@ -60,6 +58,11 @@ class RedisCacheServiceTest {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
         lenient().when(redisTemplate.opsForHash()).thenReturn(hashOps);
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOps);
+        // Constructed explicitly (not @InjectMocks): StringRedisTemplate is a
+        // subtype of RedisTemplate, which makes Mockito's constructor injection
+        // ambiguous about which mock goes into which parameter.
+        service = new RedisCacheService(
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator);
     }
 
     @Test
