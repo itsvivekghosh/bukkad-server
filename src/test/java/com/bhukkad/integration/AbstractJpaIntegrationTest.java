@@ -43,7 +43,8 @@ public abstract class AbstractJpaIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
             .withDatabaseName("bhukkad_test")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw");
+            .withPassword("bhukkad_test_pw")
+            .withRootPassword("root_test_pw");
 
     static {
         // Skip (abort) the whole class when Docker is unavailable instead of
@@ -62,7 +63,7 @@ public abstract class AbstractJpaIntegrationTest {
         try {
             org.testcontainers.containers.Container.ExecResult result = MYSQL.execInContainer(
                     "bash", "-c",
-                    "mysql -uroot -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
+                    "mysql -uroot -proot_test_pw -e \"GRANT ALL PRIVILEGES ON *.* TO 'bhukkad'@'%'; FLUSH PRIVILEGES;\"");
             if (result.getExitCode() != 0) {
                 throw new IllegalStateException("GRANT failed: " + result.getStdout() + result.getStderr());
             }
