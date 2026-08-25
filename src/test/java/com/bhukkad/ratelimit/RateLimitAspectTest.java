@@ -202,16 +202,31 @@ class RateLimitAspectTest {
     }
 
     static class SampleController {
-        public void trackOrder(Long orderId, int ignored) {}
+        // Intentionally empty: these methods are only invocation targets for
+        // the rate-limit aspect tests — the aspect matches on annotations and
+        // parameter shapes, never on method bodies.
+        public void trackOrder(Long orderId, int ignored) {
+            // no-op: aspect test target.
+        }
 
-        public void getKitchenQueue(Long restaurantId, int limit) {}
+        public void getKitchenQueue(Long restaurantId, int limit) {
+            // no-op: aspect test target.
+        }
 
-        public void login(LoginRequest request) {}
+        public void login(LoginRequest request) {
+            // no-op: aspect test target.
+        }
 
-        public void search(String keyword, int limit) {}
+        public void search(String keyword, int limit) {
+            // no-op: aspect test target.
+        }
 
-        public void addToCart(Long menuItemId, int quantity) {}
+        public void addToCart(Long menuItemId, int quantity) {
+            // no-op: aspect test target.
+        }
 
-        public void unnamedParams(Long a, Long b) {}
+        public void unnamedParams(Long a, Long b) {
+            // no-op: aspect test target.
+        }
     }
 }

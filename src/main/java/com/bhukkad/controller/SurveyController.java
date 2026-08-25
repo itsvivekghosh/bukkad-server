@@ -39,6 +39,8 @@ import java.util.Map;
 @Tag(name = "Survey", description = "Post-delivery satisfaction surveys and trending dishes")
 public class SurveyController {
 
+    private static final String COMMENT_FIELD = "comment";
+
     private final SurveyService surveyService;
     private final TrendingDishService trendingDishService;
     private final SecurityUtils securityUtils;
@@ -51,7 +53,7 @@ public class SurveyController {
         Integer ratingDelivery = asRating(body.get("ratingDelivery"));
         Integer ratingFood = asRating(body.get("ratingFood"));
         Integer ratingSpeed = asRating(body.get("ratingSpeed"));
-        String comment = body.get("comment") != null ? String.valueOf(body.get("comment")) : null;
+        String comment = body.get(COMMENT_FIELD) != null ? String.valueOf(body.get(COMMENT_FIELD)) : null;
 
         DeliverySurvey survey = surveyService.submitSurvey(
                 securityUtils.getCurrentUserId(), orderId,
@@ -66,7 +68,7 @@ public class SurveyController {
         response.put("ratingDelivery", survey.getRatingDelivery());
         response.put("ratingFood", survey.getRatingFood());
         response.put("ratingSpeed", survey.getRatingSpeed());
-        response.put("comment", survey.getComment());
+        response.put(COMMENT_FIELD, survey.getComment());
         response.put("submittedAt", survey.getSubmittedAt());
         return ResponseEntity.ok(ApiResponse.success("Survey submitted successfully", response));
     }

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -85,7 +86,7 @@ public class GlobalExceptionHandler {
         log.warn("ResourceNotFound | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -102,7 +103,7 @@ public class GlobalExceptionHandler {
         log.warn("NoResourceFound | {} | traceId={} | requestId={}",
                 ex.getResourcePath(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("No such endpoint: " + ex.getResourcePath()));
     }
 
@@ -112,7 +113,7 @@ public class GlobalExceptionHandler {
         log.warn("BusinessException | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -128,7 +129,7 @@ public class GlobalExceptionHandler {
         log.warn("DuplicateRequest | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -144,7 +145,7 @@ public class GlobalExceptionHandler {
         log.warn("SseCapacityExceeded | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -155,7 +156,7 @@ public class GlobalExceptionHandler {
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         alertService.alertHttpError("UNKNOWN", "unauthorized", 401, 0);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError(ex.getMessage()));
     }
 
@@ -217,7 +218,7 @@ public class GlobalExceptionHandler {
         log.warn("MediaTypeNotAcceptable | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Media type not acceptable for this endpoint"));
     }
 
@@ -227,7 +228,7 @@ public class GlobalExceptionHandler {
         log.warn("MediaTypeNotSupported | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Unsupported media type"));
     }
 
@@ -237,7 +238,7 @@ public class GlobalExceptionHandler {
         log.warn("HttpMessageNotReadable | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Malformed request body"));
     }
 
@@ -247,7 +248,7 @@ public class GlobalExceptionHandler {
         log.warn("MissingParam | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Missing required parameter: " + ex.getParameterName()));
     }
 
@@ -257,7 +258,7 @@ public class GlobalExceptionHandler {
         log.warn("MissingHeader | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Missing required header: " + ex.getHeaderName()));
     }
 
@@ -267,7 +268,7 @@ public class GlobalExceptionHandler {
         log.warn("TypeMismatch | {} | traceId={} | requestId={}",
                 ex.getMessage(), TraceContext.getTraceId(), TraceContext.getRequestId());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .body(buildError("Invalid parameter value"));
     }
 

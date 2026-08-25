@@ -129,41 +129,18 @@ public class DunningService {
     }
 
     private void retryPaymentIfDue(Long paymentId) {
-        Long nextRetryAt = nextRetryAtMillis(paymentId);
-        if (nextRetryAt != null && nextRetryAt > System.currentTimeMillis()) {
+        if (!isDue(paymentId)) {
             return;
         }
 
         int retryCount = getRetryCount(paymentId);
         if (retryCount >= maxRetries) {
-            if (alertAfterFailure) {
-                alertService.alertException("DunningService",
-                        "Payment failed after max retries | paymentId=" + paymentId, null);
-            }
-            evict(paymentId);
-            log.warn("Payment exhausted retries | paymentId={} | retryCount={}", paymentId, retryCount);
+            markExhausted(paymentId, retryCount);
             return;
         }
 
-        Payment payment = paymentRepository.findById(paymentId).orElse(null);
+        Payment payment = eligiblePaymentOrNull(paymentId);
         if (payment == null) {
-            log.warn("Payment no longer exists; dropping from dunning | paymentId={}", paymentId);
-            evict(paymentId);
-            return;
-        }
-        if (payment.getStatus() != Payment.PaymentStatus.PENDING
-                && payment.getStatus() != Payment.PaymentStatus.FAILED) {
-            log.info("Payment no longer eligible for retry | paymentId={} | status={}", paymentId, payment.getStatus());
-            evict(paymentId);
-            return;
-        }
-        if (payment.getOrder() != null
-                && payment.getOrder().getStatus() == Order.OrderStatus.CANCELLED) {
-            // Never re-capture money for an order that was cancelled as a
-            // payment-failure compensation; drop it from the retry loop.
-            log.info("Payment dropped from dunning: order cancelled | paymentId={} | orderId={}",
-                    paymentId, payment.getOrder().getId());
-            evict(paymentId);
             return;
         }
 
@@ -172,18 +149,66 @@ public class DunningService {
             evict(paymentId);
             log.info("Payment retry succeeded | paymentId={}", paymentId);
         } catch (Exception ex) {
-            int newCount = retryCount + 1;
-            putRetryCount(paymentId, newCount);
-            log.warn("Payment retry failed | paymentId={} | retryCount={}", paymentId, newCount, ex);
-            if (newCount >= maxRetries) {
-                if (alertAfterFailure) {
-                    alertService.alertException("DunningService",
-                            "Payment failed after max retries | paymentId=" + paymentId, ex);
-                }
-                evict(paymentId);
-            } else {
-                putNextRetryAt(paymentId, System.currentTimeMillis() + retryDelayMs);
+            handleRetryFailure(paymentId, retryCount, ex);
+        }
+    }
+
+    private boolean isDue(Long paymentId) {
+        Long nextRetryAt = nextRetryAtMillis(paymentId);
+        return nextRetryAt == null || nextRetryAt <= System.currentTimeMillis();
+    }
+
+    private void markExhausted(Long paymentId, int retryCount) {
+        if (alertAfterFailure) {
+            alertService.alertException("DunningService",
+                    "Payment failed after max retries | paymentId=" + paymentId, null);
+        }
+        evict(paymentId);
+        log.warn("Payment exhausted retries | paymentId={} | retryCount={}", paymentId, retryCount);
+    }
+
+    /**
+     * Returns the payment if still eligible for retry, or {@code null} after
+     * evicting it from the retry loop. Ineligible states: payment gone, status
+     * no longer PENDING/FAILED, or the order was cancelled (compensation case).
+     */
+    private Payment eligiblePaymentOrNull(Long paymentId) {
+        // Re-check the DB: the row may have been completed or cancelled since
+        // the retry was scheduled.
+        Payment payment = paymentRepository.findById(paymentId).orElse(null);
+        if (payment == null) {
+            log.warn("Payment no longer exists; dropping from dunning | paymentId={}", paymentId);
+            evict(paymentId);
+            return null;
+        }
+        if (payment.getStatus() != Payment.PaymentStatus.PENDING
+                && payment.getStatus() != Payment.PaymentStatus.FAILED) {
+            log.info("Payment no longer eligible for retry | paymentId={} | status={}", paymentId, payment.getStatus());
+            evict(paymentId);
+            return null;
+        }
+        if (payment.getOrder() != null
+                && payment.getOrder().getStatus() == Order.OrderStatus.CANCELLED) {
+            log.info("Payment dropped from dunning: order cancelled | paymentId={} | orderId={}",
+                    paymentId, payment.getOrder().getId());
+            evict(paymentId);
+            return null;
+        }
+        return payment;
+    }
+
+    private void handleRetryFailure(Long paymentId, int retryCount, Exception ex) {
+        int newCount = retryCount + 1;
+        putRetryCount(paymentId, newCount);
+        log.warn("Payment retry failed | paymentId={} | retryCount={}", paymentId, newCount, ex);
+        if (newCount >= maxRetries) {
+            if (alertAfterFailure) {
+                alertService.alertException("DunningService",
+                        "Payment failed after max retries | paymentId=" + paymentId, ex);
             }
+            evict(paymentId);
+        } else {
+            putNextRetryAt(paymentId, System.currentTimeMillis() + retryDelayMs);
         }
     }
 

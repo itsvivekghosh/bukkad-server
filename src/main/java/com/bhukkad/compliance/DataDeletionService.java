@@ -88,16 +88,18 @@ public class DataDeletionService {
         return removedAddresses;
     }
 
+    private static final String DELETED_MARKER = "deleted";
+
     /**
      * Clears the PII-bearing fields of an address whose row must be retained
      * because retained orders reference it. NOT NULL columns receive neutral
      * placeholders instead of nulls.
      */
     private void anonymizeAddress(Address address) {
-        address.setAddressLine1("deleted");
+        address.setAddressLine1(DELETED_MARKER);
         address.setAddressLine2(null);
-        address.setCity("deleted");
-        address.setState("deleted");
+        address.setCity(DELETED_MARKER);
+        address.setState(DELETED_MARKER);
         address.setPincode("000000");
         address.setLandmark(null);
         address.setLabel(null);

@@ -40,6 +40,8 @@ public class JwtSecretRotationService {
     private static final int MIN_KEY_BYTES = 64;
     /** Rotated secrets are minted with 512 bits of fresh entropy. */
     private static final int ROTATION_KEY_BYTES = 64;
+    /** Reused across rotations: SecureRandom is thread-safe and self-seeding. */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final List<SecretKey> validKeys = new CopyOnWriteArrayList<>();
     private final String bootstrapSecret;
@@ -78,8 +80,10 @@ public class JwtSecretRotationService {
     }
 
     private static byte[] randomBytes(int length) {
+        // One shared instance: SecureRandom is thread-safe, and instantiating it
+        // per call forces a fresh OS entropy fetch each time (slow and noisy).
         byte[] buffer = new byte[length];
-        new SecureRandom().nextBytes(buffer);
+        SECURE_RANDOM.nextBytes(buffer);
         return buffer;
     }
 

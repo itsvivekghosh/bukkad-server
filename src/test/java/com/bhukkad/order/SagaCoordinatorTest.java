@@ -120,6 +120,8 @@ class SagaCoordinatorTest {
 
             @Override
             public void compensate(String stepName, String payload, String compensationPayload) {
+                // no-op: the failing step never completes, so no compensation
+                // is ever invoked for it in this test scenario.
             }
         };
 
@@ -144,6 +146,9 @@ class SagaCoordinatorTest {
 
             @Override
             public void compensate(String stepName, String payload, String compensationPayload) {
+                // no-op: this test only asserts compensation ORDER; the failing
+                // step is never compensated, and the successful steps record
+                // their invocation via the compensate() implementations below.
             }
         };
 
@@ -165,6 +170,7 @@ class SagaCoordinatorTest {
 
             @Override
             public void compensate(String stepName, String payload, String compensationPayload) {
+                // no-op: this step is not expected to fail in this scenario.
             }
         };
         SagaAction brokenCompensation = new SagaAction() {

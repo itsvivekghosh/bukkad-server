@@ -1,7 +1,6 @@
 package com.bhukkad.compliance;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 
 /**
@@ -60,8 +59,11 @@ public final class OrderArchivePartitions {
         if (date == null) {
             throw new IllegalArgumentException("date must not be null");
         }
-        LocalDateTime epoch = LocalDateTime.of(0, 1, 1, 0, 0);
-        long days = java.time.temporal.ChronoUnit.DAYS.between(epoch, date.atStartOfDay());
+        // Date-to-date arithmetic only: both operands are time-zone-free LocalDate
+        // values, so the duration is unambiguous (no implicit zone conversion on
+        // a LocalDateTime mid-flight, which is what the previous
+        // LocalDateTime.of(0,1,1) + atStartOfDay() pair implied).
+        long days = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.of(0, 1, 1), date);
         return days;
     }
 }

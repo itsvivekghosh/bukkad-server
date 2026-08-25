@@ -169,19 +169,9 @@ public class OrderPlacementService {
         }
 
         try {
-            Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
-                    .orElseThrow(() -> new BusinessException("Cart is empty"));
-            List<CartItem> allItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
-            if (allItems.isEmpty()) {
-                throw new BusinessException("Cart is empty");
-            }
-
-            Map<Long, List<CartItem>> byRestaurant = groupCartItemsByRestaurant(allItems);
-            double cartSubtotal = allItems.stream()
-                    .mapToDouble(item -> PriceCalculator.calculateSubtotal(
-                            item.getMenuItem().getPrice(), item.getQuantity()))
-                    .sum();
-            double totalTip = request.getTipAmount() != null ? Math.max(0, request.getTipAmount()) : 0.0;
+            Map<Long, List<CartItem>> byRestaurant = groupCartByRestaurant(customerId);
+            double cartSubtotal = computeCartSubtotal(byRestaurant);
+            double totalTip = safeTip(request.getTipAmount());
 
             List<OrderResponse> orders = new ArrayList<>();
             List<String> errors = new ArrayList<>();
@@ -190,38 +180,10 @@ public class OrderPlacementService {
 
             for (Map.Entry<Long, List<CartItem>> entry : byRestaurant.entrySet()) {
                 Long restaurantId = entry.getKey();
-                double groupSubtotal = entry.getValue().stream()
-                        .mapToDouble(item -> PriceCalculator.calculateSubtotal(
-                                item.getMenuItem().getPrice(), item.getQuantity()))
-                        .sum();
-                double groupTip = cartSubtotal > 0
-                        ? PriceCalculator.roundToTwoDecimals(totalTip * (groupSubtotal / cartSubtotal))
-                        : 0.0;
-
-                OrderRequest orderRequest = new OrderRequest();
-                orderRequest.setRestaurantId(restaurantId);
-                orderRequest.setDeliveryAddressId(request.getDeliveryAddressId());
-                orderRequest.setSpecialInstructions(request.getSpecialInstructions());
-                orderRequest.setContactlessDelivery(request.getContactlessDelivery());
-                orderRequest.setPaymentMethod(request.getPaymentMethod());
-                orderRequest.setTipAmount(groupTip);
-
                 try {
-                    OrderPlacementResult result = transactionTemplate.execute(status ->
-                            doCreateOrder(orderRequest, null, customerId));
-                    if (result != null && result.needsGatewayProcessing()) {
-                        try {
-                            Payment processed = paymentService.processPayment(
-                                    result.payment().getId(), result.paymentIdempotencyKey());
-                            result.order().setPayment(processed);
-                            orders.add(orderMapper.toResponse(result.order()));
-                        } catch (RuntimeException ex) {
-                            compensateFailedPaymentOrder(result, customerId);
-                            throw ex;
-                        }
-                    } else if (result != null) {
-                        orders.add(result.response());
-                    }
+                    OrderRequest orderRequest = buildBatchOrderRequest(
+                            request, restaurantId, entry.getValue(), cartSubtotal, totalTip);
+                    orders.add(placeSingleBatchOrder(orderRequest, customerId));
                     successCount++;
                 } catch (RuntimeException ex) {
                     log.warn("Batch order sub-order failed | customerId={} | restaurantId={} | error={}",
@@ -248,6 +210,67 @@ public class OrderPlacementService {
         }
     }
 
+    private Map<Long, List<CartItem>> groupCartByRestaurant(Long customerId) {
+        Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
+                .orElseThrow(() -> new BusinessException("Cart is empty"));
+        List<CartItem> allItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
+        if (allItems.isEmpty()) {
+            throw new BusinessException("Cart is empty");
+        }
+        return groupCartItemsByRestaurant(allItems);
+    }
+
+    private static double computeCartSubtotal(Map<Long, List<CartItem>> grouped) {
+        return grouped.values().stream()
+                .flatMap(List::stream)
+                .mapToDouble(item -> PriceCalculator.calculateSubtotal(
+                        item.getMenuItem().getPrice(), item.getQuantity()))
+                .sum();
+    }
+
+    private static double safeTip(Double tip) {
+        return tip != null ? Math.max(0, tip) : 0.0;
+    }
+
+    private static OrderRequest buildBatchOrderRequest(BatchOrderRequest request, Long restaurantId,
+                                                        List<CartItem> items, double cartSubtotal, double totalTip) {
+        double groupSubtotal = items.stream()
+                .mapToDouble(item -> PriceCalculator.calculateSubtotal(
+                        item.getMenuItem().getPrice(), item.getQuantity()))
+                .sum();
+        double groupTip = cartSubtotal > 0
+                ? PriceCalculator.roundToTwoDecimals(totalTip * (groupSubtotal / cartSubtotal))
+                : 0.0;
+        OrderRequest orderRequest = new OrderRequest();
+        orderRequest.setRestaurantId(restaurantId);
+        orderRequest.setDeliveryAddressId(request.getDeliveryAddressId());
+        orderRequest.setSpecialInstructions(request.getSpecialInstructions());
+        orderRequest.setContactlessDelivery(request.getContactlessDelivery());
+        orderRequest.setPaymentMethod(request.getPaymentMethod());
+        orderRequest.setTipAmount(groupTip);
+        return orderRequest;
+    }
+
+    private OrderResponse placeSingleBatchOrder(OrderRequest orderRequest, Long customerId) {
+        OrderPlacementResult result = transactionTemplate.execute(
+                status -> doCreateOrder(orderRequest, null, customerId));
+        if (result == null) {
+            return null;
+        }
+        if (result.needsGatewayProcessing()) {
+            try {
+                Payment processed = paymentService.processPayment(
+                        result.payment().getId(), result.paymentIdempotencyKey());
+                result.order().setPayment(processed);
+                return orderMapper.toResponse(result.order());
+            } catch (RuntimeException ex) {
+                compensateFailedPaymentOrder(result, customerId);
+                throw ex;
+            }
+        }
+        return result.response();
+    }
+
     /**
      * Core single-order creation. Validates the request, computes pricing,
      * persists the order, applies wallet/loyalty/coupon effects, creates the
@@ -258,46 +281,14 @@ public class OrderPlacementService {
      * outside the database transaction.
      */
     private OrderPlacementResult doCreateOrder(OrderRequest request, String idempotencyKey, Long customerId) {
-        Customer customer = customerRepository.findById(customerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
-
-        Restaurant restaurant = restaurantRepository.findByIdWithDetails(request.getRestaurantId())
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
-
-        if (!Boolean.TRUE.equals(restaurant.getIsActive())) {
-            throw new BusinessException("Restaurant is not accepting orders");
-        }
-        if (!Boolean.TRUE.equals(restaurant.getIsOpen())) {
-            throw new BusinessException("Restaurant is currently closed");
-        }
-        restaurantBusyService.assertAcceptingOrders(restaurant.getId());
-        scheduledOrderValidator.validateScheduledAt(request.getScheduledAt());
-        boolean scheduled = scheduledOrderValidator.isScheduledOrder(request.getScheduledAt());
-        if (!scheduled && restaurant.getOpeningTime() != null && restaurant.getClosingTime() != null
-                && !DateTimeUtils.isRestaurantOpen(restaurant.getOpeningTime(), restaurant.getClosingTime())) {
-            throw new BusinessException("Restaurant is closed at this time");
-        }
-
-        Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
-                .orElseThrow(() -> new BusinessException("Cart is empty"));
-
-        List<CartItem> cartItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId()).stream()
-                .filter(item -> item.getMenuItem().getCategory().getRestaurant().getId().equals(restaurant.getId()))
-                .collect(Collectors.toList());
-        if (cartItems.isEmpty()) {
-            throw new BusinessException("No cart items for the selected restaurant");
-        }
-
-        orderPricingService.validateCartItems(restaurant, cartItems);
-        stockReservationService.reserveStock(cartItems);
+        OrderCreationContext ctx = validateAndLoadOrderContext(request, customerId);
+        Customer customer = ctx.customer();
+        Restaurant restaurant = ctx.restaurant();
+        Cart cart = ctx.cart();
+        List<CartItem> cartItems = ctx.cartItems();
+        Address address = ctx.address();
+        boolean scheduled = ctx.scheduled();
         boolean stockReserved = stockReservationService.isEnabled();
-
-        Address address = addressRepository.findByIdWithCustomer(request.getDeliveryAddressId())
-                .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
-
-        if (!address.getCustomer().getId().equals(customerId)) {
-            throw new BusinessException("Delivery address does not belong to customer");
-        }
 
         try {
             OrderPricingService.OrderPricingResult pricing = orderPricingService.calculate(
@@ -401,6 +392,64 @@ public class OrderPlacementService {
             }
             throw ex;
         }
+    }
+
+    /**
+     * Validates the request and loads everything {@link #doCreateOrder} needs,
+     * throwing on the first violated guard (restaurant inactive/closed/busy,
+     * empty cart, missing/foreign address). Keeps the create path readable.
+     */
+    private OrderCreationContext validateAndLoadOrderContext(OrderRequest request, Long customerId) {
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+
+        Restaurant restaurant = restaurantRepository.findByIdWithDetails(request.getRestaurantId())
+                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+
+        if (!Boolean.TRUE.equals(restaurant.getIsActive())) {
+            throw new BusinessException("Restaurant is not accepting orders");
+        }
+        if (!Boolean.TRUE.equals(restaurant.getIsOpen())) {
+            throw new BusinessException("Restaurant is currently closed");
+        }
+        restaurantBusyService.assertAcceptingOrders(restaurant.getId());
+        scheduledOrderValidator.validateScheduledAt(request.getScheduledAt());
+        boolean scheduled = scheduledOrderValidator.isScheduledOrder(request.getScheduledAt());
+        if (!scheduled && restaurant.getOpeningTime() != null && restaurant.getClosingTime() != null
+                && !DateTimeUtils.isRestaurantOpen(restaurant.getOpeningTime(), restaurant.getClosingTime())) {
+            throw new BusinessException("Restaurant is closed at this time");
+        }
+
+        Cart cart = cartRepository.findByCustomerIdWithRestaurant(customerId)
+                .orElseThrow(() -> new BusinessException("Cart is empty"));
+
+        List<CartItem> cartItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId()).stream()
+                .filter(item -> item.getMenuItem().getCategory().getRestaurant().getId().equals(restaurant.getId()))
+                .collect(Collectors.toList());
+        if (cartItems.isEmpty()) {
+            throw new BusinessException("No cart items for the selected restaurant");
+        }
+
+        orderPricingService.validateCartItems(restaurant, cartItems);
+        stockReservationService.reserveStock(cartItems);
+
+        Address address = addressRepository.findByIdWithCustomer(request.getDeliveryAddressId())
+                .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
+
+        if (!address.getCustomer().getId().equals(customerId)) {
+            throw new BusinessException("Delivery address does not belong to customer");
+        }
+
+        return new OrderCreationContext(customer, restaurant, cart, cartItems, address, scheduled);
+    }
+
+    /**
+     * Everything {@link #doCreateOrder} needs after guard validation: the
+     * loaded entities plus the computed flags, passed as one unit so the create
+     * path stays flat and testable.
+     */
+    private record OrderCreationContext(Customer customer, Restaurant restaurant, Cart cart,
+                                        List<CartItem> cartItems, Address address, boolean scheduled) {
     }
 
     // ==================== HELPERS ====================
