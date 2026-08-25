@@ -37,7 +37,11 @@ public abstract class AbstractJpaIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
             .withDatabaseName("bhukkad_test")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw");
+            .withPassword("bhukkad_test_pw")
+            // Runs as the MySQL root user at first init: grants the app user
+            // server-level CREATE so migration V54 (per-domain schemas) succeeds
+            // on a fresh container (production users already hold these grants).
+            .withInitScript("testcontainers/mysql-init.sql");
 
     static {
         // Flyway baseline note: our migrations use CREATE TABLE IF NOT EXISTS and
