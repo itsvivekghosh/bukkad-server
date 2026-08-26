@@ -266,7 +266,7 @@ app:
     enabled: true
     # When true, responses carry X-RateLimit-Limit / X-RateLimit-Remaining /
     # X-RateLimit-Reset headers so clients can self-throttle.
-    headers-enabled: ${RATE_LIMIT_HEADERS_ENABLED:false}
+    headers-enabled: ${RATE_LIMIT_HEADERS_ENABLED:true}
     buckets:
       order-track:
         limit: 20
@@ -340,6 +340,10 @@ app:
       # restaurant's kitchen, or a rider). New subscribers beyond the cap get
       # 503 Service Unavailable. Bounds pod memory against reconnect floods.
       max-emitters-per-stream: 50
+      # Fleet-wide per-pod cap on concurrent SSE connections across ALL streams
+      # (every connection holds a servlet async context + buffers). New
+      # subscribers beyond the budget get 503 Service Unavailable.
+      max-total-emitters: 2000
       replay:
         max-events-per-stream: 200
         ttl-seconds: 3600

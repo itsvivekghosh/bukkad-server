@@ -69,7 +69,7 @@ class SecurityUtilsTest {
     @Test
     void getCurrentUser_userNotInDatabase() {
         setAuthenticated("missing@example.com");
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailOrPhoneNumber("missing@example.com", "missing@example.com")).thenReturn(Optional.empty());
 
         UnauthorizedException ex = assertThrows(UnauthorizedException.class, securityUtils::getCurrentUser);
         assertEquals("User not found: missing@example.com", ex.getMessage());
@@ -79,7 +79,7 @@ class SecurityUtilsTest {
     void getCurrentUser_success() {
         User user = persistedUser();
         setAuthenticated("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(user));
 
         User result = securityUtils.getCurrentUser();
 
@@ -89,9 +89,38 @@ class SecurityUtilsTest {
     }
 
     @Test
+    void getCurrentUser_phoneFirstUser_resolvesByPhone() {
+        User phoneUser = new User();
+        phoneUser.setId(20L);
+        phoneUser.setPhoneNumber("9999999999");
+        phoneUser.setEmail(null);
+        setAuthenticated("9999999999");
+        when(userRepository.findByEmailOrPhoneNumber("9999999999", "9999999999"))
+                .thenReturn(Optional.of(phoneUser));
+
+        User result = securityUtils.getCurrentUser();
+
+        assertEquals(phoneUser, result);
+        assertEquals(20L, securityUtils.getCurrentUserId());
+        assertNull(result.getEmail());
+    }
+
+    @Test
+    void getCurrentUserId_notAuthenticated_throws() {
+        SecurityContextHolder.clearContext();
+        assertThrows(UnauthorizedException.class, () -> securityUtils.getCurrentUserId());
+    }
+
+    @Test
+    void getCurrentUserEmail_notAuthenticated_throws() {
+        SecurityContextHolder.clearContext();
+        assertThrows(UnauthorizedException.class, () -> securityUtils.getCurrentUserEmail());
+    }
+
+    @Test
     void isCurrentUser_true() {
         setAuthenticated("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(persistedUser()));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(persistedUser()));
 
         assertTrue(securityUtils.isCurrentUser(10L));
     }
@@ -99,7 +128,7 @@ class SecurityUtilsTest {
     @Test
     void isCurrentUser_falseWhenDifferentId() {
         setAuthenticated("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(persistedUser()));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(persistedUser()));
 
         assertFalse(securityUtils.isCurrentUser(99L));
     }

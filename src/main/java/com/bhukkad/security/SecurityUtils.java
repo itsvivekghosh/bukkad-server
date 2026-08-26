@@ -31,7 +31,7 @@ public class SecurityUtils {
             throw new UnauthorizedException("User not authenticated");
         }
 
-        return userRepository.findByEmail(email)
+        return userRepository.findByEmailOrPhoneNumber(email, email)
                 .orElseThrow(() -> new UnauthorizedException("User not found: " + email));
     }
 

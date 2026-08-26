@@ -10,6 +10,7 @@ import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.idempotency.PaymentIdempotencyService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
+import com.bhukkad.payment.strategy.BNPLStrategy;
 import com.bhukkad.payment.strategy.PaymentContext;
 import com.bhukkad.payment.strategy.PaymentStrategyFactory;
 import com.bhukkad.repository.OrderRepository;
@@ -47,6 +48,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentGateway paymentGateway;
     private final PaymentProperties paymentProperties;
     private final PaymentStrategyFactory paymentStrategyFactory;
+    private final BNPLStrategy bnplStrategy;
     private final PaymentIdempotencyService paymentIdempotencyService;
     private final SecurityUtils securityUtils;
     private final NotificationService notificationService;
@@ -229,6 +231,15 @@ public class PaymentServiceImpl implements PaymentService {
                     WalletTransaction.TransactionType.ORDER_REFUND,
                     payment,
                     "Refund for order " + order.getOrderNumber());
+        }
+
+        // BNPL credit has no wallet/gateway money to move, but the customer's
+        // outstanding BNPL pending balance (a Redis counter that gates the
+        // credit limit) must be released on refund — otherwise a cancelled
+        // order permanently consumes the customer's BNPL limit.
+        if (payment.getPaymentMethod() == Payment.PaymentMethod.BNPL && order != null
+                && order.getCustomer() != null) {
+            bnplStrategy.releaseBalance(order.getCustomer().getId(), payment.getAmount());
         }
 
         if (gatewayRefund > 0 && requiresGateway(payment.getPaymentMethod())

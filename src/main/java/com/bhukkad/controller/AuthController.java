@@ -2,14 +2,20 @@ package com.bhukkad.controller;
 
 import com.bhukkad.config.ApiPaths;
 
+import com.bhukkad.dto.request.CompleteProfileRequest;
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.OtpResendRequest;
+import com.bhukkad.dto.request.OtpVerifyRequest;
+import com.bhukkad.dto.request.PhoneRegisterRequest;
 import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.dto.response.PhoneRegisterResponse;
 import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.fraud.FraudEventTypes;
 import com.bhukkad.ratelimit.RateLimited;
+import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.AuthService;
 import com.bhukkad.util.RequestUtils;
 import jakarta.validation.Valid;
@@ -44,6 +50,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final FraudDetectionService fraudDetectionService;
+    private final SecurityUtils securityUtils;
 
     /**
      * Creates a customer account.
@@ -140,5 +147,62 @@ public class AuthController {
         String token = RequestUtils.extractTokenFromRequestHeaders(authHeader);
         authService.logout(token);
         return ResponseEntity.ok(ApiResponse.success("Logger out successfully"));
+    }
+
+    // ------------------------------------------------------------------
+    // Phone-first registration
+    // ------------------------------------------------------------------
+
+    /**
+     * Step 1: Register with only a phone number. Creates an account with a
+     * placeholder email and sends a 6-digit OTP via SMS or WhatsApp.
+     * No JWT tokens are issued until {@link #verifyPhone} succeeds.
+     */
+    @PostMapping("/register/phone")
+    @RateLimited("auth-register")
+    @Operation(summary = "Register with phone number (step 1 of phone-first registration)")
+    public ResponseEntity<ApiResponse<PhoneRegisterResponse>> registerPhone(
+            @Valid @RequestBody PhoneRegisterRequest request) {
+        fraudDetectionService.checkAndBlock(null, FraudEventTypes.AUTH_REGISTER);
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        return ResponseEntity.ok(ApiResponse.success("OTP sent. Please verify your phone number.", response));
+    }
+
+    /**
+     * Resend the verification OTP for a phone-first registration.
+     */
+    @PostMapping("/register/phone/resend")
+    @RateLimited("auth-register")
+    @Operation(summary = "Resend phone verification OTP")
+    public ResponseEntity<ApiResponse<Void>> resendPhoneOtp(
+            @Valid @RequestBody OtpResendRequest request) {
+        authService.resendPhoneOtp(request.getPhoneNumber(),
+                request.getChannel() != null ? request.getChannel() : "sms");
+        return ResponseEntity.ok(ApiResponse.success("OTP resent", null));
+    }
+
+    /**
+     * Step 2: Verify the 6-digit OTP and receive JWT tokens.
+     */
+    @PostMapping("/verify-phone")
+    @RateLimited("auth-login")
+    @Operation(summary = "Verify phone OTP and receive tokens (step 2 of phone-first registration)")
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyPhone(
+            @Valid @RequestBody OtpVerifyRequest request) {
+        AuthResponse response = authService.verifyPhone(request);
+        return ResponseEntity.ok(ApiResponse.success("Phone verified successfully", response));
+    }
+
+    /**
+     * Step 3: Complete profile by adding email, full name, and password.
+     * Requires a valid access token from the phone verification step.
+     */
+    @PutMapping("/profile/complete")
+    @Operation(summary = "Complete profile after phone-first registration (step 3)")
+    public ResponseEntity<ApiResponse<Void>> completeProfile(
+            @Valid @RequestBody CompleteProfileRequest request) {
+        Long userId = securityUtils.getCurrentUserId();
+        authService.completeProfile(userId, request);
+        return ResponseEntity.ok(ApiResponse.success("Profile completed successfully", null));
     }
 }

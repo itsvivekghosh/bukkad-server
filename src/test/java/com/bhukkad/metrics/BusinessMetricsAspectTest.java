@@ -1,6 +1,7 @@
 package com.bhukkad.metrics;
 
 import com.bhukkad.dto.response.BatchOrderResponse;
+import com.bhukkad.dto.response.BatchOrderResult;
 import com.bhukkad.dto.response.OrderResponse;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -55,8 +56,8 @@ class BusinessMetricsAspectTest {
     void recordOrderCreated_batchResponse_recordsSum() {
         BatchOrderResponse batch = BatchOrderResponse.builder()
                 .orders(java.util.List.of(
-                        OrderResponse.builder().totalAmount(100.0).build(),
-                        OrderResponse.builder().totalAmount(50.0).build()))
+                        BatchOrderResult.builder().totalAmount(100.0).success(true).build(),
+                        BatchOrderResult.builder().totalAmount(50.0).success(true).build()))
                 .build();
 
         aspect.recordOrderCreated(joinPoint, batch);
@@ -65,9 +66,22 @@ class BusinessMetricsAspectTest {
     }
 
     @Test
+    void recordOrderCreated_batchResponseWithFailuresOnly_countsSuccessful() {
+        BatchOrderResponse batch = BatchOrderResponse.builder()
+                .orders(java.util.List.of(
+                        BatchOrderResult.builder().totalAmount(100.0).success(true).build(),
+                        BatchOrderResult.builder().totalAmount(0.0).success(false).errorMessage("timeout").build()))
+                .build();
+
+        aspect.recordOrderCreated(joinPoint, batch);
+
+        verify(businessMetricsService).recordOrderCreated(100.0);
+    }
+
+    @Test
     void recordOrderCreated_batchResponseEmpty_recordsZero() {
         BatchOrderResponse batch = BatchOrderResponse.builder()
-                .orders(java.util.List.of())
+                .orders(java.util.List.<BatchOrderResult>of())
                 .build();
 
         aspect.recordOrderCreated(joinPoint, batch);

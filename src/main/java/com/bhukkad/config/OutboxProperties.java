@@ -18,4 +18,13 @@ public class OutboxProperties {
 
     /** Maximum number of events fetched per dead-letter sweep. */
     private int deadLetterBatchSize = 50;
+
+    /**
+     * Age after which an event stuck in PROCESSING (claimed by a sweep that
+     * crashed or was killed) is considered abandoned and reset to PENDING.
+     */
+    private long staleProcessingAfterMs = 600_000;
+
+    /** Interval of the recovery sweep that resets stale PROCESSING events. */
+    private long recoveryIntervalMs = 60_000;
 }

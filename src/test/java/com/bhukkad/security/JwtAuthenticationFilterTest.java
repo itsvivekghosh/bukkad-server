@@ -134,7 +134,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(user));
 
         filter.doFilter(request, response, filterChain);
 
@@ -171,7 +171,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(user));
 
         filter.doFilter(request, response, filterChain);
 
@@ -192,7 +192,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.empty());
 
         filter.doFilter(request, response, filterChain);
 
@@ -211,7 +211,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenThrow(new RuntimeException("db down"));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenThrow(new RuntimeException("db down"));
 
         filter.doFilter(request, response, filterChain);
 

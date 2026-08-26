@@ -19,6 +19,8 @@ public class CustomerProfileResponse {
     private String profileImageUrl;
     private Boolean active;
     private Boolean emailVerified;
+    private Boolean phoneVerified;
+    private Boolean profileCompleted;
     private Integer loyaltyPoints;
     private Double walletBalance;
     private String role;

@@ -313,4 +313,37 @@ class OrderSseStreamServiceTest {
         assertNotNull(service.subscribeRider(9L, null));
         assertNotNull(service.subscribeCustomer(3L, null, null));
     }
+
+    // ==================== fleet-wide (per-pod) connection budget ====================
+
+    @Test
+    void subscribe_globalBudget_exceedsTotalRejectsNewSubscribers() {
+        service.maxTotalEmitters = 2;
+        service.subscribeKitchen(1L, null);
+        service.subscribeCustomer(2L, null, null);
+
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeRider(3L, null));
+    }
+
+    @Test
+    void subscribe_globalBudget_isReleasedOnEmitterRemoval() {
+        service.maxTotalEmitters = 1;
+        SseEmitter first = service.subscribeKitchen(1L, null);
+
+        // Release the slot by completing the emitter; the cleanup runs inline.
+        first.complete();
+        service.sendHeartbeats();
+
+        // The budget slot is freed, so a new subscription succeeds.
+        assertNotNull(service.subscribeCustomer(2L, null, null));
+    }
+
+    @Test
+    void subscribe_globalBudgetRejectedSubscriber_doesNotLeakSlot() {
+        service.maxTotalEmitters = 1;
+        service.subscribeKitchen(1L, null);
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeRider(9L, null));
+        // The rejected subscriber must not hold a slot.
+        assertEquals(1, service.activeConnectionCount());
+    }
 }

@@ -4,16 +4,20 @@ import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.exception.RateLimitExceededException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.security.SecurityUtils;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.DefaultParameterNameDiscoverer;
 import org.springframework.core.ParameterNameDiscoverer;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 
@@ -28,6 +32,9 @@ public class RateLimitAspect {
     private final UserTierResolver userTierResolver;
     private final ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
+    @Value("${app.rate-limit.headers-enabled:true}")
+    boolean headersEnabled = true;
+
     @Around("@annotation(rateLimited)")
     public Object enforceRateLimit(ProceedingJoinPoint joinPoint, RateLimited rateLimited) throws Throwable {
         String bucket = rateLimited.value();
@@ -41,7 +48,32 @@ public class RateLimitAspect {
                     decision.retryAfterSeconds());
         }
 
+        if (headersEnabled) {
+            setRateLimitHeaders(decision);
+        }
+
         return joinPoint.proceed();
+    }
+
+    /**
+     * Sets {@code X-RateLimit-*} headers on the current HTTP response so
+     * clients can self-throttle. The headers are informational: a client may
+     * still be blocked by the hard 429 even when the remaining count is positive
+     * (another request may consume the budget between the read and the write).
+     */
+    private void setRateLimitHeaders(RateLimitDecision decision) {
+        ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs == null) {
+            return;
+        }
+        HttpServletResponse response = attrs.getResponse();
+        if (response == null) {
+            return;
+        }
+        long remaining = Math.max(0, decision.limit() - decision.currentCount());
+        response.setHeader("X-RateLimit-Limit", String.valueOf(decision.limit()));
+        response.setHeader("X-RateLimit-Remaining", String.valueOf(remaining));
+        response.setHeader("X-RateLimit-Reset", String.valueOf(decision.windowSeconds()));
     }
 
     private String buildIdentifier(String bucket, ProceedingJoinPoint joinPoint) {

@@ -103,8 +103,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 MDC.put(LoggingConstants.USER_ROLE, role);
             }
 
-            // Fetch user ID from database
-            Optional<User> userOptional = userRepository.findByEmail(email);
+            // Fetch user ID from database (email or phone number as identifier)
+            Optional<User> userOptional = userRepository.findByEmailOrPhoneNumber(email, email);
             if (userOptional.isPresent()) {
                 MDC.put(LoggingConstants.USER_ID, String.valueOf(userOptional.get().getId()));
             }

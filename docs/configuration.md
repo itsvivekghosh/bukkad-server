@@ -62,6 +62,9 @@ export SPRING_PROFILES_ACTIVE=dev   # or prod
 | `app.delivery-truth.record-snapshots` | `true` | Persist ETA snapshots for analytics |
 | `app.inventory.low-stock-threshold` | `10` | Default low-stock threshold for owner alerts |
 | `app.events.external.enabled` | `false` | Forward outbox events to external bridge |
+| `app.outbox.stale-processing-after-ms` | `600000` | Age after which an event stuck in `PROCESSING` is reset to `PENDING` |
+| `app.outbox.recovery-interval-ms` | `60000` | Stale-processing recovery sweep interval |
+| `app.outbox.metrics-refresh-ms` | `30000` | Outbox lag gauge refresh interval |
 | `app.events.external.type` | `log` | Sink type: `log` or `kafka` |
 | `app.events.external.kafka.bootstrap-servers` | `localhost:9092` | Kafka/Redpanda brokers |
 | `app.events.external.kafka.platform-topic` | `bhukkad.platform.events` | Topic for platform events |

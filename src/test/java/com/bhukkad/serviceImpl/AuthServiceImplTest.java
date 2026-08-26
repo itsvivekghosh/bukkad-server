@@ -1,8 +1,10 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.PhoneRegisterRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.dto.response.PhoneRegisterResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
@@ -20,6 +22,8 @@ import com.bhukkad.security.JwtTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -42,6 +46,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -75,6 +80,9 @@ class AuthServiceImplTest {
 
     @Mock
     private AffiliateService affiliateService;
+
+    @Mock
+    private com.bhukkad.service.PhoneVerificationService phoneVerificationService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -738,6 +746,176 @@ class AuthServiceImplTest {
                 () -> authService.verifyMfaLogin("garbage", "123456"));
         verify(jwtTokenProvider, never()).extractUserId(anyString());
         verify(jwtTokenProvider, never()).extractUsername(anyString());
+    }
+
+    @Test
+    void registerPhone_otpSendFailure_throwsAndDoesNotPersistUser() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel("sms");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        // Simulate notification failure during OTP send
+        doThrow(new BusinessException("Failed to send OTP via sms. Please try again."))
+                .when(phoneVerificationService).sendOtp(eq("9999999999"), eq("sms"));
+
+        assertThrows(BusinessException.class, () -> authService.registerPhone(request));
+
+        // User must NOT have been persisted
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void registerPhone_success_returnsPhoneRegisterResponse() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel("sms");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        assertEquals("9999999999", response.getPhoneNumber());
+        assertTrue(response.getMessage().contains("OTP sent"));
+        verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("sms"));
+        verify(customerRepository).save(any());
+    }
+
+    @Test
+    void registerPhone_nonCustomerRole_throws() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setRole(User.UserRole.RESTAURANT_OWNER);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.registerPhone(request));
+        assertTrue(ex.getMessage().contains("only supports role CUSTOMER"));
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void registerPhone_phoneAlreadyRegistered_throwsAndDoesNotSave() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(true);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.registerPhone(request));
+        assertEquals("Phone number already registered", ex.getMessage());
+        verify(phoneVerificationService, never()).sendOtp(any(), any());
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void registerPhone_nullOtpChannel_defaultsToSms() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel(null);
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        authService.registerPhone(request);
+        verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("sms"));
+    }
+
+    @Test
+    void registerPhone_withPassword_setsProfileCompleted() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setPassword("secret123");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        assertEquals("9999999999", response.getPhoneNumber());
+
+        ArgumentCaptor<Customer> customerCaptor = ArgumentCaptor.forClass(Customer.class);
+        verify(customerRepository).save(customerCaptor.capture());
+        Customer savedCustomer = customerCaptor.getValue();
+        assertTrue(savedCustomer.getProfileCompleted());
+        assertNotNull(savedCustomer.getPassword());
+    }
+
+    @Test
+    void registerPhone_withoutPassword_setsProfileCompletedFalse() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setPassword(null);
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        authService.registerPhone(request);
+
+        ArgumentCaptor<Customer> customerCaptor = ArgumentCaptor.forClass(Customer.class);
+        verify(customerRepository).save(customerCaptor.capture());
+        Customer savedCustomer = customerCaptor.getValue();
+        assertFalse(savedCustomer.getProfileCompleted());
+        assertNull(savedCustomer.getPassword());
+    }
+
+    @Test
+    void registerPhone_referralServiceCalledAfterSave() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        authService.registerPhone(request);
+
+        InOrder inOrder = inOrder(customerRepository, referralService);
+        inOrder.verify(customerRepository).save(any());
+        inOrder.verify(referralService).initializeNewCustomer(any(), eq(null));
+    }
+
+    @Test
+    void registerPhone_success_responseContainsCorrectFields() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel("whatsapp");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(userRepository.existsByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        assertEquals("9999999999", response.getPhoneNumber());
+        assertEquals(com.bhukkad.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
+        verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("whatsapp"));
     }
 
     private LoginRequest loginRequest() {

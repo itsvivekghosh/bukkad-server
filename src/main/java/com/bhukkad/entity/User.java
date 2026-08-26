@@ -32,14 +32,14 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 100)
+    @Column(nullable = true, unique = true, length = 100)
     private String email;
 
     @JsonIgnore
-    @Column(nullable = false, length = 255)
+    @Column(nullable = true, length = 255)
     private String password;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = true, length = 100)
     private String fullName;
 
     @Column(unique = true, length = 15)
@@ -54,6 +54,17 @@ public class User {
 
     @Column(nullable = false)
     private Boolean emailVerified = false;
+
+    /** Whether the phone number has been verified via OTP. */
+    @Column(name = "phone_verified", nullable = false)
+    private Boolean phoneVerified = false;
+
+    @Column(name = "phone_verified_at")
+    private LocalDateTime phoneVerifiedAt;
+
+    /** Whether the user has completed their profile (email, name, password). */
+    @Column(name = "profile_completed", nullable = false)
+    private Boolean profileCompleted = false;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)

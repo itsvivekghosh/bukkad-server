@@ -1,8 +1,13 @@
 package com.bhukkad.serviceImpl;
 
+import com.bhukkad.dto.request.CompleteProfileRequest;
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.OtpVerifyRequest;
+import com.bhukkad.dto.request.PhoneRegisterRequest;
+import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.dto.response.PhoneRegisterResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
@@ -17,10 +22,12 @@ import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.UserRepository;
 import com.bhukkad.security.AuthTokenService;
 import com.bhukkad.security.JwtTokenProvider;
-import com.bhukkad.referral.ReferralService;
 import com.bhukkad.referral.AffiliateService;
+import com.bhukkad.referral.ReferralService;
 import com.bhukkad.service.AuthService;
 import com.bhukkad.service.NotificationService;
+import com.bhukkad.service.PhoneVerificationService;
+import com.bhukkad.util.Constants;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +41,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -52,6 +60,7 @@ public class AuthServiceImpl implements AuthService {
     private final SecurityEventLogger securityEventLogger;
     private final AuthTokenService authTokenService;
     private final NotificationService notificationService;
+    private final PhoneVerificationService phoneVerificationService;
     private final ReferralService referralService;
     private final AffiliateService affiliateService;
 
@@ -209,6 +218,146 @@ public class AuthServiceImpl implements AuthService {
         return issueTokenPair(user);
     }
 
+    // ------------------------------------------------------------------
+    // Phone-first registration
+    // ------------------------------------------------------------------
+
+    /**
+     * Creates an account with only a phone number. A placeholder email is
+     * derived from the phone to satisfy the unique-email constraint, and an
+     * OTP is sent via SMS or WhatsApp for phone verification.
+     *
+     * <p>The OTP is sent <strong>before</strong> the user row is persisted. If
+     * the notification fails or Redis is unavailable, a {@link BusinessException}
+     * is thrown and no account is created — the caller must retry registration.</p>
+     */
+    @Override
+    @Transactional
+    public PhoneRegisterResponse registerPhone(PhoneRegisterRequest request) {
+        log.info("Phone-first registration attempt | phone={}", maskPhone(request.getPhoneNumber()));
+
+        if (userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
+            throw new BusinessException("Phone number already registered");
+        }
+
+        // Send OTP first — if delivery fails, throw to abort the transaction
+        // so no half-registered account is persisted to the database.
+        String otpChannel = request.getOtpChannel() != null ? request.getOtpChannel() : "sms";
+        phoneVerificationService.sendOtp(request.getPhoneNumber(), otpChannel);
+
+        String placeholderEmail = "phone_" + request.getPhoneNumber() + "@temp.bhukkad.local";
+        User user;
+
+        switch (request.getRole()) {
+            case CUSTOMER:
+                Customer customer = new Customer();
+                customer.setPhoneNumber(request.getPhoneNumber());
+                customer.setEmail(placeholderEmail);
+                customer.setFullName(null);
+                customer.setPassword(request.getPassword() != null
+                        ? passwordEncoder.encode(request.getPassword())
+                        : null);
+                customer.setRole(User.UserRole.CUSTOMER);
+                customer.setActive(true);
+                customer.setPhoneVerified(false);
+                customer.setProfileCompleted(request.getPassword() != null);
+                customer = customerRepository.save(customer);
+                referralService.initializeNewCustomer(customer, null);
+                user = customer;
+                break;
+
+            default:
+                throw new BusinessException("Phone-first registration only supports role CUSTOMER. " +
+                        "Use the email-based register endpoint for other roles.");
+        }
+
+        MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
+
+        return PhoneRegisterResponse.builder()
+                .phoneNumber(user.getPhoneNumber())
+                .message("OTP sent. Please verify your phone number to continue.")
+                .otpExpiryMinutes(Constants.OTP_EXPIRY_MINUTES)
+                .build();
+    }
+
+    /**
+     * Validates the OTP sent during {@link #registerPhone} and issues the
+     * JWT token pair on success. The OTP is deleted from Redis in the same
+     * transaction as the user update so a successful verification never leaves
+     * a stale, reusable OTP behind.
+     */
+    @Override
+    @Transactional
+    public AuthResponse verifyPhone(OtpVerifyRequest request) {
+        User user = userRepository.findByPhoneNumber(request.getPhoneNumber())
+                .orElseThrow(() -> new BusinessException("No registration found for this phone number"));
+
+        phoneVerificationService.verifyOtp(request.getPhoneNumber(), request.getCode());
+
+        user.setPhoneVerified(true);
+        user.setPhoneVerifiedAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        log.info("Phone verified and tokens issued | userId={}", user.getId());
+        MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
+        return issueTokenPair(user);
+    }
+
+    /**
+     * Resends a fresh OTP, invalidating the previous one.
+     */
+    @Override
+    public void resendPhoneOtp(String phoneNumber, String channel) {
+        User user = userRepository.findByPhoneNumber(phoneNumber)
+                .orElseThrow(() -> new BusinessException("No registration found for this phone number"));
+        phoneVerificationService.resendOtp(phoneNumber, channel);
+    }
+
+    /**
+     * Completes a phone-first customer's profile by adding email, full name,
+     * and an optional password. Marks the account as profile-completed so
+     * downstream features (email-based login, email verification) are unlocked.
+     *
+     * <p>Email verification is triggered separately: after this call the user
+     * can re-authenticate with their new email and call
+     * {@code POST /auth/verify-email} to verify it.</p>
+     */
+    @Override
+    @Transactional
+    public void completeProfile(Long userId, CompleteProfileRequest req) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found"));
+
+        if (req.getEmail() != null && !req.getEmail().isBlank()) {
+            if (userRepository.existsByEmail(req.getEmail())) {
+                User existing = userRepository.findByEmail(req.getEmail())
+                        .orElseThrow(() -> new BusinessException("Email already in use"));
+                if (!existing.getId().equals(userId)) {
+                    throw new BusinessException("Email already in use by another account");
+                }
+            }
+            user.setEmail(req.getEmail());
+        }
+
+        if (req.getFullName() != null && !req.getFullName().isBlank()) {
+            user.setFullName(req.getFullName());
+        }
+
+        if (req.getPassword() != null && !req.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(req.getPassword()));
+        }
+
+        user.setProfileCompleted(true);
+        userRepository.save(user);
+
+        log.info("Profile completed | userId={}", user.getId());
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) return "****";
+        return "****" + phone.substring(phone.length() - 4);
+    }
+
     private boolean isMfaEligibleRole(User.UserRole role) {
         return role == User.UserRole.ADMIN || role == User.UserRole.RESTAURANT_OWNER;
     }
@@ -348,9 +497,11 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private AuthResponse issueTokenPair(User user) {
+        String loginId = user.getEmail() != null ? user.getEmail() : user.getPhoneNumber();
+        String password = user.getPassword() != null ? user.getPassword() : "";
         UserDetails userDetails = org.springframework.security.core.userdetails.User.builder()
-                .username(user.getEmail())
-                .password(user.getPassword())
+                .username(loginId)
+                .password(password)
                 .authorities("ROLE_" + user.getRole().name())
                 .build();
 
@@ -367,6 +518,7 @@ public class AuthServiceImpl implements AuthService {
                 .tokenType("Bearer")
                 .userId(user.getId())
                 .email(user.getEmail())
+                .phoneNumber(user.getPhoneNumber())
                 .fullName(user.getFullName())
                 .role(user.getRole().name())
                 .build();

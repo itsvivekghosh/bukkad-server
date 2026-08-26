@@ -4,6 +4,7 @@ import com.bhukkad.cache.OrderCacheService;
 import com.bhukkad.dto.request.BatchOrderRequest;
 import com.bhukkad.dto.request.OrderRequest;
 import com.bhukkad.dto.response.BatchOrderResponse;
+import com.bhukkad.dto.response.BatchOrderResult;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Cart;
@@ -172,35 +173,53 @@ public class OrderPlacementService {
             Map<Long, List<CartItem>> byRestaurant = groupCartByRestaurant(customerId);
             double cartSubtotal = computeCartSubtotal(byRestaurant);
             double totalTip = safeTip(request.getTipAmount());
+            double totalTipAmount = request.getTotalTipAmount() != null
+                    ? Math.max(0, request.getTotalTipAmount())
+                    : totalTip;
+            String batchId = "batch-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase();
 
-            List<OrderResponse> orders = new ArrayList<>();
+            List<BatchOrderResult> batchResults = new ArrayList<>();
             List<String> errors = new ArrayList<>();
             int successCount = 0;
             int failureCount = 0;
 
             for (Map.Entry<Long, List<CartItem>> entry : byRestaurant.entrySet()) {
                 Long restaurantId = entry.getKey();
+                String restaurantName = lookupRestaurantName(restaurantId);
                 try {
                     OrderRequest orderRequest = buildBatchOrderRequest(
-                            request, restaurantId, entry.getValue(), cartSubtotal, totalTip);
-                    orders.add(placeSingleBatchOrder(orderRequest, customerId));
+                            request, restaurantId, entry.getValue(), cartSubtotal, totalTipAmount);
+                    OrderResponse orderResponse = placeSingleBatchOrder(orderRequest, customerId);
+                    batchResults.add(toBatchOrderResult(orderResponse, restaurantId, restaurantName));
                     successCount++;
                 } catch (RuntimeException ex) {
                     log.warn("Batch order sub-order failed | customerId={} | restaurantId={} | error={}",
                             customerId, restaurantId, ex.getMessage());
-                    errors.add("Restaurant " + restaurantId + ": " + ex.getMessage());
+                    String errMsg = "Restaurant " + restaurantName + ": " + ex.getMessage();
+                    errors.add(errMsg);
+                    batchResults.add(BatchOrderResult.builder()
+                            .orderId(0L)
+                            .orderNumber("")
+                            .restaurantId(restaurantId)
+                            .restaurantName(restaurantName)
+                            .status("FAILED")
+                            .totalAmount(0.0)
+                            .success(false)
+                            .errorMessage(ex.getMessage())
+                            .build());
                     failureCount++;
                 }
             }
 
-            log.info("Batch order created | customerId={} | success={} | failure={} | totalOrders={}",
-                    customerId, successCount, failureCount, orders.size());
+            log.info("Batch order created | batchId={} | customerId={} | success={} | failure={} | totalRestaurants={}",
+                    batchId, customerId, successCount, failureCount, batchResults.size());
 
             BatchOrderResponse response = BatchOrderResponse.builder()
-                    .orders(orders)
+                    .orders(batchResults)
                     .successCount(successCount)
                     .failureCount(failureCount)
                     .errors(errors)
+                    .batchId(batchId)
                     .build();
             orderIdempotencyService.completeBatchOrderCreate(idempotencyKey, response);
             return response;
@@ -233,13 +252,13 @@ public class OrderPlacementService {
     }
 
     private static OrderRequest buildBatchOrderRequest(BatchOrderRequest request, Long restaurantId,
-                                                        List<CartItem> items, double cartSubtotal, double totalTip) {
+                                                         List<CartItem> items, double cartSubtotal, double totalTipAmount) {
         double groupSubtotal = items.stream()
                 .mapToDouble(item -> PriceCalculator.calculateSubtotal(
                         item.getMenuItem().getPrice(), item.getQuantity()))
                 .sum();
         double groupTip = cartSubtotal > 0
-                ? PriceCalculator.roundToTwoDecimals(totalTip * (groupSubtotal / cartSubtotal))
+                ? PriceCalculator.roundToTwoDecimals(totalTipAmount * (groupSubtotal / cartSubtotal))
                 : 0.0;
         OrderRequest orderRequest = new OrderRequest();
         orderRequest.setRestaurantId(restaurantId);
@@ -247,8 +266,51 @@ public class OrderPlacementService {
         orderRequest.setSpecialInstructions(request.getSpecialInstructions());
         orderRequest.setContactlessDelivery(request.getContactlessDelivery());
         orderRequest.setPaymentMethod(request.getPaymentMethod());
+        orderRequest.setCouponCode(request.getCouponCode());
+        orderRequest.setLoyaltyPointsToRedeem(request.getLoyaltyPointsToRedeem());
+        orderRequest.setWalletAmountToUse(request.getWalletAmountToUse());
+        orderRequest.setUseWallet(request.getUseWallet());
         orderRequest.setTipAmount(groupTip);
         return orderRequest;
+    }
+
+    /**
+     * Converts an {@link OrderResponse} to a {@link BatchOrderResult} for the batch
+     * response, carrying the restaurant identity for per-restaurant status display.
+     */
+    private static BatchOrderResult toBatchOrderResult(OrderResponse order, Long restaurantId, String restaurantName) {
+        if (order == null) {
+            return BatchOrderResult.builder()
+                    .orderId(0L)
+                    .orderNumber("")
+                    .restaurantId(restaurantId)
+                    .restaurantName(restaurantName)
+                    .status("FAILED")
+                    .totalAmount(0.0)
+                    .success(false)
+                    .errorMessage("Order response was null")
+                    .build();
+        }
+        return BatchOrderResult.builder()
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .restaurantId(order.getRestaurantId() != null ? order.getRestaurantId() : restaurantId)
+                .restaurantName(order.getRestaurantName() != null ? order.getRestaurantName() : restaurantName)
+                .status(order.getStatus())
+                .totalAmount(order.getTotalAmount())
+                .success(true)
+                .errorMessage(null)
+                .build();
+    }
+
+    /**
+     * Lightweight restaurant-name lookup for batch error reporting.
+     * Falls back to the ID if the restaurant is not found.
+     */
+    private String lookupRestaurantName(Long restaurantId) {
+        return restaurantRepository.findById(restaurantId)
+                .map(r -> r.getName())
+                .orElse("Restaurant " + restaurantId);
     }
 
     private OrderResponse placeSingleBatchOrder(OrderRequest orderRequest, Long customerId) {

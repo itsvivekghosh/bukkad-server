@@ -34,7 +34,12 @@ spring:
     show-sql: false
     properties:
       hibernate:
-        generate_statistics: false
+        # Session-level statistics enable query-count/entity-count monitoring
+        # (Micrometer exporter or periodic "Hibernate Statistics" INFO logs).
+        # Without these, N+1 query regressions on the order-detail/profile
+        # graphs are invisible in production. Log level for the stats line is
+        # INFO, so the overhead is negligible at this fleet's scale.
+        generate_statistics: true
         format_sql: false
         jdbc:
           batch_size: 50

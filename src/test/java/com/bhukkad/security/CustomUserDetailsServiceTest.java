@@ -34,7 +34,7 @@ class CustomUserDetailsServiceTest {
     @Test
     void loadUserByUsername_foundActive() {
         User user = buildUser(User.UserRole.CUSTOMER, true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(user));
 
         UserDetails details = service.loadUserByUsername("user@example.com");
 
@@ -50,7 +50,7 @@ class CustomUserDetailsServiceTest {
     @Test
     void loadUserByUsername_foundInactive() {
         User user = buildUser(User.UserRole.CUSTOMER, false);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(user));
 
         UserDetails details = service.loadUserByUsername("user@example.com");
 
@@ -59,7 +59,7 @@ class CustomUserDetailsServiceTest {
 
     @Test
     void loadUserByUsername_notFound() {
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailOrPhoneNumber("missing@example.com", "missing@example.com")).thenReturn(Optional.empty());
 
         UsernameNotFoundException ex = assertThrows(UsernameNotFoundException.class,
                 () -> service.loadUserByUsername("missing@example.com"));
@@ -70,7 +70,7 @@ class CustomUserDetailsServiceTest {
     @EnumSource(User.UserRole.class)
     void loadUserByUsername_mapsEachRoleToAuthority(User.UserRole role) {
         User user = buildUser(role, true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailOrPhoneNumber("user@example.com", "user@example.com")).thenReturn(Optional.of(user));
 
         UserDetails details = service.loadUserByUsername("user@example.com");
 
@@ -78,6 +78,20 @@ class CustomUserDetailsServiceTest {
         assertTrue(details.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(a -> a.equals("ROLE_" + role.name())));
+    }
+
+    @Test
+    void loadUserByUsername_phoneFirstUser_findsByPlaceholderEmail() {
+        User user = buildUser(User.UserRole.CUSTOMER, true);
+        user.setEmail("phone_1234567890@temp.bhukkad.local");
+        user.setPassword(null);
+        when(userRepository.findByEmailOrPhoneNumber("phone_1234567890@temp.bhukkad.local", "phone_1234567890@temp.bhukkad.local"))
+                .thenReturn(Optional.of(user));
+
+        UserDetails details = service.loadUserByUsername("phone_1234567890@temp.bhukkad.local");
+
+        assertEquals("phone_1234567890@temp.bhukkad.local", details.getUsername());
+        assertEquals("", details.getPassword());
     }
 
     private User buildUser(User.UserRole role, boolean active) {

@@ -16,7 +16,8 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,53 +34,62 @@ public class OutboxEventProcessor {
     private final DeadLetterEventService deadLetterEventService;
     private final OutboxProperties outboxProperties;
     private final AlertService alertService;
+    private final PlatformTransactionManager transactionManager;
 
     /**
-     * Sweeps the outbox. The claim query uses {@code FOR UPDATE SKIP LOCKED}
-     * (see {@link OutboxEventRepository#findPendingForProcessing}) so exactly
-     * one replica processes each event even though every replica runs this
-     * poller; the ShedLock annotation below is defense-in-depth so the sweep
-     * itself is single-runner when ShedLock is enabled.
+     * Sweeps the outbox. The claim uses {@code FOR UPDATE SKIP LOCKED} (see
+     * {@link OutboxEventRepository#findPendingForProcessing}) so exactly one
+     * replica processes each event even though every replica runs this poller;
+     * the ShedLock annotation below is defense-in-depth so the sweep itself is
+     * single-runner when ShedLock is enabled.
+     *
+     * <p>The sweep is deliberately <em>not</em> one long transaction: claiming
+     * is its own short transaction (which marks the rows {@code PROCESSING} and
+     * releases the SKIP LOCKED row locks), publishing/fan-out happens outside
+     * any transaction, and each event's outcome (PUBLISHED / FAILED / back to
+     * PENDING) commits in its own short transaction. A slow downstream (Kafka
+     * broker, slow listener) can therefore never hold a DB connection or a row
+     * lock across the whole batch.
      */
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:2000}")
     @SchedulerLock(name = "outbox-processing", lockAtMostFor = "PT2M", lockAtLeastFor = "PT10S")
-    @Transactional
     public void processPendingEvents() {
-        List<OutboxEvent> pending = outboxEventRepository.findPendingForProcessing(
-                OutboxEvent.OutboxStatus.PENDING.name(),
-                outboxProperties.getBatchSize());
+        for (OutboxEvent event : claimPendingBatch()) {
+            processAndFinalize(event);
+        }
+    }
 
-        for (OutboxEvent event : pending) {
-            // When tracing is enabled, each outbox event gets its own child span so
-            // Kafka publish + DB work is observable end-to-end (no-op otherwise).
-            try (AutoCloseable span = TracingBridge.startSpan("outbox-" + event.getEventType())) {
-                publish(event);
-                externalEventBridge.forward(event);
-                event.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
-                event.setPublishedAt(LocalDateTime.now());
-                event.setLastError(null);
+    /**
+     * Resets events stranded in {@code PROCESSING} by a crashed or killed sweep
+     * back to {@code PENDING} so they are retried. Guarded by ShedLock so the
+     * recovery runs on a single replica.
+     */
+    @Scheduled(fixedDelayString = "${app.outbox.recovery-interval-ms:60000}")
+    @SchedulerLock(name = "outbox-recovery", lockAtMostFor = "PT5M", lockAtLeastFor = "PT10S")
+    public void recoverStaleProcessing() {
+        List<OutboxEvent> stale = newTransaction().execute(status ->
+                outboxEventRepository.findStaleProcessing(
+                        OutboxEvent.OutboxStatus.PROCESSING,
+                        LocalDateTime.now().minusNanos(outboxProperties.getStaleProcessingAfterMs() * 1_000_000)));
+        if (stale == null || stale.isEmpty()) {
+            return;
+        }
+        for (OutboxEvent event : stale) {
+            try {
+                newTransaction().executeWithoutResult(exec -> {
+                    OutboxEvent current = outboxEventRepository.findById(event.getId()).orElse(null);
+                    if (current == null || current.getStatus() != OutboxEvent.OutboxStatus.PROCESSING) {
+                        return;
+                    }
+                    current.setStatus(OutboxEvent.OutboxStatus.PENDING);
+                    current.setProcessingStartedAt(null);
+                    current.setLastError("processing abandoned (recovered from stale PROCESSING)");
+                    outboxEventRepository.save(current);
+                });
+                log.warn("OUTBOX_RECOVERED | id={} | type={}", event.getId(), event.getEventType());
             } catch (Exception ex) {
-                event.setRetryCount(event.getRetryCount() + 1);
-                event.setLastError(ex.getMessage());
-                if (event.getRetryCount() >= outboxProperties.getMaxRetries()) {
-                    event.setStatus(OutboxEvent.OutboxStatus.FAILED);
-                    deadLetterEventService.record(event, ex.getMessage());
-                    long dlqSize = deadLetterEventService.countPending();
-                    log.error("OUTBOX_FAILED | id={} | type={} | dlqSize={} | error={}",
-                            event.getId(), event.getEventType(), dlqSize, ex.getMessage());
-                    // Alert when the dead-letter queue grows so operators can
-                    // investigate a stuck downstream consumer.
-                    alertService.alertException("OutboxEventProcessor",
-                            "Outbox event dead-lettered | id=" + event.getId()
-                                    + " | type=" + event.getEventType()
-                                    + " | dlqSize=" + dlqSize
-                                    + " | error=" + ex.getMessage(), ex);
-                } else {
-                    log.warn("OUTBOX_RETRY | id={} | type={} | attempt={} | error={}",
-                            event.getId(), event.getEventType(), event.getRetryCount(), ex.getMessage());
-                }
+                log.warn("OUTBOX_RECOVERY_FAILED | id={} | error={}", event.getId(), ex.getMessage());
             }
-            outboxEventRepository.save(event);
         }
     }
 
@@ -89,9 +99,97 @@ public class OutboxEventProcessor {
      * (Kafka brokers down, etc.) get a chance to recover in between.
      */
     @Scheduled(fixedDelayString = "${app.outbox.dead-letter-repoll-ms:60000}")
-    @Transactional
     public void requeueDeadLetters() {
         deadLetterEventService.requeuePending(outboxProperties.getDeadLetterBatchSize());
+    }
+
+    // ==================== internals ====================
+
+    /**
+     * Claims a batch in its own short transaction: {@code FOR UPDATE SKIP
+     * LOCKED} selects only rows no other replica has locked, marks them
+     * {@code PROCESSING}, and commits — releasing the row locks while the row
+     * state alone now guarantees single processing.
+     */
+    private List<OutboxEvent> claimPendingBatch() {
+        return newTransaction().execute(status -> {
+            List<OutboxEvent> pending = outboxEventRepository.findPendingForProcessing(
+                    OutboxEvent.OutboxStatus.PENDING.name(),
+                    outboxProperties.getBatchSize());
+            if (pending.isEmpty()) {
+                return pending;
+            }
+            LocalDateTime now = LocalDateTime.now();
+            pending.forEach(event -> {
+                event.setStatus(OutboxEvent.OutboxStatus.PROCESSING);
+                event.setProcessingStartedAt(now);
+            });
+            return outboxEventRepository.saveAll(pending);
+        });
+    }
+
+    private void processAndFinalize(OutboxEvent event) {
+        try (AutoCloseable span = TracingBridge.startSpan("outbox-" + event.getEventType())) {
+            publish(event);
+            externalEventBridge.forward(event);
+            finalizeSuccess(event);
+        } catch (Exception ex) {
+            finalizeFailure(event, ex);
+        }
+    }
+
+    private void finalizeSuccess(OutboxEvent event) {
+        newTransaction().executeWithoutResult(status -> {
+            outboxEventRepository.findById(event.getId()).ifPresent(current -> {
+                current.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
+                current.setPublishedAt(LocalDateTime.now());
+                current.setProcessingStartedAt(null);
+                current.setLastError(null);
+                outboxEventRepository.save(current);
+            });
+        });
+    }
+
+    private void finalizeFailure(OutboxEvent event, Exception ex) {
+        boolean deadLetter = newTransaction().execute(status -> {
+            OutboxEvent current = outboxEventRepository.findById(event.getId()).orElse(null);
+            if (current == null) {
+                return false;
+            }
+            current.setRetryCount(current.getRetryCount() + 1);
+            current.setLastError(ex.getMessage());
+            if (current.getRetryCount() >= outboxProperties.getMaxRetries()) {
+                current.setStatus(OutboxEvent.OutboxStatus.FAILED);
+                current.setProcessingStartedAt(null);
+                outboxEventRepository.save(current);
+                return true;
+            }
+            // Back to the queue for the next sweep to retry (bounded by retryCount).
+            current.setStatus(OutboxEvent.OutboxStatus.PENDING);
+            current.setProcessingStartedAt(null);
+            outboxEventRepository.save(current);
+            return false;
+        });
+
+        if (deadLetter) {
+            deadLetterEventService.record(event, ex.getMessage());
+            long dlqSize = deadLetterEventService.countPending();
+            log.error("OUTBOX_FAILED | id={} | type={} | dlqSize={} | error={}",
+                    event.getId(), event.getEventType(), dlqSize, ex.getMessage());
+            alertService.alertException("OutboxEventProcessor",
+                    "Outbox event dead-lettered | id=" + event.getId()
+                            + " | type=" + event.getEventType()
+                            + " | dlqSize=" + dlqSize
+                            + " | error=" + ex.getMessage(), ex);
+        } else {
+            log.warn("OUTBOX_RETRY | id={} | type={} | attempt={} | error={}",
+                    event.getId(), event.getEventType(),
+                    event.getRetryCount() + 1, ex.getMessage());
+        }
+    }
+
+    private TransactionTemplate newTransaction() {
+        return new TransactionTemplate(transactionManager);
     }
 
     private void publish(OutboxEvent event) throws Exception {

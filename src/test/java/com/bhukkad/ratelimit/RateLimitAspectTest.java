@@ -10,8 +10,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -40,6 +45,51 @@ class RateLimitAspectTest {
         when(joinPoint.proceed()).thenReturn("ok");
 
         assertEquals("ok", rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("order-track")));
+    }
+
+    @Test
+    void enforceRateLimit_allowed_setsRateLimitHeadersOnResponse() throws Throwable {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(new MockHttpServletRequest(), response));
+        try {
+            ProceedingJoinPoint joinPoint = mockJoinPoint("trackOrder", 11L);
+            when(securityUtils.getCurrentUserId()).thenReturn(5L);
+            when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+            when(rateLimitService.check(eq("order-track"), eq("user:5:order:11"), eq("free")))
+                    .thenReturn(RateLimitDecision.allowed(3, 20, 60));
+            when(joinPoint.proceed()).thenReturn("ok");
+
+            rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("order-track"));
+
+            assertEquals("20", response.getHeader("X-RateLimit-Limit"));
+            assertEquals("17", response.getHeader("X-RateLimit-Remaining"));
+            assertEquals("60", response.getHeader("X-RateLimit-Reset"));
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
+    void enforceRateLimit_allowed_headersDisabled_noHeadersWritten() throws Throwable {
+        rateLimitAspect.headersEnabled = false;
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(new MockHttpServletRequest(), response));
+        try {
+            ProceedingJoinPoint joinPoint = mockJoinPoint("trackOrder", 11L);
+            when(securityUtils.getCurrentUserId()).thenReturn(5L);
+            when(userTierResolver.resolveCurrentTier()).thenReturn("free");
+            when(rateLimitService.check(anyString(), anyString(), eq("free")))
+                    .thenReturn(RateLimitDecision.allowed(1, 20, 60));
+            when(joinPoint.proceed()).thenReturn("ok");
+
+            rateLimitAspect.enforceRateLimit(joinPoint, rateLimited("order-track"));
+
+            assertNull(response.getHeader("X-RateLimit-Limit"));
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     @Test

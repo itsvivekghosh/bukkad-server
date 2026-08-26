@@ -123,6 +123,8 @@ Error body:
 Rate limiting is Redis-backed (`INCR`+`EXPIRE` Lua) and **fails open** on Redis
 outage. Additionally, auth/order endpoints run a per-IP/per-device fraud
 velocity check (60-min window) that can return `429` with `Retry-After: 300`.
+Every rate-limited endpoint echoes `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+and `X-RateLimit-Reset` headers on allowed requests so clients can self-throttle.
 
 ## I.6 Pagination
 
@@ -164,7 +166,10 @@ const es = new EventSource(`${BASE}/api/v1/orders/stream/customer/${orderId}`,
 ```
 
 `eventType`: `ORDER_CREATED | STATUS_CHANGED | AGENT_ASSIGNED | RIDER_LOCATION`.
-Resume with `Last-Event-ID: <lastEventId>` (Redis replay store). Anonymous
+Resume with `Last-Event-ID: <lastEventId>` (Redis replay store). Each stream is
+capped at `app.live.sse.max-emitters-per-stream` (50) connections and the whole
+pod at `app.live.sse.max-total-emitters` (2000); exceeding either returns
+`503 Service Unavailable`. Anonymous
 tracking: `POST /orders/stream/customer/{orderId}/tracking-token` (as
 customer) → `GET /orders/stream/customer-token/{orderId}?token=<token>`.
 
@@ -922,7 +927,7 @@ cart cleanup, cache invalidation, and outbox events. Sync (`200`) or async
 | `specialInstructions` | string | No | — | Kitchen note |
 | `contactlessDelivery` | boolean | No | — | default false |
 | `couponCode` | string | No | — | Coupon |
-| `paymentMethod` | string | Yes | `CASH_ON_DELIVERY\|CREDIT_CARD\|DEBIT_CARD\|UPI\|WALLET\|NET_BANKING` | Method |
+| `paymentMethod` | string | Yes | `CASH_ON_DELIVERY\|CREDIT_CARD\|DEBIT_CARD\|UPI\|WALLET\|NET_BANKING\|BNPL` | Method |
 | `loyaltyPointsToRedeem` | number | No | ≥ 0 | Points → discount |
 | `walletAmountToUse` | number | No | ≥ 0 | Explicit wallet split |
 | `useWallet` | boolean | No | — | Apply wallet up to total |
@@ -1153,7 +1158,11 @@ recipientName, message, expiresAt, createdAt, redeemedAt`.
 # PART VI — PAYMENTS
 
 Payment statuses: `PENDING, COMPLETED, FAILED, REFUNDED`. Methods:
-`CASH_ON_DELIVERY, CREDIT_CARD, DEBIT_CARD, UPI, WALLET, NET_BANKING`.
+`CASH_ON_DELIVERY, CREDIT_CARD, DEBIT_CARD, UPI, WALLET, NET_BANKING, BNPL`
+(BNPL = Buy-Now-Pay-Later: credit-limit gated in Redis; refunds release the
+customer's pending BNPL balance.)
+(Buy-Now-Pay-Later: credit-limit gated in Redis; refunds release the customer's
+pending BNPL balance).
 
 ## VI.1 GET /payments/orders/{orderId}
 
@@ -1503,7 +1512,20 @@ snapshot) insert an `outbox_events` row **in the same DB transaction**.
 `OutboxEventProcessor` polls every 2 s (batch 50), republishes each event as a
 Spring event (→ SSE/notifications), and forwards to Kafka/Redpanda when
 `app.events.external.enabled` (with W3C `traceparent` header). Failures retry
-3× then move to the DLQ (`dead_letter_events`), which admins can requeue.
+to `app.outbox.max-retries` (5) then move to the DLQ (`dead_letter_events`),
+which admins can requeue.
+
+**Claim-and-process (V57):** the sweep is not one long transaction. A short
+claim transaction selects the batch with `FOR UPDATE SKIP LOCKED` and marks the
+rows `PROCESSING` (releasing row locks while the status alone guarantees single
+processing); publish/fan-out runs outside any transaction; each event's outcome
+(PUBLISHED / FAILED / back to PENDING) commits in its own short transaction. A
+separate ShedLock-guarded recovery sweep (`app.outbox.recovery-interval-ms`)
+resets events stranded in `PROCESSING` for longer than
+`app.outbox.stale-processing-after-ms` back to `PENDING`, so a crashed pod can
+never strand an event. Outbox lag is exported as Prometheus gauges
+(`bhukkad.outbox.pending`, `bhukkad.outbox.dead_letter`) refreshed every
+`app.outbox.metrics-refresh-ms`.
 **Known gap:** `PAYMENT_WEBHOOK_RECEIVED` is not routable by the processor —
 it dead-letters (the money path is already applied, so this is safe).
 
@@ -1517,7 +1539,13 @@ replacement for distributed transactions (no 2PC).
 ## X.3 Read/write routing
 
 `@UseReadReplica` or `@Transactional(readOnly = true)` → connection from a
-round-robin-selected read replica (N replicas, Phase 1); read-write → primary.
+round-robin-selected read replica (N replicas, Phase 1); read-write → primary. Selection is
+health-aware: a replica whose `getConnection()` fails is marked unavailable
+for a 30 s cooldown and skipped, and the request is retried once on the next
+healthy replica before the error propagates.
+Selection is health-aware: a replica whose `getConnection()` fails is marked
+unavailable for a 30 s cooldown and skipped, and the request is retried once on
+the next healthy replica before the error propagates.
 Hot reads (home feed, menu, search, restaurant list, admin dashboards,
 reviews, earnings) are replica-routed; writes always hit the primary.
 

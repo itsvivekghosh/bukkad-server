@@ -8,6 +8,9 @@ touchpoints. Flow diagrams use Mermaid (renders on GitHub).
 
 ---
 
+
+11. [API Contract Lifecycle Management](#11-api-contract-lifecycle-management)
+
 ## Table of contents
 
 1. [Conventions & request lifecycle](#1-conventions--request-lifecycle)
@@ -765,3 +768,65 @@ verified against `src/main/java/com/bhukkad/controller/*`, `dto/*`, service
 and infrastructure classes. Known divergences from the "ideal" architecture are
 noted inline (unwired BNPL, unroutable webhook outbox event, overlapping
 scheduled-order pollers).*
+
+---
+
+## 11. API Contract Lifecycle Management
+
+This section describes the process for defining, reviewing, delivering, and maintaining API contracts in the Bhukkad system.
+
+### 11.1 Contract Definition
+
+API contracts are defined as Spring MVC REST controllers with the following characteristics:
+- Located in `src/main/java/com/bhukkad/controller/`
+- Use `@RestController` and `@RequestMapping(ApiPaths.V1_PREFIX)` annotations
+- Define endpoints with appropriate HTTP methods (`@GetMapping`, `@PostMapping`, etc.)
+- Utilize request/response DTOs from `src/main/java/com/bhukkad/dto/request/` and `src/main/java/com/bhukkad/dto/response/`
+- Include validation via Jakarta Validation annotations (`@NotNull`, `@Size`, etc.)
+- Implement security via `@PreAuthorize` annotations
+- Apply rate limiting where appropriate with custom `@RateLimited` annotation
+- Include idempotency keys for state-changing operations
+- Documented with Spring/OpenAPI annotations (`@Operation`, `@Tag`) for auto-generated documentation
+
+### 11.2 Review Process
+
+All API contracts undergo a rigorous review process:
+1. **Self-Review**: Developer checks against checklist covering REST principles, validation, security, idempotency, error handling, and documentation
+2. **Peer Review**: Backend team lead or senior engineer verifies implementation quality, consistency, and adherence to guidelines
+3. **Cross-Team Review**: Frontend team reviews for consumability and alignment with UI requirements
+4. **API Contract Review Board**: Monthly review for significant changes or those with broad impact
+
+Approval requires:
+- All review checklists satisfied
+- Unit test coverage ≥80% for new code
+- Backward compatibility (or explicit migration plan)
+- Complete and accurate documentation
+- No security vulnerabilities
+- Acceptable performance impact
+- Frontend team confirmation of contract consumability
+
+### 11.3 Delivery Procedure
+
+API contracts are delivered through a controlled process:
+1. **Development**: Feature branch from `main` with naming `feature/api-{resource}-{description}`
+2. **Local Development**: Implementation and unit testing, manual verification via curl/Postman
+3. **CI Pipeline**: Automated validation including build, unit tests, contract validation (OpenAPI schema), security scanning, and integration tests
+4. **Merge Requirements**: All CI checks pass, minimum 2 backend approvals (1 tech lead/architect), frontend approval for user-impacting changes
+5. **Deployment**: 
+   - Staging: Auto-deploy on merge to `main`, smoke tests, contract verification
+   - Production: GitHub Actions workflow with blue/green deployment, traffic shifting, health checks
+6. **Publication**: OpenAPI spec at `/v3/api-docs`, Swagger UI at `/swagger-ui.html`, version headers, deprecation notices when applicable
+
+### 11.4 Lifecycle Management
+
+Contract evolution follows strict compatibility guidelines:
+- **Backward Compatible** (same version): Adding endpoints, optional fields, response fields, HTTP methods, enum values
+- **Breaking Changes** (require version bump): Removing endpoints/fields, changing data types/methods/auth, making optional fields required, changing success status codes
+- **Deprecation**: 6-month minimum support period, `Deprecation` header with sunset date, 410 Gone after sunset
+- **Versioning**: Path-based (`/api/v1/{resource}`), future versions use `/api/v2/{resource}`
+
+The contract lifecycle is monitored via:
+- Changelog in `docs/api/changelog.md`
+- Usage metrics via Prometheus
+- Consumer-driven contract testing for critical APIs
+- Regular review of low-usage endpoints for potential deprecation

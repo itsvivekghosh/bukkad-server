@@ -45,10 +45,12 @@ public class JwtSecretRotationService {
 
     private final List<SecretKey> validKeys = new CopyOnWriteArrayList<>();
     private final String bootstrapSecret;
+    private final boolean rotationEnabled;
 
     public JwtSecretRotationService(@Value("${app.jwt.secret}") String bootstrapSecret,
                                     @Value("${app.jwt.rotation.enabled:false}") boolean rotationEnabled) {
         this.bootstrapSecret = bootstrapSecret;
+        this.rotationEnabled = rotationEnabled;
         this.validKeys.add(keyFrom(bootstrapSecret));
         if (rotationEnabled) {
             rotateNow();
@@ -67,6 +69,9 @@ public class JwtSecretRotationService {
 
     @Scheduled(fixedDelayString = "${app.jwt.rotation.interval-ms:86400000}")
     public void scheduledRotation() {
+        if (!rotationEnabled) {
+            return;
+        }
         rotateNow();
     }
 

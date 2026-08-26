@@ -1,12 +1,18 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.dto.request.CompleteProfileRequest;
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.OtpResendRequest;
+import com.bhukkad.dto.request.OtpVerifyRequest;
+import com.bhukkad.dto.request.PhoneRegisterRequest;
 import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.dto.response.PhoneRegisterResponse;
 import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.service.AuthService;
+import com.bhukkad.security.SecurityUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -16,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import org.junit.jupiter.api.Tag;
 
@@ -34,6 +41,9 @@ public class AuthControllerTest {
      */
     @Mock
     private FraudDetectionService fraudDetectionService;
+
+    @Mock
+    private SecurityUtils securityUtils;
 
     @InjectMocks
     private AuthController authController;
@@ -127,5 +137,90 @@ public class AuthControllerTest {
         assertTrue(response.getBody().isSuccess());
         assertEquals("Logger out successfully", response.getBody().getData());
         verify(authService).logout("tok");
+    }
+
+    // ------------------------------------------------------------------
+    // Phone-first registration tests
+    // ------------------------------------------------------------------
+
+    @Test
+    void registerPhone_returnsPhoneRegisterResponse() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9876543210");
+
+        PhoneRegisterResponse serviceResponse = PhoneRegisterResponse.builder()
+                .phoneNumber("9876543210")
+                .message("OTP sent")
+                .otpExpiryMinutes(10)
+                .build();
+        when(authService.registerPhone(request)).thenReturn(serviceResponse);
+
+        ResponseEntity<ApiResponse<PhoneRegisterResponse>> response =
+                authController.registerPhone(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().isSuccess());
+        assertEquals("OTP sent. Please verify your phone number.", response.getBody().getMessage());
+        assertEquals(serviceResponse, response.getBody().getData());
+        verify(authService).registerPhone(request);
+        verify(fraudDetectionService).checkAndBlock(null, com.bhukkad.fraud.FraudEventTypes.AUTH_REGISTER);
+    }
+
+    @Test
+    void resendPhoneOtp_returnsSuccess() {
+        OtpResendRequest request = new OtpResendRequest();
+        request.setPhoneNumber("9876543210");
+        request.setChannel("sms");
+
+        ResponseEntity<ApiResponse<Void>> response = authController.resendPhoneOtp(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("OTP resent", response.getBody().getMessage());
+        verify(authService).resendPhoneOtp("9876543210", "sms");
+    }
+
+    @Test
+    void resendPhoneOtp_defaultsChannelToSmsWhenNull() {
+        OtpResendRequest request = new OtpResendRequest();
+        request.setPhoneNumber("9876543210");
+
+        ResponseEntity<ApiResponse<Void>> response = authController.resendPhoneOtp(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(authService).resendPhoneOtp("9876543210", "sms");
+    }
+
+    @Test
+    void verifyPhone_returnsAuthResponse() {
+        OtpVerifyRequest request = new OtpVerifyRequest();
+        request.setPhoneNumber("9876543210");
+        request.setCode("123456");
+
+        AuthResponse authResponse = AuthResponse.builder().token("jwt").build();
+        when(authService.verifyPhone(request)).thenReturn(authResponse);
+
+        ResponseEntity<ApiResponse<AuthResponse>> response =
+                authController.verifyPhone(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Phone verified successfully", response.getBody().getMessage());
+        assertEquals(authResponse, response.getBody().getData());
+        verify(authService).verifyPhone(request);
+    }
+
+    @Test
+    void completeProfile_delegatesToServiceWithCurrentUserId() {
+        CompleteProfileRequest request = new CompleteProfileRequest();
+        request.setEmail("user@example.com");
+        request.setFullName("Test User");
+
+        when(securityUtils.getCurrentUserId()).thenReturn(42L);
+
+        ResponseEntity<ApiResponse<Void>> response =
+                authController.completeProfile(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Profile completed successfully", response.getBody().getMessage());
+        verify(authService).completeProfile(42L, request);
     }
 }
