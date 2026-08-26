@@ -38,11 +38,11 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
     @BeforeEach
     void cleanTestData() {
-        jdbcTemplate.update("DELETE FROM menu_items WHERE id IN (1)");
-        jdbcTemplate.update("DELETE FROM menu_categories WHERE id IN (1)");
-        jdbcTemplate.update("DELETE FROM restaurants WHERE id IN (1)");
-        jdbcTemplate.update("DELETE FROM restaurant_owners WHERE id IN (1)");
-        jdbcTemplate.update("DELETE FROM users WHERE id IN (1)");
+        jdbcTemplate.update("DELETE FROM menu_items");
+        jdbcTemplate.update("DELETE FROM menu_categories");
+        jdbcTemplate.update("DELETE FROM restaurants");
+        jdbcTemplate.update("DELETE FROM restaurant_owners");
+        jdbcTemplate.update("DELETE FROM users");
     }
 
     @Test
@@ -51,6 +51,9 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
         List<Restaurant> results = restaurantRepository.fullTextSearchByName("butter");
 
+        // NATURAL LANGUAGE MODE has a 50% threshold: if a word appears in >50%
+        // of rows it's treated as noise. The fixture includes 3 restaurants with
+        // only 1 matching "butter", so the threshold is satisfied.
         assertThat(results).extracting(Restaurant::getName).contains("Butter Chicken Palace");
     }
 
@@ -74,17 +77,26 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
     private void insertFixture() {
         jdbcTemplate.update("""
                 INSERT INTO users (id, email, password, full_name, role, active, email_verified, created_at)
-                VALUES (1, 'ft-owner@test.com', 'x', 'FT Owner', 'RESTAURANT_OWNER', 1, 1, NOW(6))
+                VALUES
+                (1, 'ft-owner@test.com', 'x', 'FT Owner', 'RESTAURANT_OWNER', 1, 1, NOW(6)),
+                (2, 'ft-owner2@test.com', 'x', 'FT Owner Two', 'RESTAURANT_OWNER', 1, 1, NOW(6)),
+                (3, 'ft-owner3@test.com', 'x', 'FT Owner Three', 'RESTAURANT_OWNER', 1, 1, NOW(6))
                 """);
-        jdbcTemplate.update("INSERT INTO restaurant_owners (id) VALUES (1)");
+        jdbcTemplate.update("INSERT INTO restaurant_owners (id) VALUES (1), (2), (3)");
         jdbcTemplate.update("""
                 INSERT INTO restaurants (id, name, owner_id, opening_time, closing_time, is_active, created_at)
-                VALUES (1, 'Butter Chicken Palace', 1, '10:00:00', '23:00:00', 1, NOW(6))
+                VALUES
+                (1, 'Butter Chicken Palace', 1, '10:00:00', '23:00:00', 1, NOW(6)),
+                (2, 'Green Bowl', 2, '10:00:00', '23:00:00', 1, NOW(6)),
+                (3, 'Tandoori Express', 3, '10:00:00', '23:00:00', 1, NOW(6))
                 """);
-        jdbcTemplate.update("INSERT INTO menu_categories (id, name, restaurant_id) VALUES (1, 'Mains', 1)");
+        jdbcTemplate.update("INSERT INTO menu_categories (id, name, restaurant_id) VALUES (1, 'Mains', 1), (2, 'Sides', 2), (3, 'Desserts', 3)");
         jdbcTemplate.update("""
                 INSERT INTO menu_items (id, name, category_id, price, food_type, is_veg, created_at)
-                VALUES (1, 'Butter Chicken', 1, 320.0, 'NON_VEG', 0, NOW(6))
+                VALUES
+                (1, 'Butter Chicken', 1, 320.0, 'NON_VEG', 0, NOW(6)),
+                (2, 'Green Salad', 2, 150.0, 'VEG', 1, NOW(6)),
+                (3, 'Gulab Jamun', 3, 100.0, 'VEG', 1, NOW(6))
                 """);
     }
 }
