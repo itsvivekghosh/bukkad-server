@@ -11,6 +11,8 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -21,10 +23,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * against a real MySQL 8 instance with the V1 FULLTEXT indexes. These are the
  * queries behind menu/restaurant search; a missing FULLTEXT index surfaces here
  * as MySQL error 1191 at CI time instead of in production.
+ *
+ * <p>The tests deliberately run WITHOUT a surrounding transaction
+ * ({@code NOT_SUPPORTED}): InnoDB's FULLTEXT index does not see rows inserted
+ * in the same uncommitted transaction, so the fixture INSERTs must commit
+ * before {@code MATCH ... AGAINST} runs. Each repository call opens its own
+ * short transaction and {@link #cleanTestData()} resets the tables before
+ * every test.</p>
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
     @Autowired
@@ -51,9 +61,8 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
         List<Restaurant> results = restaurantRepository.fullTextSearchByName("butter");
 
-        // NATURAL LANGUAGE MODE has a 50% threshold: if a word appears in >50%
-        // of rows it's treated as noise. The fixture includes 3 restaurants with
-        // only 1 matching "butter", so the threshold is satisfied.
+        // The fixture keeps 3 restaurants with only 1 matching "butter" so the
+        // search term stays below MySQL's 50% relevance threshold.
         assertThat(results).extracting(Restaurant::getName).contains("Butter Chicken Palace");
     }
 
