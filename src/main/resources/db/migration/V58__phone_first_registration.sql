@@ -17,4 +17,10 @@ ALTER TABLE users ADD COLUMN profile_completed BOOLEAN NOT NULL DEFAULT FALSE;
 -- Index for the phone-first login / lookup path (phone is already unique
 -- via the entity mapping, but an explicit index on the verification
 -- query plane is useful for admin and support lookups).
-CREATE INDEX IF NOT EXISTS idx_user_phone_verified ON users (phone_verified);
+--
+-- NOTE: plain CREATE INDEX (no IF NOT EXISTS) — `CREATE INDEX IF NOT EXISTS`
+-- requires MySQL 8.0.22+, but the Testcontainers `mysql:8.0` image and some
+-- production MySQL 8.0.x releases are older, so the guarded form fails.
+-- A duplicate-index failure would indicate the index already exists; run
+-- `flyway repair` in that case rather than re-running this migration.
+CREATE INDEX idx_user_phone_verified ON users (phone_verified);
