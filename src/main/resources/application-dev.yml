@@ -52,6 +52,9 @@ spring:
     expiration: ${JWT_EXPIRATION:86400000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
+  api-key:
+    pepper: ${API_KEY_PEPPER:zYHsmVfyqzrgU+RE/SXJ+Ep59FZMasTNccKToJT9yKpc6Ntk15gfWXCaPV3sGJr0Vw7X5uKeRIuaRUq4VKQECQ==}
+
   rate-limit:
     buckets:
       auth-register:

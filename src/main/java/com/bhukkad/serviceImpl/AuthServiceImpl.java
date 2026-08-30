@@ -4,10 +4,12 @@ import com.bhukkad.dto.request.CompleteProfileRequest;
 import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.dto.request.OtpVerifyRequest;
 import com.bhukkad.dto.request.PhoneRegisterRequest;
+import com.bhukkad.dto.request.PhoneSendOtpRequest;
 import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.AuthResponse;
 import com.bhukkad.dto.response.PhoneRegisterResponse;
+import com.bhukkad.dto.response.PhoneSendOtpResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
@@ -20,6 +22,8 @@ import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AccountFields;
+import com.bhukkad.security.AccountLookupService;
 import com.bhukkad.security.AuthTokenService;
 import com.bhukkad.security.JwtTokenProvider;
 import com.bhukkad.referral.AffiliateService;
@@ -51,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
     private static final Duration RESET_TOKEN_TTL = Duration.ofMinutes(30);
 
     private final UserRepository userRepository;
+    private final AccountLookupService accountLookupService;
     private final CustomerRepository customerRepository;
     private final RestaurantOwnerRepository restaurantOwnerRepository;
     private final DeliveryAgentRepository deliveryAgentRepository;
@@ -79,12 +84,12 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse register(RegisterRequest request) {
         log.info("Registration attempt | Email: {} | Role: {}", request.getEmail(), request.getRole());
 
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (accountLookupService.existsAnywhereByEmail(request.getEmail())) {
             throw new BusinessException("Email already exists");
         }
 
         if (request.getPhoneNumber() != null &&
-                userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
+                accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())) {
             throw new BusinessException("Phone number already exists");
         }
 
@@ -135,10 +140,10 @@ public class AuthServiceImpl implements AuthService {
         }
 
         MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
-        MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
+        MDC.put(LoggingConstants.USER_EMAIL, AccountFields.email(user));
 
         AuthResponse response = issueTokenPair(user);
-        securityEventLogger.logRegistration(user.getId(), user.getEmail(), user.getRole().name());
+        securityEventLogger.logRegistration(user.getId(), AccountFields.email(user), user.getRole().name());
         return response;
     }
 
@@ -151,7 +156,7 @@ public class AuthServiceImpl implements AuthService {
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
 
-            User user = userRepository.findByEmail(request.getEmail())
+            User user = accountLookupService.byEmail(request.getEmail())
                     .orElseThrow(() -> new BusinessException("User not found"));
 
             if (!user.getActive()) {
@@ -163,32 +168,32 @@ public class AuthServiceImpl implements AuthService {
             // legacy scheme (plain BCrypt before the upgrade). The raw password is
             // known here because authenticationManager already verified it above;
             // this becomes a no-op once the stored hash carries the {argon2} prefix.
-            if (passwordEncoder.upgradeEncoding(user.getPassword()) || !user.getPassword().startsWith("{argon2}")) {
-                user.setPassword(passwordEncoder.encode(request.getPassword()));
+            if (passwordEncoder.upgradeEncoding(AccountFields.password(user)) || !AccountFields.password(user).startsWith("{argon2}")) {
+                AccountFields.setPassword(user,passwordEncoder.encode(request.getPassword()));
                 userRepository.save(user);
             }
 
             MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
-            MDC.put(LoggingConstants.USER_EMAIL, user.getEmail());
+            MDC.put(LoggingConstants.USER_EMAIL, AccountFields.email(user));
 
             // If the account belongs to a privileged role and has TOTP MFA
             // enabled, require a second-factor challenge before issuing tokens.
             if (Boolean.TRUE.equals(user.getTotpEnabled()) && isMfaEligibleRole(user.getRole())) {
-                String mfaToken = jwtTokenProvider.generateMfaToken(user.getId(), user.getEmail());
+                String mfaToken = jwtTokenProvider.generateMfaToken(user.getId(), AccountFields.email(user));
                 log.info("MFA challenge issued | userId={} | role={}", user.getId(), user.getRole());
-                securityEventLogger.logLoginSuccess(user.getId(), user.getEmail(), user.getRole().name());
+                securityEventLogger.logLoginSuccess(user.getId(), AccountFields.email(user), user.getRole().name());
                 return AuthResponse.builder()
                         .mfaRequired(true)
                         .mfaToken(mfaToken)
                         .userId(user.getId())
-                        .email(user.getEmail())
-                        .fullName(user.getFullName())
+                        .email(AccountFields.email(user))
+                        .fullName(AccountFields.fullName(user))
                         .role(user.getRole().name())
                         .build();
             }
 
             AuthResponse response = issueTokenPair(user);
-            securityEventLogger.logLoginSuccess(user.getId(), user.getEmail(), user.getRole().name());
+            securityEventLogger.logLoginSuccess(user.getId(), AccountFields.email(user), user.getRole().name());
             return response;
 
         } catch (BadCredentialsException e) {
@@ -209,7 +214,7 @@ public class AuthServiceImpl implements AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
-        if (!com.bhukkad.util.TOTPGenerator.verify(user.getTotpSecret(), totpCode, 1)) {
+        if (!com.bhukkad.util.TOTPGenerator.verify(AccountFields.totpSecret(user), totpCode, 1)) {
             securityEventLogger.logLoginFailure(email, "Invalid MFA code");
             throw new BusinessException("Invalid MFA code");
         }
@@ -236,8 +241,13 @@ public class AuthServiceImpl implements AuthService {
     public PhoneRegisterResponse registerPhone(PhoneRegisterRequest request) {
         log.info("Phone-first registration attempt | phone={}", maskPhone(request.getPhoneNumber()));
 
-        if (userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
+        if (accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())) {
             throw new BusinessException("Phone number already registered");
+        }
+
+        if (request.getRole() != null && request.getRole() != User.UserRole.CUSTOMER) {
+            throw new BusinessException("Phone-first registration only supports role CUSTOMER. " +
+                    "Use the email-based register endpoint for other roles.");
         }
 
         // Send OTP first — if delivery fails, throw to abort the transaction
@@ -245,39 +255,39 @@ public class AuthServiceImpl implements AuthService {
         String otpChannel = request.getOtpChannel() != null ? request.getOtpChannel() : "sms";
         phoneVerificationService.sendOtp(request.getPhoneNumber(), otpChannel);
 
-        String placeholderEmail = "phone_" + request.getPhoneNumber() + "@temp.bhukkad.local";
-        User user;
-
-        switch (request.getRole()) {
-            case CUSTOMER:
-                Customer customer = new Customer();
-                customer.setPhoneNumber(request.getPhoneNumber());
-                customer.setEmail(placeholderEmail);
-                customer.setFullName(null);
-                customer.setPassword(request.getPassword() != null
-                        ? passwordEncoder.encode(request.getPassword())
-                        : null);
-                customer.setRole(User.UserRole.CUSTOMER);
-                customer.setActive(true);
-                customer.setPhoneVerified(false);
-                customer.setProfileCompleted(request.getPassword() != null);
-                customer = customerRepository.save(customer);
-                referralService.initializeNewCustomer(customer, null);
-                user = customer;
-                break;
-
-            default:
-                throw new BusinessException("Phone-first registration only supports role CUSTOMER. " +
-                        "Use the email-based register endpoint for other roles.");
-        }
+        User user = createPhoneCustomer(request.getPhoneNumber(), request.getPassword());
 
         MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
 
         return PhoneRegisterResponse.builder()
-                .phoneNumber(user.getPhoneNumber())
+                .phoneNumber(AccountFields.phoneNumber(user))
                 .message("OTP sent. Please verify your phone number to continue.")
                 .otpExpiryMinutes(Constants.OTP_EXPIRY_MINUTES)
                 .build();
+    }
+
+    /**
+     * Creates a CUSTOMER account backed only by a phone number: a placeholder
+     * email satisfies the unique-email constraint, no password is set until the
+     * profile-completion step. Shared by phone-first registration and the
+     * unified phone sign-in (create-or-login).
+     */
+    private User createPhoneCustomer(String phoneNumber, String rawPassword) {
+        String placeholderEmail = "phone_" + phoneNumber + "@temp.bhukkad.local";
+        Customer customer = new Customer();
+        customer.setPhoneNumber(phoneNumber);
+        customer.setEmail(placeholderEmail);
+        customer.setFullName(null);
+        customer.setPassword(rawPassword != null
+                ? passwordEncoder.encode(rawPassword)
+                : null);
+        customer.setRole(User.UserRole.CUSTOMER);
+        customer.setActive(true);
+        customer.setPhoneVerified(false);
+        customer.setProfileCompleted(rawPassword != null);
+        customer = customerRepository.save(customer);
+        referralService.initializeNewCustomer(customer, null);
+        return customer;
     }
 
     /**
@@ -289,7 +299,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public AuthResponse verifyPhone(OtpVerifyRequest request) {
-        User user = userRepository.findByPhoneNumber(request.getPhoneNumber())
+        User user = accountLookupService.byPhoneNumber(request.getPhoneNumber())
                 .orElseThrow(() -> new BusinessException("No registration found for this phone number"));
 
         phoneVerificationService.verifyOtp(request.getPhoneNumber(), request.getCode());
@@ -308,9 +318,72 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public void resendPhoneOtp(String phoneNumber, String channel) {
-        User user = userRepository.findByPhoneNumber(phoneNumber)
+        User user = accountLookupService.byPhoneNumber(phoneNumber)
                 .orElseThrow(() -> new BusinessException("No registration found for this phone number"));
         phoneVerificationService.resendOtp(phoneNumber, channel);
+    }
+
+    // ------------------------------------------------------------------
+    // Unified phone sign-in (create-or-login)
+    // ------------------------------------------------------------------
+
+    /**
+     * Sends an OTP (SMS or WhatsApp) for phone sign-in. Works whether or not an
+     * account exists for the number — verification decides later whether this is
+     * a login or a first-time sign-up. Returns {@code isNewUser} so the client
+     * can tailor its message.
+     */
+    @Override
+    @Transactional
+    public PhoneSendOtpResponse sendPhoneLoginOtp(PhoneSendOtpRequest request) {
+        String phone = request.getPhoneNumber();
+        String channel = request.getChannel() != null && !request.getChannel().isBlank()
+                ? request.getChannel() : "sms";
+        boolean isNewUser = !accountLookupService.existsAnywhereByPhoneNumber(phone);
+
+        phoneVerificationService.sendOtp(phone, channel);
+
+        log.info("Phone sign-in OTP sent | phone={} | channel={} | isNewUser={}",
+                maskPhone(phone), channel, isNewUser);
+
+        return PhoneSendOtpResponse.builder()
+                .phoneNumber(phone)
+                .message("OTP sent")
+                .otpExpiryMinutes(Constants.OTP_EXPIRY_MINUTES)
+                .isNewUser(isNewUser)
+                .build();
+    }
+
+    /**
+     * Verifies the OTP for phone sign-in and issues tokens.
+     *
+     * <p><strong>Create-or-login:</strong> if no account exists for the phone,
+     * a new CUSTOMER is created first; otherwise the existing user is signed in.
+     * The response's {@code isNewUser} flag tells the client whether to prompt
+     * for profile completion.</p>
+     */
+    @Override
+    @Transactional
+    public AuthResponse verifyPhoneLogin(OtpVerifyRequest request) {
+        String phone = request.getPhoneNumber();
+        phoneVerificationService.verifyOtp(phone, request.getCode());
+
+        boolean isNewUser = !accountLookupService.existsAnywhereByPhoneNumber(phone);
+        User user = accountLookupService.byPhoneNumber(phone)
+                .orElseGet(() -> createPhoneCustomer(phone, null));
+
+        if (!user.getPhoneVerified()) {
+            user.setPhoneVerified(true);
+            user.setPhoneVerifiedAt(LocalDateTime.now());
+            userRepository.save(user);
+        }
+
+        log.info("Phone sign-in completed | userId={} | isNewUser={}", user.getId(), isNewUser);
+        MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
+
+        AuthResponse response = issueTokenPair(user);
+        response.setNewUser(isNewUser);
+        return response;
     }
 
     /**
@@ -329,22 +402,22 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new BusinessException("User not found"));
 
         if (req.getEmail() != null && !req.getEmail().isBlank()) {
-            if (userRepository.existsByEmail(req.getEmail())) {
-                User existing = userRepository.findByEmail(req.getEmail())
+            if (accountLookupService.existsAnywhereByEmail(req.getEmail())) {
+                User existing = accountLookupService.byEmail(req.getEmail())
                         .orElseThrow(() -> new BusinessException("Email already in use"));
                 if (!existing.getId().equals(userId)) {
                     throw new BusinessException("Email already in use by another account");
                 }
             }
-            user.setEmail(req.getEmail());
+            AccountFields.setEmail(user,req.getEmail());
         }
 
         if (req.getFullName() != null && !req.getFullName().isBlank()) {
-            user.setFullName(req.getFullName());
+            AccountFields.setFullName(user,req.getFullName());
         }
 
         if (req.getPassword() != null && !req.getPassword().isBlank()) {
-            user.setPassword(passwordEncoder.encode(req.getPassword()));
+            AccountFields.setPassword(user,passwordEncoder.encode(req.getPassword()));
         }
 
         user.setProfileCompleted(true);
@@ -376,7 +449,7 @@ public class AuthServiceImpl implements AuthService {
             throw new UnauthorizedException("Invalid verification token");
         }
 
-        User user = userRepository.findByEmail(email)
+        User user = accountLookupService.byEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
         if (user.getEmailVerified()) {
@@ -390,7 +463,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void forgotPassword(String email) {
-        User user = userRepository.findByEmail(email)
+        User user = accountLookupService.byEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
         String resetToken = authTokenService.createPasswordResetToken(email, RESET_TOKEN_TTL);
@@ -409,10 +482,10 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Invalid or expired reset token");
         }
 
-        User user = userRepository.findByEmail(email)
+        User user = accountLookupService.byEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
-        user.setPassword(passwordEncoder.encode(newPassword));
+        AccountFields.setPassword(user,passwordEncoder.encode(newPassword));
         userRepository.save(user);
         authTokenService.consumePasswordResetToken(token);
         authTokenService.revokeAllRefreshTokens(user.getId());
@@ -430,7 +503,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         String email = jwtTokenProvider.extractUsername(token);
-        User user = userRepository.findByEmail(email)
+        User user = accountLookupService.byEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
         if (!user.getActive()) {
@@ -451,10 +524,10 @@ public class AuthServiceImpl implements AuthService {
         }
 
         String email = jwtTokenProvider.extractUsername(token);
-        User user = userRepository.findByEmail(email)
+        User user = accountLookupService.byEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
-        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+        if (!passwordEncoder.matches(oldPassword, AccountFields.password(user))) {
             throw new BusinessException("Current password is incorrect");
         }
 
@@ -466,7 +539,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("New password must be different");
         }
 
-        user.setPassword(passwordEncoder.encode(newPassword));
+        AccountFields.setPassword(user,passwordEncoder.encode(newPassword));
         userRepository.save(user);
         authTokenService.revokeAllRefreshTokens(user.getId());
         securityEventLogger.logPasswordChange(user.getId(), email);
@@ -478,7 +551,7 @@ public class AuthServiceImpl implements AuthService {
             if (token != null && !token.isEmpty()) {
                 if (jwtTokenProvider.validateToken(token)) {
                     String email = jwtTokenProvider.extractUsername(token);
-                    userRepository.findByEmail(email).ifPresent(user -> {
+                    accountLookupService.byEmail(email).ifPresent(user -> {
                         if (jwtTokenProvider.isRefreshToken(token)) {
                             authTokenService.revokeRefreshToken(user.getId(), token);
                         } else {
@@ -497,8 +570,8 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private AuthResponse issueTokenPair(User user) {
-        String loginId = user.getEmail() != null ? user.getEmail() : user.getPhoneNumber();
-        String password = user.getPassword() != null ? user.getPassword() : "";
+        String loginId = AccountFields.email(user) != null ? AccountFields.email(user) : AccountFields.phoneNumber(user);
+        String password = AccountFields.password(user) != null ? AccountFields.password(user) : "";
         UserDetails userDetails = org.springframework.security.core.userdetails.User.builder()
                 .username(loginId)
                 .password(password)
@@ -517,9 +590,9 @@ public class AuthServiceImpl implements AuthService {
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .userId(user.getId())
-                .email(user.getEmail())
-                .phoneNumber(user.getPhoneNumber())
-                .fullName(user.getFullName())
+                .email(AccountFields.email(user))
+                .phoneNumber(AccountFields.phoneNumber(user))
+                .fullName(AccountFields.fullName(user))
                 .role(user.getRole().name())
                 .build();
     }

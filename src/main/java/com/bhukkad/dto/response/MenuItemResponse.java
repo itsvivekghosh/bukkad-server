@@ -38,4 +38,11 @@ public class MenuItemResponse {
     private Integer totalRatings;
     private List<CustomizationOptionResponse> customizationOptions;
     private Set<String> tags;
+
+    /**
+     * Distance in kilometres from the user's delivery location to the
+     * restaurant serving this item. Populated only on proximity-filtered
+     * search/discovery endpoints; null otherwise.
+     */
+    private Double restaurantDistanceKm;
 }

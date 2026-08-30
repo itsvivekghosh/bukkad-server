@@ -19,7 +19,7 @@ class PlatformMetricsTest {
         OrderLiveReplayStore replayStore = mock(OrderLiveReplayStore.class);
         when(replayStore.replayAfter(anyString(), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(java.util.Collections.emptyList());
-        return new OrderSseStreamService(replayStore);
+        return new OrderSseStreamService(replayStore, Runnable::run);
     }
 
     @Test void registersSseGaugeWithZeroConnections() {

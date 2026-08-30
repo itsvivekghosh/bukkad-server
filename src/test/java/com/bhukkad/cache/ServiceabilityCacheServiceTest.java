@@ -52,7 +52,7 @@ class ServiceabilityCacheServiceTest {
                 .estimatedDeliveryFee(29.0)
                 .build();
         Supplier<ServiceabilityResponse> loader = () -> response;
-        String expectedKey = "serviceability:restaurant:4:12.9:77.6:250.0";
+        String expectedKey = "serviceability:restaurant:4:12.900:77.600:250.00";
         when(cacheService.getOrCompute(
                 eq(expectedKey), eq(ServiceabilityResponse.class), eq(60L), any()))
                 .thenReturn(response);
@@ -70,7 +70,7 @@ class ServiceabilityCacheServiceTest {
         ReflectionTestUtils.setField(serviceabilityCacheService, "serviceabilityTtlSeconds", 15L);
         ServiceabilityResponse response = ServiceabilityResponse.builder().serviceable(false).build();
         when(cacheService.getOrCompute(
-                eq("serviceability:restaurant:1:0.0:0.0:0.0"),
+                eq("serviceability:restaurant:1:0.000:0.000:0.00"),
                 eq(ServiceabilityResponse.class),
                 eq(15L),
                 any()))
@@ -83,7 +83,7 @@ class ServiceabilityCacheServiceTest {
     void getServiceability_doesNotInvokeLoaderItself() {
         ReflectionTestUtils.setField(serviceabilityCacheService, "serviceabilityTtlSeconds", 60L);
         when(cacheService.getOrCompute(
-                eq("serviceability:restaurant:4:12.9:77.6:0.0"),
+                eq("serviceability:restaurant:4:12.900:77.600:0.00"),
                 eq(ServiceabilityResponse.class),
                 eq(60L),
                 any()))

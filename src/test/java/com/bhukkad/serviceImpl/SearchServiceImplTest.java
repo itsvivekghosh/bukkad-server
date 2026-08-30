@@ -72,4 +72,34 @@ class SearchServiceImplTest {
         assertEquals(1, response.getRestaurantCount());
         assertEquals(0, response.getMenuItemCount());
     }
+
+    @Test void unifiedSearch_nullKeyword_returnsEmptyWithoutDelegating() {
+        // Batch B guard: degenerate keywords never reach the LIKE/FULLTEXT queries.
+        UnifiedSearchResponse response = service.unifiedSearch(null);
+
+        assertEquals(0, response.getRestaurantCount());
+        assertEquals(0, response.getMenuItemCount());
+        assertTrue(response.getRestaurants().isEmpty());
+        assertTrue(response.getMenuItems().isEmpty());
+        verify(restaurantService, Mockito.never()).searchRestaurants(Mockito.anyString());
+        verify(menuService, Mockito.never()).searchMenuItems(Mockito.anyString());
+    }
+
+    @Test void unifiedSearch_shortKeyword_returnsEmptyWithoutDelegating() {
+        UnifiedSearchResponse response = service.unifiedSearch("  p  ");
+
+        assertEquals(0, response.getRestaurantCount());
+        assertEquals(0, response.getMenuItemCount());
+        verify(restaurantService, Mockito.never()).searchRestaurants(Mockito.anyString());
+        verify(menuService, Mockito.never()).searchMenuItems(Mockito.anyString());
+    }
+
+    @Test void unifiedSearch_singleCharKeyword_returnsEmptyWithoutDelegating() {
+        UnifiedSearchResponse response = service.unifiedSearch("a");
+
+        assertEquals(0, response.getRestaurantCount());
+        assertEquals(0, response.getMenuItemCount());
+        verify(restaurantService, Mockito.never()).searchRestaurants(Mockito.anyString());
+        verify(menuService, Mockito.never()).searchMenuItems(Mockito.anyString());
+    }
 }

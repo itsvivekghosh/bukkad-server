@@ -228,4 +228,127 @@ public class MenuControllerTest {
         assertEquals(1, result.getBody().getData().size());
         verify(menuService).getMenuItemsByIds(List.of(1L));
     }
+
+    // ===== Batch B: conditional-GET 304 branches + image upload / low-stock endpoints =====
+
+    private org.springframework.http.HttpHeaders headersWithEtag(String etag) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setETag(etag);
+        return headers;
+    }
+
+    @Test
+    void getCategoriesByRestaurant_notModified_returns304() {
+        List<MenuCategoryResponse> categories = List.of(new MenuCategoryResponse());
+        when(menuService.getCategoriesByRestaurant(1L)).thenReturn(categories);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString()))
+                .thenReturn(headersWithEtag("\"v1\""));
+        when(httpCacheSupport.isNotModified("\"v1\"", "\"v1\"")).thenReturn(true);
+
+        ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> response =
+                menuController.getCategoriesByRestaurant(1L, "\"v1\"");
+
+        assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
+        assertNull(response.getBody());
+    }
+
+    @Test
+    void getMenuItemById_notModified_returns304() {
+        MenuItemResponse item = new MenuItemResponse();
+        when(menuService.getMenuItemById(5L)).thenReturn(item);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString()))
+                .thenReturn(headersWithEtag("\"abc\""));
+        when(httpCacheSupport.isNotModified("\"abc\"", "\"abc\"")).thenReturn(true);
+
+        ResponseEntity<ApiResponse<MenuItemResponse>> response =
+                menuController.getMenuItemById(5L, "\"abc\"");
+
+        assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
+        assertNull(response.getBody());
+    }
+
+    @Test
+    void getMenuItemById_modified_returns200() {
+        MenuItemResponse item = new MenuItemResponse();
+        item.setId(5L);
+        when(menuService.getMenuItemById(5L)).thenReturn(item);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString()))
+                .thenReturn(headersWithEtag("\"abc\""));
+        when(httpCacheSupport.isNotModified(null, "\"abc\"")).thenReturn(false);
+
+        ResponseEntity<ApiResponse<MenuItemResponse>> response =
+                menuController.getMenuItemById(5L, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(item, response.getBody().getData());
+    }
+
+    @Test
+    void getMenuItemsByCategory_notModified_returns304() {
+        when(menuService.getMenuItemsByCategory(8L)).thenReturn(List.of());
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString()))
+                .thenReturn(headersWithEtag("\"c8\""));
+        when(httpCacheSupport.isNotModified("\"c8\"", "\"c8\"")).thenReturn(true);
+
+        ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
+                menuController.getMenuItemsByCategory(8L, "\"c8\"");
+
+        assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
+    }
+
+    @Test
+    void getMenuItemsByRestaurant_notModified_returns304() {
+        when(menuService.getMenuItemsByRestaurant(4L)).thenReturn(List.of());
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString()))
+                .thenReturn(headersWithEtag("\"r4\""));
+        when(httpCacheSupport.isNotModified("\"r4\"", "\"r4\"")).thenReturn(true);
+
+        ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
+                menuController.getMenuItemsByRestaurant(4L, "\"r4\"");
+
+        assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
+    }
+
+    @Test
+    void createMenuItemImageUploadUrl_returnsUrl() {
+        com.bhukkad.dto.request.MenuImageUploadRequest request =
+                new com.bhukkad.dto.request.MenuImageUploadRequest();
+        com.bhukkad.dto.response.MenuImageUploadResponse uploadResponse =
+                com.bhukkad.dto.response.MenuImageUploadResponse.builder()
+                        .imageKey("images/1/2/x.jpg")
+                        .uploadUrl("https://presigned")
+                        .expiresInSeconds(900)
+                        .build();
+        when(menuService.createMenuItemImageUploadUrl(2L, request)).thenReturn(uploadResponse);
+
+        ResponseEntity<ApiResponse<com.bhukkad.dto.response.MenuImageUploadResponse>> response =
+                menuController.createMenuItemImageUploadUrl(2L, request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Upload URL created", response.getBody().getMessage());
+        assertEquals(uploadResponse, response.getBody().getData());
+    }
+
+    @Test
+    void getLowStockItems_withThreshold_returnsItems() {
+        List<MenuItemResponse> items = List.of(new MenuItemResponse());
+        when(menuService.getLowStockItems(4L, 10)).thenReturn(items);
+
+        ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
+                menuController.getLowStockItems(4L, 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(items, response.getBody().getData());
+    }
+
+    @Test
+    void getLowStockItems_withoutThreshold_returnsItems() {
+        when(menuService.getLowStockItems(4L, null)).thenReturn(List.of());
+
+        ResponseEntity<ApiResponse<List<MenuItemResponse>>> response =
+                menuController.getLowStockItems(4L, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().getData().isEmpty());
+    }
 }

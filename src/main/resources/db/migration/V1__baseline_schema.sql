@@ -1,3 +1,7 @@
+-- Bhukkad consolidated database schema (squashed baseline: legacy V1-V26 series,
+-- standalone V2 platform operations, and V27-V61, concatenated in their true
+-- Flyway execution order; see README.md)
+
 -- Bhukkad consolidated database schema (merged from V1-V26)
 
 
@@ -1268,3 +1272,1703 @@ SET @sql = IF(
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- === V2__platform_operations.sql ===
+-- Platform/Operations features:
+--   * Multi-city/Region Support        -> city_configs
+--   * Dark Kitchen Onboarding          -> restaurants.onboarding_status
+--   * Fraud Dashboard review queue     -> fraud_review_queue
+--   * Automated Dispute Resolution     -> disputes
+--   * Promotion Engine (BOGO/segment)  -> promotion_campaigns extension columns
+--   * Affiliate/Referral Program       -> affiliate_codes, affiliate_referrals
+--   * White-label Solution             -> tenants, restaurants.tenant_id
+
+-- ── Multi-city/Region Support ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS city_configs (
+    id                         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    city                       VARCHAR(100) NOT NULL,
+    display_name               VARCHAR(120) NOT NULL,
+    currency                   VARCHAR(10)  NOT NULL DEFAULT 'INR',
+    timezone                   VARCHAR(60)  NOT NULL DEFAULT 'Asia/Kolkata',
+    supported_payment_methods  VARCHAR(255),
+    default_min_order_amount   DOUBLE       NOT NULL DEFAULT 0.0,
+    is_serviceable             BOOLEAN      NOT NULL DEFAULT TRUE,
+    is_active                  BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                 TIMESTAMP    NULL,
+    UNIQUE KEY uk_city_configs_city (city)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Dark Kitchen Onboarding ─────────────────────────────────────────────────
+ALTER TABLE restaurants
+    ADD COLUMN onboarding_status VARCHAR(30) NOT NULL DEFAULT 'APPROVED',
+    ADD COLUMN onboarding_rejection_reason VARCHAR(255) NULL;
+
+-- ── Fraud Dashboard manual review queue ─────────────────────────────────────
+CREATE TABLE IF NOT EXISTS fraud_review_queue (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    fraud_event_id  BIGINT NOT NULL,
+    customer_id     BIGINT NULL,
+    action          VARCHAR(30) NOT NULL,
+    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    notes           VARCHAR(500) NULL,
+    reviewed_by     BIGINT NULL,
+    reviewed_at     TIMESTAMP NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_fraud_review_event FOREIGN KEY (fraud_event_id) REFERENCES fraud_events(id) ON DELETE CASCADE,
+    CONSTRAINT fk_fraud_review_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+    CONSTRAINT fk_fraud_review_user FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY uk_fraud_review_event (fraud_event_id),
+    INDEX idx_fraud_review_status (status),
+    INDEX idx_fraud_review_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Automated Dispute Resolution ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS disputes (
+    id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id           BIGINT NOT NULL,
+    type               VARCHAR(20) NOT NULL,
+    status             VARCHAR(20) NOT NULL,
+    customer_evidence  TEXT,
+    rider_evidence     TEXT,
+    restaurant_evidence TEXT,
+    resolution_notes   TEXT,
+    resolution         VARCHAR(20) NULL,
+    refund_amount      DOUBLE NULL,
+    resolved_by        BIGINT NULL,
+    resolved_at        TIMESTAMP NULL,
+    created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_dispute_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dispute_resolved_by FOREIGN KEY (resolved_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY uk_dispute_order (order_id),
+    INDEX idx_dispute_status (status),
+    INDEX idx_dispute_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Promotion Engine: buy X get Y + user segment ────────────────────────────
+ALTER TABLE promotion_campaigns
+    ADD COLUMN buy_quantity INT NULL,
+    ADD COLUMN get_quantity INT NULL,
+    ADD COLUMN get_discount_percent DOUBLE NULL,
+    ADD COLUMN target_segment VARCHAR(30) NULL,
+    ADD COLUMN applicable_menu_item_id BIGINT NULL;
+
+-- ── Affiliate/Referral Program ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS affiliate_codes (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code          VARCHAR(40) NOT NULL,
+    name          VARCHAR(120) NOT NULL,
+    channel       VARCHAR(40) NULL,
+    reward_amount DOUBLE NOT NULL DEFAULT 0.0,
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_affiliate_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS affiliate_referrals (
+    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    affiliate_code_id BIGINT NOT NULL,
+    customer_id      BIGINT NOT NULL,
+    reward_amount    DOUBLE NOT NULL DEFAULT 0.0,
+    status           VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_affiliate_referral_code FOREIGN KEY (affiliate_code_id) REFERENCES affiliate_codes(id) ON DELETE CASCADE,
+    CONSTRAINT fk_affiliate_referral_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    INDEX idx_affiliate_referral_code (affiliate_code_id),
+    INDEX idx_affiliate_referral_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── White-label Solution (tenant isolation) ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS tenants (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(120) NOT NULL,
+    domain      VARCHAR(120) NOT NULL,
+    brand_name  VARCHAR(120) NULL,
+    logo_url    VARCHAR(500) NULL,
+    theme_color VARCHAR(30)  NULL,
+    currency    VARCHAR(10)  NOT NULL DEFAULT 'INR',
+    is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP    NULL,
+    UNIQUE KEY uk_tenants_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE restaurants
+    ADD COLUMN tenant_id BIGINT NULL,
+    ADD CONSTRAINT fk_restaurant_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL;
+
+-- === V27__api_keys.sql ===
+-- Security: partner API key management for programmatic integrations.
+
+-- ── API keys ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS api_keys (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    name VARCHAR(120) NOT NULL,
+    key_prefix VARCHAR(12) NOT NULL,
+    key_hash CHAR(64) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    partner_id BIGINT,
+    scopes VARCHAR(255),
+    expires_at DATETIME(6),
+    last_used_at DATETIME(6),
+    created_at DATETIME(6) NOT NULL,
+    revoked_at DATETIME(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_api_keys_prefix (key_prefix),
+    INDEX idx_api_keys_status (status),
+    INDEX idx_api_keys_partner (partner_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- === V27__missing_entity_tables.sql ===
+-- Tables referenced by JPA entities that were never created by any earlier
+-- migration. The consolidated V1__baseline_schema.sql was assembled from the
+-- original V1–V26 series and dropped these tables during the merge.
+--
+-- All statements are idempotent (`IF NOT EXISTS`) so this migration is safe on
+-- existing environments where the tables may already exist (e.g. created by
+-- manual DDL or the short-lived V26 async-eventing file):
+--   * cities                     -> City entity
+--   * group_orders               -> GroupOrder entity
+--   * group_order_participants   -> GroupOrder @ElementCollection table
+--   * dead_letter_events         -> DeadLetterEvent entity (outbox DLQ)
+--   * restaurant_ratings_summary -> MaterializedViewRefreshService target
+--   * restaurant_order_stats     -> MaterializedViewRefreshService target
+
+-- ── Cities ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS cities (
+    id                         BIGINT NOT NULL AUTO_INCREMENT,
+    name                       VARCHAR(100) NOT NULL,
+    country                    VARCHAR(100),
+    currency                   VARCHAR(50),
+    timezone                   VARCHAR(50),
+    supported_payment_methods  VARCHAR(50),
+    default_min_order_amount   DOUBLE,
+    is_serviceable             BIT(1) DEFAULT 0,
+    is_active                  BIT(1) DEFAULT 0,
+    created_at                 DATETIME(6) NOT NULL,
+    updated_at                 DATETIME(6),
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Group Orders ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS group_orders (
+    id                       BIGINT NOT NULL AUTO_INCREMENT,
+    order_number             VARCHAR(255) NOT NULL,
+    restaurant_id            BIGINT NOT NULL,
+    primary_customer_id      BIGINT NOT NULL,
+    status                   VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    subtotal                 DOUBLE,
+    delivery_fee             DOUBLE,
+    tax_amount               DOUBLE,
+    discount_amount          DOUBLE,
+    total_amount             DOUBLE,
+    tip_amount               DOUBLE,
+    special_instructions     VARCHAR(255),
+    contactless_delivery     BIT(1) DEFAULT 0,
+    created_at               DATETIME(6) NOT NULL,
+    confirmed_at             DATETIME(6),
+    cancelled_at             DATETIME(6),
+    cancellation_reason      VARCHAR(255),
+    updated_at               DATETIME(6) NOT NULL,
+    payment_method           VARCHAR(30),
+    loyalty_points_redeemed  INT DEFAULT 0,
+    wallet_amount_used       DOUBLE DEFAULT 0.0,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_group_order_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id),
+    CONSTRAINT fk_group_order_customer FOREIGN KEY (primary_customer_id) REFERENCES customers(id),
+    INDEX idx_group_order_status (status),
+    INDEX idx_group_order_created (created_at),
+    INDEX idx_group_order_restaurant_status (restaurant_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Group order participants (GroupOrder @ElementCollection)
+CREATE TABLE IF NOT EXISTS group_order_participants (
+    group_order_id BIGINT NOT NULL,
+    customer_id    BIGINT NOT NULL,
+    PRIMARY KEY (group_order_id, customer_id),
+    CONSTRAINT fk_gop_group_order FOREIGN KEY (group_order_id) REFERENCES group_orders(id) ON DELETE CASCADE,
+    INDEX idx_gop_customer (customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Dead letter queue (outbox failures) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS dead_letter_events (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    event_type VARCHAR(80) NOT NULL,
+    aggregate_type VARCHAR(50) NOT NULL,
+    aggregate_id BIGINT NOT NULL,
+    payload TEXT NOT NULL,
+    last_error VARCHAR(1000),
+    retry_count INT NOT NULL DEFAULT 0,
+    source VARCHAR(20),
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_at DATETIME(6) NOT NULL,
+    requeued_at DATETIME(6),
+    PRIMARY KEY (id),
+    INDEX idx_dlq_status_created (status, created_at),
+    INDEX idx_dlq_aggregate (aggregate_type, aggregate_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Materialized-view summary tables (MaterializedViewRefreshService) ─────
+-- Refreshed on a schedule by MaterializedViewRefreshService; referenced via
+-- native INSERT ... ON DUPLICATE KEY UPDATE, so they must exist on fresh DBs.
+-- Idempotent: existing environments that created them manually keep working.
+CREATE TABLE IF NOT EXISTS restaurant_ratings_summary (
+    restaurant_id      BIGINT NOT NULL,
+    average_rating     DOUBLE NOT NULL DEFAULT 0,
+    total_reviews      INT NOT NULL DEFAULT 0,
+    positive_reviews   INT NOT NULL DEFAULT 0,
+    last_calculated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (restaurant_id),
+    CONSTRAINT fk_rrs_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS restaurant_order_stats (
+    restaurant_id      BIGINT NOT NULL,
+    total_orders       INT NOT NULL DEFAULT 0,
+    delivered_orders   INT NOT NULL DEFAULT 0,
+    cancelled_orders   INT NOT NULL DEFAULT 0,
+    total_revenue      DOUBLE NOT NULL DEFAULT 0,
+    avg_order_value    DOUBLE NOT NULL DEFAULT 0,
+    last_calculated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (restaurant_id),
+    CONSTRAINT fk_ros_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- V29__fix_restaurant_onboarding_rejection_reason.sql
+-- Some environments have V2 recorded in flyway_schema_history without the
+-- ALTER TABLE actually taking effect, leaving restaurants missing the
+-- onboarding_rejection_reason column (app fails with
+-- "Unknown column 'r1_0.onboarding_rejection_reason'"). Add it idempotently so
+-- every database converges whether or not the column already exists.
+
+SET @col_exists = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'restaurants'
+      AND COLUMN_NAME = 'onboarding_rejection_reason'
+);
+
+SET @ddl = IF(@col_exists = 0,
+    'ALTER TABLE restaurants ADD COLUMN onboarding_rejection_reason VARCHAR(255) NULL',
+    'SELECT 1');
+
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V30__fix_restaurant_onboarding_status_tenant.sql
+-- Same root cause as V29: on some databases V2 is recorded in
+-- flyway_schema_history without the ALTER TABLE taking effect, so the
+-- restaurants table is missing onboarding_status and tenant_id. Add both
+-- idempotently (information_schema + prepared statements) so every database
+-- converges whether or not the columns already exist.
+
+SET @col_exists = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'restaurants'
+      AND COLUMN_NAME = 'onboarding_status'
+);
+
+SET @ddl = IF(@col_exists = 0,
+    'ALTER TABLE restaurants ADD COLUMN onboarding_status VARCHAR(30) NOT NULL DEFAULT ''APPROVED''',
+    'SELECT 1');
+
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'restaurants'
+      AND COLUMN_NAME = 'tenant_id'
+);
+
+SET @ddl = IF(@col_exists = 0,
+    'ALTER TABLE restaurants ADD COLUMN tenant_id BIGINT NULL',
+    'SELECT 1');
+
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V31__add_totp_mfa.sql
+-- Adds TOTP (RFC 6238) multi-factor authentication support for ADMIN and
+-- RESTAURANT_OWNER accounts.
+--
+--   totp_secret  : base32-encoded TOTP secret; NULL means MFA not enrolled
+--   totp_enabled : whether the account requires a second factor at login
+--
+-- Both columns are added idempotently (information_schema guards + prepared
+-- statements) so the migration is safe on databases where they may already
+-- exist from a manual hotfix.
+
+SET @schema_name = DATABASE();
+
+-- users.totp_secret
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'users' AND COLUMN_NAME = 'totp_secret') = 0,
+    'ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- users.totp_enabled
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'users' AND COLUMN_NAME = 'totp_enabled') = 0,
+    'ALTER TABLE users ADD COLUMN totp_enabled TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V32__audit_events.sql
+-- Immutable audit trail for sensitive operations (FEATURE #2).
+--
+-- audit_events is append-only: nothing in the application updates or deletes a row.
+-- Each row captures the actor, action, target resource and before/after state so
+-- that sensitive operations (refunds, logins, admin state changes) can be reviewed.
+--
+-- The table and both indexes are created idempotently (information_schema guards +
+-- prepared statements) so the migration is safe on databases where they may already
+-- exist from a manual hotfix.
+
+SET @schema_name = DATABASE();
+
+-- audit_events
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'audit_events') = 0,
+    'CREATE TABLE audit_events (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        actor_id BIGINT NULL,
+        actor_role VARCHAR(30) NULL,
+        action VARCHAR(80) NOT NULL,
+        resource_type VARCHAR(80) NOT NULL,
+        resource_id VARCHAR(100) NULL,
+        old_state TEXT NULL,
+        new_state TEXT NULL,
+        ip_address VARCHAR(45) NULL,
+        trace_id VARCHAR(64) NULL,
+        request_id VARCHAR(64) NULL,
+        created_at DATETIME(6) NOT NULL,
+        PRIMARY KEY (id),
+        INDEX idx_audit_action_created (action, created_at),
+        INDEX idx_audit_resource (resource_type, resource_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- idx_audit_action_created (guarded in case the table pre-existed without indexes)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'audit_events'
+       AND INDEX_NAME = 'idx_audit_action_created') = 0,
+    'ALTER TABLE audit_events ADD INDEX idx_audit_action_created (action, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- idx_audit_resource
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'audit_events'
+       AND INDEX_NAME = 'idx_audit_resource') = 0,
+    'ALTER TABLE audit_events ADD INDEX idx_audit_resource (resource_type, resource_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V37__performance_indexes.sql
+-- Index audit (feature #15): adds composite indexes for the most common
+-- production query patterns that were previously single-column or missing:
+--
+--   1. orders(status, created_at)         -- kitchen queue, admin status dashboards,
+--                                            scheduled-order dispatch scans
+--   2. orders(customer_id, created_at)    -- customer order-history listing (paged)
+--   3. order_items(menu_item_id)          -- menu-item sales analytics
+--   4. fraud_events(created_at)           -- sliding-window cleanup / retention scans
+--
+-- All statements are idempotent (information_schema guards + prepared
+-- statements), matching the V31 style, so they are safe on databases where
+-- the index may already exist from a manual hotfix.
+
+SET @schema_name = DATABASE();
+
+-- orders(status, created_at)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders'
+       AND INDEX_NAME = 'idx_order_status_created') = 0,
+    'CREATE INDEX idx_order_status_created ON orders(status, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders(customer_id, created_at)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders'
+       AND INDEX_NAME = 'idx_order_customer_created') = 0,
+    'CREATE INDEX idx_order_customer_created ON orders(customer_id, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- order_items(menu_item_id)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'order_items'
+       AND INDEX_NAME = 'idx_order_item_menu_item') = 0,
+    'CREATE INDEX idx_order_item_menu_item ON order_items(menu_item_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- fraud_events(created_at)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'fraud_events'
+       AND INDEX_NAME = 'idx_fraud_created') = 0,
+    'CREATE INDEX idx_fraud_created ON fraud_events(created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V38__compliance_tables.sql
+-- DPDP/GDPR support tables (FEATURE #16).
+--
+-- consent_records: one row per (user, purpose) tracking the latest grant/revoke of
+--   marketing / notification consent. Upserted by ConsentService.
+-- data_export_requests: audit trail + payload store for "export my data" requests.
+--
+-- Both tables are created idempotently (information_schema guards + prepared
+-- statements), matching the pattern used by V32__audit_events.
+
+SET @schema_name = DATABASE();
+
+-- consent_records
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'consent_records') = 0,
+    'CREATE TABLE consent_records (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        user_id BIGINT NOT NULL,
+        purpose VARCHAR(50) NOT NULL,
+        granted TINYINT(1) NOT NULL,
+        source VARCHAR(20) NULL,
+        created_at DATETIME(6) NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_consent_user_purpose (user_id, purpose),
+        INDEX idx_consent_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- data_export_requests
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'data_export_requests') = 0,
+    'CREATE TABLE data_export_requests (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        user_id BIGINT NOT NULL,
+        requested_at DATETIME(6) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        payload_json TEXT NULL,
+        completed_at DATETIME(6) NULL,
+        PRIMARY KEY (id),
+        INDEX idx_export_user_status (user_id, status, completed_at),
+        INDEX idx_export_requested_at (requested_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V39__experiment_exposures.sql
+-- A/B experiment exposure log (FEATURE #7).
+--
+-- One row per (experiment, user) — the first time a user was assigned a variant.
+-- The unique constraint makes the table idempotent under concurrent assignment
+-- and doubles as the cohort census for lift analysis.
+
+SET @schema_name = DATABASE();
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'experiment_exposures') = 0,
+    'CREATE TABLE experiment_exposures (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        experiment_key VARCHAR(80) NOT NULL,
+        user_id BIGINT NOT NULL,
+        variant VARCHAR(80) NOT NULL,
+        bucket INT NOT NULL,
+        exposed_at DATETIME(6) NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_experiment_user (experiment_key, user_id),
+        INDEX idx_experiment_variant (experiment_key, variant),
+        INDEX idx_experiment_exposed_at (exposed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V40__churn_scores.sql
+-- Customer churn scoring (FEATURE #12).
+--
+-- One row per customer holding the latest weekly score, the factors behind it and
+-- whether a retention outreach has already been dispatched for the current
+-- high-risk episode (prevents repeat spam).
+
+SET @schema_name = DATABASE();
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'churn_scores') = 0,
+    'CREATE TABLE churn_scores (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        user_id BIGINT NOT NULL,
+        score INT NOT NULL,
+        risk_level VARCHAR(10) NOT NULL,
+        factors TEXT NULL,
+        scored_at DATETIME(6) NOT NULL,
+        retention_action_taken TINYINT(1) NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_churn_user (user_id),
+        INDEX idx_churn_score (score),
+        INDEX idx_churn_risk_scored (risk_level, scored_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V42__order_fulfillment.sql
+-- Adds order fulfillment support for three features:
+--   1. Guest checkout   : anonymous device_id-scoped identity + phone/OTP capture
+--   2. Curbside pickup  : orders.fulfillment_type = 'PICKUP' (skip delivery fee + rider)
+--   3. Gift orders      : pay now, deliver to recipient, optional gift message
+--
+-- Every orders column is added idempotently (information_schema guards +
+-- prepared statements, V31 style) so the migration is safe on databases where
+-- the columns may already exist from a manual hotfix. gift_orders is created
+-- with CREATE TABLE IF NOT EXISTS for the same reason.
+
+SET @schema_name = DATABASE();
+
+-- orders.fulfillment_type
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'fulfillment_type') = 0,
+    'ALTER TABLE orders ADD COLUMN fulfillment_type VARCHAR(20) NOT NULL DEFAULT ''DELIVERY''',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders.device_id
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'device_id') = 0,
+    'ALTER TABLE orders ADD COLUMN device_id VARCHAR(64) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders.guest_phone
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'guest_phone') = 0,
+    'ALTER TABLE orders ADD COLUMN guest_phone VARCHAR(15) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders.gift_message
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'gift_message') = 0,
+    'ALTER TABLE orders ADD COLUMN gift_message VARCHAR(500) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders.recipient_name
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'recipient_name') = 0,
+    'ALTER TABLE orders ADD COLUMN recipient_name VARCHAR(100) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders.recipient_phone
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'recipient_phone') = 0,
+    'ALTER TABLE orders ADD COLUMN recipient_phone VARCHAR(15) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- gift_orders: one row per gift order, linking the paid order to the recipient
+-- details. sender_user_id is the purchasing customer; kept nullable (SET NULL on
+-- user deletion) so the gift record survives account removal.
+CREATE TABLE IF NOT EXISTS gift_orders (
+    id                   BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    order_id             BIGINT        NOT NULL UNIQUE,
+    sender_user_id       BIGINT        NULL,
+    recipient_name       VARCHAR(100)  NULL,
+    recipient_phone      VARCHAR(15)   NULL,
+    recipient_address_id BIGINT        NULL,
+    message              VARCHAR(500)  NULL,
+    created_at           DATETIME(6)   NOT NULL,
+    CONSTRAINT fk_gift_orders_order  FOREIGN KEY (order_id)        REFERENCES orders(id)  ON DELETE CASCADE,
+    CONSTRAINT fk_gift_orders_sender FOREIGN KEY (sender_user_id)  REFERENCES users(id)   ON DELETE SET NULL,
+    INDEX idx_gift_orders_sender (sender_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- V43__group_orders.sql
+-- Adds group ordering and bill splitting tables:
+--   1. group_orders        : one row per group order (host + status + timestamps)
+--   2. group_order_members : invited/joined users, invite phone, contribution
+--
+-- V28 already creates a legacy-shaped `group_orders` table. The GroupOrder entity
+-- has since been redesigned around host/title/placed_at, so this migration
+-- EXPANDS the existing table idempotently (add-column-if-missing) instead of
+-- relying on CREATE TABLE IF NOT EXISTS, then adds indexes guarded on column
+-- existence. Legacy columns are left in place; JPA simply ignores them.
+
+SET @schema_name = DATABASE();
+
+CREATE TABLE IF NOT EXISTS group_orders (
+    id              BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    host_user_id    BIGINT        NULL,
+    title           VARCHAR(100)  NULL,
+    status          VARCHAR(30)   NOT NULL DEFAULT 'OPEN',
+    created_at      DATETIME(6)   NULL,
+    placed_at       DATETIME(6)   NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- host_user_id (nullable here: legacy rows have no host; new writes always set it)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders' AND COLUMN_NAME = 'host_user_id') = 0,
+    'ALTER TABLE group_orders ADD COLUMN host_user_id BIGINT NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders' AND COLUMN_NAME = 'title') = 0,
+    'ALTER TABLE group_orders ADD COLUMN title VARCHAR(100) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders' AND COLUMN_NAME = 'placed_at') = 0,
+    'ALTER TABLE group_orders ADD COLUMN placed_at DATETIME(6) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Index only when the column it targets exists (fresh installs create it above;
+-- databases carrying the legacy shape get it via the ALTERs above).
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders' AND COLUMN_NAME = 'host_user_id') > 0
+    AND (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders' AND INDEX_NAME = 'idx_group_host') = 0,
+    'CREATE INDEX idx_group_host ON group_orders (host_user_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS group_order_members (
+    id                   BIGINT        AUTO_INCREMENT PRIMARY KEY,
+    group_order_id       BIGINT        NOT NULL,
+    user_id              BIGINT        NOT NULL,
+    invite_phone         VARCHAR(15)   NULL,
+    status               VARCHAR(20)   NOT NULL DEFAULT 'INVITED',
+    amount_contribution  DOUBLE        NULL,
+    paid                 TINYINT(1)    NOT NULL DEFAULT 0,
+    joined_at            DATETIME(6)   NULL,
+    UNIQUE KEY uq_group_member (group_order_id, user_id),
+    INDEX idx_group_member_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_order_members' AND INDEX_NAME = 'idx_group_member_user') = 0,
+    'CREATE INDEX idx_group_member_user ON group_order_members (user_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V44__subscription_plans.sql
+-- Adds recurring subscription meal plan support. Customers subscribe to a weekly
+-- meal plan (restaurant + items + weekday + delivery time); the scheduler
+-- materialises the next due subscription into a real scheduled order.
+--
+--   subscription_plans       : weekly plan definition (status, schedule, items)
+--   subscription_deliveries  : per-instance delivery tracking (PENDING/PLACED/
+--                             SKIPPED/FAILED)
+--
+-- Both tables are added idempotently (information_schema guards) so the
+-- migration is safe on databases where they may already exist from a manual
+-- hotfix or parallel branch.
+
+SET @schema_name = DATABASE();
+
+-- ==================== subscription_plans ====================
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'subscription_plans') = 0,
+    'CREATE TABLE subscription_plans (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        restaurant_id BIGINT NOT NULL,
+        title VARCHAR(100),
+        items_json TEXT,
+        weekday VARCHAR(10) NOT NULL COMMENT \'MON/TUE/WED/THU/FRI/SAT/SUN\',
+        delivery_time TIME NOT NULL,
+        delivery_address_id BIGINT NOT NULL,
+        payment_method VARCHAR(30) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT \'ACTIVE\' COMMENT \'ACTIVE/PAUSED/CANCELLED\',
+        start_date DATE NOT NULL,
+        next_delivery_date DATE,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        INDEX idx_sub_user (user_id),
+        INDEX idx_sub_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- ==================== subscription_deliveries ====================
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'subscription_deliveries') = 0,
+    'CREATE TABLE subscription_deliveries (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        subscription_plan_id BIGINT NOT NULL,
+        order_id BIGINT,
+        scheduled_date DATE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT \'PENDING\' COMMENT \'PENDING/PLACED/SKIPPED/FAILED\',
+        UNIQUE KEY uq_sub_date (subscription_plan_id, scheduled_date),
+        INDEX idx_sub_del_plan (subscription_plan_id),
+        INDEX idx_sub_del_status (status),
+        CONSTRAINT fk_sub_del_plan FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE,
+        CONSTRAINT fk_sub_del_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V45__menu_availability.sql
+-- Adds dietary flags (is_veg / is_jain) and item-level availability hours
+-- (available_from / available_until) to menu_items so menu listings, search
+-- results and order validation can be filtered by diet profile and by time of
+-- day.
+--
+-- Every statement is idempotent (information_schema guards + prepared
+-- statements), mirroring V31__add_totp_mfa.sql, so the migration is safe on
+-- databases where some of these columns may already exist from a manual
+-- hotfix. is_veg already exists from V1 on fresh installs; the guard makes the
+-- ALTER a no-op there.
+--
+-- NOTE: the originally requested composite index idx_menu_restaurant_veg
+-- (restaurant_id, is_veg) is intentionally NOT created: menu_items has no
+-- restaurant_id column (restaurant access is via category_id ->
+-- menu_categories.restaurant_id), so that index would fail. The existing
+-- idx_menu_item_is_veg index covers the veg filtering path instead.
+
+SET @schema_name = DATABASE();
+
+-- menu_items.is_veg
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'is_veg') = 0,
+    'ALTER TABLE menu_items ADD COLUMN is_veg BOOLEAN NOT NULL DEFAULT FALSE',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- menu_items.is_jain
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'is_jain') = 0,
+    'ALTER TABLE menu_items ADD COLUMN is_jain BOOLEAN NOT NULL DEFAULT FALSE',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- menu_items.available_from
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'available_from') = 0,
+    'ALTER TABLE menu_items ADD COLUMN available_from TIME NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- menu_items.available_until
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'available_until') = 0,
+    'ALTER TABLE menu_items ADD COLUMN available_until TIME NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V46__menu_versions.sql
+-- Adds snapshot-based menu versioning for restaurant owners.
+--
+--   menu_versions : one row per saved version of a restaurant's menu.
+--     - snapshot_json holds a JSON snapshot of the live menu (categories + items)
+--       captured when the version was created.
+--     - status is DRAFT (not yet published) or PUBLISHED.
+--     - publishing a version only flips status/published_at; the live menu that
+--       the order flow reads is never modified.
+--
+-- The CREATE TABLE is guarded with IF NOT EXISTS so the migration is idempotent
+-- on databases where the table may already exist from a manual hotfix.
+
+CREATE TABLE IF NOT EXISTS menu_versions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    restaurant_id BIGINT NOT NULL,
+    version_number INT NOT NULL,
+    label VARCHAR(100),
+    snapshot_json MEDIUMTEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+    created_at DATETIME(6) NOT NULL,
+    published_at DATETIME(6) NULL,
+    UNIQUE KEY uq_menu_version (restaurant_id, version_number),
+    KEY idx_menu_version_restaurant (restaurant_id)
+);
+
+-- V47__delivery_surveys.sql
+-- Adds the post-delivery satisfaction survey table.
+--
+-- A customer can submit one survey per delivered order; responses feed
+-- restaurant analytics (average delivery/food/speed ratings).
+--
+--   order_id        : unique per order (one survey per order)
+--   rating_delivery : 1-5, NULL when the customer skipped the question
+--   rating_food     : 1-5, NULL when the customer skipped the question
+--   rating_speed    : 1-5, NULL when the customer skipped the question
+--   comment         : optional free-text feedback
+--
+-- The table is created with CREATE TABLE IF NOT EXISTS so the migration is
+-- idempotent and safe on databases where it may already exist from a manual
+-- hotfix (same convention as V42 gift_orders / V43 group_orders).
+
+CREATE TABLE IF NOT EXISTS delivery_surveys (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    order_id        BIGINT       NOT NULL,
+    customer_id     BIGINT       NOT NULL,
+    rating_delivery INT          NULL,
+    rating_food     INT          NULL,
+    rating_speed    INT          NULL,
+    comment         VARCHAR(1000) NULL,
+    submitted_at    DATETIME(6)  NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_survey_order (order_id),
+    CONSTRAINT fk_survey_order    FOREIGN KEY (order_id)    REFERENCES orders(id)    ON DELETE CASCADE,
+    CONSTRAINT fk_survey_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    INDEX idx_survey_customer (customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Optional: speeds up per-restaurant average aggregation (surveys joined to
+-- their orders). Guarded so re-runs never fail.
+SET @idx_exists = (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'delivery_surveys'
+      AND INDEX_NAME = 'idx_survey_restaurant_lookup'
+);
+SET @sql = IF(
+    @idx_exists = 0,
+    'ALTER TABLE delivery_surveys ADD INDEX idx_survey_restaurant_lookup (order_id, customer_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V49__delivery_operations.sql
+-- Delivery operations support for three features:
+--   1. Agent shifts   : agent_shifts tracks rider working shifts (start/end)
+--   2. Incentives     : rider_earnings.bonus_amount / bonus_reason
+--   3. COD cash       : agent_cod_wallets tracks cash collected vs deposited
+--
+-- Both tables are created with CREATE TABLE IF NOT EXISTS and the
+-- rider_earnings columns are added idempotently (information_schema guards +
+-- prepared statements, V31 style) so the migration is safe on databases where
+-- the objects may already exist from a manual hotfix.
+
+SET @schema_name = DATABASE();
+
+-- agent_shifts: one row per rider shift; end_time is populated when the shift
+-- is completed (a started shift keeps start_time as a placeholder value).
+CREATE TABLE IF NOT EXISTS agent_shifts (
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    agent_id   BIGINT      NOT NULL,
+    shift_date DATE        NOT NULL,
+    start_time TIME        NOT NULL,
+    end_time   TIME        NOT NULL,
+    status     VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_shift_agent FOREIGN KEY (agent_id) REFERENCES delivery_agents(id) ON DELETE CASCADE,
+    INDEX idx_shift_agent (agent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Guarded re-add for the rare case the table pre-existed without the index.
+SET @idx_exists = (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = @schema_name
+      AND TABLE_NAME = 'agent_shifts'
+      AND INDEX_NAME = 'idx_shift_agent'
+);
+SET @sql = IF(
+    @idx_exists = 0,
+    'ALTER TABLE agent_shifts ADD INDEX idx_shift_agent (agent_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- rider_earnings.bonus_amount
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'rider_earnings' AND COLUMN_NAME = 'bonus_amount') = 0,
+    'ALTER TABLE rider_earnings ADD COLUMN bonus_amount DOUBLE DEFAULT 0.0',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- rider_earnings.bonus_reason
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'rider_earnings' AND COLUMN_NAME = 'bonus_reason') = 0,
+    'ALTER TABLE rider_earnings ADD COLUMN bonus_reason VARCHAR(100) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- agent_cod_wallets: one wallet per agent; cash-on-delivery totals and the
+-- last reconciliation timestamp.
+CREATE TABLE IF NOT EXISTS agent_cod_wallets (
+    id                   BIGINT      NOT NULL AUTO_INCREMENT,
+    agent_id             BIGINT      NOT NULL,
+    total_cash_collected DOUBLE      NOT NULL DEFAULT 0.0,
+    total_cash_deposited DOUBLE      NOT NULL DEFAULT 0.0,
+    last_reconciled_at   DATETIME(6) NULL,
+    created_at           DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_cod_wallet_agent (agent_id),
+    CONSTRAINT fk_agent_cod_wallet_agent FOREIGN KEY (agent_id) REFERENCES delivery_agents(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- V51__saga_events.sql
+-- Creates tables for saga pattern implementation: saga_instances and saga_steps
+-- to manage long-running transactions like order -> payment -> settlement.
+
+SET @schema_name = DATABASE();
+
+-- saga_instances: tracks the overall saga state
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'saga_instances') = 0,
+    'CREATE TABLE saga_instances (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        saga_type VARCHAR(50) NOT NULL,
+        saga_id VARCHAR(100) NOT NULL UNIQUE,
+        current_step VARCHAR(50),
+        status VARCHAR(20) NOT NULL, -- STARTED, STEP_COMPLETED, COMPLETED, COMPENSATING, COMPENSATED, FAILED
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        payload JSON, -- serialized input data for the saga
+        INDEX idx_saga_type_status (saga_type, status),
+        INDEX idx_saga_id (saga_id)
+    )',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- saga_steps: tracks each step within a saga, including compensation info
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'saga_steps') = 0,
+    'CREATE TABLE saga_steps (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        saga_instance_id BIGINT NOT NULL,
+        step_order INT NOT NULL,
+        step_name VARCHAR(50) NOT NULL,
+        status VARCHAR(20) NOT NULL, -- PENDING, COMPLETED, FAILED, COMPENSATED
+        payload JSON, -- input/output data for this step
+        compensation_payload JSON, -- data needed to compensate this step
+        error_message VARCHAR(1000),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (saga_instance_id) REFERENCES saga_instances(id) ON DELETE CASCADE,
+        UNIQUE KEY uq_saga_instance_step (saga_instance_id, step_order),
+        INDEX idx_saga_instance_status (saga_instance_id, status)
+    )',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Index for querying pending steps for processing
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'saga_steps' AND INDEX_NAME = 'idx_saga_steps_pending') = 0,
+    'CREATE INDEX idx_saga_steps_pending ON saga_steps(status, step_order)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V52__additional_indexes.sql
+-- Adds additional indexes for query performance optimization
+-- Verified against the actual schema:
+--   settlement_runs(started_at), coupon_usages(customer_id), reviews(created_at)
+--   orders(restaurant_id, status), payments(order_id, status),
+--   menu_items(category_id, available)
+
+SET @schema_name = DATABASE();
+
+-- settlement_runs.started_at index for time-range queries on settlement runs
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'settlement_runs' AND INDEX_NAME = 'idx_settlement_runs_started_at') = 0,
+    'CREATE INDEX idx_settlement_runs_started_at ON settlement_runs (started_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- coupon_usages.customer_id index for user-centric coupon queries
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'coupon_usages' AND INDEX_NAME = 'idx_coupon_usages_customer_id') = 0,
+    'CREATE INDEX idx_coupon_usages_customer_id ON coupon_usages (customer_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- reviews.created_at index for time-based review queries
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'reviews' AND INDEX_NAME = 'idx_reviews_created_at') = 0,
+    'CREATE INDEX idx_reviews_created_at ON reviews (created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- orders.restaurant_id + status for restaurant order queries
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_restaurant_status') = 0,
+    'CREATE INDEX idx_orders_restaurant_status ON orders (restaurant_id, status)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- payments.order_id + status for payment lookups
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'payments' AND INDEX_NAME = 'idx_payments_order_status') = 0,
+    'CREATE INDEX idx_payments_order_status ON payments (order_id, status)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- menu_items.category_id + available for menu listing
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'menu_items' AND INDEX_NAME = 'idx_menu_items_category_available') = 0,
+    'CREATE INDEX idx_menu_items_category_available ON menu_items (category_id, available)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V53__add_membership_tier_level.sql
+-- Adds columns to membership_plans that the MembershipPlan entity maps but
+-- no earlier migration created. Without these columns, Hibernate's SELECT
+-- includes them and queries fail with "Unknown column" SQL errors.
+--
+-- This manifests as a 500 on /home/feed and /mobile/feed in environments
+-- whose DB was built purely from Flyway migrations.
+
+SET @schema_name = DATABASE();
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'membership_plans'
+       AND COLUMN_NAME = 'tier_level') = 0,
+    'ALTER TABLE membership_plans
+     ADD COLUMN tier_level INT NOT NULL DEFAULT 0 COMMENT ''0=Basic, 1=Silver, 2=Gold, 3=Platinum'' AFTER discount_percent',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'membership_plans'
+       AND COLUMN_NAME = 'max_discount_percent') = 0,
+    'ALTER TABLE membership_plans
+     ADD COLUMN max_discount_percent DOUBLE NOT NULL DEFAULT 0.0 AFTER discount_percent',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'membership_plans'
+       AND COLUMN_NAME = 'referral_bonus_percent') = 0,
+    'ALTER TABLE membership_plans
+     ADD COLUMN referral_bonus_percent DOUBLE NOT NULL DEFAULT 0.0 AFTER max_discount_percent',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'membership_plans'
+       AND COLUMN_NAME = 'referral_max_per_month') = 0,
+    'ALTER TABLE membership_plans
+     ADD COLUMN referral_max_per_month INT NOT NULL DEFAULT 0 AFTER referral_bonus_percent',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- =============================================================================
+-- V54: Per-domain schemas (Phase 2 — vertical partitioning).
+--
+-- Creates one schema per owning domain so the same physical MySQL server can
+-- host the partitioned monolith. The application still runs on the `bhukkad`
+-- schema today; these schemas are the target for the Phase 3 service extraction
+-- and let operators pre-provision privileges, backups and read replicas per
+-- domain before any data moves.
+--
+-- Idempotent: CREATE DATABASE IF NOT EXISTS is safe to run on every deploy.
+-- =============================================================================
+
+CREATE DATABASE IF NOT EXISTS bhukkad_orders
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS bhukkad_payments
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS bhukkad_restaurants
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS bhukkad_customers
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS bhukkad_admin
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS bhukkad_delivery
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Grant the application user the same privileges it has on `bhukkad`.
+-- GRANT ALL PRIVILEGES ON bhukkad_orders.* TO 'bhukkad_user'@'%';
+-- GRANT ALL PRIVILEGES ON bhukkad_payments.* TO 'bhukkad_user'@'%';
+-- GRANT ALL PRIVILEGES ON bhukkad_restaurants.* TO 'bhukkad_user'@'%';
+-- GRANT ALL PRIVILEGES ON bhukkad_customers.* TO 'bhukkad_user'@'%';
+-- GRANT ALL PRIVILEGES ON bhukkad_admin.* TO 'bhukkad_user'@'%';
+-- GRANT ALL PRIVILEGES ON bhukkad_delivery.* TO 'bhukkad_user'@'%';
+-- FLUSH PRIVILEGES;
+
+-- =============================================================================
+-- V55: Event-driven materialized summary tables (Phase 2).
+--
+-- `trending_dishes` replaces the cross-domain aggregate query
+-- (OrderItemRepository.findTrendingByCreatedSince: order_items JOIN menu_items)
+-- with a summary table owned by the ANALYTICS domain, fed by the
+-- ORDER_ITEMS_SNAPSHOT outbox event. The ADMIN/ANALYTICS domain never joins
+-- ORDER tables directly.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS trending_dishes (
+    menu_item_id      BIGINT       NOT NULL,
+    restaurant_id     BIGINT       NOT NULL,
+    dish_name         VARCHAR(255) NOT NULL,
+    quantity_sold     BIGINT       NOT NULL DEFAULT 0,
+    last_order_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (menu_item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Hot read path for the home feed: rank by quantity sold within the window.
+-- Guarded via information_schema so the migration is idempotent (MySQL has no
+-- CREATE INDEX IF NOT EXISTS).
+SET @index_exists := (
+    SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'trending_dishes'
+      AND index_name = 'idx_trending_dishes_qty');
+SET @ddl := IF(@index_exists = 0,
+    'CREATE INDEX idx_trending_dishes_qty ON trending_dishes (quantity_sold DESC)',
+    'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- =============================================================================
+-- `orders_archive` — partitioned by RANGE COLUMNS on created_at for
+-- retention/archival.
+--
+-- MySQL 8 partitioned InnoDB tables cannot carry foreign keys, so the live
+-- `orders` table keeps its FKs and old rows are MOVED here by the archive job
+-- (OrderArchiveService). Each partition covers one quarter, which makes the
+-- oldest partition DROP cheap (partition pruning) instead of a bulk DELETE.
+-- RANGE COLUMNS is used (not TO_DAYS()) because TO_DAYS() is a timezone-
+-- dependent function and is rejected by MySQL 8+ partitioning.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS orders_archive (
+    id                    BIGINT       NOT NULL,
+    order_number          VARCHAR(32)  NOT NULL,
+    customer_id           BIGINT       NOT NULL,
+    restaurant_id         BIGINT       NOT NULL,
+    status                VARCHAR(32)  NULL,
+    total_amount          DECIMAL(10,2) NULL,
+    delivery_address_id   BIGINT       NULL,
+    special_instructions  VARCHAR(500) NULL,
+    created_at            DATETIME     NOT NULL,
+    updated_at            DATETIME     NULL,
+    delivered_at          DATETIME     NULL,
+    estimated_delivery_at DATETIME     NULL,
+    archived_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+PARTITION BY RANGE COLUMNS (created_at) (
+    PARTITION p2024q1 VALUES LESS THAN ('2024-04-01 00:00:00'),
+    PARTITION p2024q2 VALUES LESS THAN ('2024-07-01 00:00:00'),
+    PARTITION p2024q3 VALUES LESS THAN ('2024-10-01 00:00:00'),
+    PARTITION p2024q4 VALUES LESS THAN ('2025-01-01 00:00:00'),
+    PARTITION p2025q1 VALUES LESS THAN ('2025-04-01 00:00:00'),
+    PARTITION p2025q2 VALUES LESS THAN ('2025-07-01 00:00:00'),
+    PARTITION p2025q3 VALUES LESS THAN ('2025-10-01 00:00:00'),
+    PARTITION p2025q4 VALUES LESS THAN ('2026-01-01 00:00:00'),
+    PARTITION p2026q1 VALUES LESS THAN ('2026-04-01 00:00:00'),
+    PARTITION p_future   VALUES LESS THAN (MAXVALUE)
+);
+
+SET @idx1 := (SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'orders_archive'
+      AND index_name = 'idx_orders_archive_customer');
+SET @ddl1 := IF(@idx1 = 0,
+    'CREATE INDEX idx_orders_archive_customer ON orders_archive (customer_id)',
+    'SELECT 1');
+PREPARE stmt1 FROM @ddl1; EXECUTE stmt1; DEALLOCATE PREPARE stmt1;
+
+SET @idx2 := (SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'orders_archive'
+      AND index_name = 'idx_orders_archive_status');
+SET @ddl2 := IF(@idx2 = 0,
+    'CREATE INDEX idx_orders_archive_status ON orders_archive (status)',
+    'SELECT 1');
+PREPARE stmt2 FROM @ddl2; EXECUTE stmt2; DEALLOCATE PREPARE stmt2;
+
+-- V56__fix_group_orders_legacy_columns.sql
+-- Fixes the group_orders table shape for the redesigned GroupOrder entity.
+--
+-- V28 created group_orders with a legacy "orders"-shaped schema whose NOT NULL
+-- columns (order_number, restaurant_id, primary_customer_id, updated_at) have
+-- no defaults. The current entity only writes host_user_id/title/status/
+-- created_at, so every INSERT failed with "Field 'order_number' doesn't have a
+-- default value" -> 500 on POST /api/v1/customers/group-orders.
+--
+-- This migration makes the unused legacy columns nullable and drops their
+-- foreign keys so new rows can be inserted and legacy rows can be cleaned up
+-- without FK interference. It is idempotent for databases that already ran it.
+
+SET @schema_name = DATABASE();
+
+-- 1) Make legacy NOT NULL columns nullable.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders'
+       AND COLUMN_NAME = 'order_number' AND IS_NULLABLE = 'NO') > 0,
+    'ALTER TABLE group_orders MODIFY COLUMN order_number VARCHAR(255) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders'
+       AND COLUMN_NAME = 'restaurant_id' AND IS_NULLABLE = 'NO') > 0,
+    'ALTER TABLE group_orders MODIFY COLUMN restaurant_id BIGINT NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders'
+       AND COLUMN_NAME = 'primary_customer_id' AND IS_NULLABLE = 'NO') > 0,
+    'ALTER TABLE group_orders MODIFY COLUMN primary_customer_id BIGINT NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders'
+       AND COLUMN_NAME = 'updated_at' AND IS_NULLABLE = 'NO') > 0,
+    'ALTER TABLE group_orders MODIFY COLUMN updated_at DATETIME(6) NULL',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2) Drop the legacy foreign keys referencing restaurants/customers (the
+--    columns they guard are no longer written by the application).
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders'
+       AND CONSTRAINT_NAME = 'fk_group_order_restaurant') > 0,
+    'ALTER TABLE group_orders DROP FOREIGN KEY fk_group_order_restaurant',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'group_orders'
+       AND CONSTRAINT_NAME = 'fk_group_order_customer') > 0,
+    'ALTER TABLE group_orders DROP FOREIGN KEY fk_group_order_customer',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Outbox claim-and-process refactor: track when a sweep claimed an event so
+-- the recovery sweep can reset events stranded in PROCESSING by a crashed
+-- or killed pod back to PENDING.
+ALTER TABLE outbox_events
+    ADD COLUMN processing_started_at DATETIME(6) NULL AFTER published_at;
+
+-- Phone-first registration: make email, full_name, and password nullable
+-- so accounts can be created with only a phone number, then have details
+-- appended later. MySQL unique indexes allow multiple NULLs, so the email
+-- uniqueness on the existing idx_user_email index is preserved for real values.
+ALTER TABLE users MODIFY COLUMN email VARCHAR(100) NULL;
+ALTER TABLE users MODIFY COLUMN full_name VARCHAR(100) NULL;
+ALTER TABLE users MODIFY COLUMN password VARCHAR(255) NULL;
+
+-- Track phone verification status for the phone-first registration flow.
+ALTER TABLE users ADD COLUMN phone_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN phone_verified_at DATETIME(6) NULL;
+
+-- Track whether a phone-first user has completed their profile
+-- (added email, full name, password) to gate downstream features.
+ALTER TABLE users ADD COLUMN profile_completed BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Index for the phone-first login / lookup path (phone is already unique
+-- via the entity mapping, but an explicit index on the verification
+-- query plane is useful for admin and support lookups).
+--
+-- NOTE: plain CREATE INDEX (no IF NOT EXISTS) — `CREATE INDEX IF NOT EXISTS`
+-- requires MySQL 8.0.22+, but the Testcontainers `mysql:8.0` image and some
+-- production MySQL 8.0.x releases are older, so the guarded form fails.
+-- A duplicate-index failure would indicate the index already exists; run
+-- `flyway repair` in that case rather than re-running this migration.
+CREATE INDEX idx_user_phone_verified ON users (phone_verified);
+
+-- Persist the coupon code applied to a cart so it survives across get-cart
+-- and is available at checkout time. The discount itself is calculated
+-- server-side from the coupon rules (OrderPricingServiceImpl), but the
+-- cart-level response includes the computed discount so the client can
+-- show the reduced total before order placement.
+
+ALTER TABLE carts ADD COLUMN coupon_code VARCHAR(50) NULL AFTER restaurant_id;
+CREATE INDEX idx_cart_coupon_code ON carts (coupon_code);
+
+-- V60__high_traffic_indexes.sql
+-- High-traffic production indexes. All statements are idempotent (information_schema guards)
+-- so the migration is safe to re-run and safe on databases where a hotfix already
+-- added the index manually.
+
+SET @schema_name = DATABASE();
+
+-- 1. payments.gateway_order_id — webhook lookup (PaymentServiceImpl.findByGatewayOrderId)
+--    is on the critical payment path and previously did a full scan.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'payments' AND INDEX_NAME = 'idx_payments_gateway_order_id') = 0,
+    'CREATE INDEX idx_payments_gateway_order_id ON payments (gateway_order_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- payments.gateway_payment_id — Razorpay payment lookup (refund / verification)
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'payments' AND INDEX_NAME = 'idx_payments_gateway_payment_id') = 0,
+    'CREATE INDEX idx_payments_gateway_payment_id ON payments (gateway_payment_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 2. orders(status, scheduled_at) — scheduled-order dispatch
+--    `SELECT ... WHERE status='SCHEDULED' AND scheduled_at <= NOW()` runs every 60s
+--    on the hot path. Single-column idx_order_scheduled_at is insufficient.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_status_scheduled_at') = 0,
+    'CREATE INDEX idx_orders_status_scheduled_at ON orders (status, scheduled_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 3. orders(guest_phone) / orders(device_id) — guest checkout lookup
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_guest_phone') = 0,
+    'CREATE INDEX idx_orders_guest_phone ON orders (guest_phone)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_device_id') = 0,
+    'CREATE INDEX idx_orders_device_id ON orders (device_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 4. outbox_events(status, processing_started_at) — recovery of stale PROCESSING
+--    `recoverStaleProcessing` does WHERE status='PROCESSING' AND processing_started_at < NOW()-threshold
+--    Previously next_retry_at did not exist; use processing_started_at.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'outbox_events' AND INDEX_NAME = 'idx_outbox_status_processing') = 0,
+    'CREATE INDEX idx_outbox_status_processing ON outbox_events (status, processing_started_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 5. rider_earnings(agent_id, status, created_at) — settlement sweep sorts by createdAt
+--    extend existing (agent_id, status) with created_at for cursor pagination.
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'rider_earnings' AND INDEX_NAME = 'idx_rider_earning_agent_status_created') = 0,
+    'CREATE INDEX idx_rider_earning_agent_status_created ON rider_earnings (agent_id, status, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 6. restaurant_settlements(restaurant_id, status, created_at) — same for settlement history
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'restaurant_settlements' AND INDEX_NAME = 'idx_settlement_restaurant_status_created') = 0,
+    'CREATE INDEX idx_settlement_restaurant_status_created ON restaurant_settlements (restaurant_id, status, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- V61__covering_high_traffic_indexes.sql
+-- Additional covering indexes for high-traffic hot paths missed by V60.
+-- All statements idempotent via information_schema.
+
+SET @schema_name = DATABASE();
+
+-- orders(customer_id, status, created_at) — customer history count+sum+history all share this prefix
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_customer_status_created') = 0,
+    'CREATE INDEX idx_orders_customer_status_created ON orders (customer_id, status, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- orders(delivery_agent_id, status, created_at) — rider app polls my orders
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_agent_status_created') = 0,
+    'CREATE INDEX idx_orders_agent_status_created ON orders (delivery_agent_id, status, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- orders_archive covering for retention
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders_archive' AND INDEX_NAME = 'idx_orders_archive_restaurant') = 0,
+    'CREATE INDEX idx_orders_archive_restaurant ON orders_archive (restaurant_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'orders_archive' AND INDEX_NAME = 'idx_orders_archive_created') = 0,
+    'CREATE INDEX idx_orders_archive_created ON orders_archive (created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- restaurants(tenant_id, onboarding_status, is_active) — multi-tenant approved list
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'restaurants' AND INDEX_NAME = 'idx_restaurant_tenant_status') = 0,
+    'CREATE INDEX idx_restaurant_tenant_status ON restaurants (tenant_id, onboarding_status, is_active)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- rider_earnings(agent_id, created_at) — without status for history pagination deep pages
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'rider_earnings' AND INDEX_NAME = 'idx_rider_earning_agent_created') = 0,
+    'CREATE INDEX idx_rider_earning_agent_created ON rider_earnings (agent_id, created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- support_tickets / disputes created_at for admin lists
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'support_tickets' AND INDEX_NAME = 'idx_support_created') = 0,
+    'CREATE INDEX idx_support_created ON support_tickets (created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'disputes' AND INDEX_NAME = 'idx_dispute_created') = 0,
+    'CREATE INDEX idx_dispute_created ON disputes (created_at)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- cart_items composite unique to prevent duplicate race
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'cart_items' AND INDEX_NAME = 'uk_cart_item_cart_menu') = 0,
+    'CREATE UNIQUE INDEX uk_cart_item_cart_menu ON cart_items (cart_id, menu_item_id)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- coupons active/restaurant/valid covering
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'coupons' AND INDEX_NAME = 'idx_coupon_active_restaurant_valid') = 0,
+    'CREATE INDEX idx_coupon_active_restaurant_valid ON coupons (active, restaurant_id, valid_from, valid_until)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+

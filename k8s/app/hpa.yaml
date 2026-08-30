@@ -14,18 +14,15 @@ spec:
   minReplicas: 2
   maxReplicas: 10
   metrics:
+    # CPU only in base HPA — memory is unreliable for JVM heap (heap ≠ RSS).
+    # Custom metrics overlay (k8s/overlays/custom-metrics-hpa) adds
+    # sse_active_connections, outbox_pending, tomcat_threads_busy via prometheus-adapter.
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
           averageUtilization: 65
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 75
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300

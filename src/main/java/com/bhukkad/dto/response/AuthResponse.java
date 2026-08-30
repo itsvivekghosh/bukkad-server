@@ -1,5 +1,6 @@
 package com.bhukkad.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -34,4 +35,9 @@ public class AuthResponse {
 
     /** Short-lived token authorising {@code POST /auth/mfa/verify}. */
     private String mfaToken;
+
+    /** True when the account was just created by this sign-in (phone OTP create-or-login). */
+    @Builder.Default
+    @JsonProperty("isNewUser")
+    private boolean isNewUser = false;
 }

@@ -203,12 +203,23 @@ public class CartServiceImpl implements CartService {
         Long restaurantId = cart.getRestaurant() != null ? cart.getRestaurant().getId() : null;
 
         try {
-            couponService.validateCoupon(couponCode, subtotal, restaurantId);
+            Coupon coupon = couponService.validateCoupon(couponCode, subtotal, restaurantId);
+            double discount = couponService.calculateDiscount(coupon, subtotal);
+            cart.setCouponCode(coupon.getCode());
+            cart = cartRepository.save(cart);
+            return buildCartResponse(cart, discount);
         } catch (Exception ex) {
             // Re-throw as BusinessException for consistent API error handling
             throw new BusinessException("Invalid coupon: " + ex.getMessage());
         }
+    }
 
+    @Override
+    @Transactional
+    public CartResponse removeCoupon() {
+        Cart cart = getOrCreateCart();
+        cart.setCouponCode(null);
+        cart = cartRepository.save(cart);
         return buildCartResponse(cart);
     }
 
@@ -315,6 +326,11 @@ public class CartServiceImpl implements CartService {
 
     @SuppressWarnings("deprecation") // legacy single-restaurant fields are populated for backward compatibility
     private CartResponse buildCartResponse(Cart cart) {
+        return buildCartResponse(cart, null);
+    }
+
+    @SuppressWarnings("deprecation")
+    private CartResponse buildCartResponse(Cart cart, Double discountOverride) {
         List<CartItem> cartItems = cartItemRepository.findByCartIdWithMenuItem(cart.getId());
 
         Map<Long, List<CartItem>> byRestaurant = new LinkedHashMap<>();
@@ -341,6 +357,21 @@ public class CartServiceImpl implements CartService {
         double subtotal = calculateSubtotal(cartItems);
         int itemCount = cartItems.stream().mapToInt(CartItem::getQuantity).sum();
 
+        double discountAmount = 0.0;
+        String couponCode = cart.getCouponCode();
+        if (discountOverride != null) {
+            discountAmount = discountOverride;
+        } else if (couponCode != null && !cartItems.isEmpty()) {
+            Long restaurantId = cart.getRestaurant() != null ? cart.getRestaurant().getId() : null;
+            try {
+                Coupon coupon = couponService.validateCoupon(couponCode, subtotal, restaurantId);
+                discountAmount = couponService.calculateDiscount(coupon, subtotal);
+            } catch (Exception ex) {
+                // If the coupon is no longer valid, fall back to zero discount
+                discountAmount = 0.0;
+            }
+        }
+
         Long restaurantId = null;
         String restaurantName = null;
         List<CartItemResponse> flatItems = List.of();
@@ -359,6 +390,8 @@ public class CartServiceImpl implements CartService {
                 .restaurantCarts(groups)
                 .subtotal(subtotal)
                 .itemCount(itemCount)
+                .couponCode(couponCode)
+                .discountAmount(discountAmount)
                 .build();
     }
 

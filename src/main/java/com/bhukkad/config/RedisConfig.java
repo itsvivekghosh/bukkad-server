@@ -69,6 +69,15 @@ public class RedisConfig {
     @Value("${cache.ttl.search:300}")
     private long searchTtl;
 
+    @Value("${cache.ttl.home-feed:60}")
+    private long homeFeedTtl;
+
+    @Value("${cache.ttl.serviceability:60}")
+    private long serviceabilityTtl;
+
+    @Value("${cache.ttl.admin-dashboard:60}")
+    private long adminDashboardTtl;
+
     /**
      * Primary ObjectMapper for API responses - NO type info
      * This is used by Spring MVC for REST responses.
@@ -176,6 +185,12 @@ public class RedisConfig {
         cacheConfigs.put("coupon-list", defaultConfig.entryTtl(Duration.ofSeconds(couponTtl)));
         cacheConfigs.put("bestseller", defaultConfig.entryTtl(Duration.ofSeconds(menuItemTtl)));
         cacheConfigs.put("recommended", defaultConfig.entryTtl(Duration.ofSeconds(menuItemTtl)));
+        cacheConfigs.put("home-feed", defaultConfig.entryTtl(Duration.ofSeconds(homeFeedTtl)));
+        cacheConfigs.put("serviceability", defaultConfig.entryTtl(Duration.ofSeconds(serviceabilityTtl)));
+        cacheConfigs.put("admin", defaultConfig.entryTtl(Duration.ofSeconds(adminDashboardTtl)));
+        cacheConfigs.put("admin-dashboard", defaultConfig.entryTtl(Duration.ofSeconds(adminDashboardTtl)));
+        cacheConfigs.put("restaurant-nearby", defaultConfig.entryTtl(Duration.ofSeconds(300)));
+        cacheConfigs.put("menu-search", defaultConfig.entryTtl(Duration.ofSeconds(searchTtl)));
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(defaultConfig)

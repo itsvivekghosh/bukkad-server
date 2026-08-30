@@ -26,13 +26,13 @@ import java.util.Optional;
  */
 @Repository
 public interface ReviewRepository extends JpaRepository<Review, Long> {
-    @Query("SELECT r FROM Review r JOIN FETCH r.customer JOIN FETCH r.restaurant JOIN FETCH r.order WHERE r.customer.id = :customerId ORDER BY r.createdAt DESC")
+    @Query("SELECT r FROM Review r JOIN FETCH r.customer JOIN FETCH r.restaurant JOIN FETCH r.order LEFT JOIN FETCH r.images WHERE r.customer.id = :customerId ORDER BY r.createdAt DESC")
     List<Review> findByCustomerIdWithDetails(@Param("customerId") Long customerId);
 
-    @Query("SELECT r FROM Review r JOIN FETCH r.customer JOIN FETCH r.restaurant JOIN FETCH r.order WHERE r.restaurant.id = :restaurantId ORDER BY r.createdAt DESC")
+    @Query("SELECT r FROM Review r JOIN FETCH r.customer JOIN FETCH r.restaurant JOIN FETCH r.order LEFT JOIN FETCH r.images WHERE r.restaurant.id = :restaurantId ORDER BY r.createdAt DESC")
     List<Review> findByRestaurantIdWithDetails(@Param("restaurantId") Long restaurantId);
 
-    @Query("SELECT r FROM Review r JOIN FETCH r.customer JOIN FETCH r.restaurant JOIN FETCH r.order WHERE r.order.id = :orderId")
+    @Query("SELECT r FROM Review r JOIN FETCH r.customer JOIN FETCH r.restaurant JOIN FETCH r.order LEFT JOIN FETCH r.images WHERE r.order.id = :orderId")
     Optional<Review> findByOrderIdWithDetails(@Param("orderId") Long orderId);
 
     List<Review> findByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);

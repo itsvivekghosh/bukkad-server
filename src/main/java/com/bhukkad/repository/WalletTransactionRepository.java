@@ -28,7 +28,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
      */
     @Query("""
             SELECT w FROM WalletTransaction w
-            WHERE w.customer.id = :customerId
+            WHERE w.customerId = :customerId
             AND (:cursorCreatedAt IS NULL OR w.createdAt < :cursorCreatedAt
                  OR (w.createdAt = :cursorCreatedAt AND w.id < :cursorId))
             ORDER BY w.createdAt DESC, w.id DESC
@@ -41,7 +41,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
 
     @Query("""
             SELECT COALESCE(SUM(w.amount), 0) FROM WalletTransaction w
-            WHERE w.customer.id = :customerId AND w.type = :type
+            WHERE w.customerId = :customerId AND w.type = :type
             """)
     double sumReferralCredits(@Param("customerId") Long customerId,
                               @Param("type") WalletTransaction.TransactionType type);

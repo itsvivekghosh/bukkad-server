@@ -153,7 +153,8 @@ class RateLimitAspectTest {
         when(joinPoint.getArgs()).thenReturn(new Object[]{"Biryani", 10});
         when(securityUtils.getCurrentUserId()).thenThrow(new com.bhukkad.exception.UnauthorizedException("no auth"));
         when(userTierResolver.resolveCurrentTier()).thenReturn("free");
-        when(rateLimitService.check(eq("search"), eq("search:biryani:user:anonymous"), eq("free")))
+        // Anonymous search now scopes by IP to avoid global bucket starvation (see RateLimitAspect)
+        when(rateLimitService.check(eq("search"), eq("search:biryani:user:anon:ip:unknown"), eq("free")))
                 .thenReturn(RateLimitDecision.allowed(1, 30, 60));
         when(joinPoint.proceed()).thenReturn("ok");
 

@@ -165,7 +165,7 @@ class DisputeResolutionServiceTest {
         DisputeResponse response = service.manualResolve(2L, 1L, resolve);
 
         assertEquals(Dispute.DisputeStatus.MANUAL_RESOLVED.toString(), response.getStatus());
-        verify(walletService).credit(eq(customer), eq(500.0), any(), any(), any());
+        verify(walletService).credit(eq(7L), eq(500.0), any(), any(), any());
     }
 
     @Test
@@ -301,9 +301,9 @@ class DisputeResolutionServiceTest {
         assertEquals("AUTO_RESOLVED", response.getStatus());
         assertEquals("FULL_REFUND", response.getResolution());
         assertEquals(500.0, response.getRefundAmount());
-        verify(walletService).credit(eq(customer), eq(500.0),
+        verify(walletService).credit(eq(7L), eq(500.0),
                 eq(com.bhukkad.entity.WalletTransaction.TransactionType.ORDER_REFUND),
-                eq(order.getPayment()), anyString());
+                eq(order.getPayment().getId()), anyString());
     }
 
     @Test
@@ -396,9 +396,9 @@ class DisputeResolutionServiceTest {
         assertEquals("FULL_REFUND", response.getResolution());
         assertEquals(500.0, response.getRefundAmount());
         assertEquals(9L, response.getResolvedBy());
-        verify(walletService).credit(eq(customer), eq(500.0),
+        verify(walletService).credit(eq(7L), eq(500.0),
                 eq(com.bhukkad.entity.WalletTransaction.TransactionType.ORDER_REFUND),
-                eq(order.getPayment()), anyString());
+                eq(order.getPayment().getId()), anyString());
     }
 
     @Test
@@ -533,9 +533,9 @@ class DisputeResolutionServiceTest {
         assertEquals(1, resolved);
         assertEquals(Dispute.DisputeStatus.AUTO_RESOLVED, eligible.getStatus());
         assertEquals(Dispute.DisputeStatus.UNDER_REVIEW, ineligible.getStatus());
-        verify(walletService).credit(eq(customer), eq(400.0),
+        verify(walletService).credit(eq(7L), eq(400.0),
                 eq(com.bhukkad.entity.WalletTransaction.TransactionType.ORDER_REFUND),
-                eq(eligibleOrder.getPayment()), anyString());
+                eq(eligibleOrder.getPayment() != null ? eligibleOrder.getPayment().getId() : null), anyString());
     }
 
     @Test

@@ -516,7 +516,7 @@ class OrderPlacementServiceTest {
 
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
-        verify(walletService).debit(eq(customer), eq(50.0), any(), any(), anyString());
+        verify(walletService).debit(eq(1L), eq(50.0), any(), any(), anyString());
         // Regression: no loyalty points are earned at placement (the balance of
         // 500 is untouched); points are earned once at delivery instead.
         assertEquals(500, customer.getLoyaltyPoints());

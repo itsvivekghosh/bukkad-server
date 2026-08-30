@@ -17,12 +17,21 @@ public final class CacheKeyGenerator {
         return CacheConstants.RESTAURANT_LIST + CacheConstants.KEY_SEPARATOR + "all";
     }
 
+    public static String restaurantList(Long tenantId) {
+        if (tenantId == null) return restaurantList();
+        return CacheConstants.RESTAURANT_LIST + CacheConstants.KEY_SEPARATOR + "tenant:" + tenantId;
+    }
+
     public static String restaurantsByOwner(Long ownerId) {
         return CacheConstants.RESTAURANT_LIST + CacheConstants.KEY_SEPARATOR + "owner:" + ownerId;
     }
 
     public static String restaurantSearch(String keyword) {
-        return CacheConstants.RESTAURANT_SEARCH + CacheConstants.KEY_SEPARATOR + keyword.toLowerCase().trim();
+        if (keyword == null) return CacheConstants.RESTAURANT_SEARCH + CacheConstants.KEY_SEPARATOR + "all";
+        String slug = keyword.trim().toLowerCase().replaceAll("[^a-z0-9]+", "-");
+        if (slug.length() > 50) slug = org.springframework.util.DigestUtils.md5DigestAsHex(slug.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (slug.isEmpty()) slug = "all";
+        return CacheConstants.RESTAURANT_SEARCH + CacheConstants.KEY_SEPARATOR + slug;
     }
 
     public static String restaurantFilter(Long cuisineId, Boolean isPureVeg) {
@@ -44,12 +53,12 @@ public final class CacheKeyGenerator {
 
     public static String menuItemsByIds(java.util.List<Long> ids) {
         return CacheConstants.MENU_ITEM_LIST + CacheConstants.KEY_SEPARATOR + "ids:"
-                + ids.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+                + ids.stream().sorted().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
     }
 
     public static String restaurantsByIds(java.util.List<Long> ids) {
         return CacheConstants.RESTAURANT_LIST + CacheConstants.KEY_SEPARATOR + "ids:"
-                + ids.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+                + ids.stream().sorted().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
     }
 
     public static String bestsellers(Long restaurantId) {
@@ -137,7 +146,11 @@ public final class CacheKeyGenerator {
     }
 
     public static String menuSearch(String keyword) {
-        return CacheConstants.MENU_SEARCH + CacheConstants.KEY_SEPARATOR + keyword.toLowerCase().trim();
+        if (keyword == null) return CacheConstants.MENU_SEARCH + CacheConstants.KEY_SEPARATOR + "all";
+        String slug = keyword.trim().toLowerCase().replaceAll("[^a-z0-9]+", "-");
+        if (slug.length() > 50) slug = org.springframework.util.DigestUtils.md5DigestAsHex(slug.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (slug.isEmpty()) slug = "all";
+        return CacheConstants.MENU_SEARCH + CacheConstants.KEY_SEPARATOR + slug;
     }
 
     public static String menuItemsByDiet(Long restaurantId, MenuItem.FoodType foodType, Set<String> excludeAllergens, MenuItem.SpiceLevel maxSpiceLevel) {
@@ -148,8 +161,12 @@ public final class CacheKeyGenerator {
     }
 
     public static String restaurantNearby(double latitude, double longitude, double radiusKm) {
+        // Quantize to 3 decimal places (~100m grid) to avoid key fragmentation from floating point noise
+        String lat = String.format(java.util.Locale.ROOT, "%.3f", latitude);
+        String lon = String.format(java.util.Locale.ROOT, "%.3f", longitude);
+        String radius = String.format(java.util.Locale.ROOT, "%.2f", radiusKm);
         return CacheConstants.RESTAURANT_NEARBY + CacheConstants.KEY_SEPARATOR
-                + latitude + ":" + longitude + ":" + radiusKm;
+                + lat + ":" + lon + ":" + radius;
     }
 
     public static String adminDashboard() {
@@ -197,8 +214,11 @@ public final class CacheKeyGenerator {
      * Coordinates are concatenated raw, mirroring {@link #restaurantNearby(double, double, double)}.
      */
     public static String serviceability(Long restaurantId, double latitude, double longitude, double subtotal) {
+        String lat = String.format(java.util.Locale.ROOT, "%.3f", latitude);
+        String lon = String.format(java.util.Locale.ROOT, "%.3f", longitude);
+        String sub = String.format(java.util.Locale.ROOT, "%.2f", subtotal);
         return CacheConstants.SERVICEABILITY + CacheConstants.KEY_SEPARATOR
-                + "restaurant:" + restaurantId + ":" + latitude + ":" + longitude + ":" + subtotal;
+                + "restaurant:" + restaurantId + ":" + lat + ":" + lon + ":" + sub;
     }
 
     // Invalidation patterns

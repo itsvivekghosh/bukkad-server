@@ -249,10 +249,10 @@ public class DisputeResolutionService {
     private void applyRefund(Dispute dispute, double amount) {
         Order order = dispute.getOrder();
         walletService.credit(
-                order.getCustomer(),
+                order.getCustomer().getId(),
                 amount,
                 WalletTransaction.TransactionType.ORDER_REFUND,
-                order.getPayment(),
+                order.getPayment() != null ? order.getPayment().getId() : null,
                 "Refund for dispute on order " + order.getOrderNumber());
     }
 

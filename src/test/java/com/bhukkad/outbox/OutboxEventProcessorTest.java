@@ -21,9 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -212,5 +214,126 @@ class OutboxEventProcessorTest {
     void requeueDeadLetters_delegatesToDeadLetterService() {
         outboxEventProcessor.requeueDeadLetters();
         verify(deadLetterEventService).requeuePending(50);
+    }
+
+    // ===== Batch E: remaining publish-type + finalize/recovery branches =====
+
+    @Test
+    void publish_orderStatusChanged_publishesTypedEvent() throws Exception {
+        com.bhukkad.event.OrderStatusChangedEvent statusEvent =
+                new com.bhukkad.event.OrderStatusChangedEvent(1L, "ORD-1", 2L, 3L, null,
+                        com.bhukkad.entity.Order.OrderStatus.PLACED,
+                        com.bhukkad.entity.Order.OrderStatus.CONFIRMED, LocalDateTime.now());
+        OutboxEvent outboxEvent = pendingEvent(30L, "ORDER_STATUS_CHANGED",
+                objectMapper.writeValueAsString(statusEvent));
+        when(outboxEventRepository.findPendingForProcessing(eq("PENDING"), eq(50)))
+                .thenReturn(List.of(outboxEvent));
+        when(outboxEventRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(outboxEventRepository.findById(30L)).thenReturn(Optional.of(outboxEvent));
+
+        outboxEventProcessor.processPendingEvents();
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals(com.bhukkad.event.OrderStatusChangedEvent.class, captor.getValue().getClass());
+        assertEquals(OutboxEvent.OutboxStatus.PUBLISHED, outboxEvent.getStatus());
+    }
+
+    @Test
+    void publish_orderAgentAssigned_publishesTypedEvent() throws Exception {
+        com.bhukkad.event.OrderAgentAssignedEvent assignedEvent =
+                new com.bhukkad.event.OrderAgentAssignedEvent(1L, "ORD-1", 2L, 3L, 9L,
+                        com.bhukkad.entity.Order.OrderStatus.CONFIRMED, LocalDateTime.now());
+        OutboxEvent outboxEvent = pendingEvent(31L, "ORDER_AGENT_ASSIGNED",
+                objectMapper.writeValueAsString(assignedEvent));
+        when(outboxEventRepository.findPendingForProcessing(eq("PENDING"), eq(50)))
+                .thenReturn(List.of(outboxEvent));
+        when(outboxEventRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(outboxEventRepository.findById(31L)).thenReturn(Optional.of(outboxEvent));
+
+        outboxEventProcessor.processPendingEvents();
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals(com.bhukkad.event.OrderAgentAssignedEvent.class, captor.getValue().getClass());
+        assertEquals(OutboxEvent.OutboxStatus.PUBLISHED, outboxEvent.getStatus());
+    }
+
+    @Test
+    void publish_orderItemsSnapshot_publishesTypedEvent() throws Exception {
+        com.bhukkad.event.OrderItemsSnapshotEvent snapshotEvent =
+                new com.bhukkad.event.OrderItemsSnapshotEvent(1L, "ORD-1", 3L,
+                        java.util.List.of(new com.bhukkad.event.OrderItemsSnapshotEvent.Item(
+                                100L, "Butter Chicken", 2)), LocalDateTime.now());
+        OutboxEvent outboxEvent = pendingEvent(32L, "ORDER_ITEMS_SNAPSHOT",
+                objectMapper.writeValueAsString(snapshotEvent));
+        when(outboxEventRepository.findPendingForProcessing(eq("PENDING"), eq(50)))
+                .thenReturn(List.of(outboxEvent));
+        when(outboxEventRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(outboxEventRepository.findById(32L)).thenReturn(Optional.of(outboxEvent));
+
+        outboxEventProcessor.processPendingEvents();
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals(com.bhukkad.event.OrderItemsSnapshotEvent.class, captor.getValue().getClass());
+        assertEquals(OutboxEvent.OutboxStatus.PUBLISHED, outboxEvent.getStatus());
+    }
+
+    @Test
+    void finalizeFailure_eventDeletedBetweenClaimAndFinalize_skipsDeadLetter() throws Exception {
+        OutboxEvent outboxEvent = pendingEvent(33L, "UNKNOWN_TYPE", "{}");
+        when(outboxEventRepository.findPendingForProcessing(eq("PENDING"), eq(50)))
+                .thenReturn(List.of(outboxEvent));
+        when(outboxEventRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        // Row vanished (purged concurrently) before finalizeFailure reads it
+        when(outboxEventRepository.findById(33L)).thenReturn(Optional.empty());
+
+        outboxEventProcessor.processPendingEvents();
+
+        verify(deadLetterEventService, never()).record(any(), any());
+        verify(alertService, never()).alertException(any(), any(), any());
+    }
+
+    @Test
+    void recoverStaleProcessing_rowNoLongerProcessing_skipsReset() {
+        OutboxEvent staleEvent = pendingEvent(34L, "ORDER_CREATED", "{}");
+        staleEvent.setStatus(OutboxEvent.OutboxStatus.PROCESSING);
+        when(outboxEventRepository.findStaleProcessing(eq(OutboxEvent.OutboxStatus.PROCESSING), any(LocalDateTime.class)))
+                .thenReturn(List.of(staleEvent));
+        // Between discovery and reset the row moved on (already re-published)
+        OutboxEvent current = pendingEvent(34L, "ORDER_CREATED", "{}");
+        current.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
+        when(outboxEventRepository.findById(34L)).thenReturn(Optional.of(current));
+
+        outboxEventProcessor.recoverStaleProcessing();
+
+        // The PUBLISHED row must not be overwritten back to PENDING
+        verify(outboxEventRepository, never()).save(any());
+        assertEquals(OutboxEvent.OutboxStatus.PUBLISHED, current.getStatus());
+    }
+
+    @Test
+    void recoverStaleProcessing_saveFailure_doesNotAbortSweep() {
+        OutboxEvent staleEvent = pendingEvent(35L, "ORDER_CREATED", "{}");
+        staleEvent.setStatus(OutboxEvent.OutboxStatus.PROCESSING);
+        when(outboxEventRepository.findStaleProcessing(eq(OutboxEvent.OutboxStatus.PROCESSING), any(LocalDateTime.class)))
+                .thenReturn(List.of(staleEvent));
+        when(outboxEventRepository.findById(35L)).thenReturn(Optional.of(staleEvent));
+        when(outboxEventRepository.save(any())).thenThrow(new RuntimeException("db down"));
+
+        assertDoesNotThrow(() -> outboxEventProcessor.recoverStaleProcessing());
+    }
+
+    @Test
+    void requeueDeadLetters_interrupted_returnsWithoutRequeue() {
+        // Pre-set the interrupt flag: the jitter Thread.sleep returns immediately
+        // and the sweep must NOT hit the dead-letter service.
+        Thread.currentThread().interrupt();
+
+        outboxEventProcessor.requeueDeadLetters();
+
+        Thread.interrupted(); // clear flag for subsequent tests
+        verify(deadLetterEventService, never()).requeuePending(anyInt());
     }
 }

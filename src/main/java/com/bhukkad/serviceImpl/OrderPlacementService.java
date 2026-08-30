@@ -407,7 +407,7 @@ public class OrderPlacementService {
 
             if (pricing.walletAmountUsed() > 0) {
                 walletService.debit(
-                        customer,
+                        customer.getId(),
                         pricing.walletAmountUsed(),
                         WalletTransaction.TransactionType.ORDER_DEBIT,
                         null,
@@ -598,7 +598,7 @@ public class OrderPlacementService {
             }
         }
         if (!toDelete.isEmpty()) {
-            cartItemRepository.deleteAll(toDelete);
+            cartItemRepository.deleteAllInBatch(toDelete);
         }
         if (remaining.isEmpty()) {
             cart.setRestaurant(null);

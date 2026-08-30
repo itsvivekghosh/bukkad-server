@@ -32,7 +32,7 @@ public class GatewayPaymentStrategy implements PaymentStrategy {
                             .currency(paymentProperties.getRazorpay().getCurrency())
                             .receipt(order.getOrderNumber())
                             .idempotencyKey(context.idempotencyKey())
-                            .build());
+                            .build()).join();
             payment.setGatewayOrderId(gatewayOrder.gatewayOrderId());
             payment.setPaymentGatewayResponse(gatewayOrder.rawResponse());
         }
@@ -42,7 +42,7 @@ public class GatewayPaymentStrategy implements PaymentStrategy {
                         .gatewayOrderId(payment.getGatewayOrderId())
                         .amount(context.gatewayAmount())
                         .idempotencyKey(context.idempotencyKey())
-                        .build());
+                        .build()).join();
 
         payment.setGatewayPaymentId(result.gatewayPaymentId());
         payment.setTransactionId(result.transactionId());

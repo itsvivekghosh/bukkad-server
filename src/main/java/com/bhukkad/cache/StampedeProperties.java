@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "app.cache.stampede")
 public class StampedeProperties {
-    private boolean enabled = false;
+    private boolean enabled = true;
     private int jitterPercent = 10;
 
     /**

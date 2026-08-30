@@ -32,7 +32,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
-    private final UserRepository userRepository;
+    private final AccountLookupService accountLookupService;
     private final AuthTokenService authTokenService;
 
     @Override
@@ -103,11 +103,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 MDC.put(LoggingConstants.USER_ROLE, role);
             }
 
-            // Fetch user ID from database (email or phone number as identifier)
-            Optional<User> userOptional = userRepository.findByEmailOrPhoneNumber(email, email);
-            if (userOptional.isPresent()) {
-                MDC.put(LoggingConstants.USER_ID, String.valueOf(userOptional.get().getId()));
-            }
+            // Fetch user ID from the role-segregated account tables (email or
+            // phone number as identifier)
+            accountLookupService.byIdentifier(email).ifPresent(user ->
+                    MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId())));
 
             log.debug("MDC Context set | UserId: {} | Email: {} | Role: {}",
                     MDC.get(LoggingConstants.USER_ID),

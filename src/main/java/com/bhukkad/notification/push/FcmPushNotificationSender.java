@@ -4,6 +4,7 @@ import com.bhukkad.config.NotificationProperties;
 import com.bhukkad.repository.DeviceTokenRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -45,6 +46,7 @@ public class FcmPushNotificationSender implements PushNotificationSender {
 
     @Override
     @CircuitBreaker(name = "notificationPush", fallbackMethod = "pushUnavailable")
+    @Bulkhead(name = "notificationPush", fallbackMethod = "pushUnavailable")
     public void sendToUser(Long userId, String title, String body) {
         String serverKey = notificationProperties.getPush().getFcm().getServerKey();
         if (!StringUtils.hasText(serverKey)) {
@@ -83,7 +85,7 @@ public class FcmPushNotificationSender implements PushNotificationSender {
     }
 
     @SuppressWarnings("unused")
-    void pushUnavailable(Long userId, String title, String body, Throwable ex) {
+    public void pushUnavailable(Long userId, String title, String body, Throwable ex) {
         log.warn("FCM push unavailable (circuit open) | userId={} | error={}",
                 userId, ex.getMessage());
     }

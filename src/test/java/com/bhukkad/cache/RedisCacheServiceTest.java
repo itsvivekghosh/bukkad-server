@@ -94,7 +94,14 @@ class RedisCacheServiceTest {
     @Test
     void set_storesValueWithTTL() {
         service.set("test-key", "test-value", 300);
-        verify(redisTemplate.opsForValue()).set(eq("bhukkad:test-key"), eq("test-value"), eq(Duration.ofSeconds(300)));
+
+        // Batch C: TTL is jittered ±10% to avoid synchronized expiry; assert the
+        // stored TTL lands inside the jitter window rather than an exact value.
+        org.mockito.ArgumentCaptor<Duration> ttlCaptor = org.mockito.ArgumentCaptor.forClass(Duration.class);
+        verify(redisTemplate.opsForValue()).set(eq("bhukkad:test-key"), eq("test-value"), ttlCaptor.capture());
+        long seconds = ttlCaptor.getValue().toSeconds();
+        assertTrue(seconds >= 270 && seconds <= 330,
+                "jittered TTL " + seconds + "s outside ±10% window of 300s");
     }
 
     @Test
@@ -340,7 +347,11 @@ class RedisCacheServiceTest {
         String result = service.getOrCompute("k", String.class, 60, () -> "computed");
 
         assertEquals("computed", result);
-        verify(valueOps).set(eq("bhukkad:k"), eq("computed"), eq(Duration.ofSeconds(60)));
+        org.mockito.ArgumentCaptor<Duration> ttlCaptor = org.mockito.ArgumentCaptor.forClass(Duration.class);
+        verify(valueOps).set(eq("bhukkad:k"), eq("computed"), ttlCaptor.capture());
+        long seconds = ttlCaptor.getValue().toSeconds();
+        assertTrue(seconds >= 54 && seconds <= 66,
+                "jittered TTL " + seconds + "s outside ±10% window of 60s");
         verify(localCacheService).put("k", "computed");
     }
 
@@ -419,9 +430,11 @@ class RedisCacheServiceTest {
         long elapsed = System.currentTimeMillis() - start;
 
         assertEquals("fallback", result);
-        // Wait-poll is capped at 3 retries (20+40+60 = 120ms) so a losing thread
-        // never blocks for ~1.8s on a cache miss.
-        assertTrue(elapsed < 500, "wait-poll should be capped, took " + elapsed + "ms");
+        // Batch C: the wait-poll runs 10 exponential-backoff retries
+        // (20+40+80+160+320+500×5 ≈ 3.1s) before falling back to the supplier —
+        // long enough for a slow lock holder to populate the cache, but strictly
+        // bounded so a losing thread can never hang indefinitely.
+        assertTrue(elapsed < 5000, "wait-poll should be bounded, took " + elapsed + "ms");
     }
 
     @Test
@@ -496,7 +509,11 @@ class RedisCacheServiceTest {
         List<String> result = service.getListOrCompute("k", String.class, 60, () -> List.of("x"));
 
         assertEquals(List.of("x"), result);
-        verify(valueOps).set(eq("bhukkad:k"), eq(List.of("x")), eq(Duration.ofSeconds(60)));
+        org.mockito.ArgumentCaptor<Duration> ttlCaptor = org.mockito.ArgumentCaptor.forClass(Duration.class);
+        verify(valueOps).set(eq("bhukkad:k"), eq(List.of("x")), ttlCaptor.capture());
+        long seconds = ttlCaptor.getValue().toSeconds();
+        assertTrue(seconds >= 54 && seconds <= 66,
+                "jittered TTL " + seconds + "s outside ±10% window of 60s");
         verify(localCacheService).put("k", List.of("x"));
     }
 
@@ -569,5 +586,214 @@ class RedisCacheServiceTest {
         service.deletePattern("m");
 
         verify(distributedInvalidator).publishInvalidation("m", "m", true);
+    }
+
+    // ===== Batch C: list-variant stampede + error-swallow coverage =====
+
+    @Test
+    void getListOrCompute_l1Hit_returnsWithoutRedis() {
+        when(localCacheService.get("lk", List.class)).thenReturn(Optional.of(List.of("a", "b")));
+
+        List<String> result = service.getListOrCompute("lk", String.class, 60, () -> List.of("computed"));
+
+        assertEquals(List.of("a", "b"), result);
+        verify(valueOps, never()).get(anyString());
+    }
+
+    private RedisCacheService realMapperService() {
+        // getList converts via objectMapper.getTypeFactory().constructCollectionType —
+        // a mock ObjectMapper NPEs there, so these tests build the service with a real mapper.
+        return new RedisCacheService(
+                redisTemplate, stringRedisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator);
+    }
+
+    @Test
+    void getListOrCompute_l2Hit_returnsCachedList() {
+        RedisCacheService realMapperService = realMapperService();
+        when(localCacheService.get("lk", List.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:lk")).thenReturn(List.of("cached"));
+
+        List<String> result = realMapperService.getListOrCompute("lk", String.class, 60, () -> List.of("computed"));
+
+        assertEquals(List.of("cached"), result);
+        verify(localCacheService).put(eq("lk"), eq(List.of("cached")));
+    }
+
+    @Test
+    void getListOrCompute_lockAcquired_computesCachesAndPopulatesL1() {
+        when(localCacheService.get("lk", List.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:lk")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:lk"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        List<String> result = service.getListOrCompute("lk", String.class, 60, () -> List.of("fresh"));
+
+        assertEquals(List.of("fresh"), result);
+        verify(valueOps).set(eq("bhukkad:lk"), eq(List.of("fresh")), any(Duration.class));
+        verify(localCacheService).put("lk", List.of("fresh"));
+    }
+
+    @Test
+    void getListOrCompute_lockNotAcquired_waitsThenFallsBackToSupplier() {
+        when(localCacheService.get("lk", List.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:lk")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:lk"), anyString(), any(Duration.class)))
+                .thenReturn(false);
+
+        List<String> result = service.getListOrCompute("lk", String.class, 60, () -> List.of("fallback"));
+
+        assertEquals(List.of("fallback"), result);
+    }
+
+    @Test
+    void getOrCompute_releaseLockFailure_isSwallowed() {
+        when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+        // Lock release (finally) blows up — must not propagate to the caller
+        when(stringRedisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                anyList(), anyString())).thenThrow(new RuntimeException("unlock fail"));
+
+        String result = service.getOrCompute("k", String.class, 60, () -> "computed");
+
+        assertEquals("computed", result);
+    }
+
+    @Test
+    void getOrCompute_nullSupplierResult_stillReleasesLock() {
+        when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        String result = service.getOrCompute("k", String.class, 60, () -> null);
+
+        assertNull(result);
+        // Lock release happened exactly once in the finally block
+        verify(stringRedisTemplate).execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                anyList(), anyString());
+    }
+
+    @Test
+    void sleepBackoff_interruptFlag_exitsPromptlyAndFallsBack() {
+        when(localCacheService.get("ik", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:ik")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:ik"), anyString(), any(Duration.class)))
+                .thenReturn(false);
+        // Pre-set the interrupt flag: every Thread.sleep in the backoff loop
+        // returns immediately, so the bounded wait collapses to near-zero.
+        Thread.currentThread().interrupt();
+
+        long start = System.currentTimeMillis();
+        String result = service.getOrCompute("ik", String.class, 60, () -> "fallback");
+        long elapsed = System.currentTimeMillis() - start;
+
+        // Clears the thread's interrupted status for subsequent tests
+        Thread.interrupted();
+
+        assertEquals("fallback", result);
+        assertTrue(elapsed < 2000, "interrupted backoff should exit promptly, took " + elapsed + "ms");
+    }
+
+    // ===== Batch C: remaining branch coverage =====
+
+    @Test
+    void getOrCompute_valueAppearsInRedisWhileHoldingLock_returnsCachedValue() {
+        when(localCacheService.get("vk", String.class)).thenReturn(Optional.empty());
+        // Pre-lock read misses; the in-lock re-read finds a value another instance wrote
+        when(valueOps.get("bhukkad:vk")).thenReturn(null, "in-lock-value");
+        when(objectMapper.convertValue("in-lock-value", String.class)).thenReturn("in-lock-value");
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:vk"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        String result = service.getOrCompute("vk", String.class, 60, () -> "computed");
+
+        assertEquals("in-lock-value", result);
+        // The supplier must not run — cache hit inside the lock short-circuits it
+        verify(localCacheService).put("vk", "in-lock-value");
+    }
+
+    @Test
+    void getListOrCompute_valueAppearsInRedisWhileHoldingLock_returnsCachedList() {
+        RedisCacheService realMapperService = realMapperService();
+        when(localCacheService.get("vlk", List.class)).thenReturn(Optional.empty());
+        // Pre-lock list read misses; in-lock re-read finds the list
+        when(valueOps.get("bhukkad:vlk")).thenReturn(null, List.of("other"));
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:vlk"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        List<String> result = realMapperService.getListOrCompute("vlk", String.class, 60, () -> List.of("computed"));
+
+        assertEquals(List.of("other"), result);
+    }
+
+    @Test
+    void getListOrCompute_nullSupplierResult_returnsEmptyList() {
+        when(localCacheService.get("nk", List.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:nk")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:nk"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        List<String> result = service.getListOrCompute("nk", String.class, 60, () -> null);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void set_ttlAtOrBelowJitterFloor_skipsJitter() {
+        // ttlSeconds <= 10 → no jitter window; exact TTL stored
+        service.set("short", "v", 5);
+
+        verify(valueOps).set(eq("bhukkad:short"), eq("v"), eq(Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void delete_nullInvalidator_stillDeletesLocally() {
+        RedisCacheService noInvalidator = new RedisCacheService(
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, null);
+
+        noInvalidator.delete("k");
+
+        verify(redisTemplate).delete("bhukkad:k");
+        verify(localCacheService).invalidate("k");
+    }
+
+    @Test
+    void clearAll_redisDeleteFails_isSwallowed() {
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(cursor.hasNext()).thenReturn(true, false);
+        when(cursor.next()).thenReturn("bhukkad:key1");
+        doThrow(new RuntimeException("delete fail")).when(redisTemplate).delete(any(Set.class));
+
+        assertDoesNotThrow(() -> service.clearAll());
+    }
+
+    @Test
+    void getCacheStats_shortKeyGoesToOtherBucket() {
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        // A bare key with no second ":" segment falls into the "other" bucket
+        when(cursor.hasNext()).thenReturn(true, false);
+        when(cursor.next()).thenReturn("bhukkad");
+        when(localCacheService.getStats()).thenReturn(java.util.Map.of("size", 0));
+
+        java.util.Map<String, Object> stats = service.getCacheStats();
+
+        assertEquals(1, stats.get("totalKeys"));
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Integer> byType = (java.util.Map<String, Integer>) stats.get("keysByType");
+        assertEquals(1, byType.get("other"));
+    }
+
+    @Test
+    void getCacheStats_statsFailure_reportsErrorEntry() {
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+        when(cursor.hasNext()).thenReturn(true, false);
+        when(cursor.next()).thenReturn("bhukkad:k");
+        when(localCacheService.getStats()).thenThrow(new RuntimeException("stats down"));
+
+        java.util.Map<String, Object> stats = service.getCacheStats();
+
+        assertEquals("stats down", stats.get("error"));
     }
 }

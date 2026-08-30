@@ -74,4 +74,11 @@ public class CartController {
         CartResponse cart = cartService.applyCoupon(couponCode);
         return ResponseEntity.ok(ApiResponse.success("Coupon applied", cart));
     }
+
+    @DeleteMapping("/coupon")
+    @RateLimited("cart-mutation")
+    public ResponseEntity<ApiResponse<CartResponse>> removeCoupon() {
+        CartResponse cart = cartService.removeCoupon();
+        return ResponseEntity.ok(ApiResponse.success("Coupon removed", cart));
+    }
 }

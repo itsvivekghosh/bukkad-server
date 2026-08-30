@@ -15,16 +15,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OrderSseStreamService {
 
-    private static final long DEFAULT_TIMEOUT = 60_000L; // 60 seconds
+    private static final long DEFAULT_TIMEOUT = 300_000L; // 5 minutes — reduces reconnect churn vs 60s
 
     private final OrderLiveReplayStore replayStore;
+    private final Executor sseDispatchExecutor;
+
+    public OrderSseStreamService(OrderLiveReplayStore replayStore,
+                                 @Qualifier("sseDispatchExecutor") Executor sseDispatchExecutor) {
+        this.replayStore = replayStore;
+        this.sseDispatchExecutor = sseDispatchExecutor;
+    }
 
     /**
      * Maximum concurrent emitters per stream key (an order, a restaurant's
@@ -170,14 +179,24 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         }
         for (SseEmitter emitter : emitters) {
             try {
-                sendUpdate(emitter, update);
-            } catch (Exception e) {
-                // Remove the dead emitter from every stream map it may be
-                // registered in, then complete it, so the connection count and
-                // future broadcasts no longer include it.
-                removeFromAllStreams(emitter);
-                removeAndCompleteEmitter(emitter);
-                log.debug("SSE emitter removed after send failure: {}", e.getMessage());
+                sseDispatchExecutor.execute(() -> {
+                    try {
+                        sendUpdate(emitter, update);
+                    } catch (Exception e) {
+                        removeFromAllStreams(emitter);
+                        removeAndCompleteEmitter(emitter);
+                        log.debug("SSE emitter removed after send failure: {}", e.getMessage());
+                    }
+                });
+            } catch (Exception ex) {
+                // Executor rejected (should not happen with CallerRunsPolicy, but degrade)
+                log.warn("SSE dispatch rejected, falling back to inline send | error={}", ex.getMessage());
+                try {
+                    sendUpdate(emitter, update);
+                } catch (Exception e) {
+                    removeFromAllStreams(emitter);
+                    removeAndCompleteEmitter(emitter);
+                }
             }
         }
     }
@@ -276,12 +295,22 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         }
         for (SseEmitter emitter : emitters) {
             try {
-                emitter.send(SseEmitter.event().comment("heartbeat"));
-            } catch (IOException | IllegalStateException e) {
-                // IOException: client disconnected; IllegalStateException:
-                // emitter already completed. Either way the stream is dead.
-                removeFromAllStreams(emitter);
-                removeAndCompleteEmitter(emitter);
+                sseDispatchExecutor.execute(() -> {
+                    try {
+                        emitter.send(SseEmitter.event().comment("heartbeat"));
+                    } catch (IOException | IllegalStateException e) {
+                        removeFromAllStreams(emitter);
+                        removeAndCompleteEmitter(emitter);
+                    }
+                });
+            } catch (Exception ex) {
+                // CallerRuns fallback — inline
+                try {
+                    emitter.send(SseEmitter.event().comment("heartbeat"));
+                } catch (IOException | IllegalStateException e) {
+                    removeFromAllStreams(emitter);
+                    removeAndCompleteEmitter(emitter);
+                }
             }
         }
     }

@@ -10,6 +10,9 @@ import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.serviceImpl.CouponServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,20 +60,38 @@ public class CartRecoveryService {
     private final RedisCacheService redisCacheService;
     private final CartRecoveryProperties properties;
 
+    private static final int RECOVERY_BATCH = 100;
+
     /**
      * Runs one recovery sweep: finds idle carts and processes each one.
-     * Called by {@link CartRecoveryScheduler}; a no-op when {@code enabled} is
-     * false.
+     * Paginated to avoid OOM at 50k carts; each batch is a short Tx.
      */
-    @Transactional
     public void recoverAbandonedCarts() {
         if (!properties.isEnabled()) {
             log.debug("CART_RECOVERY_DISABLED");
             return;
         }
-        for (Cart cart : findIdleCarts()) {
-            recoverCart(cart);
-        }
+        int page = 0;
+        Page<Cart> batch;
+        do {
+            batch = cartRepository.findAll(PageRequest.of(page, RECOVERY_BATCH, Sort.by("updatedAt")));
+            for (Cart cart : batch.getContent()) {
+                if (isIdleCart(cart)) {
+                    recoverCart(cart);
+                }
+            }
+            page++;
+            if (batch.hasNext()) {
+                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+        } while (batch.hasNext());
+    }
+
+    private boolean isIdleCart(Cart cart) {
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(properties.getIdleMinutes());
+        if (cart.getUpdatedAt() == null || !cart.getUpdatedAt().isBefore(cutoff)) return false;
+        if (cartItemRepository.findByCartId(cart.getId()).isEmpty()) return false;
+        return hasNoOrderSince(cart);
     }
 
     /**
@@ -84,12 +105,20 @@ public class CartRecoveryService {
      */
     List<Cart> findIdleCarts() {
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(properties.getIdleMinutes());
-        return cartRepository.findAll().stream()
-                .filter(cart -> cart.getUpdatedAt() != null)
-                .filter(cart -> cart.getUpdatedAt().isBefore(cutoff))
-                .filter(cart -> !cartItemRepository.findByCartId(cart.getId()).isEmpty())
-                .filter(this::hasNoOrderSince)
-                .toList();
+        List<Cart> result = new java.util.ArrayList<>();
+        int page = 0;
+        Page<Cart> batch;
+        do {
+            batch = cartRepository.findAll(PageRequest.of(page, RECOVERY_BATCH, Sort.by("updatedAt")));
+            for (Cart cart : batch.getContent()) {
+                if (cart.getUpdatedAt() == null || !cart.getUpdatedAt().isBefore(cutoff)) continue;
+                if (cartItemRepository.findByCartId(cart.getId()).isEmpty()) continue;
+                if (!hasNoOrderSince(cart)) continue;
+                result.add(cart);
+            }
+            page++;
+        } while (batch.hasNext());
+        return result;
     }
 
     private boolean hasNoOrderSince(Cart cart) {

@@ -3,6 +3,7 @@ package com.bhukkad.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -12,12 +13,8 @@ import java.util.Set;
 
 @Entity
 @Table(name = "users", indexes = {
-        @Index(name = "idx_user_email", columnList = "email", unique = true),
-        @Index(name = "idx_user_phone", columnList = "phoneNumber"),
         @Index(name = "idx_user_role", columnList = "role"),
-        @Index(name = "idx_user_active", columnList = "active"),
-        @Index(name = "idx_user_email_active", columnList = "email, active"),
-        @Index(name = "idx_user_role_active", columnList = "role, active")
+        @Index(name = "idx_user_active", columnList = "active")
 })
 @Data
 @NoArgsConstructor
@@ -31,19 +28,6 @@ public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(nullable = true, unique = true, length = 100)
-    private String email;
-
-    @JsonIgnore
-    @Column(nullable = true, length = 255)
-    private String password;
-
-    @Column(nullable = true, length = 100)
-    private String fullName;
-
-    @Column(unique = true, length = 15)
-    private String phoneNumber;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -73,23 +57,19 @@ public class User {
     @LastModifiedDate
     private LocalDateTime updatedAt;
 
-    @Column(length = 500)
-    private String profileImageUrl;
-
-    @Column(name = "referrer_id")
-    private Long referrerId;
-
-    /** Base32-encoded TOTP secret for multi-factor auth; null when not enrolled. */
-    @Column(name = "totp_secret")
-    private String totpSecret;
-
     /** Whether the account requires a TOTP code at login (ADMIN / RESTAURANT_OWNER). */
     @Column(name = "totp_enabled")
     private Boolean totpEnabled = false;
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "user_referral_codes", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "code", length = 20, unique = true)
+    // Never serialized: with open-in-view disabled, Jackson touching this lazy
+    // collection outside the session blows up any endpoint that returns User
+    // entities (e.g. review listings). No consumer reads it from JSON — codes
+    // are exposed through dedicated DTOs instead.
+    @JsonIgnore
     private Set<String> referralCodes;
 
     public enum UserRole {

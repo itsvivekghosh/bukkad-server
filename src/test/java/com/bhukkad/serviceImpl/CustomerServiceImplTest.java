@@ -521,7 +521,7 @@ class CustomerServiceImplTest {
         customerService.addMoneyToWallet(50.0);
 
         verify(walletService).credit(
-                eq(customer),
+                eq(1L),
                 eq(50.0),
                 eq(WalletTransaction.TransactionType.ADJUSTMENT),
                 isNull(),

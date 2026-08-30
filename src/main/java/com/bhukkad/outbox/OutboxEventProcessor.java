@@ -51,8 +51,8 @@ public class OutboxEventProcessor {
      * broker, slow listener) can therefore never hold a DB connection or a row
      * lock across the whole batch.
      */
-    @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:2000}")
-    @SchedulerLock(name = "outbox-processing", lockAtMostFor = "PT2M", lockAtLeastFor = "PT10S")
+    @Scheduled(fixedDelayString = "${app.outbox.poll-interval-ms:1000}")
+    @SchedulerLock(name = "outbox-processing", lockAtMostFor = "PT2M", lockAtLeastFor = "PT1S")
     public void processPendingEvents() {
         for (OutboxEvent event : claimPendingBatch()) {
             processAndFinalize(event);
@@ -99,7 +99,16 @@ public class OutboxEventProcessor {
      * (Kafka brokers down, etc.) get a chance to recover in between.
      */
     @Scheduled(fixedDelayString = "${app.outbox.dead-letter-repoll-ms:60000}")
+    @SchedulerLock(name = "outbox-dead-letter-requeue", lockAtMostFor = "PT5M", lockAtLeastFor = "PT30S")
     public void requeueDeadLetters() {
+        // Jitter 0-5s to avoid thundering herd when DLQ > batch size and many pods schedule at same ms
+        try {
+            long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(0, 5000);
+            Thread.sleep(jitter);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return;
+        }
         deadLetterEventService.requeuePending(outboxProperties.getDeadLetterBatchSize());
     }
 
@@ -208,6 +217,8 @@ public class OutboxEventProcessor {
                     .readValue(event.getPayload(), OrderAgentAssignedEvent.class));
             case "ORDER_ITEMS_SNAPSHOT" -> eventPublisher.publishEvent((Object) objectMapper
                     .readValue(event.getPayload(), OrderItemsSnapshotEvent.class));
+            case "ORDER_SETTLED" -> eventPublisher.publishEvent((Object) objectMapper
+                    .readValue(event.getPayload(), com.bhukkad.event.OrderSettledEvent.class));
             // Webhook receipts carry no side effects (the money path is applied
             // transactionally in the webhook controller). Route them to the
             // observability listener instead of dead-lettering every webhook.

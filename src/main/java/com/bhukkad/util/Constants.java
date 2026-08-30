@@ -18,6 +18,17 @@ public class Constants {
     // Distance
     public static final double MAX_DELIVERY_DISTANCE_KM = 10.0;
 
+    /**
+     * Small epsilon added to the radius when checking proximity, to make the
+     * boundary inclusive across different Haversine implementations (Redis GEO
+     * vs MySQL SQL). Redis and MySQL may round differently at the exact
+     * boundary due to floating-point precision, causing one to include and
+     * the other to exclude a restaurant exactly at the radius distance.
+     * 10 meters is small enough to be imperceptible to users but large enough
+     * to absorb cross-implementation floating-point drift.
+     */
+    public static final double PROXIMITY_RADIUS_EPSILON_KM = 0.01;
+
     // Rating
     public static final int MIN_RATING = 1;
     public static final int MAX_RATING = 5;

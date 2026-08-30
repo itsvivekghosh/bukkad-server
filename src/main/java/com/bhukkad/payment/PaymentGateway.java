@@ -2,13 +2,15 @@ package com.bhukkad.payment;
 
 import lombok.Builder;
 
+import java.util.concurrent.CompletableFuture;
+
 public interface PaymentGateway {
 
-    GatewayOrderResult createOrder(GatewayOrderRequest request);
+    CompletableFuture<GatewayOrderResult> createOrder(GatewayOrderRequest request);
 
-    GatewayPaymentResult capturePayment(GatewayCaptureRequest request);
+    CompletableFuture<GatewayPaymentResult> capturePayment(GatewayCaptureRequest request);
 
-    GatewayRefundResult refundPayment(GatewayRefundRequest request);
+    CompletableFuture<GatewayRefundResult> refundPayment(GatewayRefundRequest request);
 
     boolean verifyWebhookSignature(String payload, String signature);
 

@@ -1,6 +1,7 @@
 package com.bhukkad.notification.whatsapp;
 
 import com.bhukkad.config.NotificationProperties;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -19,10 +20,11 @@ import java.util.Base64;
 /**
  * Sends WhatsApp messages via the Twilio REST API behind a circuit breaker.
  *
- * <p>Twilio is an external dependency; the circuit breaker prevents a slow or
- * failing provider from stalling business transactions. The fallback degrades
- * to a WARN log, matching the fire-and-forget contract of the notification
- * pipeline.</p>
+ * <p>Returns {@code true} when the message was accepted by Twilio, {@code false}
+ * when delivery failed (missing credentials, network error, or circuit open).
+ * Non-delivery is signalled via the return value rather than an exception so
+ * callers can decide whether to fail (OTP registration) or proceed
+ * (fire-and-forget order notifications).</p>
  */
 @Slf4j
 @Component
@@ -40,9 +42,10 @@ public class TwilioWhatsAppSender implements WhatsAppSender {
 
     @Override
     @CircuitBreaker(name = "notificationWhatsApp", fallbackMethod = "whatsAppUnavailable")
-    public void send(String phoneNumber, String body) {
+    @Bulkhead(name = "notificationWhatsApp", fallbackMethod = "whatsAppUnavailable")
+    public boolean send(String phoneNumber, String body) {
         if (!StringUtils.hasText(phoneNumber)) {
-            return;
+            return false;
         }
         NotificationProperties.Twilio twilio = notificationProperties.getWhatsapp().getTwilio();
         String from = StringUtils.hasText(twilio.getWhatsappFromNumber())
@@ -52,7 +55,7 @@ public class TwilioWhatsAppSender implements WhatsAppSender {
                 || !StringUtils.hasText(twilio.getAuthToken())
                 || !StringUtils.hasText(from)) {
             log.warn("Twilio WhatsApp credentials not configured");
-            return;
+            return false;
         }
 
         String to = phoneNumber.startsWith("whatsapp:") ? phoneNumber : "whatsapp:" + phoneNumber;
@@ -72,11 +75,13 @@ public class TwilioWhatsAppSender implements WhatsAppSender {
 
         restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
         log.info("Twilio WhatsApp sent | to={}", phoneNumber);
+        return true;
     }
 
     @SuppressWarnings("unused")
-    void whatsAppUnavailable(String phoneNumber, String body, Throwable ex) {
+    public boolean whatsAppUnavailable(String phoneNumber, String body, Throwable ex) {
         log.warn("Twilio WhatsApp unavailable (circuit open) | to={} | error={}",
                 phoneNumber, ex.getMessage());
+        return false;
     }
 }

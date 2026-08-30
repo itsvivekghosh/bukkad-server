@@ -6,16 +6,17 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.Optional;
-
+/**
+ * Registry-level access to identity rows. Since V62 the users table holds
+ * only identity + account state (id, role, active, verification flags,
+ * audit) — credentials and profile PII live on the per-role tables and are
+ * resolved through {@link com.bhukkad.security.AccountLookupService}.
+ */
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
-    Optional<User> findByEmail(String email);
-    Optional<User> findByPhoneNumber(String phoneNumber);
-    Optional<User> findByEmailOrPhoneNumber(String email, String phoneNumber);
-    Boolean existsByEmail(String email);
-    Boolean existsByPhoneNumber(String phoneNumber);
     Page<User> findByRole(User.UserRole role, Pageable pageable);
-    Page<User> findByFullNameContainingOrEmailContaining(String name, String email, Pageable pageable);
+
     long countByRole(User.UserRole role);
+
+    long countByActiveTrue();
 }

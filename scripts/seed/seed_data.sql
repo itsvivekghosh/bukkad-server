@@ -174,37 +174,37 @@ INSERT INTO cuisines (id, name, active, image_url) VALUES
 --      owners / agents      -> Owner@123 / Agent@123 (see below)
 --      customers            -> Customer@123 => $2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K
 -- ---------------------------------------------------------------------------
-INSERT INTO users (id, full_name, email, password, phone_number, role, active, email_verified, created_at, updated_at, profile_image_url) VALUES
+INSERT INTO users (id, full_name, email, password, phone_number, role, active, email_verified, created_at, updated_at, profile_image_url, phone_verified, phone_verified_at, profile_completed) VALUES
 -- Admin
-(1,  'Vivek Ghosh',        'admin@bhukkad.dev',      '$2a$10$o9a9JYxjW2lLP0NN6JkpGu7QatHDuOJXCK1c5pv65.71It/YqWouq', '9886000001', 'ADMIN',            1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=admin'),
+(1,  'Vivek Ghosh',        'admin@bhukkad.dev',      '$2a$10$o9a9JYxjW2lLP0NN6JkpGu7QatHDuOJXCK1c5pv65.71It/YqWouq', '9886000001', 'ADMIN',            1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=admin', 1, NOW(), 1),
 -- Restaurant owners (password: Owner@123 -> $2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C)
-(2,  'Rajesh Kumar',       'rajesh.kumar@spiceroute.in',   '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000002', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=rajesh'),
-(3,  'Priya Sharma',       'priya.sharma@biryani.in',      '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000003', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=priya'),
-(4,  'Arun Iyer',          'arun.iyer@dosaplaza.in',       '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000004', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=arun'),
-(5,  'Ananya Das',         'ananya.das@greenbowl.in',      '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000005', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=ananya'),
-(6,  'Harpreet Singh',     'harpreet@punjabirasoi.in',     '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000006', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=harpreet'),
-(7,  'Meera Nair',         'meera.nair@coastalcatch.in',   '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000007', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=meera'),
-(8,  'Kevin D Souza',      'kevin@wokexpress.in',          '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000008', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=kevin'),
-(9,  'Imran Khan',         'imran@tandoorinights.in',      '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000009', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=imran'),
-(10, 'Ravi Patil',         'ravi@bombaystreet.in',         '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000010', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=ravi'),
-(11, 'Sofia Fernandes',    'sofia@cafemilano.in',          '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000011', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=sofia'),
+(2,  'Rajesh Kumar',       'rajesh.kumar@spiceroute.in',   '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000002', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=rajesh', 1, NOW(), 1),
+(3,  'Priya Sharma',       'priya.sharma@biryani.in',      '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000003', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=priya', 1, NOW(), 1),
+(4,  'Arun Iyer',          'arun.iyer@dosaplaza.in',       '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000004', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=arun', 1, NOW(), 1),
+(5,  'Ananya Das',         'ananya.das@greenbowl.in',      '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000005', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=ananya', 1, NOW(), 1),
+(6,  'Harpreet Singh',     'harpreet@punjabirasoi.in',     '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000006', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=harpreet', 1, NOW(), 1),
+(7,  'Meera Nair',         'meera.nair@coastalcatch.in',   '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000007', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=meera', 1, NOW(), 1),
+(8,  'Kevin D Souza',      'kevin@wokexpress.in',          '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000008', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=kevin', 1, NOW(), 1),
+(9,  'Imran Khan',         'imran@tandoorinights.in',      '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000009', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=imran', 1, NOW(), 1),
+(10, 'Ravi Patil',         'ravi@bombaystreet.in',         '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000010', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=ravi', 1, NOW(), 1),
+(11, 'Sofia Fernandes',    'sofia@cafemilano.in',          '$2a$10$jMSl7DQbiORYK9o.I/V8M.p51JNm26527yCZI3awz4ZLdO3e9a66C', '9886000011', 'RESTAURANT_OWNER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=sofia', 1, NOW(), 1),
 -- Delivery agents (password: Agent@123 -> $2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q)
-(12, 'Suresh Yadav',       'suresh.yadav@bhukkad.delivery', '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000012', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=suresh'),
-(13, 'Mohammed Rafiq',     'rafiq@bhukkad.delivery',        '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000013', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=rafiq'),
-(14, 'Lakshmi Narayan',    'lakshmi@bhukkad.delivery',      '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000014', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=lakshmi'),
-(15, 'Dinesh Reddy',       'dinesh@bhukkad.delivery',       '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000015', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=dinesh'),
-(16, 'Aisha Begum',        'aisha@bhukkad.delivery',        '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000016', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=aisha'),
+(12, 'Suresh Yadav',       'suresh.yadav@bhukkad.delivery', '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000012', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=suresh', 1, NOW(), 1),
+(13, 'Mohammed Rafiq',     'rafiq@bhukkad.delivery',        '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000013', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=rafiq', 1, NOW(), 1),
+(14, 'Lakshmi Narayan',    'lakshmi@bhukkad.delivery',      '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000014', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=lakshmi', 1, NOW(), 1),
+(15, 'Dinesh Reddy',       'dinesh@bhukkad.delivery',       '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000015', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=dinesh', 1, NOW(), 1),
+(16, 'Aisha Begum',        'aisha@bhukkad.delivery',        '$2a$10$9HRxmh1/SANYxE/7.VRiLuw0jGrj1WKWtygQn1ZQHgghSzy/XH/3q', '9886000016', 'DELIVERY_AGENT', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=aisha', 1, NOW(), 1),
 -- Customers (password: Customer@123 -> $2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K)
-(17, 'Aarav Sharma',       'aarav.sharma@example.com',   '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500001', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=aarav'),
-(18, 'Sneha Patel',        'sneha.patel@example.com',    '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500002', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=sneha'),
-(19, 'Rohan Gupta',        'rohan.gupta@example.com',    '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500003', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=rohan'),
-(20, 'Isha Verma',         'isha.verma@example.com',     '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500004', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=isha'),
-(21, 'Karthik Reddy',      'karthik.reddy@example.com',  '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500005', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=karthik'),
-(22, 'Pooja Malhotra',     'pooja.malhotra@example.com', '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500006', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=pooja'),
-(23, 'Aditya Kulkarni',    'aditya.kulkarni@example.com','$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500007', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=aditya'),
-(24, 'Nisha Menon',        'nisha.menon@example.com',    '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500008', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=nisha'),
-(25, 'Vikram Rathore',     'vikram.rathore@example.com', '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500009', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=vikram'),
-(26, 'Tanvi Kulkarni',     'tanvi.kulkarni@example.com', '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500010', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=tanvi');
+(17, 'Aarav Sharma',       'aarav.sharma@example.com',   '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500001', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=aarav', 1, NOW(), 1),
+(18, 'Sneha Patel',        'sneha.patel@example.com',    '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500002', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=sneha', 1, NOW(), 1),
+(19, 'Rohan Gupta',        'rohan.gupta@example.com',    '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500003', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=rohan', 1, NOW(), 1),
+(20, 'Isha Verma',         'isha.verma@example.com',     '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500004', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=isha', 1, NOW(), 1),
+(21, 'Karthik Reddy',      'karthik.reddy@example.com',  '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500005', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=karthik', 1, NOW(), 1),
+(22, 'Pooja Malhotra',     'pooja.malhotra@example.com', '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500006', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=pooja', 1, NOW(), 1),
+(23, 'Aditya Kulkarni',    'aditya.kulkarni@example.com','$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500007', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=aditya', 1, NOW(), 1),
+(24, 'Nisha Menon',        'nisha.menon@example.com',    '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500008', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=nisha', 1, NOW(), 1),
+(25, 'Vikram Rathore',     'vikram.rathore@example.com', '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500009', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=vikram', 1, NOW(), 1),
+(26, 'Tanvi Kulkarni',     'tanvi.kulkarni@example.com', '$2a$10$OMoESGYxTZCFe3nOHA1BO.DPDmLmCEeWlhv6K90SD39kalJRV7d6K', '9876500010', 'CUSTOMER', 1, 1, NOW(), NOW(), 'https://i.pravatar.cc/150?u=tanvi', 1, NOW(), 1);
 
 -- ---------------------------------------------------------------------------
 -- 6. ROLE EXTENSIONS
@@ -241,7 +241,8 @@ INSERT INTO delivery_agents (id, available, verified, vehicle_type, vehicle_numb
 (16, 0, 1, 'MOTORCYCLE','KA-05-IJ-7890', 'DL-KA-2020-9900', 4.7, 1340, 12.9308, 77.5838);
 
 -- ---------------------------------------------------------------------------
--- 7. ADDRESSES (1-10 restaurant, 11-30 customer: 2 each)
+-- 7. ADDRESSES (1-10 Bengaluru restaurants, 11-30 customers: 2 each in
+--    DIFFERENT cities for E2E city-switching, 31-32 outstation restaurants)
 -- ---------------------------------------------------------------------------
 INSERT INTO addresses (id, address_line1, address_line2, city, state, pincode, latitude, longitude, label, landmark, type, is_default, customer_id) VALUES
 -- Restaurant addresses (customer_id = NULL)
@@ -255,27 +256,33 @@ INSERT INTO addresses (id, address_line1, address_line2, city, state, pincode, l
 (8,  'Dr Rajkumar Road, Rajajinagar', NULL, 'Bengaluru', 'Karnataka', '560010', 12.9916, 77.5527, 'Tandoori Nights',  'Near Orion Mall',      NULL, 0, NULL),
 (9,  '100 Ft Ring Road, BTM Layout',  NULL, 'Bengaluru', 'Karnataka', '560068', 12.9166, 77.6101, 'Bombay Street',    'Near Udupi Garden',    NULL, 0, NULL),
 (10, '12th Main, Indiranagar',        NULL, 'Bengaluru', 'Karnataka', '560008', 12.9784, 77.6408, 'Cafe Milano',      'Near Metropolis',      NULL, 0, NULL),
--- Customer addresses (ids 11-30)
+-- Customer addresses (ids 11-30): two per customer, in DIFFERENT cities so
+-- E2E can exercise city switching, serviceability and nearby filtering.
 (11, 'Flat 302, Green Meadows', 'Koramangala 5th Block', 'Bengaluru', 'Karnataka', '560095', 12.9342, 77.6147, 'Home',  'Near Sony World', 'HOME', 1, 17),
-(12, 'WeWork Prestige Atlanta', '80 Feet Road Koramangala', 'Bengaluru', 'Karnataka', '560095', 12.9352, 77.6245, 'Work',  '4th Floor',       'WORK', 0, 17),
-(13, 'B-1201, Sobha Dream Acres', 'Panathur, Outer Ring Road', 'Bengaluru', 'Karnataka', '560103', 12.9280, 77.6948, 'Home', 'Near Panathur Junction', 'HOME', 1, 18),
-(14, 'Accenture Campus, Manyata', 'Nagawara', 'Bengaluru', 'Karnataka', '560045', 13.0358, 77.6190, 'Work', 'Block C',         'WORK', 0, 18),
-(15, 'C-404, Prestige Lakeside Habitat', 'Varthur Road', 'Bengaluru', 'Karnataka', '560087', 12.9593, 77.6975, 'Home', 'Near Varthur Lake','HOME', 1, 19),
-(16, 'Infosys EC, Electronic City', 'Hosur Road', 'Bengaluru', 'Karnataka', '560100', 12.8451, 77.6602, 'Work', 'SEZ Building',    'WORK', 0, 19),
-(17, 'A-702, Salarpuria Splendour', 'HSR Layout Sector 1', 'Bengaluru', 'Karnataka', '560102', 12.9166, 77.6412, 'Home', 'Near Agara Lake', 'HOME', 1, 20),
-(18, 'Dell Campus, Varthur', 'Outer Ring Road', 'Bengaluru', 'Karnataka', '560103', 12.9442, 77.6990, 'Work', 'Tower D',         'WORK', 0, 20),
-(19, 'House No 45, 3rd Cross', 'Jayanagar 4th Block', 'Bengaluru', 'Karnataka', '560011', 12.9240, 77.5838, 'Home', 'Near Jayanagar Metro', 'HOME', 1, 21),
-(20, 'Wipro SEZ, Sarjapur Road', 'Doddakannelli', 'Bengaluru', 'Karnataka', '560035', 12.9071, 77.6764, 'Work', 'Building 8',      'WORK', 0, 21),
-(21, 'G-1101, Brigade Gateway', 'Rajajinagar, West of Chord Road', 'Bengaluru', 'Karnataka', '560055', 12.9916, 77.5527, 'Home', 'Near Orion Mall', 'HOME', 1, 22),
-(22, 'Amazon Office, RMZ Ecoworld', 'Bellandur', 'Bengaluru', 'Karnataka', '560103', 12.9314, 77.6873, 'Work', 'Building 6',      'WORK', 0, 22),
-(23, 'Villa 12, Palm Meadows', 'Whitefield Main Road', 'Bengaluru', 'Karnataka', '560066', 12.9698, 77.7500, 'Home', 'Near ITPL',       'HOME', 1, 23),
-(24, 'IBM Campus, Manyata', 'Nagawara', 'Bengaluru', 'Karnataka', '560045', 13.0358, 77.6190, 'Work', 'Block B',          'WORK', 0, 23),
-(25, 'Flat 8B, Brigade Exotica', 'BTM 2nd Stage', 'Bengaluru', 'Karnataka', '560076', 12.9166, 77.6101, 'Home', 'Near BTM Layout','HOME', 1, 24),
-(26, 'Mindtree Campus, Kalinga', 'Marathahalli - Sarjapur Road', 'Bengaluru', 'Karnataka', '560037', 12.9166, 77.6811, 'Work', 'Tower 2',        'WORK', 0, 24),
-(27, 'Flat 501, Sri Sai Residency', 'Indiranagar Double Road', 'Bengaluru', 'Karnataka', '560038', 12.9719, 77.6412, 'Home', 'Near 100 Ft Road','HOME', 1, 25),
-(28, 'Microsoft Campus, Gachibowli', 'Survey No 14, Manikonda', 'Hyderabad', 'Telangana', '500032', 17.4401, 78.3489, 'Work', 'SEZ',             'WORK', 0, 25),
-(29, 'A-1002, Prestige Ozone', 'Devarabisanahalli, Bellandur', 'Bengaluru', 'Karnataka', '560103', 12.9270, 77.6890, 'Home', 'Near Eco Space',  'HOME', 1, 26),
-(30, 'JPMorgan, Bagmane Tech Park', 'CV Raman Nagar', 'Bengaluru', 'Karnataka', '560093', 12.9857, 77.6603, 'Work', 'Block C',          'WORK', 0, 26);
+(12, 'Tower B, Hiranandani Gardens', 'Powai Lake Road', 'Mumbai', 'Maharashtra', '400076', 19.1176, 72.9060, 'Work', 'Near Powai Lake', 'WORK', 0, 17),
+(13, 'B-1201, Lodha Splendora', 'Ghodbunder Road, Thane West', 'Mumbai', 'Maharashtra', '400615', 19.2183, 72.9781, 'Home', 'Near Jupiter Hospital', 'HOME', 1, 18),
+(14, 'H-12, Connaught Place', 'Inner Circle', 'Delhi', 'Delhi', '110001', 28.6315, 77.2167, 'Work', 'Block H', 'WORK', 0, 18),
+(15, 'C-404, DLF Phase 3', 'Cyber City Road', 'Gurugram', 'Haryana', '122002', 28.4949, 77.0869, 'Home', 'Near Cyber Hub', 'HOME', 1, 19),
+(16, 'Sector 29, Near Kingdom of Dreams', 'Great India Road', 'Gurugram', 'Haryana', '122001', 28.4674, 77.0716, 'Work', 'Leisure Valley Road', 'WORK', 0, 19),
+(17, 'Plot 44, Gachibowli Financial District', 'Nanakramguda', 'Hyderabad', 'Telangana', '500032', 17.4401, 78.3489, 'Home', 'Near ICICI Tower', 'HOME', 1, 20),
+(18, 'Flat 9B, Jubilee Hills Road 36', 'Near Peddamma Temple', 'Hyderabad', 'Telangana', '500033', 17.4239, 78.4108, 'Work', 'Road 36', 'WORK', 0, 20),
+(19, 'House No 45, Koregaon Park', 'Lane 5, North Main Road', 'Pune', 'Maharashtra', '411001', 18.5362, 73.8933, 'Home', 'Near Osho Garden', 'HOME', 1, 21),
+(20, 'Office 701, EON IT Park', 'Kharadi Bypass Road', 'Pune', 'Maharashtra', '411014', 18.5515, 73.9476, 'Work', 'Cluster C', 'WORK', 0, 21),
+(21, 'G-1101, T Nagar Residency', 'Usman Road, T Nagar', 'Chennai', 'Tamil Nadu', '600017', 13.0418, 80.2341, 'Home', 'Near Panagal Park', 'HOME', 1, 22),
+(22, 'Beach House 3, ECR', 'Neelankarai', 'Chennai', 'Tamil Nadu', '600115', 12.9500, 80.2567, 'Work', 'ECR Phase 1', 'WORK', 0, 22),
+(23, 'Villa 12, Salt Lake Sector 3', 'Bidhannagar', 'Kolkata', 'West Bengal', '700091', 22.5808, 88.4194, 'Home', 'Near City Centre', 'HOME', 1, 23),
+(24, 'Flat 8B, New Town Action Area 1', 'Near Eco Park', 'Kolkata', 'West Bengal', '700156', 22.5800, 88.4636, 'Work', 'Block B', 'WORK', 0, 23),
+(25, 'Flat 501, Civil Lines', 'MI Road', 'Jaipur', 'Rajasthan', '302006', 26.9124, 75.7873, 'Home', 'Near Statue Circle', 'HOME', 1, 24),
+(26, 'Villa 4, Malviya Nagar', 'Jawahar Circle', 'Jaipur', 'Rajasthan', '302017', 26.8467, 75.8138, 'Work', 'Near World Trade Park', 'WORK', 0, 24),
+(27, 'A-1002, Andheri West', 'Lokhandwala Complex', 'Mumbai', 'Maharashtra', '400053', 19.1364, 72.8296, 'Home', 'Near Lokhandwala Market', 'HOME', 1, 25),
+(28, 'Flat 204, Kalyani Nagar', 'Viman Nagar Road', 'Pune', 'Maharashtra', '411006', 18.5442, 73.8898, 'Work', 'Near Phoenix Mall', 'WORK', 0, 25),
+(29, 'B-9, Greater Kailash 2', 'M Block Market', 'New Delhi', 'Delhi', '110048', 28.5494, 77.2420, 'Home', 'Near GK2 Market', 'HOME', 1, 26),
+(30, 'Surajkund Road, Faridabad', 'Sector 15', 'Faridabad', 'Haryana', '121007', 28.4274, 77.3145, 'Work', 'Near Crown Plaza', 'WORK', 0, 26),
+-- Outstation restaurant addresses (ids 31-32)
+-- 31 sits ~2.8km from the E2E helper's Mumbai address (19.076, 72.8777) so the
+-- home "near you" rail (5km default radius) always has a restaurant to render.
+(31, 'Nirvana Park Road, Powai', 'Hiranandani Gardens', 'Mumbai', 'Maharashtra', '400076', 19.0970, 72.8920, 'Marine Plate', 'Near Powai Lake', NULL, 0, NULL),
+(32, '78, Chandni Chowk Main Road', 'Near Red Fort', 'Delhi', 'Delhi', '110006', 28.6506, 77.2303, 'Chandni Chowk Chaat Co.', 'Paranthe Wali Gali', NULL, 0, NULL);
 
 -- ---------------------------------------------------------------------------
 -- 8. RESTAURANTS
@@ -293,7 +300,10 @@ INSERT INTO restaurants (id, name, description, owner_id, address_id, tenant_id,
 (7,  'Wok Express',        'Wok-tossed Chinese, Thai and Indo-Chinese favourites — noodles, fried rice, manchurian and more.', 8, 7, 1, '11:00:00', '23:30:00', 1, 1, 0, 1, 199, 49,  39, 4.0, 2230, 25, 'https://images.unsplash.com/photo-1563245372-f21724e3856d', 'FSSAI-1122334461', 15.0, 0, 'APPROVED', NOW(), NOW()),
 (8,  'Tandoori Nights',    'Charcoal-grilled kebabs, tandoori chicken and rich Mughlai curries in a royal setting.', 9, 8, 1, '12:00:00', '00:00:00', 1, 1, 0, 1, 399, 89,  79, 4.5, 1870, 45, 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0', 'FSSAI-1122334462', 15.0, 0, 'APPROVED', NOW(), NOW()),
 (9,  'Bombay Street Food', 'Mumbai''s legendary street food — vada pav, pav bhaji, pani puri and cutting chai.', 10, 9, 1, '09:00:00', '23:00:00', 1, 1, 1, 1, 99,  29,  19, 4.3, 3420, 20, 'https://images.unsplash.com/photo-1606491956689-2ea866880c84', 'FSSAI-1122334463', 15.0, 0, 'APPROVED', NOW(), NOW()),
-(10, 'Cafe Milano',        'Wood-fired pizzas, pasta, risotto and indulgent desserts with a cozy cafe vibe.', 11, 10, 1, '10:00:00', '23:30:00', 1, 1, 0, 1, 249, 59,  49, 4.4, 1290, 30, 'https://images.unsplash.com/photo-1513104890138-7c749659a591', 'FSSAI-1122334464', 15.0, 0, 'APPROVED', NOW(), NOW());
+(10, 'Cafe Milano',        'Wood-fired pizzas, pasta, risotto and indulgent desserts with a cozy cafe vibe.', 11, 10, 1, '10:00:00', '23:30:00', 1, 1, 0, 1, 249, 59,  49, 4.4, 1290, 30, 'https://images.unsplash.com/photo-1513104890138-7c749659a591', 'FSSAI-1122334464', 15.0, 0, 'APPROVED', NOW(), NOW()),
+-- Outstation kitchens so multi-city addresses have real nearby options
+(11, 'Marine Plate',       'Seafood grills and coastal bowls on Carter Road — crab, pomfret and prawns done Bombay-style.', 2, 31, 1, '11:00:00', '23:30:00', 1, 1, 0, 1, 299, 79, 39, 4.2, 640, 35, 'https://images.unsplash.com/photo-1559339352-11d035aa65de', 'FSSAI-1122334465', 15.0, 0, 'APPROVED', NOW(), NOW()),
+(12, 'Chandni Chowk Chaat Co.', 'Old Delhi legends since 1977 — parathe, chaat, chole bhature and rabri falooda.', 3, 32, 1, '09:00:00', '22:30:00', 1, 1, 1, 1, 99, 29, 24, 4.5, 2150, 20, 'https://images.unsplash.com/photo-1601050690597-df0568f70950', 'FSSAI-1122334466', 15.0, 0, 'APPROVED', NOW(), NOW());
 
 -- ---------------------------------------------------------------------------
 -- 9. RESTAURANT-CUISINE MAPPING
@@ -308,7 +318,9 @@ INSERT INTO restaurant_cuisines (restaurant_id, cuisine_id) VALUES
 (7, 3),           -- Wok Express: Chinese
 (8, 17), (8, 5),  -- Tandoori Nights: Kebab, Mughlai
 (9, 8), (9, 7),   -- Bombay Street Food: Street Food, Fast Food
-(10, 4), (10, 14), (10, 9); -- Cafe Milano: Italian, Continental, Desserts
+(10, 4), (10, 14), (10, 9), -- Cafe Milano: Italian, Continental, Desserts
+(11, 11), (11, 8),          -- Marine Plate: Seafood, Street Food
+(12, 1), (12, 8), (12, 13); -- Chandni Chowk Chaat Co.: North Indian, Street Food, Punjabi
 
 -- ---------------------------------------------------------------------------
 -- 10. MENU CATEGORIES
@@ -359,7 +371,14 @@ INSERT INTO menu_categories (id, restaurant_id, name, description, display_order
 (33, 10, 'Pizzas',        'Wood-fired pizzas',              1, 1),
 (34, 10, 'Pasta & Risotto','Italian staples',               2, 1),
 (35, 10, 'Desserts',      'Cakes, tiramisu & more',         3, 1),
-(36, 10, 'Beverages',     'Coffee & fresh juices',          4, 1);
+(36, 10, 'Beverages',     'Coffee & fresh juices',          4, 1),
+-- Marine Plate
+(37, 11, 'Grills & Fry',  'Charcoal & tawa seafood',        1, 1),
+(38, 11, 'Coastal Mains', 'Curries & rice plates',          2, 1),
+-- Chandni Chowk Chaat Co.
+(39, 12, 'Parathe & Mains','Tawa parathe & chole',          1, 1),
+(40, 12, 'Chaat Corner',  'Dilli ki classic chaat',         2, 1),
+(41, 12, 'Mithai & Falooda','Old Delhi sweets',             3, 1);
 
 -- ---------------------------------------------------------------------------
 -- 11. MENU ITEMS  (price in INR; food_type: VEG/NON_VEG/VEGAN/EGGETARIAN)
@@ -450,7 +469,19 @@ INSERT INTO menu_items (id, category_id, name, description, price, original_pric
 (71, 35, 'Tiramisu',               'Classic Italian coffee dessert',                           249, NULL, NULL, 'VEG', 1, 0, 'MILD', 420, 5,  '1 slice', 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9', 1, 1, 4.6, 520, 1, 150, NOW(), NOW()),
 (72, 35, 'Chocolate Lava Cake',    'Molten center chocolate cake with ice cream',             279, NULL, NULL, 'VEG', 1, 0, 'MILD', 540, 12, '1 pc', 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9', 1, 0, 4.5, 480, 1, 130, NOW(), NOW()),
 (73, 36, 'Cappuccino',             'Espresso with steamed milk foam',                          149, NULL, NULL, 'VEG', 1, 0, 'MILD', 120, 5,  '200 ml', 'https://images.unsplash.com/photo-1571006682889-53d3160c5b4a', 1, 0, 4.5, 800, 1, 600, NOW(), NOW()),
-(74, 36, 'Fresh Orange Juice',     'Cold-pressed oranges',                                     129, NULL, NULL, 'VEGAN', 1, 0, 'MILD', 110, 5,  '300 ml', 'https://images.unsplash.com/photo-1600271886742-f049cd451bba', 0, 0, 4.2, 380, 1, 350, NOW(), NOW());
+(74, 36, 'Fresh Orange Juice',     'Cold-pressed oranges',                                     129, NULL, NULL, 'VEGAN', 1, 0, 'MILD', 110, 5,  '300 ml', 'https://images.unsplash.com/photo-1600271886742-f049cd451bba', 0, 0, 4.2, 380, 1, 350, NOW(), NOW()),
+-- Marine Plate (cat 37-38)
+(75, 37, 'Tawa Pomfret',           'Whole pomfret marinated in coastal masala, tawa-fried',    549, 599, 8, 'NON_VEG', 0, 1, 'HOT', 380, 25, '1 pc', 'https://images.unsplash.com/photo-1559339352-11d035aa65de', 1, 1, 4.4, 320, 1, 60, NOW(), NOW()),
+(76, 37, 'Bombay Duck Fry',        'Crisp-fried Bombay duck with koli masala',                 329, NULL, NULL, 'NON_VEG', 0, 1, 'HOT', 300, 20, '4 pcs', 'https://images.unsplash.com/photo-1559339352-11d035aa65de', 0, 0, 4.1, 210, 1, 50, NOW(), NOW()),
+(77, 38, 'Crab Sukka',             'Mangalorean dry crab roast with ghee roast spices',        649, NULL, NULL, 'NON_VEG', 0, 1, 'EXTRA_HOT', 420, 30, '1 plate', 'https://images.unsplash.com/photo-1559339352-11d035aa65de', 1, 1, 4.5, 280, 1, 40, NOW(), NOW()),
+(78, 38, 'Prawn Pulao',            'Bombay-style prawn pulao with green masala',               379, 419, 10, 'NON_VEG', 0, 0, 'MEDIUM', 520, 25, '1 plate', 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8', 0, 1, 4.2, 190, 1, 70, NOW(), NOW()),
+(79, 38, 'Solkadhi',               'Kokum-coconut digestive cooler',                           89, NULL, NULL, 'VEGAN', 1, 0, 'MILD', 80, 5, '250 ml', 'https://images.unsplash.com/photo-1600271886742-f049cd451bba', 0, 0, 4.0, 110, 1, 200, NOW(), NOW()),
+-- Chandni Chowk Chaat Co. (cat 39-41)
+(80, 39, 'Aloo Paratha',           'Stuffed potato paratha with white butter & pickle',        119, NULL, NULL, 'VEG', 1, 0, 'MEDIUM', 420, 15, '2 pcs', 'https://images.unsplash.com/photo-1601050690597-df0568f70950', 1, 1, 4.5, 980, 1, 400, NOW(), NOW()),
+(81, 39, 'Chole Bhature',          'Old Delhi style dark chole with pillowy bhature',          149, 179, 17, 'VEG', 1, 1, 'MEDIUM', 480, 18, '2 pcs', 'https://images.unsplash.com/photo-1606491956689-2ea866880c84', 1, 1, 4.4, 760, 1, 350, NOW(), NOW()),
+(82, 40, 'Dahi Bhalla Chaat',      'Soft urad dal dumplings in whipped yogurt & tamarind',     109, NULL, NULL, 'VEG', 1, 0, 'MEDIUM', 260, 10, '1 plate', 'https://images.unsplash.com/photo-1606491956689-2ea866880c84', 1, 0, 4.4, 540, 1, 300, NOW(), NOW()),
+(83, 40, 'Papdi Chaat',            'Crisp papdi, potato, chutneys & sev',                      99, NULL, NULL, 'VEG', 1, 1, 'MEDIUM', 240, 8, '1 plate', 'https://images.unsplash.com/photo-1606491956689-2ea866880c84', 0, 1, 4.3, 470, 1, 320, NOW(), NOW()),
+(84, 41, 'Rabri Falooda',          'Saffron rabri with falooda sev, rose & pistachios',        159, 189, 16, 'VEG', 1, 0, 'MILD', 380, 12, '1 glass', 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8', 1, 1, 4.6, 610, 1, 250, NOW(), NOW());
 
 -- ---------------------------------------------------------------------------
 -- 12. CUSTOMIZATIONS (a few high-traffic items)
@@ -520,3 +551,208 @@ INSERT INTO coupons (id, code, description, discount_type, discount_value, maxim
 -- ---------------------------------------------------------------------------
 INSERT INTO customer_notification_preferences (customer_id, email_enabled, sms_enabled, whatsapp_enabled, push_enabled, order_updates_enabled, promotions_enabled)
 SELECT id, 1, 1, 1, 1, 1, 1 FROM customers;
+
+-- ---------------------------------------------------------------------------
+-- 16. DELIVERED ORDERS  (required by reviews / item ratings)
+--     36 delivered orders — 3 per restaurant across all 12 kitchens, spread
+--     over the last ~60 days, with a customer's own address on each.
+-- ---------------------------------------------------------------------------
+INSERT INTO orders (id, order_number, status, subtotal, tax_amount, delivery_fee, discount_amount, total_amount, tip_amount, wallet_amount_used, loyalty_points_redeemed,
+                    customer_id, restaurant_id, delivery_address_id, delivery_agent_id, created_at, delivered_at, estimated_delivery_time, special_instructions) VALUES
+-- Spice Route (1)
+(1,  'ORD-SEED-0001', 'DELIVERED', 488.00, 39.00, 30.00, 0.00, 557.00, 0.00, 0.00, 0, 17, 1, 11, 12, DATE_SUB(NOW(), INTERVAL 58 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 58 DAY), INTERVAL 45 MINUTE), 35, 'Less spicy please'),
+(2,  'ORD-SEED-0002', 'DELIVERED', 588.00, 47.00, 30.00, 0.00, 665.00, 0.00, 0.00, 0, 19, 1, 15, 13, DATE_SUB(NOW(), INTERVAL 49 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 49 DAY), INTERVAL 45 MINUTE), 38, NULL),
+(3,  'ORD-SEED-0003', 'DELIVERED', 178.00, 14.00, 30.00, 0.00, 222.00, 0.00, 0.00, 0, 24, 1, 25, 14, DATE_SUB(NOW(), INTERVAL 40 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 40 DAY), INTERVAL 45 MINUTE), 32, NULL),
+-- Biryani Blues (2)
+(4,  'ORD-SEED-0004', 'DELIVERED', 418.00, 33.00, 40.00, 0.00, 491.00, 0.00, 0.00, 0, 20, 2, 17, 15, DATE_SUB(NOW(), INTERVAL 52 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 52 DAY), INTERVAL 45 MINUTE), 45, 'Pack raita separately'),
+(5,  'ORD-SEED-0005', 'DELIVERED', 368.00, 29.00, 40.00, 0.00, 437.00, 0.00, 0.00, 0, 23, 2, 23, 12, DATE_SUB(NOW(), INTERVAL 44 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 44 DAY), INTERVAL 45 MINUTE), 42, NULL),
+(6,  'ORD-SEED-0006', 'DELIVERED', 449.00, 36.00, 40.00, 0.00, 525.00, 0.00, 0.00, 0, 26, 2, 29, 13, DATE_SUB(NOW(), INTERVAL 37 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 37 DAY), INTERVAL 45 MINUTE), 44, NULL),
+-- Dosa Plaza (3)
+(7,  'ORD-SEED-0007', 'DELIVERED', 178.00, 14.00, 30.00, 0.00, 222.00, 0.00, 0.00, 0, 18, 3, 13, 14, DATE_SUB(NOW(), INTERVAL 46 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 46 DAY), INTERVAL 45 MINUTE), 30, 'Extra sambar'),
+(8,  'ORD-SEED-0008', 'DELIVERED', 168.00, 13.00, 30.00, 0.00, 211.00, 0.00, 0.00, 0, 21, 3, 19, 15, DATE_SUB(NOW(), INTERVAL 38 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 38 DAY), INTERVAL 45 MINUTE), 28, NULL),
+(9,  'ORD-SEED-0009', 'DELIVERED', 249.00, 20.00, 30.00, 0.00, 299.00, 0.00, 0.00, 0, 25, 3, 27, 12, DATE_SUB(NOW(), INTERVAL 31 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 31 DAY), INTERVAL 45 MINUTE), 26, NULL),
+-- Green Bowl (4)
+(10, 'ORD-SEED-0010', 'DELIVERED', 528.00, 42.00, 45.00, 0.00, 615.00, 0.00, 0.00, 0, 22, 4, 21, 13, DATE_SUB(NOW(), INTERVAL 47 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 47 DAY), INTERVAL 45 MINUTE), 40, NULL),
+(11, 'ORD-SEED-0011', 'DELIVERED', 329.00, 26.00, 45.00, 0.00, 400.00, 0.00, 0.00, 0, 26, 4, 29, 16, DATE_SUB(NOW(), INTERVAL 34 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 34 DAY), INTERVAL 45 MINUTE), 42, NULL),
+(12, 'ORD-SEED-0012', 'DELIVERED', 698.00, 56.00, 45.00, 0.00, 799.00, 0.00, 0.00, 0, 17, 4, 11, 12, DATE_SUB(NOW(), INTERVAL 28 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 28 DAY), INTERVAL 45 MINUTE), 44, NULL),
+-- Punjabi Rasoi (5)
+(13, 'ORD-SEED-0013', 'DELIVERED', 198.00, 16.00, 39.00, 0.00, 253.00, 0.00, 0.00, 0, 21, 5, 19, 16, DATE_SUB(NOW(), INTERVAL 43 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 43 DAY), INTERVAL 45 MINUTE), 30, NULL),
+(14, 'ORD-SEED-0014', 'DELIVERED', 139.00, 11.00, 39.00, 0.00, 189.00, 0.00, 0.00, 0, 24, 5, 25, 12, DATE_SUB(NOW(), INTERVAL 33 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 33 DAY), INTERVAL 45 MINUTE), 28, NULL),
+(15, 'ORD-SEED-0015', 'DELIVERED', 268.00, 21.00, 39.00, 0.00, 328.00, 0.00, 0.00, 0, 19, 5, 15, 14, DATE_SUB(NOW(), INTERVAL 26 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 26 DAY), INTERVAL 45 MINUTE), 34, NULL),
+-- Coastal Catch (6)
+(16, 'ORD-SEED-0016', 'DELIVERED', 528.00, 42.00, 50.00, 0.00, 620.00, 0.00, 0.00, 0, 23, 6, 23, 15, DATE_SUB(NOW(), INTERVAL 41 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 41 DAY), INTERVAL 45 MINUTE), 50, NULL),
+(17, 'ORD-SEED-0017', 'DELIVERED', 468.00, 37.00, 50.00, 0.00, 555.00, 0.00, 0.00, 0, 18, 6, 13, 12, DATE_SUB(NOW(), INTERVAL 29 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 29 DAY), INTERVAL 45 MINUTE), 46, NULL),
+(18, 'ORD-SEED-0018', 'DELIVERED', 329.00, 26.00, 50.00, 0.00, 405.00, 0.00, 0.00, 0, 25, 6, 27, 13, DATE_SUB(NOW(), INTERVAL 24 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 24 DAY), INTERVAL 45 MINUTE), 42, NULL),
+-- Wok Express (7)
+(19, 'ORD-SEED-0019', 'DELIVERED', 328.00, 26.00, 39.00, 0.00, 393.00, 0.00, 0.00, 0, 22, 7, 21, 14, DATE_SUB(NOW(), INTERVAL 39 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 39 DAY), INTERVAL 45 MINUTE), 30, NULL),
+(20, 'ORD-SEED-0020', 'DELIVERED', 398.00, 32.00, 39.00, 0.00, 469.00, 0.00, 0.00, 0, 26, 7, 29, 15, DATE_SUB(NOW(), INTERVAL 23 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 23 DAY), INTERVAL 45 MINUTE), 26, NULL),
+(21, 'ORD-SEED-0021', 'DELIVERED', 378.00, 30.00, 39.00, 0.00, 447.00, 0.00, 0.00, 0, 20, 7, 17, 12, DATE_SUB(NOW(), INTERVAL 18 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 18 DAY), INTERVAL 45 MINUTE), 28, NULL),
+-- Tandoori Nights (8)
+(22, 'ORD-SEED-0022', 'DELIVERED', 498.00, 40.00, 79.00, 0.00, 617.00, 0.00, 0.00, 0, 23, 8, 23, 15, DATE_SUB(NOW(), INTERVAL 36 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 36 DAY), INTERVAL 45 MINUTE), 55, 'Please call on arrival'),
+(23, 'ORD-SEED-0023', 'DELIVERED', 438.00, 35.00, 79.00, 0.00, 552.00, 0.00, 0.00, 0, 19, 8, 15, 12, DATE_SUB(NOW(), INTERVAL 22 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 22 DAY), INTERVAL 45 MINUTE), 48, NULL),
+(24, 'ORD-SEED-0024', 'DELIVERED', 469.00, 38.00, 79.00, 0.00, 586.00, 0.00, 0.00, 0, 26, 8, 29, 13, DATE_SUB(NOW(), INTERVAL 16 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 16 DAY), INTERVAL 45 MINUTE), 50, NULL),
+-- Bombay Street Food (9)
+(25, 'ORD-SEED-0025', 'DELIVERED', 207.00, 17.00, 19.00, 0.00, 243.00, 0.00, 0.00, 0, 17, 9, 11, 14, DATE_SUB(NOW(), INTERVAL 35 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 35 DAY), INTERVAL 45 MINUTE), 20, NULL),
+(26, 'ORD-SEED-0026', 'DELIVERED', 198.00, 16.00, 19.00, 0.00, 233.00, 0.00, 0.00, 0, 24, 9, 25, 15, DATE_SUB(NOW(), INTERVAL 21 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 21 DAY), INTERVAL 45 MINUTE), 22, NULL),
+(27, 'ORD-SEED-0027', 'DELIVERED', 178.00, 14.00, 19.00, 0.00, 211.00, 0.00, 0.00, 0, 22, 9, 21, 12, DATE_SUB(NOW(), INTERVAL 15 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 15 DAY), INTERVAL 45 MINUTE), 20, NULL),
+-- Cafe Milano (10)
+(28, 'ORD-SEED-0028', 'DELIVERED', 548.00, 44.00, 49.00, 0.00, 641.00, 0.00, 0.00, 0, 25, 10, 27, 16, DATE_SUB(NOW(), INTERVAL 32 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 32 DAY), INTERVAL 45 MINUTE), 40, NULL),
+(29, 'ORD-SEED-0029', 'DELIVERED', 528.00, 42.00, 49.00, 0.00, 619.00, 0.00, 0.00, 0, 18, 10, 13, 12, DATE_SUB(NOW(), INTERVAL 19 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 19 DAY), INTERVAL 45 MINUTE), 42, NULL),
+(30, 'ORD-SEED-0030', 'DELIVERED', 628.00, 50.00, 49.00, 0.00, 727.00, 0.00, 0.00, 0, 20, 10, 17, 13, DATE_SUB(NOW(), INTERVAL 12 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 12 DAY), INTERVAL 45 MINUTE), 38, NULL),
+-- Marine Plate (11, Mumbai) — shipped to customers' Mumbai addresses
+(31, 'ORD-SEED-0031', 'DELIVERED', 638.00, 51.00, 39.00, 0.00, 728.00, 0.00, 0.00, 0, 17, 11, 12, 16, DATE_SUB(NOW(), INTERVAL 27 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 27 DAY), INTERVAL 45 MINUTE), 40, 'Medium fry'),
+(32, 'ORD-SEED-0032', 'DELIVERED', 649.00, 52.00, 39.00, 0.00, 740.00, 0.00, 0.00, 0, 18, 11, 13, 12, DATE_SUB(NOW(), INTERVAL 17 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 17 DAY), INTERVAL 45 MINUTE), 42, NULL),
+(33, 'ORD-SEED-0033', 'DELIVERED', 708.00, 57.00, 39.00, 0.00, 804.00, 0.00, 0.00, 0, 25, 11, 27, 14, DATE_SUB(NOW(), INTERVAL 9 DAY),  DATE_ADD(DATE_SUB(NOW(), INTERVAL 9 DAY), INTERVAL 45 MINUTE), 38, NULL),
+-- Chandni Chowk Chaat Co. (12, Delhi) — shipped to customers' Delhi addresses
+(34, 'ORD-SEED-0034', 'DELIVERED', 278.00, 22.00, 29.00, 0.00, 329.00, 0.00, 0.00, 0, 19, 12, 15, 15, DATE_SUB(NOW(), INTERVAL 25 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 25 DAY), INTERVAL 45 MINUTE), 26, NULL),
+(35, 'ORD-SEED-0035', 'DELIVERED', 248.00, 20.00, 29.00, 0.00, 297.00, 0.00, 0.00, 0, 26, 12, 29, 12, DATE_SUB(NOW(), INTERVAL 14 DAY), DATE_ADD(DATE_SUB(NOW(), INTERVAL 14 DAY), INTERVAL 45 MINUTE), 24, NULL),
+(36, 'ORD-SEED-0036', 'DELIVERED', 268.00, 21.00, 29.00, 0.00, 318.00, 0.00, 0.00, 0, 18, 12, 14, 13, DATE_SUB(NOW(), INTERVAL 5 DAY),  DATE_ADD(DATE_SUB(NOW(), INTERVAL 5 DAY), INTERVAL 45 MINUTE), 28, NULL);
+
+-- ---------------------------------------------------------------------------
+-- 17. ORDER ITEMS
+-- ---------------------------------------------------------------------------
+INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions) VALUES
+(1, 3, 1, 429.00, NULL), (1, 6, 1, 59.00, NULL),
+(2, 4, 1, 269.00, NULL), (2, 5, 1, 319.00, NULL),
+(3, 9, 1, 99.00, NULL),  (3, 10, 1, 79.00, NULL),
+(4, 11, 1, 349.00, NULL), (4, 16, 1, 69.00, NULL),
+(5, 12, 1, 279.00, NULL), (5, 17, 1, 89.00, NULL),
+(6, 13, 1, 449.00, NULL),
+(7, 18, 1, 129.00, NULL), (7, 24, 1, 49.00, NULL),
+(8, 21, 1, 89.00, NULL),  (8, 22, 1, 79.00, NULL),
+(9, 23, 1, 249.00, NULL),
+(10, 25, 1, 349.00, NULL), (10, 28, 1, 179.00, NULL),
+(11, 27, 1, 329.00, NULL),
+(12, 26, 1, 399.00, NULL), (12, 29, 1, 299.00, NULL),
+(13, 30, 1, 149.00, NULL), (13, 34, 1, 49.00, NULL),
+(14, 31, 1, 139.00, NULL),
+(15, 32, 1, 229.00, NULL), (15, 35, 1, 39.00, NULL),
+(16, 36, 1, 429.00, NULL), (16, 40, 1, 99.00, NULL),
+(17, 38, 1, 379.00, NULL), (17, 41, 1, 89.00, NULL),
+(18, 39, 1, 329.00, NULL),
+(19, 43, 1, 199.00, NULL), (19, 49, 1, 129.00, NULL),
+(20, 44, 1, 259.00, NULL), (20, 50, 1, 139.00, NULL),
+(21, 46, 1, 229.00, NULL), (21, 48, 1, 149.00, NULL),
+(22, 51, 1, 449.00, NULL), (22, 56, 1, 49.00, NULL),
+(23, 52, 1, 379.00, NULL), (23, 57, 1, 59.00, NULL),
+(24, 54, 1, 469.00, NULL),
+(25, 58, 1, 49.00, NULL), (25, 59, 1, 129.00, NULL), (25, 63, 1, 29.00, NULL),
+(26, 59, 1, 129.00, NULL), (26, 61, 1, 69.00, NULL),
+(27, 60, 1, 99.00, NULL),  (27, 62, 1, 79.00, NULL),
+(28, 65, 1, 299.00, NULL), (28, 71, 1, 249.00, NULL),
+(29, 66, 1, 399.00, NULL), (29, 74, 1, 129.00, NULL),
+(30, 68, 1, 349.00, NULL), (30, 72, 1, 279.00, NULL),
+(31, 75, 1, 549.00, 'Medium fry'), (31, 79, 1, 89.00, NULL),
+(32, 77, 1, 649.00, NULL),
+(33, 76, 1, 329.00, NULL), (33, 78, 1, 379.00, NULL),
+(34, 80, 1, 119.00, NULL), (34, 84, 1, 159.00, NULL),
+(35, 81, 1, 149.00, NULL), (35, 83, 1, 99.00, NULL),
+(36, 82, 1, 109.00, NULL), (36, 84, 1, 159.00, NULL);
+
+-- ---------------------------------------------------------------------------
+-- 18. RESTAURANT REVIEWS — one per delivered order (order_id is UNIQUE)
+--     Rating triplets chosen to track each restaurant's seeded average.
+-- ---------------------------------------------------------------------------
+INSERT INTO reviews (rating, comment, food_rating, delivery_rating, customer_id, order_id, restaurant_id, moderation_status, owner_response, created_at) VALUES
+-- Spice Route (1) avg 4.3
+(5, 'Butter chicken is the real deal — rich, smoky and perfectly spiced.', 5, 5, 17, 1, 1, 'APPROVED', 'Thank you! Hope to serve you again soon. — Team Spice Route', DATE_SUB(NOW(), INTERVAL 57 DAY)),
+(4, 'Dal makhani was creamy and the paneer was soft.', 4, 4, 19, 2, 1, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 48 DAY)),
+(4, 'Good food, gulab jamun arrived slightly cold though.', 4, 3, 24, 3, 1, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 39 DAY)),
+-- Biryani Blues (2) avg 4.5
+(5, 'Best dum biryani in town — saffron rice, tender meat, huge portion.', 5, 5, 20, 4, 2, 'APPROVED', 'Shukriya! Our dum makes the difference. — Biryani Blues', DATE_SUB(NOW(), INTERVAL 51 DAY)),
+(4, 'Veg biryani was flavourful. Double ka meetha is a nice finish.', 4, 4, 23, 5, 2, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 43 DAY)),
+(5, 'Mutton biryani was fall-off-the-bone tender. Packaging leak-proof.', 5, 5, 26, 6, 2, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 36 DAY)),
+-- Dosa Plaza (3) avg 4.2
+(4, 'Masala dosa was crisp and the filter coffee is authentic.', 4, 4, 18, 7, 3, 'APPROVED', 'Nandri! Glad you enjoyed. — Dosa Plaza', DATE_SUB(NOW(), INTERVAL 45 DAY)),
+(4, 'Idli and vada were soft and fresh for a delivery order.', 4, 4, 21, 8, 3, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 37 DAY)),
+(4, 'Thali was generous and balanced. Arrived hot.', 4, 4, 25, 9, 3, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 30 DAY)),
+-- Green Bowl (4) avg 4.6
+(5, 'Quinoa bowl was fresh and filling — finally healthy food that tastes great.', 5, 5, 22, 10, 4, 'APPROVED', 'Fresh is our promise! — Green Bowl', DATE_SUB(NOW(), INTERVAL 46 DAY)),
+(4, 'Avocado toast was solid; smoothie bowl arrived slightly melted.', 4, 3, 26, 11, 4, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 33 DAY)),
+(5, 'Grilled chicken salad + green juice is my weekly reset meal.', 5, 5, 17, 12, 4, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 27 DAY)),
+-- Punjabi Rasoi (5) avg 4.1
+(4, 'Chole bhature just like a Delhi dhaba. Huge portion.', 4, 4, 21, 13, 5, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 42 DAY)),
+(4, 'Amritsari kulcha was perfectly crisp.', 4, 4, 24, 14, 5, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 32 DAY)),
+(4, 'Sarson ka saag tasted seasonal and homely.', 4, 4, 19, 15, 5, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 25 DAY)),
+-- Coastal Catch (6) avg 4.4
+(5, 'Prawn ghee roast is a must-try. Appam was soft and lacy.', 5, 5, 23, 16, 6, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(4, 'Malabar fish curry was tangy and fresh. Neer dosa paired well.', 4, 4, 18, 17, 6, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 28 DAY)),
+(4, 'Chicken stew was comforting. Slightly small portion for the price.', 4, 4, 25, 18, 6, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 23 DAY)),
+-- Wok Express (7) avg 4.0
+(4, 'Chilli chicken had the right kick. Manchow soup was comforting.', 4, 4, 22, 19, 7, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 38 DAY)),
+(4, 'Fried rice was well tossed, delivery was quick.', 4, 5, 26, 20, 7, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 22 DAY)),
+(4, 'Manchurian was crispy. Noodles slightly oily.', 4, 4, 20, 21, 7, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 17 DAY)),
+-- Tandoori Nights (8) avg 4.5
+(5, 'Tandoori chicken was smoky and juicy. Roomali roti was paper thin.', 5, 5, 23, 22, 8, 'APPROVED', 'Royal thanks! — Tandoori Nights', DATE_SUB(NOW(), INTERVAL 35 DAY)),
+(4, 'Tikka was well marinated. Butter naan arrived warm.', 4, 4, 19, 23, 8, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 21 DAY)),
+(5, 'Rogan josh was rich and aromatic. Worth every rupee.', 5, 5, 26, 24, 8, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 15 DAY)),
+-- Bombay Street Food (9) avg 4.3
+(5, 'Vada pav tastes exactly like Dadar station. Nostalgia in every bite.', 5, 5, 17, 25, 9, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 34 DAY)),
+(4, 'Pav bhaji was buttery goodness and cutting chai is a steal.', 4, 5, 24, 26, 9, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 20 DAY)),
+(4, 'Frankie roll was well spiced. Pani puri could be spicier.', 4, 4, 22, 27, 9, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 14 DAY)),
+-- Cafe Milano (10) avg 4.4
+(5, 'Wood-fired margherita is the closest to Naples in this city.', 5, 4, 25, 28, 10, 'APPROVED', 'Grazie mille! — Cafe Milano', DATE_SUB(NOW(), INTERVAL 31 DAY)),
+(4, 'Farmhouse pizza loaded well. Cappuccino travelled surprisingly well.', 4, 4, 18, 29, 10, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 18 DAY)),
+(4, 'Aglio olio was garlicky and light. Lava cake was molten as promised.', 4, 4, 20, 30, 10, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 11 DAY)),
+-- Marine Plate (11) avg 4.2
+(5, 'Crab sukka is phenomenal — fiery, fresh and generous.', 5, 5, 17, 31, 11, 'APPROVED', 'Thanks for the love! — Marine Plate', DATE_SUB(NOW(), INTERVAL 26 DAY)),
+(4, 'Tawa pomfret was perfectly cooked. Solkadhi soothed the spice.', 4, 4, 18, 32, 11, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 16 DAY)),
+(4, 'Prawn pulao was flavourful, Bombay duck fry was a novelty.', 4, 4, 25, 33, 11, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 8 DAY)),
+-- Chandni Chowk Chaat Co. (12) avg 4.5
+(5, 'Aloo paratha with white butter — pure Old Delhi magic.', 5, 5, 19, 34, 12, 'APPROVED', 'Dil se shukriya! — Chandni Chowk Chaat Co.', DATE_SUB(NOW(), INTERVAL 24 DAY)),
+(5, 'Chole bhature was huge and the rabri falooda is the best dessert delivered.', 5, 5, 26, 35, 12, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 13 DAY)),
+(4, 'Dahi bhalla was fresh and chutneys balanced. Quick delivery too.', 4, 5, 18, 36, 12, 'APPROVED', NULL, DATE_SUB(NOW(), INTERVAL 4 DAY));
+
+-- ---------------------------------------------------------------------------
+-- 19. MENU ITEM RATINGS (dish-level, order-linked)
+-- ---------------------------------------------------------------------------
+INSERT INTO menu_item_ratings (customer_id, menu_item_id, order_id, rating, comment, created_at) VALUES
+(17, 3,  1,  5, 'Butter chicken was outstanding', DATE_SUB(NOW(), INTERVAL 57 DAY)),
+(17, 6,  1,  4, 'Garlic naan could be more garlicky', DATE_SUB(NOW(), INTERVAL 57 DAY)),
+(19, 4,  2,  5, 'Dal makhani was creamy', DATE_SUB(NOW(), INTERVAL 48 DAY)),
+(24, 9,  3,  4, 'Gulab jamun was warm and sweet', DATE_SUB(NOW(), INTERVAL 39 DAY)),
+(20, 11, 4,  5, 'Perfect dum biryani', DATE_SUB(NOW(), INTERVAL 51 DAY)),
+(23, 12, 5,  4, 'Veg biryani was flavourful', DATE_SUB(NOW(), INTERVAL 43 DAY)),
+(26, 13, 6,  5, 'Mutton biryani was tender', DATE_SUB(NOW(), INTERVAL 36 DAY)),
+(18, 18, 7,  4, 'Crisp dosa, generous filling', DATE_SUB(NOW(), INTERVAL 45 DAY)),
+(21, 23, 9,  4, 'Thali was balanced', DATE_SUB(NOW(), INTERVAL 30 DAY)),
+(22, 25, 10, 5, 'Best quinoa bowl around', DATE_SUB(NOW(), INTERVAL 46 DAY)),
+(17, 26, 12, 4, 'Good grilled chicken salad', DATE_SUB(NOW(), INTERVAL 27 DAY)),
+(21, 30, 13, 4, 'Bhature were fluffy', DATE_SUB(NOW(), INTERVAL 42 DAY)),
+(23, 36, 16, 5, 'Prawn ghee roast was stellar', DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(26, 44, 20, 4, 'Fried rice was well tossed', DATE_SUB(NOW(), INTERVAL 22 DAY)),
+(23, 51, 22, 5, 'Tandoori chicken was smoky perfection', DATE_SUB(NOW(), INTERVAL 35 DAY)),
+(17, 58, 25, 5, 'Vada pav = nostalgia', DATE_SUB(NOW(), INTERVAL 34 DAY)),
+(25, 65, 28, 5, 'Wood-fired crust was excellent', DATE_SUB(NOW(), INTERVAL 31 DAY)),
+(17, 75, 31, 4, 'Pomfret was fresh', DATE_SUB(NOW(), INTERVAL 26 DAY)),
+(18, 77, 32, 5, 'Crab sukka worth every penny', DATE_SUB(NOW(), INTERVAL 16 DAY)),
+(19, 80, 34, 5, 'Parathas like Dilli', DATE_SUB(NOW(), INTERVAL 24 DAY)),
+(26, 81, 35, 4, 'Solid chole bhature', DATE_SUB(NOW(), INTERVAL 13 DAY)),
+(18, 84, 36, 5, 'Rabri falooda was divine', DATE_SUB(NOW(), INTERVAL 4 DAY));
+
+-- ---------------------------------------------------------------------------
+-- 20. RESTAURANT RATINGS SUMMARY ROLLUP (kept consistent with reviews)
+-- ---------------------------------------------------------------------------
+INSERT INTO restaurant_ratings_summary (restaurant_id, average_rating, total_reviews, positive_reviews, last_calculated_at)
+SELECT r.id,
+       COALESCE(ROUND(AVG(rv.rating), 1), r.average_rating),
+       COUNT(rv.id),
+       SUM(CASE WHEN rv.rating >= 4 THEN 1 ELSE 0 END),
+       NOW()
+FROM restaurants r LEFT JOIN reviews rv ON rv.restaurant_id = r.id AND rv.moderation_status = 'APPROVED'
+GROUP BY r.id;
+
+-- ---------------------------------------------------------------------------
+-- 21. FAVORITE RESTAURANTS
+-- ---------------------------------------------------------------------------
+INSERT INTO favorite_restaurants (customer_id, restaurant_id, created_at) VALUES
+(17, 1, NOW()), (17, 2, NOW()), (17, 11, NOW()),
+(18, 11, NOW()), (18, 12, NOW()),
+(19, 12, NOW()), (19, 1, NOW()),
+(20, 2, NOW()), (20, 4, NOW()),
+(21, 12, NOW()),
+(22, 4, NOW()), (22, 7, NOW()),
+(23, 8, NOW()),
+(24, 3, NOW()), (24, 2, NOW()),
+(25, 10, NOW()), (25, 11, NOW()),
+(26, 12, NOW()), (26, 8, NOW());

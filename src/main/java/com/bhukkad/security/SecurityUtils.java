@@ -2,7 +2,6 @@ package com.bhukkad.security;
 
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.UnauthorizedException;
-import com.bhukkad.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +15,7 @@ public class SecurityUtils {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityUtils.class);
 
-    private final UserRepository userRepository;
+    private final AccountLookupService accountLookupService;
 
     public User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -31,7 +30,7 @@ public class SecurityUtils {
             throw new UnauthorizedException("User not authenticated");
         }
 
-        return userRepository.findByEmailOrPhoneNumber(email, email)
+        return accountLookupService.byIdentifier(email)
                 .orElseThrow(() -> new UnauthorizedException("User not found: " + email));
     }
 
@@ -40,7 +39,11 @@ public class SecurityUtils {
     }
 
     public String getCurrentUserEmail() {
-        return getCurrentUser().getEmail();
+        return AccountFields.email(getCurrentUser());
+    }
+
+    public String getCurrentUserPhoneNumber() {
+        return AccountFields.phoneNumber(getCurrentUser());
     }
 
     public boolean isCurrentUser(Long userId) {

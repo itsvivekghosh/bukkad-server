@@ -1,18 +1,26 @@
 package com.bhukkad.controller;
 
+import com.bhukkad.dto.request.ChangePasswordRequest;
 import com.bhukkad.dto.request.CompleteProfileRequest;
+import com.bhukkad.dto.request.ForgotPasswordRequest;
 import com.bhukkad.dto.request.LoginRequest;
 import com.bhukkad.dto.request.OtpResendRequest;
 import com.bhukkad.dto.request.OtpVerifyRequest;
 import com.bhukkad.dto.request.PhoneRegisterRequest;
+import com.bhukkad.dto.request.PhoneSendOtpRequest;
 import com.bhukkad.dto.request.RefreshTokenRequest;
 import com.bhukkad.dto.request.RegisterRequest;
+import com.bhukkad.dto.request.ResetPasswordRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.AuthResponse;
 import com.bhukkad.dto.response.PhoneRegisterResponse;
+import com.bhukkad.dto.response.PhoneSendOtpResponse;
 import com.bhukkad.fraud.FraudDetectionService;
-import com.bhukkad.service.AuthService;
+import com.bhukkad.security.ClientEncryptionKeyService;
+import com.bhukkad.security.JwePasswordCrypto;
+import com.bhukkad.security.ReplayNonceValidator;
 import com.bhukkad.security.SecurityUtils;
+import com.bhukkad.service.AuthService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -44,6 +52,15 @@ public class AuthControllerTest {
 
     @Mock
     private SecurityUtils securityUtils;
+
+    @Mock
+    private ClientEncryptionKeyService encryptionKeyService;
+
+    @Mock
+    private JwePasswordCrypto jwePasswordCrypto;
+
+    @Mock
+    private ReplayNonceValidator replayNonceValidator;
 
     @InjectMocks
     private AuthController authController;
@@ -78,6 +95,57 @@ public class AuthControllerTest {
     }
 
     @Test
+    void getEncryptionKey_returnsPublicKeyAndExpiry() {
+        when(encryptionKeyService.getPublicKeyJwk()).thenReturn("{\"kty\":\"RSA\",\"n\":\"abc\",\"e\":\"AQAB\"}");
+        when(encryptionKeyService.keyExpiryEpochSecond()).thenReturn(9999999999L);
+
+        ResponseEntity<ApiResponse<com.bhukkad.dto.response.EncryptionKeyResponse>> response =
+                authController.getEncryptionKey();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Encryption key retrieved", response.getBody().getMessage());
+        assertEquals("{\"kty\":\"RSA\",\"n\":\"abc\",\"e\":\"AQAB\"}",
+                response.getBody().getData().getPublicKey());
+        assertEquals(9999999999L, response.getBody().getData().getExpiresAt());
+    }
+
+    @Test
+    void login_encryptedPassword_decryptsBeforeServiceCall() {
+        LoginRequest request = new LoginRequest();
+        request.setEncryptedPassword("jwe-string-here");
+        request.setEmail("test@example.com");
+        // Simulate decryption returning password + nonce
+        when(jwePasswordCrypto.decrypt("jwe-string-here"))
+                .thenReturn(new JwePasswordCrypto.DecryptedPayload("plaintext", "test-nonce", 1234567890L));
+        AuthResponse authResponse = AuthResponse.builder().token("jwt").build();
+        when(authService.login(request)).thenReturn(authResponse);
+
+        ResponseEntity<ApiResponse<AuthResponse>> response = authController.login(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(jwePasswordCrypto).decrypt("jwe-string-here");
+        verify(replayNonceValidator).validateNonce("test-nonce");
+        verify(authService).login(request);
+        assertEquals("plaintext", request.getPassword());
+    }
+
+    @Test
+    void login_plaintextPassword_skipsDecryption() {
+        LoginRequest request = new LoginRequest();
+        request.setPassword("plaintext");
+        request.setEmail("test@example.com");
+        AuthResponse authResponse = AuthResponse.builder().token("jwt").build();
+        when(authService.login(request)).thenReturn(authResponse);
+
+        ResponseEntity<ApiResponse<AuthResponse>> response = authController.login(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(jwePasswordCrypto, never()).decrypt(anyString());
+        verify(replayNonceValidator, never()).validateNonce(anyString());
+        verify(authService).login(request);
+    }
+
+    @Test
     void verifyEmail_extractsBearerToken() {
         ResponseEntity<ApiResponse<Void>> response = authController.verifyEmail("Bearer tok", "user@test.com");
 
@@ -88,7 +156,9 @@ public class AuthControllerTest {
 
     @Test
     void forgotPassword_returnsSuccess() {
-        ResponseEntity<ApiResponse<Void>> response = authController.forgotPassword("user@test.com");
+        ForgotPasswordRequest request = new ForgotPasswordRequest();
+        request.setEmail("user@test.com");
+        ResponseEntity<ApiResponse<Void>> response = authController.forgotPassword(request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Password reset link sent to email", response.getBody().getMessage());
@@ -97,7 +167,10 @@ public class AuthControllerTest {
 
     @Test
     void resetPassword_returnsSuccess() {
-        ResponseEntity<ApiResponse<Void>> response = authController.resetPassword("reset-tok", "newPass");
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("reset-tok");
+        request.setNewPassword("newPass");
+        ResponseEntity<ApiResponse<Void>> response = authController.resetPassword(request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Password reset successful", response.getBody().getMessage());
@@ -106,8 +179,11 @@ public class AuthControllerTest {
 
     @Test
     void changePassword_extractsBearerToken() {
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setOldPassword("old");
+        request.setNewPassword("new");
         ResponseEntity<ApiResponse<Void>> response =
-                authController.changePassword("Bearer tok", "old", "new");
+                authController.changePassword("Bearer tok", request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Password changed successfully", response.getBody().getMessage());
@@ -222,5 +298,49 @@ public class AuthControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Profile completed successfully", response.getBody().getMessage());
         verify(authService).completeProfile(42L, request);
+    }
+
+    // ------------------------------------------------------------------
+    // Unified phone sign-in
+    // ------------------------------------------------------------------
+
+    @Test
+    void sendPhoneLoginOtp_returnsPhoneSendOtpResponse() {
+        PhoneSendOtpRequest request = new PhoneSendOtpRequest();
+        request.setPhoneNumber("9876543210");
+        request.setChannel("whatsapp");
+
+        PhoneSendOtpResponse serviceResponse = PhoneSendOtpResponse.builder()
+                .phoneNumber("9876543210")
+                .otpExpiryMinutes(10)
+                .isNewUser(true)
+                .build();
+        when(authService.sendPhoneLoginOtp(request)).thenReturn(serviceResponse);
+
+        ResponseEntity<ApiResponse<PhoneSendOtpResponse>> response =
+                authController.sendPhoneLoginOtp(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("9876543210", response.getBody().getData().getPhoneNumber());
+        assertTrue(response.getBody().getData().isNewUser());
+        verify(authService).sendPhoneLoginOtp(request);
+    }
+
+    @Test
+    void verifyPhoneLogin_returnsAuthResponse() {
+        OtpVerifyRequest request = new OtpVerifyRequest();
+        request.setPhoneNumber("9876543210");
+        request.setCode("123456");
+
+        AuthResponse authResponse = AuthResponse.builder().token("jwt").isNewUser(true).build();
+        when(authService.verifyPhoneLogin(request)).thenReturn(authResponse);
+
+        ResponseEntity<ApiResponse<AuthResponse>> response =
+                authController.verifyPhoneLogin(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Sign-in successful", response.getBody().getMessage());
+        assertTrue(response.getBody().getData().isNewUser());
+        verify(authService).verifyPhoneLogin(request);
     }
 }

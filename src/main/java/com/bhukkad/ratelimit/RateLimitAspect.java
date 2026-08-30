@@ -85,6 +85,14 @@ public class RateLimitAspect {
         if ("auth-login".equals(bucket)) {
             return "login:" + resolveLoginEmail(args);
         }
+        if ("auth-register".equals(bucket)) {
+            // Per-IP + device + email to avoid global bucket starvation.
+            // Previous "user:anonymous" meant 10 registrations/min platform-wide.
+            String ip = resolveClientIp();
+            String device = resolveDeviceId();
+            String email = resolveRegisterEmail(args);
+            return "register:ip:" + ip + ":device:" + device + (email != null ? ":email:" + email : "");
+        }
 
         Long userId = resolveCurrentUserId();
 
@@ -99,7 +107,14 @@ public class RateLimitAspect {
             restaurantId = firstLongArg(args);
         }
 
-        String userKey = userId != null ? String.valueOf(userId) : "anonymous";
+        String userKey;
+        if (userId != null) {
+            userKey = String.valueOf(userId);
+        } else {
+            // For anonymous buckets (e.g. webhook, search unauthed), scope by IP
+            // instead of global "anonymous" to prevent cross-user throttling.
+            userKey = "anon:ip:" + resolveClientIp();
+        }
 
         return switch (bucket) {
             case "order-track" -> "user:" + userKey + ":order:" + orderId;
@@ -109,6 +124,51 @@ public class RateLimitAspect {
             case "cart-mutation" -> "user:" + userKey + ":cart";
             default -> "user:" + userKey;
         };
+    }
+
+    private String resolveClientIp() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs == null) return "unknown";
+            var request = attrs.getRequest();
+            String[] headers = {"X-Forwarded-For", "X-Real-IP", "Proxy-Client-IP", "WL-Proxy-Client-IP"};
+            for (String h : headers) {
+                String v = request.getHeader(h);
+                if (v != null && !v.isBlank() && !"unknown".equalsIgnoreCase(v)) {
+                    return v.split(",")[0].trim();
+                }
+            }
+            return request.getRemoteAddr() != null ? request.getRemoteAddr() : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    private String resolveDeviceId() {
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs == null) return "unknown-device";
+            var request = attrs.getRequest();
+            String device = request.getHeader("X-Device-Id");
+            if (StringUtils.hasText(device)) return device.trim();
+            device = request.getHeader("X-Device-Fingerprint");
+            if (StringUtils.hasText(device)) return device.trim();
+            String param = request.getParameter("deviceId");
+            if (StringUtils.hasText(param)) return param.trim();
+            return "unknown-device";
+        } catch (Exception e) {
+            return "unknown-device";
+        }
+    }
+
+    private String resolveRegisterEmail(Object[] args) {
+        for (Object arg : args) {
+            if (arg instanceof com.bhukkad.dto.request.RegisterRequest reg) {
+                if (StringUtils.hasText(reg.getEmail())) return reg.getEmail().toLowerCase().trim();
+                if (StringUtils.hasText(reg.getPhoneNumber())) return reg.getPhoneNumber().trim();
+            }
+        }
+        return null;
     }
 
     private Long resolveCurrentUserId() {

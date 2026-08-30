@@ -82,7 +82,7 @@ class ReferralServiceTest {
         service.initializeNewCustomer(customer, "bkabc123");
 
         assertEquals(referrer, customer.getReferredBy());
-        verify(walletService, org.mockito.Mockito.times(2)).credit(any(Customer.class), any(Double.class),
+        verify(walletService, org.mockito.Mockito.times(2)).credit(any(Long.class), any(Double.class),
                 any(WalletTransaction.TransactionType.class), any(), anyString());
     }
 

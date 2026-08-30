@@ -62,10 +62,17 @@ public class SecurityConfig {
                         "/actuator/health/**",
                         "/actuator/info"
                     ).permitAll();
+                    // Prometheus is secured by PrometheusAuthFilter bearer token, not JWT roles.
+                    // PermitAll at Spring Security layer so the filter's token check is authoritative.
+                    // Without this, hasRole(ADMIN) would require a JWT and break scrape jobs that
+                    // only send the Prometheus bearer token.
+                    auth.requestMatchers("/actuator/prometheus").permitAll();
+                    // Metrics endpoint contains sensitive runtime data — restrict to ADMIN only
+                    // in non-debug mode. Previous anyRequest().authenticated() allowed any CUSTOMER JWT.
                     if (debugMode) {
-                        auth.requestMatchers("/actuator/prometheus").permitAll();
+                        auth.requestMatchers("/actuator/metrics", "/actuator/metrics/**").permitAll();
                     } else {
-                        auth.requestMatchers("/actuator/prometheus").hasRole("ADMIN");
+                        auth.requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN");
                     }
 
                     // Swagger

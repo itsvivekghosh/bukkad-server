@@ -54,6 +54,15 @@ app:
     email:
       enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
       from: ${NOTIFICATION_EMAIL_FROM:noreply@bhukkad.com}
+    # Real OTP / transactional delivery via Twilio on staging. Credentials come
+    # from secrets (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
+    # TWILIO_WHATSAPP_FROM_NUMBER) — see .github/workflows/staging.yml.
+    sms:
+      enabled: true
+      provider: twilio
+    whatsapp:
+      enabled: true
+      provider: twilio
   gift-card:
     notification-email-enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
     sender-email: ${NOTIFICATION_EMAIL_FROM:noreply@bhukkad.com}

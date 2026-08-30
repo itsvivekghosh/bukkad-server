@@ -6,13 +6,13 @@ import com.bhukkad.live.OrderLiveReplayStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,8 +27,13 @@ class OrderSseStreamServiceTest {
     @Mock
     private OrderLiveReplayStore replayStore;
 
-    @InjectMocks
     private OrderSseStreamService service;
+
+    @BeforeEach
+    void initService() {
+        Executor syncExecutor = Runnable::run;
+        service = new OrderSseStreamService(replayStore, syncExecutor);
+    }
 
     @Test
     void subscribeKitchen_createsEmitter() {
@@ -87,7 +92,7 @@ class OrderSseStreamServiceTest {
     }
 
     @Test
-    void broadcastKitchen_sendsToSubscribers() throws IOException {
+    void broadcastKitchen_sendsToSubscribers() throws Exception {
         OrderLiveUpdate update = new OrderLiveUpdate();
         update.setEventId(1L);
         service.broadcastKitchen(1L, update);
@@ -103,7 +108,7 @@ class OrderSseStreamServiceTest {
     }
 
     @Test
-    void broadcastRider_sendsToSubscribers() throws IOException {
+    void broadcastRider_sendsToSubscribers() throws Exception {
         OrderLiveUpdate update = new OrderLiveUpdate();
         update.setEventId(2L);
         service.broadcastRider(1L, update);
@@ -117,7 +122,7 @@ class OrderSseStreamServiceTest {
     }
 
     @Test
-    void broadcastCustomer_sendsToSubscribers() throws IOException {
+    void broadcastCustomer_sendsToSubscribers() throws Exception {
         OrderLiveUpdate update = new OrderLiveUpdate();
         update.setEventId(3L);
         service.broadcastCustomer(1L, update);
@@ -345,5 +350,245 @@ class OrderSseStreamServiceTest {
         assertThrows(SseCapacityExceededException.class, () -> service.subscribeRider(9L, null));
         // The rejected subscriber must not hold a slot.
         assertEquals(1, service.activeConnectionCount());
+    }
+
+    // ===== Batch D coverage: Local broadcast variants, failure cleanup, heartbeat cleanup =====
+
+    @Test
+    void broadcastKitchenLocal_sendsToSubscribers() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitter("kitchenStreams", 1L, emitter);
+
+        OrderLiveUpdate update = new OrderLiveUpdate();
+        update.setEventId(7L);
+
+        service.broadcastKitchenLocal(1L, update);
+
+        verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void broadcastRiderLocal_sendsToSubscribers() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitter("riderStreams", 1L, emitter);
+
+        OrderLiveUpdate update = new OrderLiveUpdate();
+        update.setEventId(8L);
+
+        service.broadcastRiderLocal(1L, update);
+
+        verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void broadcastCustomerLocal_sendsToSubscribers() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitter("customerStreams", 1L, emitter);
+
+        OrderLiveUpdate update = new OrderLiveUpdate();
+        update.setEventId(9L);
+
+        service.broadcastCustomerLocal(1L, update);
+
+        verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void broadcastLocal_noSubscribersForStreamKey_doesNothing() {
+        assertDoesNotThrow(() -> service.broadcastKitchenLocal(999L, new OrderLiveUpdate()));
+        assertDoesNotThrow(() -> service.broadcastRiderLocal(999L, new OrderLiveUpdate()));
+        assertDoesNotThrow(() -> service.broadcastCustomerLocal(999L, new OrderLiveUpdate()));
+    }
+
+    @Test
+    void broadcast_sendFailure_removesEmitterFromAllStreamsAndCompletes() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitter("kitchenStreams", 1L, emitter);
+        assertEquals(1, service.activeConnectionCount());
+
+        // A completed/broken emitter throws IllegalStateException on send → cleanup path
+        doThrow(new IllegalStateException("completed")).when(emitter)
+                .send(any(SseEmitter.SseEventBuilder.class));
+
+        service.broadcastKitchenLocal(1L, new OrderLiveUpdate());
+
+        // Emitter was removed from the stream registry and completed
+        assertEquals(0, service.activeConnectionCount());
+        verify(emitter).complete();
+    }
+
+    @Test
+    void sendHeartbeat_sendFailure_removesDeadEmitter() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitter("customerStreams", 1L, emitter);
+        assertEquals(1, service.activeConnectionCount());
+
+        doThrow(new IOException("broken pipe")).when(emitter)
+                .send(any(SseEmitter.SseEventBuilder.class));
+
+        service.sendHeartbeats();
+
+        assertEquals(0, service.activeConnectionCount());
+        verify(emitter).complete();
+    }
+
+    @Test
+    void sendHeartbeat_healthyEmitter_staysSubscribed() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitter("kitchenStreams", 1L, emitter);
+
+        service.sendHeartbeats();
+
+        verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void shutdown_completesEmittersAndClearsAllRegistries() throws Exception {
+        SseEmitter kitchen = mock(SseEmitter.class);
+        SseEmitter rider = mock(SseEmitter.class);
+        SseEmitter customer = mock(SseEmitter.class);
+        registerEmitter("kitchenStreams", 1L, kitchen);
+        registerEmitter("riderStreams", 2L, rider);
+        registerEmitter("customerStreams", 3L, customer);
+        assertEquals(3, service.activeConnectionCount());
+
+        java.lang.reflect.Method method;
+        try {
+            method = OrderSseStreamService.class.getDeclaredMethod("shutdown");
+            method.setAccessible(true);
+            method.invoke(service);
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+
+        assertEquals(0, service.activeConnectionCount());
+        verify(kitchen).complete();
+        verify(rider).complete();
+        verify(customer).complete();
+    }
+
+    /** Registers a mock emitter under the given stream registry field via reflection. */
+    private void registerEmitter(String fieldName, Long key, SseEmitter emitter) throws Exception {
+        java.lang.reflect.Field field = OrderSseStreamService.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        java.util.Map<Long, java.util.concurrent.CopyOnWriteArrayList<SseEmitter>> streams =
+                (java.util.Map<Long, java.util.concurrent.CopyOnWriteArrayList<SseEmitter>>) field.get(service);
+        streams.computeIfAbsent(key, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(emitter);
+    }
+
+    @Test
+    void subscribe_perStreamCapacityExceeded_throwsAndReleasesBudgetSlot() {
+        service.maxEmittersPerStream = 1;
+        service.subscribeKitchen(1L, null);
+
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeKitchen(1L, null));
+        // The rejected subscriber must not consume a global budget slot.
+        assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void subscribeCustomer_withSnapshot_sendsSnapshotEventAfterConnect() {
+        assertDoesNotThrow(() -> {
+            SseEmitter emitter = service.subscribeCustomer(1L, null,
+                    java.util.Map.of("status", "PREPARING", "orderId", 1L));
+            assertNotNull(emitter);
+        });
+        assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void broadcast_executorRejects_fallsBackToInlineSend() throws Exception {
+        // Batch D: when the dispatch executor rejects (should not happen with
+        // CallerRunsPolicy), the update is sent inline rather than dropped.
+        Executor rejectingExecutor = task -> { throw new java.util.concurrent.RejectedExecutionException("pool down"); };
+        OrderSseStreamService rejecting = new OrderSseStreamService(replayStore, rejectingExecutor);
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitterOn(rejecting, "kitchenStreams", 1L, emitter);
+
+        rejecting.broadcastKitchenLocal(1L, new OrderLiveUpdate());
+
+        verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        assertEquals(1, rejecting.activeConnectionCount());
+    }
+
+    @Test
+    void broadcast_executorRejectsAndInlineSendFails_removesEmitter() throws Exception {
+        Executor rejectingExecutor = task -> { throw new java.util.concurrent.RejectedExecutionException("pool down"); };
+        OrderSseStreamService rejecting = new OrderSseStreamService(replayStore, rejectingExecutor);
+        SseEmitter emitter = mock(SseEmitter.class);
+        doThrow(new IllegalStateException("broken")).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        registerEmitterOn(rejecting, "kitchenStreams", 1L, emitter);
+
+        rejecting.broadcastKitchenLocal(1L, new OrderLiveUpdate());
+
+        assertEquals(0, rejecting.activeConnectionCount());
+        verify(emitter).complete();
+    }
+
+    @Test
+    void sendHeartbeat_executorRejects_fallsBackToInlineHeartbeat() throws Exception {
+        Executor rejectingExecutor = task -> { throw new java.util.concurrent.RejectedExecutionException("pool down"); };
+        OrderSseStreamService rejecting = new OrderSseStreamService(replayStore, rejectingExecutor);
+        SseEmitter emitter = mock(SseEmitter.class);
+        registerEmitterOn(rejecting, "riderStreams", 1L, emitter);
+
+        rejecting.sendHeartbeats();
+
+        verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        assertEquals(1, rejecting.activeConnectionCount());
+    }
+
+    @Test
+    void sendHeartbeat_executorRejectsAndInlineSendFails_removesEmitter() throws Exception {
+        Executor rejectingExecutor = task -> { throw new java.util.concurrent.RejectedExecutionException("pool down"); };
+        OrderSseStreamService rejecting = new OrderSseStreamService(replayStore, rejectingExecutor);
+        SseEmitter emitter = mock(SseEmitter.class);
+        doThrow(new java.io.IOException("gone")).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        registerEmitterOn(rejecting, "riderStreams", 1L, emitter);
+
+        rejecting.sendHeartbeats();
+
+        assertEquals(0, rejecting.activeConnectionCount());
+        verify(emitter).complete();
+    }
+
+    @Test
+    void sendHeartbeat_emptyStreamRegistry_noop() {
+        // An empty per-stream list must short-circuit without dispatch work.
+        assertDoesNotThrow(() -> service.sendHeartbeats());
+    }
+
+    @Test
+    void shutdown_completingEmitterThrows_isIgnored() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        doThrow(new IllegalStateException("already closed")).when(emitter).complete();
+        registerEmitter("kitchenStreams", 1L, emitter);
+
+        java.lang.reflect.Method method;
+        try {
+            method = OrderSseStreamService.class.getDeclaredMethod("shutdown");
+            method.setAccessible(true);
+            method.invoke(service);
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+
+        assertEquals(0, service.activeConnectionCount());
+    }
+
+    /** Registers a mock emitter on a specific service instance via reflection. */
+    private void registerEmitterOn(OrderSseStreamService target, String fieldName, Long key, SseEmitter emitter)
+            throws Exception {
+        java.lang.reflect.Field field = OrderSseStreamService.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        java.util.Map<Long, java.util.concurrent.CopyOnWriteArrayList<SseEmitter>> streams =
+                (java.util.Map<Long, java.util.concurrent.CopyOnWriteArrayList<SseEmitter>>) field.get(target);
+        streams.computeIfAbsent(key, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(emitter);
     }
 }

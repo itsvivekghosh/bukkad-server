@@ -30,28 +30,28 @@ public class ReviewController {
 
     @PostMapping
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<Review>> createReview(@Valid @RequestBody ReviewRequest request) {
-        Review review = reviewService.createReview(request);
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.ReviewResponse>> createReview(@Valid @RequestBody ReviewRequest request) {
+        com.bhukkad.dto.response.ReviewResponse review = reviewService.createReview(request);
         return ResponseEntity.ok(ApiResponse.success("Review submitted successfully", review));
     }
 
     @GetMapping("/restaurant/{restaurantId}")
-    public ResponseEntity<ApiResponse<List<Review>>> getRestaurantReviews(@PathVariable Long restaurantId) {
-        List<Review> reviews = reviewService.getRestaurantReviews(restaurantId);
+    public ResponseEntity<ApiResponse<List<com.bhukkad.dto.response.ReviewResponse>>> getRestaurantReviews(@PathVariable Long restaurantId) {
+        List<com.bhukkad.dto.response.ReviewResponse> reviews = reviewService.getRestaurantReviews(restaurantId);
         return ResponseEntity.ok(ApiResponse.success(reviews));
     }
 
     @GetMapping("/my-reviews")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<List<Review>>> getMyReviews() {
-        List<Review> reviews = reviewService.getCustomerReviews();
+    public ResponseEntity<ApiResponse<List<com.bhukkad.dto.response.ReviewResponse>>> getMyReviews() {
+        List<com.bhukkad.dto.response.ReviewResponse> reviews = reviewService.getCustomerReviews();
         return ResponseEntity.ok(ApiResponse.success(reviews));
     }
 
     @GetMapping("/order/{orderId}")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public ResponseEntity<ApiResponse<Review>> getReviewByOrderId(@PathVariable Long orderId) {
-        Review review = reviewService.getReviewByOrderId(orderId);
+    public ResponseEntity<ApiResponse<com.bhukkad.dto.response.ReviewResponse>> getReviewByOrderId(@PathVariable Long orderId) {
+        com.bhukkad.dto.response.ReviewResponse review = reviewService.getReviewByOrderId(orderId);
         return ResponseEntity.ok(ApiResponse.success(review));
     }
 

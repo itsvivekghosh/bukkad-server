@@ -222,7 +222,7 @@ public class CustomerServiceImpl implements CustomerService {
         }
         Customer customer = getCurrentCustomer();
         walletService.credit(
-                customer,
+                customer.getId(),
                 amount,
                 WalletTransaction.TransactionType.ADJUSTMENT,
                 null,

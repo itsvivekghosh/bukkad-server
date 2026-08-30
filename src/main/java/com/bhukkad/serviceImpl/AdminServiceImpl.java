@@ -32,6 +32,7 @@ public class AdminServiceImpl implements AdminService {
     private final CustomerRepository customerRepository;
     private final RestaurantOwnerRepository restaurantOwnerRepository;
     private final DeliveryAgentRepository deliveryAgentRepository;
+    private final AdminRepository adminRepository;
     private final RestaurantRepository restaurantRepository;
     private final OrderRepository orderRepository;
     private final ReviewRepository reviewRepository;
@@ -64,7 +65,7 @@ public class AdminServiceImpl implements AdminService {
 
         // Restaurant counts
         long totalRestaurants = restaurantRepository.count();
-        long activeRestaurants = restaurantRepository.findByIsActiveTrue().size();
+        long activeRestaurants = restaurantRepository.countByIsActiveTrue();
         stats.put("totalRestaurants", totalRestaurants);
         stats.put("activeRestaurants", activeRestaurants);
 
@@ -108,7 +109,7 @@ public class AdminServiceImpl implements AdminService {
             User.UserRole userRole = User.UserRole.valueOf(role.toUpperCase());
             users = userRepository.findByRole(userRole, pageRequest);
         } else if (search != null && !search.isEmpty()) {
-            users = userRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest);
+            users = searchAccountsAcrossRoles(search, pageRequest);
         } else {
             users = userRepository.findAll(pageRequest);
         }
@@ -326,12 +327,39 @@ public class AdminServiceImpl implements AdminService {
 
     // ==================== MAPPERS ====================
 
+    /**
+     * Union search across the per-role account tables (V62 segregation).
+     * Runs the same name/email match against customers, owners, agents and
+     * admins, merges the per-role pages by createdAt descending and slices
+     * out the requested window. Admin-tool only: bounded page size.
+     */
+    private Page<User> searchAccountsAcrossRoles(String search, PageRequest pageRequest) {
+        List<User> merged = new ArrayList<>();
+        long total = 0;
+        Page<? extends User>[] pages = new Page[]{
+                customerRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest),
+                restaurantOwnerRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest),
+                deliveryAgentRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest),
+                adminRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest)
+        };
+        for (Page<? extends User> p : pages) {
+            total += p.getTotalElements();
+            merged.addAll(p.getContent());
+        }
+        merged.sort(Comparator.comparing(User::getCreatedAt,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        int from = (int) pageRequest.getOffset();
+        int to = Math.min(from + pageRequest.getPageSize(), merged.size());
+        List<User> window = from >= merged.size() ? List.of() : merged.subList(from, to);
+        return new org.springframework.data.domain.PageImpl<>(window, pageRequest, total);
+    }
+
     private Map<String, Object> mapUserToSummary(User user) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", user.getId());
-        map.put("email", user.getEmail());
-        map.put("fullName", user.getFullName());
-        map.put("phoneNumber", user.getPhoneNumber());
+        map.put("email", com.bhukkad.security.AccountFields.email(user));
+        map.put("fullName", com.bhukkad.security.AccountFields.fullName(user));
+        map.put("phoneNumber", com.bhukkad.security.AccountFields.phoneNumber(user));
         map.put("role", user.getRole().name());
         map.put("active", user.getActive());
         map.put("emailVerified", user.getEmailVerified());

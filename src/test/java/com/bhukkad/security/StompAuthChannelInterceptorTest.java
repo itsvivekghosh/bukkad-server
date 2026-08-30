@@ -1,5 +1,6 @@
 package com.bhukkad.security;
 
+import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import com.bhukkad.live.OrderLiveAccessService;
 import com.bhukkad.live.OrderLiveTopics;
@@ -137,9 +138,10 @@ class StompAuthChannelInterceptorTest {
     }
 
     private static User user(Long id) {
-        User user = new User();
+        // V62: email lives on the role table; build a Customer fixture.
+        Customer user = new Customer();
         user.setId(id);
-        user.setEmail("user" + id + "@test.com");
+        com.bhukkad.security.AccountFields.setEmail(user, "user" + id + "@test.com");
         user.setRole(User.UserRole.RESTAURANT_OWNER);
         return user;
     }

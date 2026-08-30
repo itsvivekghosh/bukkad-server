@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -475,8 +476,8 @@ class PaymentServiceImplTest {
 
         service.refundPayment(1L);
 
-        verify(walletService).credit(eq(customer), eq(120.0),
-                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment), anyString());
+        verify(walletService).credit(eq(1L), eq(120.0),
+                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment.getId()), anyString());
         assertEquals(Payment.PaymentStatus.REFUNDED, payment.getStatus());
     }
 
@@ -509,12 +510,12 @@ class PaymentServiceImplTest {
         payment.setGatewayPaymentId("pay_1");
         payment.setAmount(100.0);
         when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
-        when(paymentGateway.refundPayment(any())).thenReturn(
+        when(paymentGateway.refundPayment(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayRefundResult.builder()
                         .refundId("rf-1")
                         .success(false)
                         .rawResponse("{}")
-                        .build());
+                        .build()));
 
         assertThrows(BusinessException.class, () -> service.refundPayment(1L));
     }
@@ -529,19 +530,19 @@ class PaymentServiceImplTest {
         payment.setAmount(100.0);
         order.setStatus(Order.OrderStatus.CONFIRMED);
         when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
-        when(paymentGateway.refundPayment(any())).thenReturn(
+        when(paymentGateway.refundPayment(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayRefundResult.builder()
                         .refundId("rf-2")
                         .success(true)
                         .rawResponse("{\"refunded\":true}")
-                        .build());
+                        .build()));
         when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.refundPayment(1L);
 
         assertEquals("{\"refunded\":true}", payment.getPaymentGatewayResponse());
-        verify(walletService).credit(eq(customer), eq(20.0),
-                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment), anyString());
+        verify(walletService).credit(eq(1L), eq(20.0),
+                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment.getId()), anyString());
         verify(orderTimelineService).recordEvent(eq(1L), eq("ORDER_REFUNDED"), any(), anyString(), any(), anyString());
         verify(notificationService).sendPaymentRefunded(1L, 100.0);
     }

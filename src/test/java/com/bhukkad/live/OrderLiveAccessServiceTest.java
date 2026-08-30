@@ -1,13 +1,13 @@
 package com.bhukkad.live;
 
-import com.bhukkad.entity.Customer;
-import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
-import com.bhukkad.repository.OrderRepository;
+import com.bhukkad.order.api.OrderOwnershipPort;
+import com.bhukkad.order.api.OrderQueryPort;
+import com.bhukkad.order.api.OrderSummary;
 import com.bhukkad.repository.RestaurantRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,75 +20,29 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
 
+/**
+ * Live authorization against the order domain's {@link OrderOwnershipPort} /
+ * {@link OrderQueryPort} seams. The Order entity is never touched here —
+ * this test freezes that boundary contract (DomainBoundaryArchTest).
+ */
 @ExtendWith(MockitoExtension.class)
 class OrderLiveAccessServiceTest {
 
     @Mock
     private RestaurantRepository restaurantRepository;
     @Mock
-    private OrderRepository orderRepository;
+    private OrderOwnershipPort orderOwnershipPort;
+    @Mock
+    private OrderQueryPort orderQueryPort;
 
     @InjectMocks
     private OrderLiveAccessService accessService;
 
-    @Test
-    void canSubscribeKitchen_returnsTrueForOwner() {
-        User owner = ownerUser(5L);
-        Restaurant restaurant = restaurantOwnedBy(5L, 10L);
-        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
-
-        assertTrue(accessService.canSubscribeKitchen(owner, 10L));
-    }
-
-    @Test
-    void canSubscribeKitchen_returnsFalseForNonOwner() {
-        User owner = ownerUser(5L);
-        Restaurant restaurant = restaurantOwnedBy(99L, 10L);
-        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
-
-        assertFalse(accessService.canSubscribeKitchen(owner, 10L));
-    }
-
-    @Test
-    void canSubscribeKitchen_returnsFalseForCustomer() {
-        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-
-        assertFalse(accessService.canSubscribeKitchen(customer, 10L));
-    }
-
-    @Test
-    void canSubscribeKitchen_returnsFalseWhenRestaurantMissing() {
-        User owner = ownerUser(5L);
-        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.empty());
-
-        assertFalse(accessService.canSubscribeKitchen(owner, 10L));
-    }
-
-    @Test
-    void canSubscribeRider_returnsTrueForMatchingAgent() {
-        User agent = userWithRole(User.UserRole.DELIVERY_AGENT, 7L);
-
-        assertTrue(accessService.canSubscribeRider(agent, 7L));
-    }
-
-    @Test
-    void canSubscribeRider_returnsFalseForDifferentAgent() {
-        User agent = userWithRole(User.UserRole.DELIVERY_AGENT, 7L);
-
-        assertFalse(accessService.canSubscribeRider(agent, 8L));
-    }
-
-    @Test
-    void verifyKitchenAccess_throwsWhenUnauthorized() {
-        User owner = ownerUser(5L);
-        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.empty());
-
-        assertThrows(ResourceNotFoundException.class,
-                () -> accessService.verifyKitchenAccess(owner, 10L));
-    }
-
     private static User ownerUser(Long id) {
-        return userWithRole(User.UserRole.RESTAURANT_OWNER, id);
+        User user = new User();
+        user.setId(id);
+        user.setRole(User.UserRole.RESTAURANT_OWNER);
+        return user;
     }
 
     private static User userWithRole(User.UserRole role, Long id) {
@@ -107,7 +61,21 @@ class OrderLiveAccessServiceTest {
         return restaurant;
     }
 
-    // ==================== additional coverage ====================
+    @Test
+    void canSubscribeKitchen_returnsTrueForOwner() {
+        User owner = ownerUser(5L);
+        Restaurant restaurant = restaurantOwnedBy(5L, 10L);
+        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
+
+        assertTrue(accessService.canSubscribeKitchen(owner, 10L));
+    }
+
+    @Test
+    void canSubscribeKitchen_returnsFalseForNonOwner() {
+        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
+
+        assertFalse(accessService.canSubscribeKitchen(customer, 10L));
+    }
 
     @Test
     void canSubscribeKitchen_returnsFalseWhenRestaurantHasNullOwner() {
@@ -121,10 +89,31 @@ class OrderLiveAccessServiceTest {
     }
 
     @Test
+    void canSubscribeKitchen_returnsFalseWhenRestaurantMissing() {
+        User owner = ownerUser(5L);
+        when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.empty());
+
+        assertFalse(accessService.canSubscribeKitchen(owner, 10L));
+    }
+
+    @Test
+    void canSubscribeRider_returnsTrueForSelf() {
+        User agent = userWithRole(User.UserRole.DELIVERY_AGENT, 6L);
+
+        assertTrue(accessService.canSubscribeRider(agent, 6L));
+    }
+
+    @Test
+    void canSubscribeRider_returnsFalseForOtherAgent() {
+        User agent = userWithRole(User.UserRole.DELIVERY_AGENT, 6L);
+
+        assertFalse(accessService.canSubscribeRider(agent, 7L));
+    }
+
+    @Test
     void canSubscribeCustomer_returnsTrueForOwnOrder() {
         User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-        Order order = orderOwnedBy(1L, 42L);
-        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+        when(orderOwnershipPort.isOwnedByCustomer(42L, 1L)).thenReturn(true);
 
         assertTrue(accessService.canSubscribeCustomer(customer, 42L));
     }
@@ -132,16 +121,7 @@ class OrderLiveAccessServiceTest {
     @Test
     void canSubscribeCustomer_returnsFalseForOthersOrder() {
         User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-        Order order = orderOwnedBy(2L, 42L);
-        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
-
-        assertFalse(accessService.canSubscribeCustomer(customer, 42L));
-    }
-
-    @Test
-    void canSubscribeCustomer_returnsFalseForMissingOrder() {
-        User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-        when(orderRepository.findById(42L)).thenReturn(Optional.empty());
+        when(orderOwnershipPort.isOwnedByCustomer(42L, 1L)).thenReturn(false);
 
         assertFalse(accessService.canSubscribeCustomer(customer, 42L));
     }
@@ -191,7 +171,8 @@ class OrderLiveAccessServiceTest {
     @Test
     void verifyCustomerAccess_throwsForMissingOrder() {
         User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-        when(orderRepository.findById(42L)).thenReturn(Optional.empty());
+        when(orderOwnershipPort.isOwnedByCustomer(42L, 1L)).thenReturn(false);
+        when(orderQueryPort.findSummary(42L)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
                 () -> accessService.verifyCustomerAccess(customer, 42L));
@@ -200,8 +181,8 @@ class OrderLiveAccessServiceTest {
     @Test
     void verifyCustomerAccess_throwsForOthersOrder() {
         User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-        Order order = orderOwnedBy(2L, 42L);
-        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+        when(orderOwnershipPort.isOwnedByCustomer(42L, 1L)).thenReturn(false);
+        when(orderQueryPort.findSummary(42L)).thenReturn(Optional.of(summary(42L, 2L)));
 
         assertThrows(UnauthorizedException.class,
                 () -> accessService.verifyCustomerAccess(customer, 42L));
@@ -210,18 +191,13 @@ class OrderLiveAccessServiceTest {
     @Test
     void verifyCustomerAccess_passesForOwnOrder() {
         User customer = userWithRole(User.UserRole.CUSTOMER, 1L);
-        Order order = orderOwnedBy(1L, 42L);
-        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+        when(orderOwnershipPort.isOwnedByCustomer(42L, 1L)).thenReturn(true);
 
         assertDoesNotThrow(() -> accessService.verifyCustomerAccess(customer, 42L));
     }
 
-    private static Order orderOwnedBy(Long customerId, Long orderId) {
-        Customer customer = new Customer();
-        customer.setId(customerId);
-        Order order = new Order();
-        order.setId(orderId);
-        order.setCustomer(customer);
-        return order;
+    private static OrderSummary summary(Long orderId, Long customerId) {
+        return new OrderSummary(orderId, "ORD-" + orderId, customerId, 9L, null,
+                "PLACED", null, null, null, null, null, null, null, null, null);
     }
 }

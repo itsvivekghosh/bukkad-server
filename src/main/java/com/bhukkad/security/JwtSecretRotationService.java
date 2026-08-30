@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 import javax.crypto.SecretKey;
 import java.security.SecureRandom;
@@ -68,10 +69,14 @@ public class JwtSecretRotationService {
     }
 
     @Scheduled(fixedDelayString = "${app.jwt.rotation.interval-ms:86400000}")
+    @SchedulerLock(name = "jwt-secret-rotation", lockAtMostFor = "PT1H", lockAtLeastFor = "PT1M")
     public void scheduledRotation() {
         if (!rotationEnabled) {
             return;
         }
+        // WARNING: In-memory rotation diverges per pod without shared store.
+        // Keep rotationEnabled=false for multi-pod (default). If you must enable,
+        // back with Redis/shared KMS and broadcast new key via pub/sub.
         rotateNow();
     }
 

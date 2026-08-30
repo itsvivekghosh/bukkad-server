@@ -51,7 +51,7 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     @Transactional
-    public Review createReview(ReviewRequest request) {
+    public com.bhukkad.dto.response.ReviewResponse createReview(ReviewRequest request) {
         Long customerId = securityUtils.getCurrentUserId();
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
@@ -93,7 +93,7 @@ public class ReviewServiceImpl implements ReviewService {
             updateDeliveryAgentRating(order.getDeliveryAgent());
         }
 
-        return review;
+        return com.bhukkad.dto.response.ReviewResponse.from(review);
     }
 
     /**
@@ -104,23 +104,25 @@ public class ReviewServiceImpl implements ReviewService {
      */
     @Override
     @UseReadReplica
-    public List<Review> getRestaurantReviews(Long restaurantId) {
-        return reviewRepository.findByRestaurantIdAndModerationStatusWithDetails(
-                restaurantId, Review.ModerationStatus.APPROVED);
+    public List<com.bhukkad.dto.response.ReviewResponse> getRestaurantReviews(Long restaurantId) {
+        return com.bhukkad.dto.response.ReviewResponse.from(
+                reviewRepository.findByRestaurantIdAndModerationStatusWithDetails(
+                        restaurantId, Review.ModerationStatus.APPROVED));
     }
 
     @Override
     @UseReadReplica
-    public List<Review> getCustomerReviews() {
+    public List<com.bhukkad.dto.response.ReviewResponse> getCustomerReviews() {
         Long customerId = securityUtils.getCurrentUserId();
-        return reviewRepository.findByCustomerIdWithDetails(customerId);
+        return com.bhukkad.dto.response.ReviewResponse.from(
+                reviewRepository.findByCustomerIdWithDetails(customerId));
     }
 
     @Override
     @UseReadReplica
-    public Review getReviewByOrderId(Long orderId) {
-        return reviewRepository.findByOrderIdWithDetails(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
+    public com.bhukkad.dto.response.ReviewResponse getReviewByOrderId(Long orderId) {
+        return com.bhukkad.dto.response.ReviewResponse.from(reviewRepository.findByOrderIdWithDetails(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Review not found")));
     }
 
     @Override

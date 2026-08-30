@@ -4,7 +4,7 @@ import com.bhukkad.dto.request.MenuItemRatingRequest;
 import com.bhukkad.dto.request.ReviewRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.MenuItemRatingResponse;
-import com.bhukkad.entity.Review;
+import com.bhukkad.dto.response.ReviewResponse;
 import com.bhukkad.service.MenuItemRatingService;
 import com.bhukkad.service.ReviewService;
 import org.junit.jupiter.api.Test;
@@ -37,10 +37,10 @@ public class ReviewControllerTest {
     @Test
     void createReview_returnsSubmittedReview() {
         ReviewRequest request = new ReviewRequest();
-        Review review = new Review();
+        ReviewResponse review = new ReviewResponse();
         when(reviewService.createReview(request)).thenReturn(review);
 
-        ResponseEntity<ApiResponse<Review>> response = reviewController.createReview(request);
+        ResponseEntity<ApiResponse<ReviewResponse>> response = reviewController.createReview(request);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Review submitted successfully", response.getBody().getMessage());
@@ -49,10 +49,10 @@ public class ReviewControllerTest {
 
     @Test
     void getRestaurantReviews_returnsList() {
-        List<Review> reviews = List.of(new Review());
+        List<ReviewResponse> reviews = List.of(new ReviewResponse());
         when(reviewService.getRestaurantReviews(1L)).thenReturn(reviews);
 
-        ResponseEntity<ApiResponse<List<Review>>> response = reviewController.getRestaurantReviews(1L);
+        ResponseEntity<ApiResponse<List<ReviewResponse>>> response = reviewController.getRestaurantReviews(1L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(reviews, response.getBody().getData());
@@ -60,10 +60,10 @@ public class ReviewControllerTest {
 
     @Test
     void getMyReviews_returnsCustomerReviews() {
-        List<Review> reviews = List.of(new Review());
+        List<ReviewResponse> reviews = List.of(new ReviewResponse());
         when(reviewService.getCustomerReviews()).thenReturn(reviews);
 
-        ResponseEntity<ApiResponse<List<Review>>> response = reviewController.getMyReviews();
+        ResponseEntity<ApiResponse<List<ReviewResponse>>> response = reviewController.getMyReviews();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(reviews, response.getBody().getData());
@@ -71,10 +71,10 @@ public class ReviewControllerTest {
 
     @Test
     void getReviewByOrderId_returnsReview() {
-        Review review = new Review();
+        ReviewResponse review = new ReviewResponse();
         when(reviewService.getReviewByOrderId(11L)).thenReturn(review);
 
-        ResponseEntity<ApiResponse<Review>> response = reviewController.getReviewByOrderId(11L);
+        ResponseEntity<ApiResponse<ReviewResponse>> response = reviewController.getReviewByOrderId(11L);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(review, response.getBody().getData());

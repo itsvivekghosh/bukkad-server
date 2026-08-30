@@ -19,20 +19,23 @@ spring:
     timeout-per-shutdown-phase: 30s
 
   # Write datasource connection pool. Size from MySQL max_connections ÷ expected
-  # pod count with headroom (e.g. 4-core pod × 10 replicas ≈ 100 connections).
+  # pod count with headroom (e.g. 4-core pod × 10 replicas ≈ 300 connections at 30 per pod).
   # Gateway payment calls no longer hold connections here (payment processing
   # runs outside the DB transaction), so the pool serves request concurrency
-  # rather than blocking on external I/O.
+  # rather than blocking on external I/O. Formula: pods × pool ≤ 0.8 × max_connections.
   datasource:
     hikari:
       pool-name: BhukkadWritePool
-      maximum-pool-size: ${DB_POOL_SIZE:10}
-      minimum-idle: ${DB_MIN_IDLE:2}
-      connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}
-      max-lifetime: 1800000
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_MIN_IDLE:5}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:10000}
+      idle-timeout: 300000
+      max-lifetime: 1200000
       validation-timeout: 5000
+      leak-detection-threshold: 60000
 
-  # Redis Configuration
+  # Redis Configuration — tuned for heavy traffic (100 Tomcat + 24 async + schedulers
+  # contending on rate-limit, cache, geo, shedlock, SSE relay).
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -42,9 +45,9 @@ spring:
       timeout: 5000ms
       lettuce:
         pool:
-          max-active: 10
-          max-idle: 5
-          min-idle: 2
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
           max-wait: 3000ms
         shutdown-timeout: 200ms
         cluster:
@@ -125,6 +128,19 @@ server:
     include-message: always
     include-binding-errors: always
     include-stacktrace: on_param
+  # High-traffic Tomcat tuning: for blocking JPA/MySQL, Tomcat threads must be
+  # close to Hikari pool size (ratio 1.5-2×), not 5×. With Hikari 20, Tomcat 100
+  # would queue 80 threads on connectionTimeout. Formula: tomcat.max ≈ hikari.max × 2
+  # plus headroom for non-DB work (SSE, cache). Queue/backlog protects against SYN flood.
+  tomcat:
+    threads:
+      max: ${TOMCAT_THREADS_MAX:80}
+      min-spare: ${TOMCAT_THREADS_MIN_SPARE:20}
+    max-connections: ${TOMCAT_MAX_CONNECTIONS:4096}
+    accept-count: ${TOMCAT_ACCEPT_COUNT:200}
+    connection-timeout: 20000
+    keep-alive-timeout: 15000
+    max-keep-alive-requests: 100
   # HTTP/2 configuration for production (feature #10)
   http2:
     enabled: ${SERVER_HTTP2_ENABLED:false}
@@ -218,9 +234,13 @@ app:
     # HS512 signing requires >= 512 bits (64 bytes) of decoded key material.
     # The fallback below is a development-only default; production MUST set
     # JWT_SECRET to its own 64-byte (or longer) base64-encoded secret.
+    # Expiration 15m (900000ms) limits blast radius of stolen tokens. Refresh tokens
+    # are 7d and rotated on use when rotation is enabled. For high-traffic multi-pod
+    # deploys, keep JWT_ROTATION_ENABLED=false — per-pod random rotation diverges
+    # and breaks cross-pod validation (see JwtSecretRotationService).
     secret: ${JWT_SECRET:Wz6ZY4rjTh8TXTAsD25DB3+vPAnlJtL8iIms5CgJpWQqK6ZwXW6u+1PxMmNOj7N0akCSkweqlxighGqSKosZsA==}
-    expiration: 86400000
-    refresh-expiration: 604800000
+    expiration: ${JWT_EXPIRATION:900000}
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
     rotation:
       enabled: ${JWT_ROTATION_ENABLED:false}
       interval-ms: 86400000
@@ -229,9 +249,9 @@ app:
     # hashes against offline attacks if the database is ever leaked.
     pepper: ${API_KEY_PEPPER:zYHsmVfyqzrgU+RE/SXJ+Ep59FZMasTNccKToJT9yKpc6Ntk15gfWXCaPV3sGJr0Vw7X5uKeRIuaRUq4VKQECQ==}
   outbox:
-    poll-interval-ms: 2000
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:1000}
     max-retries: 5
-    batch-size: 50
+    batch-size: ${OUTBOX_BATCH_SIZE:100}
     dead-letter-batch-size: 50
     dead-letter-repoll-ms: 60000
 
@@ -296,6 +316,12 @@ app:
       # limiter smooths bursts, the fraud check is what blocks sustained abuse.
       auth-register:
         limit: 10
+        window-seconds: 60
+      graphql-home:
+        limit: 30
+        window-seconds: 60
+      graphql-order:
+        limit: 30
         window-seconds: 60
 
   # Abuse detection for credential and checkout endpoints.
@@ -499,6 +525,10 @@ app:
       enabled: true
       max-size: 5000
       ttl-seconds: 60
+    stampede:
+      enabled: ${CACHE_STAMPEDE_ENABLED:true}
+      jitter-percent: 10
+      early-expire-percent: 5
     # Dynamic TTLs: optional per-bucket time-of-day multipliers applied on top of
     # the static `cache.ttl.*` values. When enabled, peak-hour traffic uses shorter
     # TTLs (fresher data) and off-peak uses longer ones (higher hit ratio).
@@ -604,8 +634,56 @@ resilience4j:
         retry-exceptions:
           - org.springframework.web.client.RestClientException
           - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
         ignore-exceptions:
           - com.bhukkad.exception.BusinessException
+      osrm:
+        max-attempts: 2
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - org.springframework.web.client.RestClientException
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+        ignore-exceptions:
+          - com.bhukkad.exception.BusinessException
+  timelimiter:
+    configs:
+      paymentGateway:
+        timeout-duration: 6s
+        cancel-running-future: true
+      osrm:
+        timeout-duration: 3s
+        cancel-running-future: true
+      notificationSms:
+        timeout-duration: 5s
+        cancel-running-future: true
+      notificationEmail:
+        timeout-duration: 8s
+        cancel-running-future: true
+      notificationWhatsApp:
+        timeout-duration: 5s
+        cancel-running-future: true
+      notificationPush:
+        timeout-duration: 5s
+        cancel-running-future: true
+    instances:
+      paymentGateway:
+        base-config: paymentGateway
+      osrm:
+        base-config: osrm
+      notificationSms:
+        base-config: notificationSms
+      notificationEmail:
+        base-config: notificationEmail
+      notificationWhatsApp:
+        base-config: notificationWhatsApp
+      notificationPush:
+        base-config: notificationPush
   circuitbreaker:
     instances:
       paymentGateway:
@@ -644,6 +722,26 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+  bulkhead:
+    instances:
+      paymentGateway:
+        max-concurrent-calls: 20
+        max-wait-duration: 500ms
+      osrm:
+        max-concurrent-calls: 20
+        max-wait-duration: 500ms
+      notificationSms:
+        max-concurrent-calls: 30
+        max-wait-duration: 200ms
+      notificationEmail:
+        max-concurrent-calls: 30
+        max-wait-duration: 200ms
+      notificationWhatsApp:
+        max-concurrent-calls: 30
+        max-wait-duration: 200ms
+      notificationPush:
+        max-concurrent-calls: 30
+        max-wait-duration: 200ms
 
 management:
   endpoints:

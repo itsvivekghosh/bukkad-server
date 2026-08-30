@@ -99,7 +99,7 @@ public class ReferralService {
         newCustomer.setReferredBy(referrer);
         if (referralProperties.getBonusAmount() > 0) {
             walletService.credit(
-                    referrer,
+                    referrer.getId(),
                     referralProperties.getBonusAmount(),
                     WalletTransaction.TransactionType.REFERRAL_BONUS,
                     null,
@@ -107,7 +107,7 @@ public class ReferralService {
         }
         if (referralProperties.getRefereeBonusAmount() > 0) {
             walletService.credit(
-                    newCustomer,
+                    newCustomer.getId(),
                     referralProperties.getRefereeBonusAmount(),
                     WalletTransaction.TransactionType.REFERRAL_BONUS,
                     null,

@@ -87,17 +87,15 @@ public class RestaurantSettlementService {
 
     @Transactional
     public int settlePendingForRestaurant(Long restaurantId) {
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
-        List<RestaurantSettlement> pending = settlementRepository.findByRestaurantIdAndStatus(
-                restaurant.getId(), RestaurantSettlement.SettlementStatus.PENDING);
-        LocalDateTime now = LocalDateTime.now();
-        for (RestaurantSettlement settlement : pending) {
-            settlement.setStatus(RestaurantSettlement.SettlementStatus.SETTLED);
-            settlement.setSettledAt(now);
+        // Validate restaurant exists before atomic update (preserve 404 semantics)
+        if (!restaurantRepository.existsById(restaurantId)) {
+            throw new ResourceNotFoundException("Restaurant not found");
         }
-        settlementRepository.saveAll(pending);
-        return pending.size();
+        return settlementRepository.atomicSettleByRestaurant(
+                restaurantId,
+                RestaurantSettlement.SettlementStatus.PENDING,
+                RestaurantSettlement.SettlementStatus.SETTLED,
+                LocalDateTime.now());
     }
 
     @Transactional(readOnly = true)

@@ -44,9 +44,7 @@ public class GroupOrderService {
     private final GroupOrderRepository groupOrderRepository;
     private final GroupOrderMemberRepository memberRepository;
     private final CartService cartService;
-
-    @PersistenceContext
-    private EntityManager entityManager;
+    private final com.bhukkad.security.AccountLookupService accountLookupService;
 
     @Transactional
     public GroupOrderResponse createGroupOrder(Long hostUserId, String title) {
@@ -215,17 +213,13 @@ public class GroupOrderService {
     }
 
     /**
-     * Resolves a registered user by phone. Uses a direct query because the shared
-     * {@code UserRepository} has no phone lookup; wrapped defensively so a lookup
-     * failure degrades to "no such user" instead of bubbling up.
+     * Resolves a registered user by phone across the role-segregated account
+     * tables; wrapped defensively so a lookup failure degrades to "no such
+     * user" instead of bubbling up.
      */
     private Optional<User> findUserByPhone(String phone) {
         try {
-            List<User> users = entityManager.createQuery(
-                            "SELECT u FROM User u WHERE u.phoneNumber = :phone", User.class)
-                    .setParameter("phone", phone)
-                    .getResultList();
-            return users.isEmpty() ? Optional.empty() : Optional.of(users.get(0));
+            return accountLookupService.byPhoneNumber(phone);
         } catch (Exception ex) {
             log.warn("Phone lookup failed | error={}", ex.getMessage());
             return Optional.empty();

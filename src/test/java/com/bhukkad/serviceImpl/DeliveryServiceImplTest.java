@@ -463,7 +463,9 @@ class DeliveryServiceImplTest {
     @Test
     void getAllDeliveryAgents_mapsAll() {
         DeliveryAgent agent = agent(5L);
-        when(deliveryAgentRepository.findAll()).thenReturn(List.of(agent));
+        // Batch A/B pagination: the service now pages through the fleet to avoid OOM.
+        when(deliveryAgentRepository.findAll(org.springframework.data.domain.Pageable.ofSize(200)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(agent)));
 
         List<DeliveryAgentResponse> result = deliveryService.getAllDeliveryAgents();
 

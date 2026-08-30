@@ -103,9 +103,8 @@ class WalletQueryServiceCursorTest {
             setField(t, "amount", 100.0);
             setField(t, "balanceAfter", 200.0);
             setField(t, "description", "test");
-            Customer c = new Customer();
-            setField(c, "id", 1L);
-            setField(t, "customer", c);
+            // Phase 2: WalletTransaction carries plain ids, not entity joins
+            setField(t, "customerId", 1L);
             return t;
         } catch (Exception e) {
             throw new RuntimeException(e);

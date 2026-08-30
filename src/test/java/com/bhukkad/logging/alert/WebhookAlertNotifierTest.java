@@ -3,7 +3,6 @@ package com.bhukkad.logging.alert;
 import com.bhukkad.config.AlertingProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
@@ -20,7 +19,8 @@ class WebhookAlertNotifierTest {
         webhook.setEnabled(webhookEnabled);
         webhook.setUrl(url);
         props.setWebhook(webhook);
-        return new WebhookAlertNotifier(props);
+        RestClient restClient = mock(RestClient.class);
+        return new WebhookAlertNotifier(props, restClient);
     }
 
     @Test void disabledAlerting_doesNotCallWebhook() {
@@ -39,7 +39,12 @@ class WebhookAlertNotifierTest {
     }
 
     @Test void enabledWithUrl_postsPayload() {
-        WebhookAlertNotifier n = notifier(true, true, "http://hooks.example/alert");
+        AlertingProperties props = new AlertingProperties();
+        props.setEnabled(true);
+        AlertingProperties.Webhook webhook = new AlertingProperties.Webhook();
+        webhook.setEnabled(true);
+        webhook.setUrl("http://hooks.example/alert");
+        props.setWebhook(webhook);
 
         RestClient restClient = mock(RestClient.class);
         RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
@@ -51,7 +56,7 @@ class WebhookAlertNotifierTest {
         when(uriSpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(bodySpec);
         when(bodySpec.retrieve()).thenReturn(responseSpec);
 
-        ReflectionTestUtils.setField(n, "restClient", restClient);
+        WebhookAlertNotifier n = new WebhookAlertNotifier(props, restClient);
         n.sendIfEnabled(AlertSeverity.CRITICAL, AlertCategory.HTTP_ERROR, "test alert", Map.of("orderId", 5L));
 
         verify(uriSpec).uri("http://hooks.example/alert");
@@ -60,7 +65,12 @@ class WebhookAlertNotifierTest {
     }
 
     @Test void webhookFailure_isSwallowed() {
-        WebhookAlertNotifier n = notifier(true, true, "http://hooks.example/alert");
+        AlertingProperties props = new AlertingProperties();
+        props.setEnabled(true);
+        AlertingProperties.Webhook webhook = new AlertingProperties.Webhook();
+        webhook.setEnabled(true);
+        webhook.setUrl("http://hooks.example/alert");
+        props.setWebhook(webhook);
 
         RestClient restClient = mock(RestClient.class);
         RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
@@ -73,7 +83,7 @@ class WebhookAlertNotifierTest {
         when(bodySpec.retrieve()).thenReturn(responseSpec);
         when(responseSpec.toBodilessEntity()).thenThrow(new RuntimeException("500 from hook"));
 
-        ReflectionTestUtils.setField(n, "restClient", restClient);
+        WebhookAlertNotifier n = new WebhookAlertNotifier(props, restClient);
         // Must not propagate the exception
         n.sendIfEnabled(AlertSeverity.CRITICAL, AlertCategory.EXCEPTION, "boom", Map.of());
     }

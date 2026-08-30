@@ -1,7 +1,7 @@
 package com.bhukkad.config;
 
-import com.bhukkad.entity.User;
-import com.bhukkad.repository.UserRepository;
+import com.bhukkad.entity.Admin;
+import com.bhukkad.repository.AdminRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 class DevAdminBootstrapTest {
 
     @Mock
-    private UserRepository userRepository;
+    private AdminRepository adminRepository;
 
     private PasswordEncoder passwordEncoder;
 
@@ -32,35 +32,35 @@ class DevAdminBootstrapTest {
     @BeforeEach
     void setUp() throws Exception {
         passwordEncoder = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
-        bootstrap = new DevAdminBootstrap(userRepository, passwordEncoder);
+        bootstrap = new DevAdminBootstrap(adminRepository, passwordEncoder);
         setField(bootstrap, "adminEmail", "admin@bhukkad.dev");
         setField(bootstrap, "adminPassword", "Admin@123456");
     }
 
     @Test
     void run_skipsWhenAdminExists() {
-        when(userRepository.existsByEmail("admin@bhukkad.dev")).thenReturn(true);
+        when(adminRepository.existsByEmail("admin@bhukkad.dev")).thenReturn(true);
 
         bootstrap.run(mock(ApplicationArguments.class));
 
-        verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any(User.class));
+        verify(adminRepository, never()).save(org.mockito.ArgumentMatchers.any(Admin.class));
     }
 
     @Test
     void run_seedsAdminWhenMissing() {
-        when(userRepository.existsByEmail("admin@bhukkad.dev")).thenReturn(false);
+        when(adminRepository.existsByEmail("admin@bhukkad.dev")).thenReturn(false);
 
         bootstrap.run(mock(ApplicationArguments.class));
 
-        org.mockito.ArgumentCaptor<User> captor =
-                org.mockito.ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        User saved = captor.getValue();
+        org.mockito.ArgumentCaptor<Admin> captor =
+                org.mockito.ArgumentCaptor.forClass(Admin.class);
+        verify(adminRepository).save(captor.capture());
+        Admin saved = captor.getValue();
         assertEquals("admin@bhukkad.dev", saved.getEmail());
         assertTrue(passwordEncoder.matches("Admin@123456", saved.getPassword()));
         assertEquals("Bhukkad Admin", saved.getFullName());
         assertEquals("9000000001", saved.getPhoneNumber());
-        assertEquals(User.UserRole.ADMIN, saved.getRole());
+        assertEquals(Admin.UserRole.ADMIN, saved.getRole());
         assertEquals(Boolean.TRUE, saved.getActive());
         assertEquals(Boolean.TRUE, saved.getEmailVerified());
     }

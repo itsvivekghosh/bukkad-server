@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
 public class LogSmsSender implements SmsSender {
 
     @Override
-    public void send(String phoneNumber, String body) {
+    public boolean send(String phoneNumber, String body) {
         log.info("SMS | to={} | body={}", phoneNumber, body);
+        return true;
     }
 }

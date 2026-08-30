@@ -20,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -149,11 +150,11 @@ class WalletTopUpServiceTest {
     void initiateTopUp_blankIdempotencyKey_skipsExistingCheck() {
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
-        when(paymentGateway.createOrder(any())).thenReturn(
+        when(paymentGateway.createOrder(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayOrderResult.builder()
                         .gatewayOrderId("go_new")
                         .rawResponse("{\"id\":\"go_new\"}")
-                        .build());
+                        .build()));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
             Payment p = inv.getArgument(0);
             p.setId(9L);
@@ -171,11 +172,11 @@ class WalletTopUpServiceTest {
     void initiateTopUp_nullIdempotencyKey_skipsExistingCheck() {
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
-        when(paymentGateway.createOrder(any())).thenReturn(
+        when(paymentGateway.createOrder(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayOrderResult.builder()
                         .gatewayOrderId("go_new")
                         .rawResponse("{}")
-                        .build());
+                        .build()));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
             Payment p = inv.getArgument(0);
             p.setId(9L);
@@ -200,11 +201,11 @@ class WalletTopUpServiceTest {
     void initiateTopUp_success_createsGatewayOrderAndPersistsPayment() {
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
-        when(paymentGateway.createOrder(any())).thenReturn(
+        when(paymentGateway.createOrder(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayOrderResult.builder()
                         .gatewayOrderId("go_123")
                         .rawResponse("{\"id\":\"go_123\"}")
-                        .build());
+                        .build()));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
             Payment p = inv.getArgument(0);
             p.setId(7L);
@@ -245,11 +246,11 @@ class WalletTopUpServiceTest {
     void initiateTopUp_success_roundsAmountToTwoDecimals() {
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
-        when(paymentGateway.createOrder(any())).thenReturn(
+        when(paymentGateway.createOrder(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayOrderResult.builder()
                         .gatewayOrderId("go_123")
                         .rawResponse("{}")
-                        .build());
+                        .build()));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.initiateTopUp(123.456, "key-1");
@@ -295,10 +296,10 @@ class WalletTopUpServiceTest {
         assertNotNull(payment.getCompletedAt());
         verify(paymentRepository).save(payment);
         verify(walletService).credit(
-                eq(payment.getCustomer()),
+                eq(1L),
                 eq(200.0),
                 eq(WalletTransaction.TransactionType.TOP_UP),
-                eq(payment),
+                eq(payment.getId()),
                 eq("Wallet top-up via payment gateway"));
     }
 }

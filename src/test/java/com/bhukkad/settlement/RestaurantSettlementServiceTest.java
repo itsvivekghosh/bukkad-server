@@ -140,38 +140,29 @@ class RestaurantSettlementServiceTest {
 
     @Test
     void settlePending_throwsWhenRestaurantMissing() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+        when(restaurantRepository.existsById(99L)).thenReturn(false);
 
         assertThrows(ResourceNotFoundException.class, () -> service.settlePendingForRestaurant(99L));
     }
 
     @Test
     void settlePending_marksAllPendingAsSettled() {
-        Restaurant restaurant = new Restaurant();
-        restaurant.setId(7L);
-        when(restaurantRepository.findById(7L)).thenReturn(Optional.of(restaurant));
-
-        RestaurantSettlement s1 = new RestaurantSettlement();
-        RestaurantSettlement s2 = new RestaurantSettlement();
-        when(settlementRepository.findByRestaurantIdAndStatus(7L, RestaurantSettlement.SettlementStatus.PENDING))
-                .thenReturn(List.of(s1, s2));
+        when(restaurantRepository.existsById(7L)).thenReturn(true);
+        when(settlementRepository.atomicSettleByRestaurant(eq(7L), eq(RestaurantSettlement.SettlementStatus.PENDING),
+                eq(RestaurantSettlement.SettlementStatus.SETTLED), any(LocalDateTime.class))).thenReturn(2);
 
         int count = service.settlePendingForRestaurant(7L);
 
         assertEquals(2, count);
-        assertEquals(RestaurantSettlement.SettlementStatus.SETTLED, s1.getStatus());
-        assertEquals(RestaurantSettlement.SettlementStatus.SETTLED, s2.getStatus());
-        assertNotNull(s1.getSettledAt());
-        verify(settlementRepository).saveAll(List.of(s1, s2));
+        verify(settlementRepository).atomicSettleByRestaurant(eq(7L), eq(RestaurantSettlement.SettlementStatus.PENDING),
+                eq(RestaurantSettlement.SettlementStatus.SETTLED), any(LocalDateTime.class));
     }
 
     @Test
     void settlePending_emptyList() {
-        Restaurant restaurant = new Restaurant();
-        restaurant.setId(7L);
-        when(restaurantRepository.findById(7L)).thenReturn(Optional.of(restaurant));
-        when(settlementRepository.findByRestaurantIdAndStatus(7L, RestaurantSettlement.SettlementStatus.PENDING))
-                .thenReturn(List.of());
+        when(restaurantRepository.existsById(7L)).thenReturn(true);
+        when(settlementRepository.atomicSettleByRestaurant(eq(7L), eq(RestaurantSettlement.SettlementStatus.PENDING),
+                eq(RestaurantSettlement.SettlementStatus.SETTLED), any(LocalDateTime.class))).thenReturn(0);
 
         int count = service.settlePendingForRestaurant(7L);
 

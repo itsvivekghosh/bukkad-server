@@ -20,6 +20,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -83,8 +86,8 @@ class SettlementAutomationSchedulerTest {
         scheduler.runAutomatedSettlement();
 
         verify(settlementRunRepository, never()).save(any(SettlementRun.class));
-        verify(restaurantRepository, never()).findAll();
-        verify(deliveryAgentRepository, never()).findAll();
+        verify(restaurantRepository, never()).findAll(any(Pageable.class));
+        verify(deliveryAgentRepository, never()).findAll(any(Pageable.class));
     }
 
     @Test
@@ -95,7 +98,9 @@ class SettlementAutomationSchedulerTest {
         Restaurant eligible = restaurant(1L);
         Restaurant belowMin = restaurant(2L);
         Restaurant zeroCount = restaurant(3L);
-        when(restaurantRepository.findAll()).thenReturn(List.of(eligible, belowMin, zeroCount));
+        // Batch B: the scheduler pages through the fleet instead of loading it whole.
+        when(restaurantRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(eligible, belowMin, zeroCount)));
 
         when(restaurantSettlementService.getPendingSettlementAmount(1L)).thenReturn(250.0);
         when(restaurantSettlementService.getPendingSettlementAmount(2L)).thenReturn(50.0);
@@ -105,7 +110,8 @@ class SettlementAutomationSchedulerTest {
 
         DeliveryAgent agentEligible = agent(10L);
         DeliveryAgent agentBelowMin = agent(11L);
-        when(deliveryAgentRepository.findAll()).thenReturn(List.of(agentEligible, agentBelowMin));
+        when(deliveryAgentRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(agentEligible, agentBelowMin)));
         when(riderEarningRepository.findByAgentIdAndStatus(10L, RiderEarning.EarningStatus.PENDING))
                 .thenReturn(List.of(earning(120.0), earning(80.0)));
         when(riderEarningRepository.findByAgentIdAndStatus(11L, RiderEarning.EarningStatus.PENDING))
@@ -139,8 +145,8 @@ class SettlementAutomationSchedulerTest {
     @Test
     void runAutomatedSettlement_noRestaurantsOrAgents_completesWithZeros() {
         when(settlementProperties.isAutoSettleEnabled()).thenReturn(true);
-        when(restaurantRepository.findAll()).thenReturn(List.of());
-        when(deliveryAgentRepository.findAll()).thenReturn(List.of());
+        when(restaurantRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(deliveryAgentRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
         scheduler.runAutomatedSettlement();
 
@@ -154,7 +160,7 @@ class SettlementAutomationSchedulerTest {
     @Test
     void runAutomatedSettlement_exception_marksRunFailed() {
         when(settlementProperties.isAutoSettleEnabled()).thenReturn(true);
-        when(restaurantRepository.findAll()).thenThrow(new RuntimeException("redis down"));
+        when(restaurantRepository.findAll(any(Pageable.class))).thenThrow(new RuntimeException("redis down"));
 
         scheduler.runAutomatedSettlement();
 
@@ -182,8 +188,8 @@ class SettlementAutomationSchedulerTest {
     @Test
     void triggerManualRun_enabled_returnsLatestRun() {
         when(settlementProperties.isAutoSettleEnabled()).thenReturn(true);
-        when(restaurantRepository.findAll()).thenReturn(List.of());
-        when(deliveryAgentRepository.findAll()).thenReturn(List.of());
+        when(restaurantRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(deliveryAgentRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
         SettlementRun latest = new SettlementRun();
         latest.setId(9L);

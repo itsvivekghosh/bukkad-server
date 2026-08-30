@@ -4,6 +4,7 @@ import com.bhukkad.config.NotificationProperties;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
+import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.Optional;
 
@@ -26,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
@@ -54,6 +57,8 @@ class NotificationServiceImplTest {
     private PushNotificationSender pushNotificationSender;
     @Mock
     private NotificationPreferenceService notificationPreferenceService;
+    @Mock
+    private ThreadPoolTaskExecutor lowPriorityTaskExecutor;
 
     private NotificationServiceImpl notificationService;
 
@@ -65,9 +70,17 @@ class NotificationServiceImplTest {
         notificationProperties.getSms().setEnabled(true);
         notificationProperties.getWhatsapp().setEnabled(true);
         notificationProperties.getPush().setEnabled(true);
+        // Batch D: channel fan-out runs on lowPriorityTaskExecutor. Run tasks
+        // inline so the async dispatch is deterministic in unit tests (a bare
+        // mock would drop the runnables and every future would only complete
+        // via its orTimeout guard).
+        org.mockito.Mockito.lenient().doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).when(lowPriorityTaskExecutor).execute(any(Runnable.class));
         notificationService = new NotificationServiceImpl(
                 notificationProperties, orderRepository, userRepository, resilientEmailSender,
-                smsSender, whatsAppSender, pushNotificationSender, notificationPreferenceService);
+                smsSender, whatsAppSender, pushNotificationSender, notificationPreferenceService, lowPriorityTaskExecutor);
     }
 
     private Order orderWithCustomer() {
@@ -134,7 +147,7 @@ class NotificationServiceImplTest {
         when(orderRepository.findByIdWithDetails(42L)).thenReturn(Optional.of(order));
         enableAllChannels();
 
-        User agent = new User();
+        DeliveryAgent agent = new DeliveryAgent();
         agent.setId(99L);
         agent.setEmail("agent@bhukkad.test");
         agent.setPhoneNumber("9900000000");
@@ -212,6 +225,8 @@ class NotificationServiceImplTest {
 
     @Test
     void sendTestNotification_smsChannel_sendsSms() {
+        when(smsSender.send(eq("9800000000"), anyString())).thenReturn(true);
+
         notificationService.sendTestNotification("sms", "9800000000", "hello");
 
         verify(smsSender).send(eq("9800000000"), anyString());
@@ -219,9 +234,27 @@ class NotificationServiceImplTest {
 
     @Test
     void sendTestNotification_whatsappChannel_sendsWhatsApp() {
+        when(whatsAppSender.send(eq("9800000000"), anyString())).thenReturn(true);
+
         notificationService.sendTestNotification("whatsapp", "9800000000", "hello");
 
         verify(whatsAppSender).send(eq("9800000000"), anyString());
+    }
+
+    @Test
+    void sendTestNotification_smsProviderFailure_throwsBusinessException() {
+        when(smsSender.send(eq("9800000000"), anyString())).thenReturn(false);
+
+        org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> notificationService.sendTestNotification("sms", "9800000000", "hello"));
+    }
+
+    @Test
+    void sendTestNotification_whatsappProviderFailure_throwsBusinessException() {
+        when(whatsAppSender.send(eq("9800000000"), anyString())).thenReturn(false);
+
+        org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> notificationService.sendTestNotification("whatsapp", "9800000000", "hello"));
     }
 
     @Test
@@ -229,5 +262,77 @@ class NotificationServiceImplTest {
         notificationService.sendTestNotification("email", "to@bhukkad.test", null);
 
         verify(resilientEmailSender).send(any());
+    }
+
+    @Test
+    void sendOrderConfirmation_globalSwitchOff_logsInsteadOfSending() {
+        // Batch D: the master switch short-circuits every provider without
+        // dropping the fan-out — each helper logs and returns.
+        notificationProperties.setEnabled(false);
+        Order order = orderWithCustomer();
+        when(orderRepository.findByIdWithDetails(42L)).thenReturn(Optional.of(order));
+        enableAllChannels();
+
+        notificationService.sendOrderConfirmation(42L);
+
+        verify(resilientEmailSender, never()).send(any());
+        verify(smsSender, never()).send(anyString(), anyString());
+        verify(whatsAppSender, never()).send(anyString(), anyString());
+        verify(pushNotificationSender, never()).sendToUser(anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void sendOrderConfirmation_emailProviderThrows_sweepStillCompletes() {
+        // A throwing provider must not break the fan-out: the exceptionally
+        // guard logs and the remaining channels still dispatch.
+        Order order = orderWithCustomer();
+        when(orderRepository.findByIdWithDetails(42L)).thenReturn(Optional.of(order));
+        enableAllChannels();
+        doThrow(new RuntimeException("smtp down")).when(resilientEmailSender).send(any());
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> notificationService.sendOrderConfirmation(42L));
+
+        verify(smsSender).send(eq("9800000000"), anyString());
+        verify(whatsAppSender).send(eq("9800000000"), anyString());
+        verify(pushNotificationSender).sendToUser(eq(7L), anyString(), anyString());
+    }
+
+    @Test
+    void sendOrderConfirmation_smsWhatsappPushThrow_emailStillDispatches() {
+        Order order = orderWithCustomer();
+        when(orderRepository.findByIdWithDetails(42L)).thenReturn(Optional.of(order));
+        enableAllChannels();
+        doThrow(new RuntimeException("sms gateway down")).when(smsSender).send(anyString(), anyString());
+        doThrow(new RuntimeException("wa gateway down")).when(whatsAppSender).send(anyString(), anyString());
+        doThrow(new RuntimeException("fcm down")).when(pushNotificationSender).sendToUser(anyLong(), anyString(), anyString());
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> notificationService.sendOrderConfirmation(42L));
+
+        verify(resilientEmailSender).send(any());
+    }
+
+    @Test
+    void sendDeliveryAssignment_agentWithoutPhone_skipsAgentSmsAndWhatsapp() {
+        Order order = orderWithCustomer();
+        when(orderRepository.findByIdWithDetails(42L)).thenReturn(Optional.of(order));
+        enableAllChannels();
+        DeliveryAgent agent = new DeliveryAgent();
+        agent.setId(99L);
+        agent.setEmail("agent@bhukkad.test");
+        agent.setPhoneNumber("   "); // blank → per-provider guard skips
+        when(userRepository.findById(99L)).thenReturn(Optional.of(agent));
+
+        notificationService.sendDeliveryAssignment(42L, 99L);
+
+        // Only the customer SMS dispatches; the agent's blank number is skipped
+        // by the per-provider guard.
+        verify(smsSender, times(1)).send(anyString(), anyString());
+        verify(smsSender).send(eq("9800000000"), anyString());
+        verify(whatsAppSender, times(1)).send(anyString(), anyString());
+        verify(whatsAppSender).send(eq("9800000000"), anyString());
+        // Customer channels and both emails still go out.
+        verify(resilientEmailSender, times(2)).send(any());
+        verify(pushNotificationSender).sendToUser(eq(7L), anyString(), anyString());
+        verify(pushNotificationSender).sendToUser(eq(99L), anyString(), anyString());
     }
 }

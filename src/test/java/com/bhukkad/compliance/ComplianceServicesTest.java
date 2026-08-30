@@ -2,6 +2,7 @@ package com.bhukkad.compliance;
 
 import com.bhukkad.audit.AuditService;
 import com.bhukkad.entity.Address;
+import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import com.bhukkad.repository.AddressRepository;
 import com.bhukkad.repository.FraudEventRepository;
@@ -68,7 +69,7 @@ class ComplianceServicesTest {
 
     @Test
     void deleteUser_anonymizesPiiAndRevokesAccess() {
-        User user = new User();
+        Customer user = new Customer();
         user.setId(3L);
         user.setEmail("victim@example.com");
         user.setPhoneNumber("9876543210");
@@ -83,7 +84,7 @@ class ComplianceServicesTest {
         assertEquals(1, removed);
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
-        User saved = captor.getValue();
+        Customer saved = (Customer) captor.getValue();
         assertTrue(saved.getEmail().startsWith("deleted-3"));
         assertTrue(saved.getEmail().endsWith("@anon.invalid"));
         assertFalse(saved.getActive());
@@ -96,7 +97,7 @@ class ComplianceServicesTest {
 
     @Test
     void deleteUser_isIdempotentForAlreadyAnonymizedUsers() {
-        User user = new User();
+        Customer user = new Customer();
         user.setId(4L);
         user.setEmail("deleted-4@anon.invalid");
         user.setActive(false);
@@ -113,7 +114,7 @@ class ComplianceServicesTest {
     void deleteUser_anonymizesOrderReferencedAddressInsteadOfDeleting() {
         // Regression: addresses referenced by retained orders (FK) cannot be
         // deleted; their PII must be cleared in place to avoid a 500.
-        User user = new User();
+        Customer user = new Customer();
         user.setId(5L);
         user.setEmail("victim5@example.com");
         user.setPhoneNumber("9876543211");
@@ -142,7 +143,7 @@ class ComplianceServicesTest {
 
     @Test
     void deleteUser_deletesUnreferencedAddress() {
-        User user = new User();
+        Customer user = new Customer();
         user.setId(6L);
         user.setEmail("victim6@example.com");
         user.setPhoneNumber("9876543212");

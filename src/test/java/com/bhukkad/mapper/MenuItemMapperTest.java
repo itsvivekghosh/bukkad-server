@@ -21,14 +21,14 @@ import static org.mockito.Mockito.when;
 class MenuItemMapperTest {
 
     @Mock
-    private MenuImageService menuImageService;
+    private MenuImageService menuImageService; // implements ImageUrlResolver
 
     private MenuItemMapperImpl mapper;
 
     @BeforeEach
     void setUp() {
         mapper = new MenuItemMapperImpl();
-        ReflectionTestUtils.setField(mapper, "menuImageService", menuImageService);
+        ReflectionTestUtils.setField(mapper, "imageUrlResolver", menuImageService);
     }
 
     private MenuItem item(String name, MenuItem.FoodType foodType, MenuItem.SpiceLevel spiceLevel) {

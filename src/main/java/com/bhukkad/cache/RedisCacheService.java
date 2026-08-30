@@ -25,9 +25,10 @@ public class RedisCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisCacheService.class);
     private static final String LOCK_PREFIX = "cache-lock:";
-    private static final int LOCK_WAIT_RETRIES = 3;
+    private static final int LOCK_WAIT_RETRIES = 10;
     private static final long LOCK_WAIT_BASE_MS = 20L;
     private static final long LOCK_TTL_SECONDS = 10L;
+    private static final double TTL_JITTER_PERCENT = 0.10;
 
     /**
      * Atomically releases the lock only if we still own it. The lock value is a
@@ -186,8 +187,14 @@ public class RedisCacheService {
     public void set(String key, Object value, long ttlSeconds) {
         try {
             String fullKey = buildKey(key);
-            redisTemplate.opsForValue().set(fullKey, value, Duration.ofSeconds(ttlSeconds));
-            log.debug("CACHE_SET key={} ttl={}s", fullKey, ttlSeconds);
+            long jitteredTtl = ttlSeconds;
+            if (ttlSeconds > 10) {
+                long jitter = (long) (ttlSeconds * TTL_JITTER_PERCENT);
+                long delta = java.util.concurrent.ThreadLocalRandom.current().nextLong(-jitter, jitter + 1);
+                jitteredTtl = Math.max(10, ttlSeconds + delta);
+            }
+            redisTemplate.opsForValue().set(fullKey, value, Duration.ofSeconds(jitteredTtl));
+            log.debug("CACHE_SET key={} ttl={}s (jittered from {}s)", fullKey, jitteredTtl, ttlSeconds);
         } catch (Exception e) {
             log.warn("CACHE_SET_FAILED key={} error={}", key, e.getMessage());
         }
@@ -392,7 +399,10 @@ public class RedisCacheService {
 
     private void sleepBackoff(int attempt) {
         try {
-            Thread.sleep(LOCK_WAIT_BASE_MS * (attempt + 1L));
+            // Exponential backoff: 20,40,80,160... with jitter to avoid synchronized retry
+            long base = LOCK_WAIT_BASE_MS * (1L << Math.min(attempt, 6));
+            long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(0, 10);
+            Thread.sleep(Math.min(base + jitter, 500));
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
         }

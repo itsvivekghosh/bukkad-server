@@ -11,17 +11,21 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -112,7 +116,7 @@ class IdempotencyServiceTest {
     @Test
     void tryAcquireLock_returnsTrueWhenSetIfAbsentSucceeds() {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq("lock:pay:key-1"), eq("locked"),
+        when(valueOps.setIfAbsent(eq("lock:pay:key-1"), anyString(),
                 eq(300000L), eq(TimeUnit.MILLISECONDS))).thenReturn(true);
 
         assertTrue(service.tryAcquireLock("pay:", "key-1", Duration.ofMinutes(5)));
@@ -121,7 +125,7 @@ class IdempotencyServiceTest {
     @Test
     void tryAcquireLock_returnsFalseWhenAlreadyLocked() {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.setIfAbsent(eq("lock:pay:key-2"), eq("locked"),
+        when(valueOps.setIfAbsent(eq("lock:pay:key-2"), anyString(),
                 eq(300000L), eq(TimeUnit.MILLISECONDS))).thenReturn(false);
 
         assertFalse(service.tryAcquireLock("pay:", "key-2", Duration.ofMinutes(5)));
@@ -131,6 +135,83 @@ class IdempotencyServiceTest {
     void tryAcquireLock_returnsFalseForBlankKey() {
         assertFalse(service.tryAcquireLock("pay:", "  ", Duration.ofMinutes(5)));
         assertFalse(service.tryAcquireLock("pay:", null, Duration.ofMinutes(5)));
+    }
+
+    // ===== Batch B: release-lock token path + get/store edge branches =====
+
+    @Test
+    void releaseLock_executesUnlockScript_whenTokenHeld() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(eq("lock:pay:key-lua"), anyString(),
+                eq(300000L), eq(TimeUnit.MILLISECONDS))).thenReturn(true);
+
+        assertTrue(service.tryAcquireLock("pay:", "key-lua", Duration.ofMinutes(5)));
+
+        when(stringRedisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                anyList(), anyString())).thenReturn(1L);
+        service.releaseLock("pay:", "key-lua");
+
+        verify(stringRedisTemplate).execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                eq(Collections.singletonList("lock:pay:key-lua")), anyString());
+    }
+
+    @Test
+    void releaseLock_unownedLock_isNoop() {
+        // Never acquired → no token in the local map → no Redis interaction
+        service.releaseLock("pay:", "never-acquired");
+        verify(stringRedisTemplate, never())
+                .execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), anyString());
+    }
+
+    @Test
+    void releaseLock_redisFailure_isSwallowed() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(eq("lock:pay:key-err"), anyString(),
+                eq(300000L), eq(TimeUnit.MILLISECONDS))).thenReturn(true);
+        assertTrue(service.tryAcquireLock("pay:", "key-err", Duration.ofMinutes(5)));
+
+        when(stringRedisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                anyList(), anyString())).thenThrow(new RuntimeException("redis down"));
+
+        assertDoesNotThrow(() -> service.releaseLock("pay:", "key-err"));
+    }
+
+    @Test
+    void get_blankKey_returnsEmpty() {
+        assertFalse(service.getOrderResult("", TestResult.class).isPresent());
+        assertFalse(service.getOrderResult(null, TestResult.class).isPresent());
+    }
+
+    @Test
+    void get_malformedPayload_returnsEmpty() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.get("idempotency:order:bad-json")).thenReturn("not-json{");
+
+        Optional<TestResult> result = service.getOrderResult("bad-json", TestResult.class);
+
+        assertFalse(result.isPresent());
+    }
+
+    @Test
+    void store_nullResult_skipsWrite() {
+        // Null result short-circuits before any Redis interaction, so no stubbing
+        // of the template is needed (the service must never reach opsForValue()).
+        service.storeOrderResult(KEY, null, Duration.ofMinutes(5));
+
+        verify(valueOps, never()).set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+    }
+
+    @Test
+    void store_serializationFailure_isSwallowed() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper failingMapper =
+                org.mockito.Mockito.mock(com.fasterxml.jackson.databind.ObjectMapper.class);
+        IdempotencyService svc = new IdempotencyService(stringRedisTemplate, failingMapper);
+        when(failingMapper.writeValueAsString(any()))
+                .thenThrow(new com.fasterxml.jackson.core.JsonProcessingException("no serializer") {});
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+
+        assertDoesNotThrow(() -> svc.storePaymentResult(KEY, new TestResult("x"), Duration.ofMinutes(5)));
+        verify(valueOps, never()).set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
     }
 
     @Test
@@ -147,9 +228,14 @@ class IdempotencyServiceTest {
 
     @Test
     void releaseLock_deletesKey() {
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(anyString(), anyString(), anyLong(), any())).thenReturn(true);
+        // Acquire first to store token, then release should use Lua
+        service.tryAcquireLock("pay:", "key-4", Duration.ofMinutes(5));
         service.releaseLock("pay:", "key-4");
 
-        verify(stringRedisTemplate).delete("lock:pay:key-4");
+        verify(stringRedisTemplate).execute(any(org.springframework.data.redis.core.script.DefaultRedisScript.class),
+                eq(java.util.Collections.singletonList("lock:pay:key-4")), anyString());
     }
 
     @Test

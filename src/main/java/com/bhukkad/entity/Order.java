@@ -70,6 +70,19 @@ public class Order {
     @Column(nullable = false)
     private OrderStatus status = OrderStatus.PLACED;
 
+    /**
+     * Coarse category derived by the MySQL STORED generated column (V63):
+     * LIVE / FULFILLED / CANCELLED. Maintained by the database on every
+     * status write — never set from application code.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "order_category", insertable = false, updatable = false)
+    private OrderCategory orderCategory;
+
+    public enum OrderCategory {
+        LIVE, FULFILLED, CANCELLED
+    }
+
     @Column(nullable = false)
     private Double subtotal;
 
@@ -91,11 +104,11 @@ public class Order {
     @Column(nullable = false)
     private Double tipAmount = 0.0;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "coupon_id")
     private Coupon appliedCoupon;
 
-    @OneToOne(mappedBy = "order", cascade = CascadeType.ALL)
+    @OneToOne(mappedBy = "order", cascade = CascadeType.ALL, fetch = FetchType.LAZY, optional = true)
     private Payment payment;
 
     private String specialInstructions;

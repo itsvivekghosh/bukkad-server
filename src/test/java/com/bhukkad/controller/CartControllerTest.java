@@ -95,4 +95,16 @@ public class CartControllerTest {
         assertEquals("Coupon applied", response.getBody().getMessage());
         assertEquals(cart, response.getBody().getData());
     }
+
+    @Test
+    void removeCoupon_returnsUpdatedCart() {
+        CartResponse cart = new CartResponse();
+        when(cartService.removeCoupon()).thenReturn(cart);
+
+        ResponseEntity<ApiResponse<CartResponse>> response = cartController.removeCoupon();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Coupon removed", response.getBody().getMessage());
+        assertEquals(cart, response.getBody().getData());
+    }
 }

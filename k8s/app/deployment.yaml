@@ -28,7 +28,7 @@ spec:
         prometheus.io/port: "8080"
     spec:
       serviceAccountName: bhukkad-app
-      terminationGracePeriodSeconds: 45
+      terminationGracePeriodSeconds: 90
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
@@ -36,18 +36,16 @@ spec:
         fsGroup: 1001
       affinity:
         podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: bhukkad
-                    component: api
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: bhukkad
+                  component: api
                 topologyKey: kubernetes.io/hostname
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: bhukkad
@@ -56,7 +54,7 @@ spec:
         # failure does not take down the API (works with a multi-AZ node pool).
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: bhukkad
@@ -126,8 +124,8 @@ spec:
                 -Djava.security.egd=file:/dev/./urandom
           resources:
             requests:
-              cpu: 300m
-              memory: 640Mi
+              cpu: 500m
+              memory: 896Mi
             limits:
               cpu: "1500m"
               memory: 1536Mi
@@ -158,7 +156,7 @@ spec:
                 command:
                   - /bin/sh
                   - -c
-                  - sleep 15
+                  - sleep 20
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false

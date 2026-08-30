@@ -1,12 +1,10 @@
 package com.bhukkad.live;
 
 import com.bhukkad.dto.response.OrderLiveUpdate;
-import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.entity.Order;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
-import com.bhukkad.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -31,20 +29,17 @@ class OrderLiveUpdateBroadcasterTest {
     private OrderLiveReplayStore orderLiveReplayStore;
 
     @Mock
-    private OrderRepository orderRepository;
-
-    @Mock
-    private OrderEtaService orderEtaService;
+    private com.bhukkad.delivery.api.EtaPort etaPort;
 
     @InjectMocks
     private OrderLiveUpdateBroadcaster broadcaster;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
-        // baseUpdate() only queries the order when present; lenient so the stub
+        // baseUpdate() only queries the ETA when present; lenient so the stub
         // does not trip strict mode for the RIDER_LOCATION path (which bypasses it).
         org.mockito.Mockito.lenient()
-                .when(orderRepository.findByIdWithDetails(anyLong())).thenReturn(Optional.empty());
+                .when(etaPort.computeEta(anyLong())).thenReturn(java.util.Optional.empty());
     }
 
     @Test

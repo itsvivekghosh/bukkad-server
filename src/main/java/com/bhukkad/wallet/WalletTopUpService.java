@@ -59,7 +59,7 @@ public class WalletTopUpService {
                         .currency(paymentProperties.getRazorpay().getCurrency())
                         .receipt(receipt)
                         .idempotencyKey(idempotencyKey)
-                        .build());
+                        .build()).join();
 
         Payment payment = new Payment();
         payment.setCustomer(customer);
@@ -92,10 +92,10 @@ public class WalletTopUpService {
         paymentRepository.save(payment);
 
         walletService.credit(
-                payment.getCustomer(),
+                payment.getCustomer().getId(),
                 payment.getAmount(),
                 WalletTransaction.TransactionType.TOP_UP,
-                payment,
+                payment.getId(),
                 "Wallet top-up via payment gateway");
     }
 

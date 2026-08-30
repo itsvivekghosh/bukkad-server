@@ -1,16 +1,15 @@
 package com.bhukkad.delivery;
 
 import com.bhukkad.config.RoadDistanceProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
+
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -22,16 +21,14 @@ import static org.mockito.Mockito.when;
 class RoadDistanceServiceTest {
 
     private RoadDistanceProperties properties;
-    private RestTemplate restTemplate;
-    private ObjectMapper objectMapper;
+    private OsrmClient osrmClient;
     private RoadDistanceService service;
 
     @BeforeEach
     void setUp() {
         properties = new RoadDistanceProperties();
-        restTemplate = mock(RestTemplate.class);
-        objectMapper = new ObjectMapper();
-        service = new RoadDistanceService(properties, restTemplate, objectMapper);
+        osrmClient = mock(OsrmClient.class);
+        service = new RoadDistanceService(properties, osrmClient);
     }
 
     @Test
@@ -50,8 +47,8 @@ class RoadDistanceServiceTest {
     void route_osrmEnabled_returnsRoadRoute() throws Exception {
         properties.setEnabled(true);
         properties.setOsrmUrl("https://osrm.test");
-        String osrmJson = "{\"routes\":[{\"distance\":2500,\"duration\":420}]}";
-        when(restTemplate.getForObject(anyString(), eq(String.class))).thenReturn(osrmJson);
+        when(osrmClient.fetchRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(Optional.of(new RoadDistanceService.RoadRoute(2.5, 7.0, true)));
 
         RoadDistanceService.RoadRoute route = service.route(12.97, 77.59, 12.98, 77.60);
 
@@ -64,7 +61,7 @@ class RoadDistanceServiceTest {
     void route_osrmCallFails_fallsBackToHaversine() {
         properties.setEnabled(true);
         properties.setOsrmUrl("https://osrm.test");
-        when(restTemplate.getForObject(anyString(), eq(String.class)))
+        when(osrmClient.fetchRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
                 .thenThrow(new RestClientException("connection refused"));
 
         RoadDistanceService.RoadRoute route = service.route(12.97, 77.59, 12.98, 77.60);
@@ -77,7 +74,8 @@ class RoadDistanceServiceTest {
     void route_osrmMalformedPayload_fallsBackToHaversine() {
         properties.setEnabled(true);
         properties.setOsrmUrl("https://osrm.test");
-        when(restTemplate.getForObject(anyString(), eq(String.class))).thenReturn("not-json");
+        when(osrmClient.fetchRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(Optional.empty());
 
         RoadDistanceService.RoadRoute route = service.route(12.97, 77.59, 12.98, 77.60);
 
@@ -88,8 +86,8 @@ class RoadDistanceServiceTest {
     void route_osrmEmptyRoutes_fallsBackToHaversine() {
         properties.setEnabled(true);
         properties.setOsrmUrl("https://osrm.test");
-        when(restTemplate.getForObject(anyString(), eq(String.class)))
-                .thenReturn("{\"code\":\"NoRoute\",\"routes\":[]}");
+        when(osrmClient.fetchRoute(anyDouble(), anyDouble(), anyDouble(), anyDouble()))
+                .thenReturn(Optional.empty());
 
         RoadDistanceService.RoadRoute route = service.route(12.97, 77.59, 12.98, 77.60);
 

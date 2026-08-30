@@ -126,6 +126,17 @@ final class MdcPropagatingScheduledExecutorService implements ScheduledExecutorS
 
     // ---------- helpers ----------
 
+    /**
+     * The wrapped {@link ScheduledExecutorService}. Package-private so
+     * {@link ExecutorMetricsConfig} can bind Micrometer metrics to the concrete
+     * pool — {@code ExecutorServiceMetrics} cannot instrument this decorator
+     * directly ("unsupported" class warning) because it needs the underlying
+     * {@code ScheduledThreadPoolExecutor} to read pool/queue state.
+     */
+    ScheduledExecutorService unwrap() {
+        return delegate;
+    }
+
     private static <T> Callable<T> wrapCallable(Callable<T> callable) {
         // Capture parent's MDC at submission time and restore it for the
         // duration of the call. Scheduled callables run on a shared pool, so

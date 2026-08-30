@@ -8,6 +8,6 @@ public record StompPrincipal(User user) implements Principal {
 
     @Override
     public String getName() {
-        return user.getEmail();
+        return AccountFields.email(user);
     }
 }

@@ -1,21 +1,28 @@
 package com.bhukkad.live;
 
-import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
-import com.bhukkad.repository.OrderRepository;
+import com.bhukkad.order.api.OrderOwnershipPort;
+import com.bhukkad.order.api.OrderQueryPort;
 import com.bhukkad.repository.RestaurantRepository;
+import com.bhukkad.security.LiveSubscriptionAuthorizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+/**
+ * Live-stream authorization. Depends on the order domain only through
+ * {@link OrderOwnershipPort} / {@link OrderQueryPort} — never the Order entity
+ * (modular-monolith boundary; see DomainBoundaryArchTest).
+ */
 @Service
 @RequiredArgsConstructor
-public class OrderLiveAccessService {
+public class OrderLiveAccessService implements LiveSubscriptionAuthorizer {
 
     private final RestaurantRepository restaurantRepository;
-    private final OrderRepository orderRepository;
+    private final OrderOwnershipPort orderOwnershipPort;
+    private final OrderQueryPort orderQueryPort;
 
     public boolean canSubscribeKitchen(User user, Long restaurantId) {
         if (user.getRole() != User.UserRole.RESTAURANT_OWNER) {
@@ -33,9 +40,7 @@ public class OrderLiveAccessService {
         if (user.getRole() != User.UserRole.CUSTOMER) {
             return false;
         }
-        return orderRepository.findById(orderId)
-                .map(order -> order.getCustomer().getId().equals(user.getId()))
-                .orElse(false);
+        return orderOwnershipPort.isOwnedByCustomer(orderId, user.getId());
     }
 
     public void verifyKitchenAccess(User user, Long restaurantId) {
@@ -55,9 +60,12 @@ public class OrderLiveAccessService {
         if (user.getRole() != User.UserRole.CUSTOMER) {
             throw new UnauthorizedException("Only customers can access order stream");
         }
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
-        if (!order.getCustomer().getId().equals(user.getId())) {
+        if (!orderOwnershipPort.isOwnedByCustomer(orderId, user.getId())) {
+            // Distinguish missing order (404) from foreign order (401) exactly
+            // like the pre-boundary implementation did.
+            if (orderQueryPort.findSummary(orderId).isEmpty()) {
+                throw new ResourceNotFoundException("Order not found");
+            }
             throw new UnauthorizedException("You can only track your own orders");
         }
     }

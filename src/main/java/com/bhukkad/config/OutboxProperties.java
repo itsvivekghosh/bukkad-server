@@ -13,8 +13,8 @@ public class OutboxProperties {
     /** Maximum number of publish attempts before an event is dead-lettered. */
     private int maxRetries = 5;
 
-    /** Number of events fetched per sweep. */
-    private int batchSize = 50;
+    /** Number of events fetched per sweep — raised for heavy traffic (100/s at 1s poll). */
+    private int batchSize = 100;
 
     /** Maximum number of events fetched per dead-letter sweep. */
     private int deadLetterBatchSize = 50;

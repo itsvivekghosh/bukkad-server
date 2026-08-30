@@ -8,6 +8,7 @@ import com.bhukkad.dto.response.PromotionCampaignResponse;
 import com.bhukkad.feed.PromoBannerService;
 import com.bhukkad.membership.MembershipService;
 import com.bhukkad.promotion.PromotionCampaignService;
+import com.bhukkad.ratelimit.RateLimited;
 import com.bhukkad.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
@@ -51,9 +52,11 @@ public class GraphQLController {
     /**
      * Single-query home feed. Each section comes from the same cached method
      * the REST endpoint uses, so a cache miss on one section does not force
-     * the others to be recomputed.
+     * the others to be recomputed. Rate-limited per IP to prevent
+     * alias-amplification `a1:homeFeed ... x100` in one POST.
      */
     @QueryMapping
+    @RateLimited("graphql-home")
     public HomeFeed homeFeed() {
         return new HomeFeed(
                 homeFeedCacheService.getBanners(promoBannerService::listActive),
@@ -64,8 +67,10 @@ public class GraphQLController {
     /**
      * Customer order detail. Reuses {@link OrderService#getOrderById} so the
      * 401/404 contract is identical to {@code GET /api/v1/orders/customer/{id}}.
+     * Rate-limited separately as it hits DB with ownership check.
      */
     @QueryMapping
+    @RateLimited("graphql-order")
     public Order order(String id) {
         Long orderId = Long.parseLong(id);
         OrderResponse response = orderService.getOrderById(orderId);

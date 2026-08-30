@@ -7,7 +7,10 @@ metadata:
     app: bhukkad
     component: api
 spec:
-  minAvailable: 1
+  # maxUnavailable:1 allows voluntary disruptions (drain/rollout) when minReplicas=2
+  # without deadlock. With RollingUpdate maxUnavailable:0 + maxSurge 25%, rollout
+  # still surge-based; PDB only gates voluntary evictions, not rollout.
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: bhukkad

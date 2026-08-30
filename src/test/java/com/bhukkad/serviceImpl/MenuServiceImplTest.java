@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -932,14 +933,15 @@ class MenuServiceImplTest {
         MenuItem item = fullMenuItem(1L);
         MenuItemResponse response = new MenuItemResponse();
         response.setId(1L);
-        when(menuItemRepository.findAllById(List.of(1L))).thenReturn(List.of(item));
+        // Batch B fix: N+1 eliminated — service now uses a batch fetch-join.
+        when(menuItemRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(item));
         when(menuItemMapper.toResponse(item)).thenReturn(response);
 
         List<MenuItemResponse> result = menuService.getMenuItemsByIds(List.of(1L));
 
         assertEquals(1, result.size());
         assertEquals(1L, result.get(0).getId());
-        verify(menuItemRepository).findAllById(List.of(1L));
+        verify(menuItemRepository).findAllByIdsWithDetails(List.of(1L));
     }
 
     private MenuItem fullMenuItem(Long id) {
@@ -967,6 +969,63 @@ class MenuServiceImplTest {
         item.setTags(new HashSet<>(Set.of("popular")));
         item.setAllergens(new HashSet<>(Set.of("nuts")));
         item.setIngredients(new HashSet<>(Set.of("rice")));
+        return item;
+    }
+
+    // ===== Batch B: LIKE→FULLTEXT guard + diet filter + bulk-upload stub =====
+
+    @Test
+    void searchMenuItems_guardBranches() {
+        // Keyword shorter than 2 chars is rejected before any repository call
+        assertTrue(menuService.searchMenuItems(null).isEmpty());
+        assertTrue(menuService.searchMenuItems("  ").isEmpty());
+        verify(menuItemRepository, never()).fullTextSearch(any());
+
+        // Two-char keyword: FULLTEXT miss stays a miss (no LIKE fallback below 3 chars)
+        when(cacheService.getList(CacheKeyGenerator.menuSearch("ab"), MenuItemResponse.class))
+                .thenReturn(Optional.empty());
+        when(menuItemRepository.fullTextSearch("Ab")).thenReturn(List.of());
+        assertTrue(menuService.searchMenuItems("ab").isEmpty());
+        verify(menuItemRepository, never()).searchByNameWithDetails("Ab");
+    }
+
+    @Test
+    void getMenuItemsByRestaurant_withDietFilter_filtersByFoodType() {
+        when(cacheService.getListOrCompute(anyString(), any(Class.class), anyLong(), any()))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
+        when(menuItemRepository.findByRestaurantIdWithDetails(4L)).thenReturn(List.of(
+                menuItemWithDiet(1L, com.bhukkad.entity.MenuItem.FoodType.VEG),
+                menuItemWithDiet(2L, com.bhukkad.entity.MenuItem.FoodType.NON_VEG)));
+
+        List<MenuItemResponse> vegOnly = menuService.getMenuItemsByRestaurant(4L, "veg");
+        assertEquals(1, vegOnly.size());
+        assertEquals(1L, vegOnly.get(0).getId());
+
+        // Blank / null diet → no filtering
+        assertEquals(2, menuService.getMenuItemsByRestaurant(4L, null).size());
+        assertEquals(2, menuService.getMenuItemsByRestaurant(4L, "  ").size());
+    }
+
+    @Test
+    void bulkUploadCsv_returnsEmptyReport() {
+        com.bhukkad.entity.Restaurant restaurant = new com.bhukkad.entity.Restaurant();
+        restaurant.setId(4L);
+        com.bhukkad.entity.RestaurantOwner owner = new com.bhukkad.entity.RestaurantOwner();
+        owner.setId(9L);
+        restaurant.setOwner(owner);
+        when(restaurantRepository.findByIdWithDetails(4L)).thenReturn(Optional.of(restaurant));
+        when(securityUtils.getCurrentUserId()).thenReturn(9L);
+
+        com.bhukkad.dto.response.BulkUploadReport report =
+                menuService.bulkUploadCsv(org.mockito.Mockito.mock(org.springframework.web.multipart.MultipartFile.class), 4L, 9L);
+
+        assertNotNull(report);
+        assertEquals(0, report.succeeded());
+    }
+
+    private com.bhukkad.entity.MenuItem menuItemWithDiet(Long id, com.bhukkad.entity.MenuItem.FoodType foodType) {
+        com.bhukkad.entity.MenuItem item = fullMenuItem(id);
+        item.setFoodType(foodType);
         return item;
     }
 }

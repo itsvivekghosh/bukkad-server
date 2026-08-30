@@ -22,6 +22,8 @@ import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.search.AutocompleteService;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.RestaurantService;
+import com.bhukkad.util.Constants;
+import com.bhukkad.util.DistanceCalculator;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,43 +67,57 @@ public class RestaurantServiceImpl implements RestaurantService {
     @UseReadReplica
     public RestaurantResponse getRestaurantById(Long id) {
         String cacheKey = CacheKeyGenerator.restaurant(id);
-
-        Optional<RestaurantResponse> cached = cacheService.get(cacheKey, RestaurantResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        Restaurant restaurant = restaurantRepository.findByIdWithDetails(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
-
-        RestaurantResponse response = mapToResponse(restaurant);
-        cacheService.set(cacheKey, response, restaurantTtl);
-        return response;
+        return cacheService.getOrCompute(cacheKey, RestaurantResponse.class, restaurantTtl, () -> {
+            Restaurant restaurant = restaurantRepository.findByIdWithDetails(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+            return mapToResponse(restaurant);
+        });
     }
 
     @Override
     @UseReadReplica
     public List<RestaurantResponse> getAllActiveRestaurants() {
-        return getAllActiveRestaurants(null);
+        return getAllActiveRestaurants(null, null, null, null);
     }
 
     @Override
     @UseReadReplica
     public List<RestaurantResponse> getAllActiveRestaurants(Long tenantId) {
-        String cacheKey = CacheKeyGenerator.restaurantList();
-        List<RestaurantResponse> cached = cacheService.getList(cacheKey, RestaurantResponse.class).orElse(null);
-        if (cached != null && tenantId == null) {
-            return cached;
+        return getAllActiveRestaurants(tenantId, null, null, null);
+    }
+
+    @Override
+    @UseReadReplica
+    public List<RestaurantResponse> getActiveRestaurantsInRadius(Double latitude, Double longitude, Double radiusKm) {
+        return getAllActiveRestaurants(null, latitude, longitude, radiusKm);
+    }
+
+    private static final int RESTAURANT_LIST_MAX = 200;
+
+    @Override
+    @UseReadReplica
+    public List<RestaurantResponse> getAllActiveRestaurants(Long tenantId, Double latitude, Double longitude, Double radiusKm) {
+        // When a location + radius is provided, delegate to the geo-optimized nearby
+        // path (Redis GEO or SQL Haversine) instead of fetching the full global list.
+        if (latitude != null && longitude != null && radiusKm != null) {
+            return findNearbyRestaurants(latitude, longitude, radiusKm, 100);
         }
-        List<RestaurantResponse> restaurants = restaurantRepository.findAllActiveWithDetails()
-                .stream()
-                .filter(r -> !Restaurant.OnboardingStatus.REJECTED.equals(r.getOnboardingStatus())
-                        && !Restaurant.OnboardingStatus.SUSPENDED.equals(r.getOnboardingStatus()))
-                .filter(r -> tenantId == null || tenantId.equals(r.getTenantId()))
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-        if (tenantId == null) {
-            cacheService.set(cacheKey, restaurants, restaurantListTtl);
-        }
-        return restaurants;
+
+        String cacheKey = CacheKeyGenerator.restaurantList(tenantId);
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, restaurantListTtl, () -> {
+            List<RestaurantResponse> restaurants = restaurantRepository.findAllActiveWithDetails()
+                    .stream()
+                    .filter(r -> !Restaurant.OnboardingStatus.REJECTED.equals(r.getOnboardingStatus())
+                            && !Restaurant.OnboardingStatus.SUSPENDED.equals(r.getOnboardingStatus()))
+                    .filter(r -> tenantId == null || tenantId.equals(r.getTenantId()))
+                    .limit(RESTAURANT_LIST_MAX)
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+            if (restaurants.size() >= RESTAURANT_LIST_MAX) {
+                log.warn("RESTAURANT_LIST_CAPPED | tenantId={} | size={} | max={}", tenantId, restaurants.size(), RESTAURANT_LIST_MAX);
+            }
+            return restaurants;
+        });
     }
 
     @Override
@@ -109,17 +125,11 @@ public class RestaurantServiceImpl implements RestaurantService {
     public List<RestaurantResponse> getMyRestaurants() {
         Long ownerId = securityUtils.getCurrentUserId();
         String cacheKey = CacheKeyGenerator.restaurantsByOwner(ownerId);
-
-        Optional<List<RestaurantResponse>> cached = cacheService.getList(cacheKey, RestaurantResponse.class);
-        if (cached.isPresent()) return cached.get();
-
-        List<RestaurantResponse> restaurants = restaurantRepository.findByOwnerIdWithDetails(ownerId)
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-
-        cacheService.set(cacheKey, restaurants, restaurantListTtl);
-        return restaurants;
+        return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, restaurantListTtl, () ->
+                restaurantRepository.findByOwnerIdWithDetails(ownerId)
+                        .stream()
+                        .map(this::mapToResponse)
+                        .collect(Collectors.toList()));
     }
 
     @Override
@@ -134,17 +144,22 @@ public class RestaurantServiceImpl implements RestaurantService {
     @Override
     @UseReadReplica
     public List<RestaurantResponse> searchRestaurants(String keyword) {
-        String cacheKey = CacheKeyGenerator.restaurantSearch(keyword);
+        if (keyword == null || keyword.trim().length() < 2) {
+            return List.of();
+        }
+        String trimmed = keyword.trim();
+        String cacheKey = CacheKeyGenerator.restaurantSearch(trimmed);
         return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () -> {
             List<Restaurant> results;
             try {
-                results = restaurantRepository.fullTextSearchByName(keyword.trim());
-                if (results.isEmpty()) {
-                    results = restaurantRepository.searchByNameWithDetails(keyword);
+                results = restaurantRepository.fullTextSearchByName(trimmed);
+                if (results.isEmpty() && trimmed.length() >= 3) {
+                    // Fallback only for >=3 chars to avoid full scan on single char
+                    results = restaurantRepository.searchByNameWithDetails(trimmed);
                 }
             } catch (Exception ex) {
-                log.debug("RESTAURANT_FULLTEXT_FALLBACK | keyword={}", keyword);
-                results = restaurantRepository.searchByNameWithDetails(keyword);
+                log.debug("RESTAURANT_FULLTEXT_FALLBACK | keyword={}", trimmed);
+                results = trimmed.length() >= 3 ? restaurantRepository.searchByNameWithDetails(trimmed) : List.of();
             }
             // Batch-fetch lazy associations for all results in ONE query instead of
             // one findByIdWithDetails per restaurant (N+1).
@@ -166,14 +181,53 @@ public class RestaurantServiceImpl implements RestaurantService {
     @UseReadReplica
     public List<RestaurantResponse> findNearbyRestaurants(
             double latitude, double longitude, double radiusKm, int limit) {
+        return findNearbyRestaurantsInternal(latitude, longitude, radiusKm, limit,
+                (a, b) -> 0); // preserve Redis GEO / SQL query ordering (by distance)
+    }
+
+    @Override
+    @UseReadReplica
+    public List<RestaurantResponse> findTopRatedNearbyRestaurants(
+            double latitude, double longitude, double radiusKm, int limit) {
+        return findNearbyRestaurantsInternal(latitude, longitude, radiusKm, limit,
+                (a, b) -> {
+                    double da = a.getAverageRating() != null ? a.getAverageRating() : 0.0;
+                    double db = b.getAverageRating() != null ? b.getAverageRating() : 0.0;
+                    int cmp = Double.compare(db, da); // descending
+                    if (cmp != 0) return cmp;
+                    int ra = a.getTotalReviews() != null ? a.getTotalReviews() : 0;
+                    int rb = b.getTotalReviews() != null ? b.getTotalReviews() : 0;
+                    return Integer.compare(rb, ra); // descending reviews as tiebreaker
+                });
+    }
+
+    /**
+     * Shared proximity-finding logic with a pluggable sort comparator.
+     * The geo index (Redis GEO) is checked first; if empty, the SQL Haversine
+     * fallback with bounding-box pre-filter runs. Results are sorted by the
+     * provided comparator.
+     */
+    private List<RestaurantResponse> findNearbyRestaurantsInternal(
+            double latitude, double longitude, double radiusKm, int limit,
+            java.util.Comparator<Restaurant> sortComparator) {
         String cacheKey = CacheKeyGenerator.restaurantNearby(latitude, longitude, radiusKm);
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         double safeRadius = Math.min(Math.max(radiusKm, 0.5), 50.0);
         return cacheService.getListOrCompute(cacheKey, RestaurantResponse.class, searchTtl, () -> {
+            // Add a small epsilon to the radius for both the Redis GEO path and
+            // the SQL fallback to make the boundary inclusive across implementations.
+            // Redis GEO and MySQL Haversine may round differently at the exact
+            // boundary due to floating-point precision.
+            double epsilonKm = Constants.PROXIMITY_RADIUS_EPSILON_KM;
             List<Long> ids = restaurantGeoIndexService.findNearbyRestaurantIds(
-                    latitude, longitude, safeRadius, safeLimit);
+                    latitude, longitude, safeRadius + epsilonKm, safeLimit);
             if (ids.isEmpty()) {
-                ids = restaurantRepository.findNearbyRestaurantIds(latitude, longitude, safeRadius, safeLimit);
+                // SQL Haversine fallback with bounding-box pre-filter for
+                // large datasets — the BETWEEN clauses on latitude/longitude
+                // leverage idx_address_lat_lon, avoiding a full table scan.
+                double[] deltas = DistanceCalculator.boundingBoxDeltas(safeRadius + epsilonKm);
+                ids = restaurantRepository.findNearbyRestaurantIds(
+                        latitude, longitude, deltas[0], deltas[1], safeRadius, epsilonKm, safeLimit);
             }
             if (ids.isEmpty()) {
                 return List.of();
@@ -182,10 +236,13 @@ public class RestaurantServiceImpl implements RestaurantService {
             // findByIdWithDetails per id (N+1).
             Map<Long, Restaurant> byId = restaurantRepository.findAllByIdsWithDetails(ids).stream()
                     .collect(Collectors.toMap(Restaurant::getId, r -> r));
-            return ids.stream()
+            List<Restaurant> sorted = ids.stream()
                     .map(byId::get)
                     .filter(Objects::nonNull)
-                    .map(this::mapToResponse)
+                    .sorted(sortComparator)
+                    .collect(Collectors.toList());
+            return sorted.stream()
+                    .map(r -> mapToResponse(r, latitude, longitude))
                     .collect(Collectors.toList());
         });
     }
@@ -206,7 +263,8 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        return restaurantRepository.findAllById(ids).stream()
+        // Use fetch-join batch to avoid N+1 lazy loads for address/cuisines (was findAllById → 2N queries)
+        return restaurantRepository.findAllByIdsWithDetails(ids).stream()
                 .map(this::mapToResponse)
                 .collect(java.util.stream.Collectors.toList());
     }
@@ -450,6 +508,24 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== MAPPERS ====================
 
     /**
+     * Convenience overload that delegates to the main mapper and then
+     * populates {@code distanceKm} from the given reference coordinates.
+     * Called only from proximity paths — the reference coords are always valid doubles.
+     */
+    private RestaurantResponse mapToResponse(Restaurant restaurant, double latitude, double longitude) {
+        RestaurantResponse response = mapToResponse(restaurant);
+        if (restaurant.getAddress() != null
+                && restaurant.getAddress().getLatitude() != null
+                && restaurant.getAddress().getLongitude() != null) {
+            response.setDistanceKm(DistanceCalculator.calculateDistance(
+                    latitude, longitude,
+                    restaurant.getAddress().getLatitude(),
+                    restaurant.getAddress().getLongitude()));
+        }
+        return response;
+    }
+
+    /**
      * Maps a Restaurant entity to its response DTO.
      *
      * <p>Address and cuisines are lazy associations. When the entity was loaded
@@ -500,7 +576,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .freeDeliveryAvailable(restaurant.getFreeDeliveryAvailable())
                 .freeDeliveryAbove(restaurant.getFreeDeliveryAbove())
                 .isPureVeg(restaurant.getIsPureVeg())
-                .features(restaurant.getFeatures())
+                .features(restaurant.getFeatures() == null ? Set.of() : new java.util.HashSet<>(restaurant.getFeatures()))
                 .virtualBrandName(restaurant.getVirtualBrandName())
                 .onboardingStatus(restaurant.getOnboardingStatus() != null ? restaurant.getOnboardingStatus().name() : null)
                 .tenantId(restaurant.getTenantId())

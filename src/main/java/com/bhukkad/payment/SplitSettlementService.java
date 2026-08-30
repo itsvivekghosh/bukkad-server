@@ -1,13 +1,10 @@
 package com.bhukkad.payment;
 
-import com.bhukkad.config.RiderEarningsProperties;
 import com.bhukkad.config.SettlementProperties;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.RestaurantSettlement;
-import com.bhukkad.entity.RiderEarning;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.repository.RestaurantSettlementRepository;
-import com.bhukkad.repository.RiderEarningRepository;
 import com.bhukkad.util.PriceCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,9 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class SplitSettlementService {
 
     private final RestaurantSettlementRepository restaurantSettlementRepository;
-    private final RiderEarningRepository riderEarningRepository;
     private final SettlementProperties settlementProperties;
-    private final RiderEarningsProperties riderEarningsProperties;
+    private final com.bhukkad.outbox.OutboxEventService outboxEventService;
 
     @Transactional
     public void settle(Order order) {
@@ -39,9 +35,20 @@ public class SplitSettlementService {
             recordRestaurantSettlement(order);
             recorded = true;
         }
-        if (order.getDeliveryAgent() != null
-                && !riderEarningRepository.existsByOrderId(order.getId())) {
-            recordRiderEarning(order);
+        // Rider earnings are the delivery domain's aggregate: publish the
+        // settlement through the outbox (atomic with this transaction) and let
+        // the delivery listener record it. The payment domain never writes
+        // delivery tables directly. Only publish when the settlement was newly
+        // recorded — re-settling must not re-trigger downstream work.
+        if (recorded && order.getDeliveryAgent() != null) {
+            outboxEventService.enqueue("ORDER_SETTLED", order.getId(),
+                    new com.bhukkad.event.OrderSettledEvent(
+                            order.getId(),
+                            order.getOrderNumber(),
+                            order.getRestaurant() != null ? order.getRestaurant().getId() : null,
+                            order.getDeliveryAgent().getId(),
+                            order.getTipAmount(),
+                            java.time.LocalDateTime.now()));
             recorded = true;
         }
         log.info("Split settlement processed | orderId={} | recorded={}", order.getId(), recorded);
@@ -66,16 +73,5 @@ public class SplitSettlementService {
         restaurantSettlementRepository.save(settlement);
     }
 
-    private void recordRiderEarning(Order order) {
-        double base = riderEarningsProperties.getPerDelivery();
-        double bonus = order.getTipAmount() != null ? order.getTipAmount() : 0.0;
-        double amount = PriceCalculator.roundToTwoDecimals(base + bonus);
-
-        RiderEarning earning = new RiderEarning();
-        earning.setAgent(order.getDeliveryAgent());
-        earning.setOrder(order);
-        earning.setAmount(amount);
-        earning.setStatus(RiderEarning.EarningStatus.PENDING);
-        riderEarningRepository.save(earning);
-    }
+    /** Delivery-side listener records the earning; see DeliveryEventListener. */
 }

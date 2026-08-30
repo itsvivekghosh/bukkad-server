@@ -219,17 +219,17 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (walletRefund > 0 && order != null) {
             walletService.credit(
-                    order.getCustomer(),
+                    order.getCustomer().getId(),
                     walletRefund,
                     WalletTransaction.TransactionType.ORDER_REFUND,
-                    payment,
+                    payment != null ? payment.getId() : null,
                     "Refund for order " + order.getOrderNumber());
         } else if (payment.getPaymentMethod() == Payment.PaymentMethod.WALLET && order != null) {
             walletService.credit(
-                    order.getCustomer(),
+                    order.getCustomer().getId(),
                     payment.getAmount(),
                     WalletTransaction.TransactionType.ORDER_REFUND,
-                    payment,
+                    payment != null ? payment.getId() : null,
                     "Refund for order " + order.getOrderNumber());
         }
 
@@ -249,7 +249,7 @@ public class PaymentServiceImpl implements PaymentService {
                             .gatewayPaymentId(payment.getGatewayPaymentId())
                             .amount(gatewayRefund)
                             .idempotencyKey("refund-" + paymentId)
-                            .build());
+                            .build()).join();
             if (!refund.success()) {
                 throw new BusinessException("Gateway refund failed");
             }
