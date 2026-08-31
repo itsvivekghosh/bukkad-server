@@ -1,8 +1,13 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.dto.request.LoginRequest;
+import com.bhukkad.dto.request.OtpVerifyRequest;
+import com.bhukkad.dto.request.PhoneRegisterRequest;
+import com.bhukkad.dto.request.PhoneSendOtpRequest;
 import com.bhukkad.dto.request.RegisterRequest;
 import com.bhukkad.dto.response.AuthResponse;
+import com.bhukkad.dto.response.PhoneRegisterResponse;
+import com.bhukkad.dto.response.PhoneSendOtpResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
@@ -16,10 +21,14 @@ import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.UserRepository;
 import com.bhukkad.referral.ReferralService;
 import com.bhukkad.referral.AffiliateService;
+import com.bhukkad.security.AccountFields;
+import com.bhukkad.security.AccountLookupService;
 import com.bhukkad.security.JwtTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -42,6 +51,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +62,8 @@ class AuthServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private AccountLookupService accountLookupService;
     @Mock
     private CustomerRepository customerRepository;
     @Mock
@@ -76,6 +88,9 @@ class AuthServiceImplTest {
     @Mock
     private AffiliateService affiliateService;
 
+    @Mock
+    private com.bhukkad.service.PhoneVerificationService phoneVerificationService;
+
     @InjectMocks
     private AuthServiceImpl authService;
 
@@ -97,12 +112,14 @@ class AuthServiceImplTest {
         return request;
     }
 
-    private User activeUser() {
-        User user = new User();
+    private Customer activeUser() {
+        // V62: credentials live on the role tables, so a customer account is
+        // built as a Customer and read back through the AccountFields shim.
+        Customer user = new Customer();
         user.setId(1L);
-        user.setEmail("user@example.com");
-        user.setPassword("encoded-password");
-        user.setFullName("Test User");
+        AccountFields.setEmail(user, "user@example.com");
+        AccountFields.setPassword(user, "encoded-password");
+        AccountFields.setFullName(user, "Test User");
         user.setRole(User.UserRole.CUSTOMER);
         user.setActive(true);
         user.setEmailVerified(false);
@@ -112,7 +129,7 @@ class AuthServiceImplTest {
     @Test
     void register_emailExists_throwsBusinessException() {
         RegisterRequest request = registerRequest(User.UserRole.CUSTOMER);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(true);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(true);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.register(request));
         assertEquals("Email already exists", ex.getMessage());
@@ -122,8 +139,8 @@ class AuthServiceImplTest {
     @Test
     void register_phoneExists_throwsBusinessException() {
         RegisterRequest request = registerRequest(User.UserRole.CUSTOMER);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
-        when(userRepository.existsByPhoneNumber(request.getPhoneNumber())).thenReturn(true);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(true);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.register(request));
         assertEquals("Phone number already exists", ex.getMessage());
@@ -133,7 +150,7 @@ class AuthServiceImplTest {
     void register_phoneNull_skipsPhoneUniquenessCheck() {
         RegisterRequest request = registerRequest(User.UserRole.CUSTOMER);
         request.setPhoneNumber(null);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
         when(customerRepository.save(any(Customer.class))).thenAnswer(inv -> {
             Customer c = inv.getArgument(0);
             c.setId(1L);
@@ -143,15 +160,15 @@ class AuthServiceImplTest {
         AuthResponse response = authService.register(request);
 
         assertEquals("access-token", response.getToken());
-        verify(userRepository, never()).existsByPhoneNumber(any());
+        verify(accountLookupService, never()).existsAnywhereByPhoneNumber(any());
         verify(securityEventLogger).logRegistration(1L, "user@example.com", "CUSTOMER");
     }
 
     @Test
     void register_customer_success() {
         RegisterRequest request = registerRequest(User.UserRole.CUSTOMER);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
-        when(userRepository.existsByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
         when(customerRepository.save(any(Customer.class))).thenAnswer(inv -> {
             Customer c = inv.getArgument(0);
             c.setId(10L);
@@ -176,8 +193,8 @@ class AuthServiceImplTest {
     @Test
     void register_restaurantOwner_setsVerifiedTrue() {
         RegisterRequest request = registerRequest(User.UserRole.RESTAURANT_OWNER);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
-        when(userRepository.existsByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
         when(restaurantOwnerRepository.save(any(RestaurantOwner.class))).thenAnswer(inv -> {
             RestaurantOwner owner = inv.getArgument(0);
             owner.setId(20L);
@@ -196,8 +213,8 @@ class AuthServiceImplTest {
     @Test
     void register_deliveryAgent_success() {
         RegisterRequest request = registerRequest(User.UserRole.DELIVERY_AGENT);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
-        when(userRepository.existsByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
         when(deliveryAgentRepository.save(any(DeliveryAgent.class))).thenAnswer(inv -> {
             DeliveryAgent agent = inv.getArgument(0);
             agent.setId(30L);
@@ -216,8 +233,8 @@ class AuthServiceImplTest {
     @Test
     void register_adminRole_throwsInvalidUserRole() {
         RegisterRequest request = registerRequest(User.UserRole.ADMIN);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
-        when(userRepository.existsByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.register(request));
         assertEquals("Invalid user role", ex.getMessage());
@@ -226,8 +243,8 @@ class AuthServiceImplTest {
     @Test
     void register_nullRole_throwsNullPointerException() {
         RegisterRequest request = registerRequest(null);
-        when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
-        when(userRepository.existsByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
+        when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
 
         assertThrows(NullPointerException.class, () -> authService.register(request));
     }
@@ -237,10 +254,10 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setEmail("user@example.com");
         request.setPassword("secret1");
-        User user = activeUser();
+        Customer user = activeUser();
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(org.mockito.Mockito.mock(Authentication.class));
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         AuthResponse response = authService.login(request);
 
@@ -256,7 +273,7 @@ class AuthServiceImplTest {
         request.setEmail("missing@example.com");
         request.setPassword("secret1");
         when(authenticationManager.authenticate(any())).thenReturn(null);
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.login(request));
         assertEquals("User not found", ex.getMessage());
@@ -268,16 +285,16 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setEmail("user@example.com");
         request.setPassword("secret1");
-        User user = activeUser(); // stored password is "encoded-password" (legacy)
+        Customer user = activeUser(); // stored password is "encoded-password" (legacy)
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(org.mockito.Mockito.mock(Authentication.class));
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(userRepository.save(user)).thenReturn(user);
         when(passwordEncoder.encode("secret1")).thenReturn("{argon2}$argon2id$new-hash");
 
         authService.login(request);
 
-        assertEquals("{argon2}$argon2id$new-hash", user.getPassword());
+        assertEquals("{argon2}$argon2id$new-hash", AccountFields.password(user));
         verify(userRepository).save(user);
     }
 
@@ -286,11 +303,11 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setEmail("user@example.com");
         request.setPassword("secret1");
-        User user = activeUser();
-        user.setPassword("{argon2}$argon2id$v=19$m=65536,t=3,p=1$salt$hash");
+        Customer user = activeUser();
+        AccountFields.setPassword(user, "{argon2}$argon2id$v=19$m=65536,t=3,p=1$salt$hash");
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(org.mockito.Mockito.mock(Authentication.class));
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         authService.login(request);
 
@@ -303,10 +320,10 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setEmail("user@example.com");
         request.setPassword("secret1");
-        User user = activeUser();
+        Customer user = activeUser();
         user.setActive(false);
         when(authenticationManager.authenticate(any())).thenReturn(null);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.login(request));
         assertEquals("Account is deactivated", ex.getMessage());
@@ -359,10 +376,10 @@ class AuthServiceImplTest {
 
     @Test
     void verifyEmail_matchingToken_success() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(userRepository.save(user)).thenReturn(user);
 
         authService.verifyEmail("user@example.com", "token");
@@ -375,7 +392,7 @@ class AuthServiceImplTest {
     void verifyEmail_userNotFound_throwsBusinessException() {
         when(jwtTokenProvider.extractUsername("token")).thenReturn("missing@example.com");
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> authService.verifyEmail("missing@example.com", "token"));
@@ -384,11 +401,11 @@ class AuthServiceImplTest {
 
     @Test
     void verifyEmail_alreadyVerified_throwsBusinessException() {
-        User user = activeUser();
+        Customer user = activeUser();
         user.setEmailVerified(true);
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> authService.verifyEmail("user@example.com", "token"));
@@ -398,8 +415,8 @@ class AuthServiceImplTest {
 
     @Test
     void forgotPassword_success() {
-        User user = activeUser();
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        Customer user = activeUser();
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(authTokenService.createPasswordResetToken(eq("user@example.com"), any())).thenReturn("reset-token");
 
         authService.forgotPassword("user@example.com");
@@ -409,7 +426,7 @@ class AuthServiceImplTest {
 
     @Test
     void forgotPassword_userNotFound_throwsBusinessException() {
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> authService.forgotPassword("missing@example.com"));
@@ -442,7 +459,7 @@ class AuthServiceImplTest {
     @Test
     void resetPassword_userNotFound_throwsBusinessException() {
         when(authTokenService.validatePasswordResetToken("token")).thenReturn("missing@example.com");
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> authService.resetPassword("token", "newpass"));
@@ -451,9 +468,9 @@ class AuthServiceImplTest {
 
     @Test
     void resetPassword_success() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(authTokenService.validatePasswordResetToken("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.encode("newpass")).thenReturn("new-encoded");
         when(userRepository.save(user)).thenReturn(user);
 
@@ -482,7 +499,7 @@ class AuthServiceImplTest {
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
         when(jwtTokenProvider.isRefreshToken("token")).thenReturn(true);
         when(jwtTokenProvider.extractUsername("token")).thenReturn("missing@example.com");
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.refreshToken("token"));
         assertEquals("User not found", ex.getMessage());
@@ -490,12 +507,12 @@ class AuthServiceImplTest {
 
     @Test
     void refreshToken_inactiveUser_throwsBusinessException() {
-        User user = activeUser();
+        Customer user = activeUser();
         user.setActive(false);
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
         when(jwtTokenProvider.isRefreshToken("token")).thenReturn(true);
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.refreshToken("token"));
         assertEquals("Account is deactivated", ex.getMessage());
@@ -503,11 +520,11 @@ class AuthServiceImplTest {
 
     @Test
     void refreshToken_success() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
         when(jwtTokenProvider.isRefreshToken("token")).thenReturn(true);
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(authTokenService.isRefreshTokenValid(1L, "token")).thenReturn(true);
 
         AuthResponse response = authService.refreshToken("token");
@@ -537,7 +554,7 @@ class AuthServiceImplTest {
     @Test
     void changePassword_userNotFound_throwsBusinessException() {
         when(jwtTokenProvider.extractUsername("token")).thenReturn("missing@example.com");
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> authService.changePassword("token", "old", "newpass"));
@@ -546,9 +563,9 @@ class AuthServiceImplTest {
 
     @Test
     void changePassword_incorrectOldPassword_throwsBusinessException() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("wrong", "encoded-password")).thenReturn(false);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -558,9 +575,9 @@ class AuthServiceImplTest {
 
     @Test
     void changePassword_newPasswordTooShort_throwsBusinessException() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("oldpass", "encoded-password")).thenReturn(true);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -570,9 +587,9 @@ class AuthServiceImplTest {
 
     @Test
     void changePassword_sameAsOld_throwsBusinessException() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("oldpass", "encoded-password")).thenReturn(true);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -582,9 +599,9 @@ class AuthServiceImplTest {
 
     @Test
     void changePassword_success() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("oldpass", "encoded-password")).thenReturn(true);
         when(passwordEncoder.encode("newpass")).thenReturn("new-encoded");
         when(userRepository.save(user)).thenReturn(user);
@@ -609,11 +626,11 @@ class AuthServiceImplTest {
 
     @Test
     void logout_validToken_succeeds() {
-        User user = activeUser();
+        Customer user = activeUser();
         when(jwtTokenProvider.validateToken("token")).thenReturn(true);
         when(jwtTokenProvider.isRefreshToken("token")).thenReturn(false);
         when(jwtTokenProvider.extractUsername("token")).thenReturn("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(jwtTokenProvider.getRemainingValidityMs("token")).thenReturn(1000L);
 
         authService.logout("token");
@@ -645,11 +662,11 @@ class AuthServiceImplTest {
 
     @Test
     void login_mfaEnabledAdmin_returnsMfaChallenge() {
-        User admin = activeUser();
+        Customer admin = activeUser();
         admin.setRole(User.UserRole.ADMIN);
         admin.setTotpEnabled(true);
         admin.setTotpSecret("JBSWY3DPEHPK3PXP");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(admin));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(admin));
         when(jwtTokenProvider.generateMfaToken(1L, "user@example.com")).thenReturn("mfa-token");
 
         AuthResponse response = authService.login(loginRequest());
@@ -665,7 +682,7 @@ class AuthServiceImplTest {
         User owner = activeUser();
         owner.setRole(User.UserRole.RESTAURANT_OWNER);
         owner.setTotpEnabled(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(owner));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(owner));
         when(jwtTokenProvider.generateMfaToken(1L, "user@example.com")).thenReturn("mfa-token");
 
         AuthResponse response = authService.login(loginRequest());
@@ -679,7 +696,7 @@ class AuthServiceImplTest {
         User customer = activeUser();
         customer.setRole(User.UserRole.CUSTOMER);
         customer.setTotpEnabled(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(customer));
+        when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(customer));
 
         AuthResponse response = authService.login(loginRequest());
 
@@ -689,7 +706,7 @@ class AuthServiceImplTest {
 
     @Test
     void verifyMfaLogin_validCode_issuesTokenPair() {
-        User user = activeUser();
+        Customer user = activeUser();
         user.setRole(User.UserRole.ADMIN);
         user.setTotpSecret("JBSWY3DPEHPK3PXP");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
@@ -707,7 +724,7 @@ class AuthServiceImplTest {
 
     @Test
     void verifyMfaLogin_wrongCode_throws() {
-        User user = activeUser();
+        Customer user = activeUser();
         user.setRole(User.UserRole.ADMIN);
         user.setTotpSecret("JBSWY3DPEHPK3PXP");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
@@ -738,6 +755,284 @@ class AuthServiceImplTest {
                 () -> authService.verifyMfaLogin("garbage", "123456"));
         verify(jwtTokenProvider, never()).extractUserId(anyString());
         verify(jwtTokenProvider, never()).extractUsername(anyString());
+    }
+
+    @Test
+    void registerPhone_otpSendFailure_throwsAndDoesNotPersistUser() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel("sms");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        // Simulate notification failure during OTP send
+        doThrow(new BusinessException("Failed to send OTP via sms. Please try again."))
+                .when(phoneVerificationService).sendOtp(eq("9999999999"), eq("sms"));
+
+        assertThrows(BusinessException.class, () -> authService.registerPhone(request));
+
+        // User must NOT have been persisted
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void registerPhone_success_returnsPhoneRegisterResponse() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel("sms");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        assertEquals("9999999999", response.getPhoneNumber());
+        assertTrue(response.getMessage().contains("OTP sent"));
+        verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("sms"));
+        verify(customerRepository).save(any());
+    }
+
+    @Test
+    void registerPhone_nonCustomerRole_throws() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setRole(User.UserRole.RESTAURANT_OWNER);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.registerPhone(request));
+        assertTrue(ex.getMessage().contains("only supports role CUSTOMER"));
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void registerPhone_phoneAlreadyRegistered_throwsAndDoesNotSave() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(true);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.registerPhone(request));
+        assertEquals("Phone number already registered", ex.getMessage());
+        verify(phoneVerificationService, never()).sendOtp(any(), any());
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void registerPhone_nullOtpChannel_defaultsToSms() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel(null);
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        authService.registerPhone(request);
+        verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("sms"));
+    }
+
+    @Test
+    void registerPhone_withPassword_setsProfileCompleted() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setPassword("secret123");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        assertEquals("9999999999", response.getPhoneNumber());
+
+        ArgumentCaptor<Customer> customerCaptor = ArgumentCaptor.forClass(Customer.class);
+        verify(customerRepository).save(customerCaptor.capture());
+        Customer savedCustomer = customerCaptor.getValue();
+        assertTrue(savedCustomer.getProfileCompleted());
+        assertNotNull(savedCustomer.getPassword());
+    }
+
+    @Test
+    void registerPhone_withoutPassword_setsProfileCompletedFalse() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setPassword(null);
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        authService.registerPhone(request);
+
+        ArgumentCaptor<Customer> customerCaptor = ArgumentCaptor.forClass(Customer.class);
+        verify(customerRepository).save(customerCaptor.capture());
+        Customer savedCustomer = customerCaptor.getValue();
+        assertFalse(savedCustomer.getProfileCompleted());
+        assertNull(savedCustomer.getPassword());
+    }
+
+    @Test
+    void registerPhone_referralServiceCalledAfterSave() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        authService.registerPhone(request);
+
+        InOrder inOrder = inOrder(customerRepository, referralService);
+        inOrder.verify(customerRepository).save(any());
+        inOrder.verify(referralService).initializeNewCustomer(any(), eq(null));
+    }
+
+    @Test
+    void registerPhone_success_responseContainsCorrectFields() {
+        PhoneRegisterRequest request = new PhoneRegisterRequest();
+        request.setPhoneNumber("9999999999");
+        request.setOtpChannel("whatsapp");
+        request.setRole(User.UserRole.CUSTOMER);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("9999999999")).thenReturn(false);
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        PhoneRegisterResponse response = authService.registerPhone(request);
+        assertEquals("9999999999", response.getPhoneNumber());
+        assertEquals(com.bhukkad.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
+        verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("whatsapp"));
+    }
+
+    // ------------------------------------------------------------------
+    // Unified phone sign-in (create-or-login)
+    // ------------------------------------------------------------------
+
+    @Test
+    void sendPhoneLoginOtp_newPhone_returnsIsNewUserTrue() {
+        PhoneSendOtpRequest request = new PhoneSendOtpRequest();
+        request.setPhoneNumber("7777777777");
+        request.setChannel("whatsapp");
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("7777777777")).thenReturn(false);
+
+        PhoneSendOtpResponse response = authService.sendPhoneLoginOtp(request);
+
+        assertEquals("7777777777", response.getPhoneNumber());
+        assertTrue(response.isNewUser());
+        assertEquals(com.bhukkad.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
+        verify(phoneVerificationService).sendOtp(eq("7777777777"), eq("whatsapp"));
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void sendPhoneLoginOtp_existingPhone_returnsIsNewUserFalse() {
+        PhoneSendOtpRequest request = new PhoneSendOtpRequest();
+        request.setPhoneNumber("7777777777");
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("7777777777")).thenReturn(true);
+
+        PhoneSendOtpResponse response = authService.sendPhoneLoginOtp(request);
+
+        assertFalse(response.isNewUser());
+        verify(phoneVerificationService).sendOtp(eq("7777777777"), eq("sms"));
+    }
+
+    @Test
+    void sendPhoneLoginOtp_otpDeliveryFailure_throwsAndDoesNotCreate() {
+        PhoneSendOtpRequest request = new PhoneSendOtpRequest();
+        request.setPhoneNumber("7777777777");
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("7777777777")).thenReturn(false);
+        doThrow(new BusinessException("Failed to send OTP via sms. Please try again."))
+                .when(phoneVerificationService).sendOtp(eq("7777777777"), eq("sms"));
+
+        assertThrows(BusinessException.class, () -> authService.sendPhoneLoginOtp(request));
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void verifyPhoneLogin_newPhone_createsUserAndIssuesTokens() {
+        OtpVerifyRequest request = new OtpVerifyRequest();
+        request.setPhoneNumber("7777777777");
+        request.setCode("123456");
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("7777777777")).thenReturn(false);
+        when(accountLookupService.byPhoneNumber("7777777777")).thenReturn(Optional.empty());
+        when(customerRepository.save(any())).thenAnswer(inv -> {
+            Customer c = inv.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        AuthResponse response = authService.verifyPhoneLogin(request);
+
+        assertTrue(response.isNewUser());
+        assertEquals(1L, response.getUserId());
+        verify(phoneVerificationService).verifyOtp(eq("7777777777"), eq("123456"));
+        verify(customerRepository).save(any());
+    }
+
+    @Test
+    void verifyPhoneLogin_existingPhone_logsInAndMarksVerified() {
+        OtpVerifyRequest request = new OtpVerifyRequest();
+        request.setPhoneNumber("7777777777");
+        request.setCode("123456");
+
+        Customer existing = new Customer();
+        existing.setId(5L);
+        existing.setPhoneNumber("7777777777");
+        existing.setEmail("phone_7777777777@temp.bhukkad.local");
+        existing.setRole(User.UserRole.CUSTOMER);
+        existing.setActive(true);
+        existing.setPhoneVerified(false);
+
+        when(accountLookupService.existsAnywhereByPhoneNumber("7777777777")).thenReturn(true);
+        when(accountLookupService.byPhoneNumber("7777777777")).thenReturn(Optional.of(existing));
+        when(userRepository.save(any())).thenReturn(existing);
+
+        AuthResponse response = authService.verifyPhoneLogin(request);
+
+        assertFalse(response.isNewUser());
+        assertEquals(5L, response.getUserId());
+        assertTrue(existing.getPhoneVerified());
+        verify(customerRepository, never()).save(any());
+    }
+
+    @Test
+    void verifyPhoneLogin_invalidOtp_throwsAndDoesNotCreate() {
+        OtpVerifyRequest request = new OtpVerifyRequest();
+        request.setPhoneNumber("7777777777");
+        request.setCode("000000");
+
+        doThrow(new BusinessException("Invalid or expired OTP"))
+                .when(phoneVerificationService).verifyOtp(eq("7777777777"), eq("000000"));
+
+        assertThrows(BusinessException.class, () -> authService.verifyPhoneLogin(request));
+        verify(customerRepository, never()).save(any());
     }
 
     private LoginRequest loginRequest() {

@@ -1,8 +1,7 @@
 package com.bhukkad.security;
 
-import com.bhukkad.entity.User;
+import com.bhukkad.entity.Customer;
 import com.bhukkad.exception.UnauthorizedException;
-import com.bhukkad.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,13 +23,13 @@ import static org.mockito.Mockito.when;
 class SecurityUtilsTest {
 
     @Mock
-    private UserRepository userRepository;
+    private AccountLookupService accountLookupService;
 
     private SecurityUtils securityUtils;
 
     @BeforeEach
     void setUp() {
-        securityUtils = new SecurityUtils(userRepository);
+        securityUtils = new SecurityUtils(accountLookupService);
         SecurityContextHolder.clearContext();
     }
 
@@ -69,7 +68,7 @@ class SecurityUtilsTest {
     @Test
     void getCurrentUser_userNotInDatabase() {
         setAuthenticated("missing@example.com");
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byIdentifier("missing@example.com")).thenReturn(Optional.empty());
 
         UnauthorizedException ex = assertThrows(UnauthorizedException.class, securityUtils::getCurrentUser);
         assertEquals("User not found: missing@example.com", ex.getMessage());
@@ -77,21 +76,50 @@ class SecurityUtilsTest {
 
     @Test
     void getCurrentUser_success() {
-        User user = persistedUser();
+        Customer customer = persistedCustomer();
         setAuthenticated("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.of(customer));
 
-        User result = securityUtils.getCurrentUser();
+        Customer result = (Customer) securityUtils.getCurrentUser();
 
-        assertEquals(user, result);
+        assertEquals(customer, result);
         assertEquals(10L, securityUtils.getCurrentUserId());
         assertEquals("user@example.com", securityUtils.getCurrentUserEmail());
     }
 
     @Test
+    void getCurrentUser_phoneFirstUser_resolvesByPhone() {
+        Customer phoneCustomer = new Customer();
+        phoneCustomer.setId(20L);
+        phoneCustomer.setPhoneNumber("9999999999");
+        phoneCustomer.setEmail(null);
+        setAuthenticated("9999999999");
+        when(accountLookupService.byIdentifier("9999999999")).thenReturn(Optional.of(phoneCustomer));
+
+        Customer result = (Customer) securityUtils.getCurrentUser();
+
+        assertEquals(phoneCustomer, result);
+        assertEquals(20L, securityUtils.getCurrentUserId());
+        assertNull(securityUtils.getCurrentUserEmail());
+    }
+
+    @Test
+    void getCurrentUserId_notAuthenticated_throws() {
+        SecurityContextHolder.clearContext();
+        assertThrows(UnauthorizedException.class, () -> securityUtils.getCurrentUserId());
+    }
+
+    @Test
+    void getCurrentUserEmail_notAuthenticated_throws() {
+        SecurityContextHolder.clearContext();
+        assertThrows(UnauthorizedException.class, () -> securityUtils.getCurrentUserEmail());
+    }
+
+    @Test
     void isCurrentUser_true() {
         setAuthenticated("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(persistedUser()));
+        when(accountLookupService.byIdentifier("user@example.com"))
+                .thenReturn(Optional.of(persistedCustomer()));
 
         assertTrue(securityUtils.isCurrentUser(10L));
     }
@@ -99,7 +127,8 @@ class SecurityUtilsTest {
     @Test
     void isCurrentUser_falseWhenDifferentId() {
         setAuthenticated("user@example.com");
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(persistedUser()));
+        when(accountLookupService.byIdentifier("user@example.com"))
+                .thenReturn(Optional.of(persistedCustomer()));
 
         assertFalse(securityUtils.isCurrentUser(99L));
     }
@@ -111,15 +140,17 @@ class SecurityUtilsTest {
         assertFalse(securityUtils.isCurrentUser(10L));
     }
 
-    private void setAuthenticated(String email) {
-        Authentication authentication = new UsernamePasswordAuthenticationToken(email, "n/a", List.of());
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+    private Customer persistedCustomer() {
+        Customer customer = new Customer();
+        customer.setId(10L);
+        customer.setEmail("user@example.com");
+        customer.setRole(Customer.UserRole.CUSTOMER);
+        return customer;
     }
 
-    private User persistedUser() {
-        User user = new User();
-        user.setId(10L);
-        user.setEmail("user@example.com");
-        return user;
+    private void setAuthenticated(String principal) {
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                principal, "n/a", List.of());
+        SecurityContextHolder.getContext().setAuthentication(authentication);
     }
 }

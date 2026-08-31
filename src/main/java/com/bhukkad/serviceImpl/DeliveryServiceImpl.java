@@ -212,7 +212,9 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     public List<DeliveryAgentResponse> getAllDeliveryAgents() {
-        return deliveryAgentRepository.findAll().stream()
+        // Paginated to avoid OOM at large fleet sizes; admin dashboard typically needs first page.
+        return deliveryAgentRepository.findAll(
+                        org.springframework.data.domain.PageRequest.of(0, 200)).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }

@@ -5,6 +5,7 @@ import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.dto.request.BatchOrderRequest;
 import com.bhukkad.dto.request.OrderRequest;
 import com.bhukkad.dto.response.BatchOrderResponse;
+import com.bhukkad.dto.response.BatchOrderResult;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.*;
 import com.bhukkad.event.OrderEventPublisher;
@@ -280,33 +281,124 @@ class OrderPlacementServiceTest {
                     return (stock != null && stock >= quantity) ? 1 : 0;
                 });
 
-        BatchOrderResponse response = service.createBatchOrders(request, null);
+         BatchOrderResponse response = service.createBatchOrders(request, null);
 
-        assertEquals(1, response.getSuccessCount());
-        assertEquals(0, response.getFailureCount());
-        assertEquals(1, response.getOrders().size());
-    }
+         assertEquals(1, response.getSuccessCount());
+         assertEquals(0, response.getFailureCount());
+         assertEquals(1, response.getOrders().size());
+         assertNotNull(response.getBatchId());
+         assertTrue(response.getBatchId().startsWith("batch-"));
+
+         BatchOrderResult result = response.getOrders().get(0);
+         assertTrue(result.isSuccess());
+         assertNull(result.getErrorMessage());
+         assertEquals(100L, result.getOrderId());
+         assertEquals(10L, result.getRestaurantId());
+     }
+
+     @Test
+     void createBatchOrders_recordsFailureForSubOrder() {
+         BatchOrderRequest request = new BatchOrderRequest();
+         request.setDeliveryAddressId(60L);
+         request.setPaymentMethod("CREDIT_CARD");
+
+         when(securityUtils.getCurrentUserId()).thenReturn(1L);
+         when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
+         when(cartItemRepository.findByCartIdWithMenuItem(cart.getId())).thenReturn(List.of(cartItem));
+         when(customerRepository.findById(1L)).thenReturn(Optional.empty());
+
+         BatchOrderResponse response = service.createBatchOrders(request, null);
+
+         assertEquals(0, response.getSuccessCount());
+         assertEquals(1, response.getFailureCount());
+         assertEquals(1, response.getErrors().size());
+         assertNotNull(response.getBatchId());
+         assertTrue(response.getBatchId().startsWith("batch-"));
+
+         BatchOrderResult failedResult = response.getOrders().get(0);
+         assertFalse(failedResult.isSuccess());
+         assertNotNull(failedResult.getErrorMessage());
+         assertEquals(10L, failedResult.getRestaurantId());
+     }
 
     @Test
-    void createBatchOrders_recordsFailureForSubOrder() {
+    void createBatchOrders_passesNewFieldsToOrderRequest() {
         BatchOrderRequest request = new BatchOrderRequest();
         request.setDeliveryAddressId(60L);
-        request.setPaymentMethod("CREDIT_CARD");
+        request.setPaymentMethod("WALLET");
+        request.setTipAmount(20.0);
+        request.setTotalTipAmount(20.0);
+        request.setCouponCode("SAVE10");
+        request.setLoyaltyPointsToRedeem(50);
+        request.setWalletAmountToUse(100.0);
+        request.setUseWallet(true);
 
-        when(securityUtils.getCurrentUserId()).thenReturn(1L);
-        when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
-        when(cartItemRepository.findByCartIdWithMenuItem(cart.getId())).thenReturn(List.of(cartItem));
-        when(customerRepository.findById(1L)).thenReturn(Optional.empty());
+        lenient().when(securityUtils.getCurrentUserId()).thenReturn(1L);
+        lenient().when(cartRepository.findByCustomerIdWithRestaurant(1L)).thenReturn(Optional.of(cart));
+        lenient().when(cartItemRepository.findByCartIdWithMenuItem(cart.getId())).thenReturn(List.of(cartItem));
+        lenient().when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        lenient().when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
+        lenient().when(scheduledOrderValidator.isScheduledOrder(null)).thenReturn(false);
+        lenient().when(addressRepository.findByIdWithCustomer(60L)).thenReturn(Optional.of(newAddress()));
+        lenient().when(menuItemRepository.decrementStockAtomic(anyLong(), anyInt()))
+                .thenAnswer(inv -> {
+                    int quantity = inv.getArgument(1);
+                    Integer stock = cartItem.getMenuItem().getStockQuantity();
+                    return (stock != null && stock >= quantity) ? 1 : 0;
+                });
+        lenient().when(orderPricingService.calculate(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(buildPricingResult());
+        lenient().when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
+            Order o = inv.getArgument(0);
+            o.setId(100L);
+            return o;
+        });
+        lenient().when(orderMapper.toResponse(any(Order.class))).thenAnswer(inv ->
+                OrderResponse.builder().id(((Order) inv.getArgument(0)).getId()).build());
+        lenient().when(paymentService.createPayment(anyLong(), anyString(), any())).thenReturn(paymentWithId());
+        lenient().when(paymentService.processPayment(anyLong(), any())).thenReturn(paymentWithId());
 
         BatchOrderResponse response = service.createBatchOrders(request, null);
 
-        assertEquals(0, response.getSuccessCount());
-        assertEquals(1, response.getFailureCount());
-        assertEquals(1, response.getErrors().size());
-    }
+         assertEquals(1, response.getSuccessCount());
+         assertEquals(0, response.getFailureCount());
+         assertNotNull(response.getBatchId());
+     }
 
-    @Test
-    void createOrder_successfulOrderCreation() {
+     @Test
+     void createBatchOrders_idempotencyCachedResponseReturned() {
+         BatchOrderRequest request = new BatchOrderRequest();
+         request.setDeliveryAddressId(60L);
+         request.setPaymentMethod("CREDIT_CARD");
+
+         BatchOrderResponse cached = BatchOrderResponse.builder()
+                 .orders(List.of(BatchOrderResult.builder()
+                         .orderId(99L)
+                         .orderNumber("ORD-CACHED")
+                         .restaurantId(10L)
+                         .restaurantName("Testaurant")
+                         .status("CONFIRMED")
+                         .totalAmount(100.0)
+                         .success(true)
+                         .build()))
+                 .successCount(1)
+                 .failureCount(0)
+                 .errors(List.of())
+                 .batchId("batch-cached-123")
+                 .build();
+
+         when(securityUtils.getCurrentUserId()).thenReturn(1L);
+         when(orderIdempotencyService.findCompletedBatchResponse("key-batch-1")).thenReturn(Optional.of(cached));
+
+         BatchOrderResponse response = service.createBatchOrders(request, "key-batch-1");
+
+         assertEquals("batch-cached-123", response.getBatchId());
+         assertEquals(1, response.getSuccessCount());
+         verify(orderIdempotencyService, never()).beginBatchOrderCreate(anyString(), anyLong());
+     }
+
+     @Test
+     void createOrder_successfulOrderCreation() {
         OrderRequest request = buildOrderRequest();
         stubHappyPathPrerequisites(null);
 
@@ -424,7 +516,7 @@ class OrderPlacementServiceTest {
 
         OrderResponse response = service.createOrder(request, null);
         assertEquals(100L, response.getId());
-        verify(walletService).debit(eq(customer), eq(50.0), any(), any(), anyString());
+        verify(walletService).debit(eq(1L), eq(50.0), any(), any(), anyString());
         // Regression: no loyalty points are earned at placement (the balance of
         // 500 is untouched); points are earned once at delivery instead.
         assertEquals(500, customer.getLoyaltyPoints());

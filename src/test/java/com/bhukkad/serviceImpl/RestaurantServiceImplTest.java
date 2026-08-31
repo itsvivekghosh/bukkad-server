@@ -726,13 +726,14 @@ class RestaurantServiceImplTest {
     @Test
     void getRestaurantsByIds_withIds_mapsRestaurants() {
         Restaurant r = fullRestaurant(1L, "Test Restaurant");
-        when(restaurantRepository.findAllById(List.of(1L))).thenReturn(List.of(r));
+        // Batch B fix: N+1 eliminated — service now uses a batch fetch-join.
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(r));
 
         var result = restaurantService.getRestaurantsByIds(List.of(1L));
 
         assertEquals(1, result.size());
         assertEquals(1L, result.get(0).getId());
-        verify(restaurantRepository).findAllById(List.of(1L));
+        verify(restaurantRepository).findAllByIdsWithDetails(List.of(1L));
     }
 
     private Restaurant fullRestaurant(Long id, String name) {
@@ -768,7 +769,10 @@ class RestaurantServiceImplTest {
 
     @Test
     void findNearbyRestaurants_geoIndexHits_mapsResponses() {
-        when(restaurantGeoIndexService.findNearbyRestaurantIds(12.97, 77.59, 5.0, 10))
+        // The service adds PROXIMITY_RADIUS_EPSILON_KM to the radius before
+        // calling the geo index — use matchers that tolerate this.
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                eq(12.97), eq(77.59), anyDouble(), eq(10)))
                 .thenReturn(List.of(1L));
         Restaurant r = fullRestaurant(1L, "Geo Hub");
         when(restaurantRepository.findAllByIdsWithDetails(List.of(1L))).thenReturn(List.of(r));
@@ -778,14 +782,14 @@ class RestaurantServiceImplTest {
 
         assertEquals(1, result.size());
         assertEquals("Geo Hub", result.get(0).getName());
-        verify(restaurantRepository, never()).findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt());
+        verify(restaurantRepository, never()).findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt());
     }
 
     @Test
     void findNearbyRestaurants_geoIndexEmpty_fallsBackToDbQuery() {
         when(restaurantGeoIndexService.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
                 .thenReturn(List.of());
-        when(restaurantRepository.findNearbyRestaurantIds(12.97, 77.59, 5.0, 10))
+        when(restaurantRepository.findNearbyRestaurantIds(eq(12.97), eq(77.59), anyDouble(), anyDouble(), eq(5.0), anyDouble(), eq(10)))
                 .thenReturn(List.of(2L));
         when(restaurantRepository.findAllByIdsWithDetails(List.of(2L)))
                 .thenReturn(List.of(fullRestaurant(2L, "DB Hub")));
@@ -801,7 +805,7 @@ class RestaurantServiceImplTest {
     void findNearbyRestaurants_noRestaurantsAnywhere_returnsEmpty() {
         when(restaurantGeoIndexService.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
                 .thenReturn(List.of());
-        when(restaurantRepository.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyInt()))
+        when(restaurantRepository.findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt()))
                 .thenReturn(List.of());
 
         List<RestaurantResponse> result =
@@ -822,5 +826,223 @@ class RestaurantServiceImplTest {
                 restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
 
         assertEquals(1, result.size());
+    }
+
+    // ==================== getActiveRestaurantsInRadius / proximity ====================
+
+    @Test
+    void getActiveRestaurantsInRadius_delegatesToFindNearbyRestaurants() {
+        // The service adds PROXIMITY_RADIUS_EPSILON_KM to the radius — use matchers.
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(eq(12.97), eq(77.59), anyDouble(), eq(50)))
+                .thenReturn(List.of(1L));
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L)))
+                .thenReturn(List.of(fullRestaurant(1L, "Nearby")));
+
+        List<RestaurantResponse> result =
+                restaurantService.getActiveRestaurantsInRadius(12.97, 77.59, 5.0);
+
+        assertEquals(1, result.size());
+        assertEquals("Nearby", result.get(0).getName());
+        // distanceKm should be computed and set (restaurant address is at 12.97,77.59)
+        assertEquals(0.0, result.get(0).getDistanceKm(), 0.1);
+    }
+
+    @Test
+    void getAllActiveRestaurants_withLocation_delegatesToNearbyPath() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(eq(12.97), eq(77.59), anyDouble(), eq(50)))
+                .thenReturn(List.of(2L));
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(2L)))
+                .thenReturn(List.of(fullRestaurant(2L, "Zone Restaurant")));
+
+        List<RestaurantResponse> result =
+                restaurantService.getAllActiveRestaurants(null, 12.97, 77.59, 5.0);
+
+        assertEquals(1, result.size());
+        assertEquals("Zone Restaurant", result.get(0).getName());
+        verify(restaurantRepository, never()).findAllActiveWithDetails();
+    }
+
+    @Test
+    void getAllActiveRestaurants_withoutLocation_fallsBackToGlobalList() {
+        List<RestaurantResponse> cached = List.of(
+                RestaurantResponse.builder().id(1L).name("Global A").build());
+        when(cacheService.getList(CacheKeyGenerator.restaurantList(), RestaurantResponse.class))
+                .thenReturn(Optional.of(cached));
+
+        List<RestaurantResponse> result =
+                restaurantService.getAllActiveRestaurants(null, null, null, null);
+
+        assertSame(cached, result);
+        verify(restaurantRepository, never()).findAllActiveWithDetails();
+    }
+
+    @Test
+    void getAllActiveRestaurants_partialLocation_returnsGlobalList() {
+        // lat present but lon/radius null -> should NOT delegate to nearby path
+        when(cacheService.getList(CacheKeyGenerator.restaurantList(), RestaurantResponse.class))
+                .thenReturn(Optional.of(List.of(
+                        RestaurantResponse.builder().id(1L).name("Should Be Returned").build())));
+
+        List<RestaurantResponse> result =
+                restaurantService.getAllActiveRestaurants(null, 12.97, null, null);
+
+        assertEquals(1, result.size());
+        verify(restaurantRepository, never()).findNearbyRestaurantIds(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt());
+    }
+
+    @Test
+    void findNearbyRestaurants_distanceKmSetOnResponse() {
+        // Restaurant at 12.97, 77.59 (same as query coords) -> distance ~0.
+        // The service adds PROXIMITY_RADIUS_EPSILON_KM to the radius.
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                eq(12.97), eq(77.59), anyDouble(), eq(10)))
+                .thenReturn(List.of(1L));
+        Restaurant r = spy(fullRestaurant(1L, "AtLocation"));
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L)))
+                .thenReturn(List.of(r));
+
+        List<RestaurantResponse> result =
+                restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertNotNull(result.get(0).getDistanceKm());
+        assertEquals(0.0, result.get(0).getDistanceKm(), 0.01);
+    }
+
+    @Test
+    void findNearbyRestaurants_distanceKmNullWhenNoAddress() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                eq(12.97), eq(77.59), anyDouble(), eq(10)))
+                .thenReturn(List.of(3L));
+        Restaurant restaurantWithoutAddress = new Restaurant();
+        restaurantWithoutAddress.setId(3L);
+        restaurantWithoutAddress.setName("No Address");
+        restaurantWithoutAddress.setIsActive(true);
+        restaurantWithoutAddress.setIsOpen(true);
+        restaurantWithoutAddress.setIsPureVeg(false);
+        restaurantWithoutAddress.setAverageRating(4.0);
+        restaurantWithoutAddress.setAverageDeliveryTime(30);
+        restaurantWithoutAddress.setMinimumOrderAmount(100.0);
+        restaurantWithoutAddress.setDeliveryFee(20.0);
+        restaurantWithoutAddress.setFeatures(Set.of());
+        restaurantWithoutRestaurantCuisines(restaurantWithoutAddress);
+
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(3L)))
+                .thenReturn(List.of(restaurantWithoutAddress));
+
+        List<RestaurantResponse> result =
+                restaurantService.findNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(1, result.size());
+        assertNull(result.get(0).getDistanceKm());
+    }
+
+    private void restaurantWithoutRestaurantCuisines(Restaurant r) {
+        // Ensure cuisines set is initialized to avoid NPE in mapping
+        r.setCuisines(Set.of());
+    }
+
+    // ==================== findTopRatedNearbyRestaurants ====================
+
+    @Test
+    void findTopRatedNearbyRestaurants_geoIndexHits_returnsSortedByRating() {
+        // The service adds PROXIMITY_RADIUS_EPSILON_KM to the radius for the
+        // geo index — use eq for lat/lon/limit, anyDouble for radius.
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                eq(12.97), eq(77.59), anyDouble(), eq(10)))
+                .thenReturn(List.of(1L, 2L));
+
+        Restaurant r1 = fullRestaurant(1L, "Better Rated");
+        r1.setAverageRating(4.5);
+        r1.setTotalReviews(100);
+        Restaurant r2 = fullRestaurant(2L, "Lower Rated");
+        r2.setAverageRating(3.8);
+        r2.setTotalReviews(50);
+
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L, 2L)))
+                .thenReturn(List.of(r1, r2));
+
+        List<RestaurantResponse> result =
+                restaurantService.findTopRatedNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(2, result.size());
+        // Higher-rated restaurant should come first
+        assertEquals("Better Rated", result.get(0).getName());
+        assertEquals("Lower Rated", result.get(1).getName());
+    }
+
+    @Test
+    void findTopRatedNearbyRestaurants_tieBreakByTotalReviews() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                eq(12.97), eq(77.59), anyDouble(), eq(10)))
+                .thenReturn(List.of(1L, 2L));
+
+        // Same rating, different review counts — more reviews should rank higher
+        Restaurant r1 = fullRestaurant(1L, "Four Stars Few Reviews");
+        r1.setAverageRating(4.3);
+        r1.setTotalReviews(30);
+        Restaurant r2 = fullRestaurant(2L, "Four Stars Many Reviews");
+        r2.setAverageRating(4.3);
+        r2.setTotalReviews(200);
+
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L, 2L)))
+                .thenReturn(List.of(r1, r2));
+
+        List<RestaurantResponse> result =
+                restaurantService.findTopRatedNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(2, result.size());
+        assertEquals("Four Stars Many Reviews", result.get(0).getName());
+        assertEquals("Four Stars Few Reviews", result.get(1).getName());
+    }
+
+    @Test
+    void findTopRatedNearbyRestaurants_nullRatingTreatedAsZero() {
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                eq(12.97), eq(77.59), anyDouble(), eq(10)))
+                .thenReturn(List.of(1L, 2L));
+
+        Restaurant r1 = fullRestaurant(1L, "No Rating");
+        r1.setAverageRating(null);
+        r1.setTotalReviews(null);
+        Restaurant r2 = fullRestaurant(2L, "Has Rating");
+        r2.setAverageRating(4.7);
+        r2.setTotalReviews(50);
+
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L, 2L)))
+                .thenReturn(List.of(r1, r2));
+
+        List<RestaurantResponse> result =
+                restaurantService.findTopRatedNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(2, result.size());
+        assertEquals("Has Rating", result.get(0).getName());
+        assertEquals("No Rating", result.get(1).getName());
+    }
+
+    @Test
+    void findTopRatedNearbyRestaurants_emptyGeoIndex_fallsBackToDbQuery() {
+        // Geo index returns empty → SQL fallback path runs
+        when(restaurantGeoIndexService.findNearbyRestaurantIds(
+                anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of());
+        when(restaurantRepository.findNearbyRestaurantIds(
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt()))
+                .thenReturn(List.of(1L, 2L));
+
+        Restaurant r1 = fullRestaurant(1L, "Top");
+        r1.setAverageRating(4.9);
+        r1.setTotalReviews(10);
+        Restaurant r2 = fullRestaurant(2L, "Second");
+        r2.setAverageRating(4.2);
+        r2.setTotalReviews(5);
+
+        when(restaurantRepository.findAllByIdsWithDetails(List.of(1L, 2L)))
+                .thenReturn(List.of(r1, r2));
+
+        List<RestaurantResponse> result =
+                restaurantService.findTopRatedNearbyRestaurants(12.97, 77.59, 5.0, 10);
+
+        assertEquals(2, result.size());
+        assertEquals("Top", result.get(0).getName());
     }
 }

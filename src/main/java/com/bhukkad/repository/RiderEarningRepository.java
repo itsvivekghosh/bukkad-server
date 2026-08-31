@@ -4,6 +4,7 @@ import com.bhukkad.entity.RiderEarning;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -36,6 +37,13 @@ public interface RiderEarningRepository extends JpaRepository<RiderEarning, Long
             Pageable pageable);
 
     List<RiderEarning> findByAgentIdAndStatus(Long agentId, RiderEarning.EarningStatus status);
+
+    @Modifying
+    @Query("UPDATE RiderEarning e SET e.status = :newStatus, e.paidAt = :now WHERE e.agent.id = :agentId AND e.status = :oldStatus")
+    int atomicSettleByAgent(@Param("agentId") Long agentId,
+                            @Param("oldStatus") RiderEarning.EarningStatus oldStatus,
+                            @Param("newStatus") RiderEarning.EarningStatus newStatus,
+                            @Param("now") LocalDateTime now);
 
     @Query("SELECT COALESCE(SUM(e.amount), 0) FROM RiderEarning e WHERE e.agent.id = :agentId AND e.status = :status")
     Double sumAmountByAgentIdAndStatus(@Param("agentId") Long agentId, @Param("status") RiderEarning.EarningStatus status);

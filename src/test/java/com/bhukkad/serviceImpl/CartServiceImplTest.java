@@ -4,6 +4,7 @@ import com.bhukkad.dto.request.CartItemRequest;
 import com.bhukkad.dto.response.CartResponse;
 import com.bhukkad.entity.Cart;
 import com.bhukkad.entity.CartItem;
+import com.bhukkad.entity.Coupon;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
@@ -369,7 +370,7 @@ class CartServiceImplTest {
         assertEquals("Cart is empty", ex.getMessage());
     }
 
-    @Test
+     @Test
     void applyCoupon_withRestaurant_validatesAgainstRestaurant() {
         Restaurant restaurant = restaurant(10L, "Spice Hub");
         Cart cart = cart(5L, restaurant);
@@ -378,10 +379,21 @@ class CartServiceImplTest {
         when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(item));
         when(cartItemRepository.findByCartIdWithMenuItem(5L)).thenReturn(List.of(item));
 
+        Coupon coupon = new Coupon();
+        coupon.setId(1L);
+        coupon.setCode("SAVE10");
+        coupon.setDiscountType(Coupon.DiscountType.PERCENTAGE);
+        coupon.setDiscountValue(10.0);
+        when(couponService.validateCoupon("SAVE10", 400.0, 10L)).thenReturn(coupon);
+        when(couponService.calculateDiscount(coupon, 400.0)).thenReturn(40.0);
+        when(cartRepository.save(cart)).thenReturn(cart);
+
         CartResponse response = cartService.applyCoupon("SAVE10");
 
         verify(couponService).validateCoupon("SAVE10", 400.0, 10L);
         assertEquals(400.0, response.getSubtotal());
+        assertEquals(40.0, response.getDiscountAmount());
+        assertEquals("SAVE10", response.getCouponCode());
     }
 
     @Test
@@ -391,6 +403,13 @@ class CartServiceImplTest {
         CartItem item = cartItem(20L, cart, menuItem(30L, "Biryani", 200.0), 1, null);
         when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(item));
         when(cartItemRepository.findByCartIdWithMenuItem(5L)).thenReturn(List.of(item));
+
+        Coupon coupon = new Coupon();
+        coupon.setId(1L);
+        coupon.setCode("SAVE10");
+        when(couponService.validateCoupon("SAVE10", 200.0, null)).thenReturn(coupon);
+        when(couponService.calculateDiscount(coupon, 200.0)).thenReturn(20.0);
+        when(cartRepository.save(cart)).thenReturn(cart);
 
         cartService.applyCoupon("SAVE10");
 

@@ -3,6 +3,7 @@ package com.bhukkad.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -57,7 +58,8 @@ public class Restaurant {
     private Address address;
 
     @JsonIgnore
-    @ManyToMany(fetch = FetchType.EAGER)
+    @ManyToMany(fetch = FetchType.LAZY)
+    @BatchSize(size = 50)
     @JoinTable(
             name = "restaurant_cuisines",
             joinColumns = @JoinColumn(name = "restaurant_id"),
@@ -139,7 +141,9 @@ public class Restaurant {
     @LastModifiedDate
     private LocalDateTime updatedAt;
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @JsonIgnore
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "restaurant_features", joinColumns = @JoinColumn(name = "restaurant_id"))
     @Column(name = "feature", length = 100)
     private Set<String> features = new HashSet<>();
@@ -147,12 +151,16 @@ public class Restaurant {
     @Column(length = 100)
     private String virtualBrandName;
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @JsonIgnore
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "restaurant_gallery", joinColumns = @JoinColumn(name = "restaurant_id"))
     @Column(name = "image_url", length = 500)
     private List<String> galleryImages = new ArrayList<>();
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @JsonIgnore
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @Enumerated(EnumType.STRING)
     @CollectionTable(name = "restaurant_food_types", joinColumns = @JoinColumn(name = "restaurant_id"))
     @Column(name = "food_type")

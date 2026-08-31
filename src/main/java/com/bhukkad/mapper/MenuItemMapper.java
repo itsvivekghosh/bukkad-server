@@ -2,7 +2,7 @@ package com.bhukkad.mapper;
 
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.entity.MenuItem;
-import com.bhukkad.storage.MenuImageService;
+
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 public abstract class MenuItemMapper {
 
     @Autowired
-    protected MenuImageService menuImageService;
+    protected ImageUrlResolver imageUrlResolver;
 
     @Mapping(source = "category.name", target = "categoryName")
     @Mapping(target = "foodType", expression = "java(enumName(menuItem.getFoodType()))")
@@ -22,6 +22,7 @@ public abstract class MenuItemMapper {
     @Mapping(target = "imageUrl", ignore = true)
     @Mapping(target = "additionalImages", ignore = true)
     @Mapping(target = "customizationOptions", ignore = true)
+    @Mapping(target = "restaurantDistanceKm", ignore = true)
     public abstract MenuItemResponse toResponse(MenuItem menuItem);
 
     /**
@@ -31,10 +32,10 @@ public abstract class MenuItemMapper {
      * so the resolution is invoked explicitly here.
      */
     public MenuItemResponse resolveImageUrls(MenuItem source, MenuItemResponse target) {
-        target.setImageUrl(menuImageService.resolvePublicUrl(source.getImageUrl()));
+        target.setImageUrl(imageUrlResolver.resolvePublicUrl(source.getImageUrl()));
         if (source.getAdditionalImages() != null) {
             target.setAdditionalImages(source.getAdditionalImages().stream()
-                    .map(menuImageService::resolvePublicUrl)
+                    .map(imageUrlResolver::resolvePublicUrl)
                     .collect(Collectors.toList()));
         }
         return target;

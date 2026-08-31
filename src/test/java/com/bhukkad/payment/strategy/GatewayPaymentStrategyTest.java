@@ -10,6 +10,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.concurrent.CompletableFuture;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -47,9 +49,11 @@ class GatewayPaymentStrategyTest {
         PaymentContext context = new PaymentContext(order, payment, "idem-key", 500.0);
 
         when(paymentGateway.createOrder(any())).thenReturn(
-                new PaymentGateway.GatewayOrderResult("order_123", "{}"));
+                CompletableFuture.completedFuture(
+                        new PaymentGateway.GatewayOrderResult("order_123", "{}")));
         when(paymentGateway.capturePayment(any())).thenReturn(
-                new PaymentGateway.GatewayPaymentResult("pay_123", "txn_123", true, "{}"));
+                CompletableFuture.completedFuture(
+                        new PaymentGateway.GatewayPaymentResult("pay_123", "txn_123", true, "{}")));
 
         Payment result = strategy.process(context);
 
@@ -78,7 +82,8 @@ class GatewayPaymentStrategyTest {
         PaymentContext context = new PaymentContext(order, payment, "idem-key", 500.0);
 
         when(paymentGateway.capturePayment(any())).thenReturn(
-                new PaymentGateway.GatewayPaymentResult("pay_123", "txn_123", false, "{}"));
+                CompletableFuture.completedFuture(
+                        new PaymentGateway.GatewayPaymentResult("pay_123", "txn_123", false, "{}")));
 
         Payment result = strategy.process(context);
 
@@ -121,7 +126,8 @@ class GatewayPaymentStrategyTest {
         PaymentContext context = new PaymentContext(order, payment, "idem-key", 500.0);
 
         when(paymentGateway.createOrder(any())).thenReturn(
-                new PaymentGateway.GatewayOrderResult("order_123", "{}"));
+                CompletableFuture.completedFuture(
+                        new PaymentGateway.GatewayOrderResult("order_123", "{}")));
         when(paymentGateway.capturePayment(any()))
                 .thenThrow(new RuntimeException("Gateway timeout"));
 

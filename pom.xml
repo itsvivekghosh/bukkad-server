@@ -112,6 +112,11 @@
 			<artifactId>resilience4j-spring-boot3</artifactId>
 			<version>2.1.0</version>
 		</dependency>
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-micrometer</artifactId>
+			<version>2.1.0</version>
+		</dependency>
 
 		<!-- JWT -->
 		<dependency>
@@ -322,6 +327,12 @@
 			<artifactId>spring-boot-starter-aop</artifactId>
 		</dependency>
 
+		<!-- HTTP client with pooling for RestTemplate (high-traffic outbound calls) -->
+		<dependency>
+			<groupId>org.apache.httpcomponents.client5</groupId>
+			<artifactId>httpclient5</artifactId>
+		</dependency>
+
 		<!-- Redis -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -446,9 +457,41 @@
 
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>copy-byte-buddy-agent</id>
+						<!-- Pre-load Byte Buddy as a -javaagent so Mockito's inline
+						     mock-maker never performs dynamic self-attachment. The
+						     JDK 17.0.15 attach-mechanism race on Homebrew builds
+						     intermittently fails mock creation ("Could not modify
+						     all classes"), and the resulting UnfinishedMockingSession
+						     poisons every subsequent test class in the fork. -->
+						<phase>process-test-classes</phase>
+						<goals>
+							<goal>copy</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.directory}</outputDirectory>
+							<artifactItems>
+								<artifactItem>
+									<groupId>net.bytebuddy</groupId>
+									<artifactId>byte-buddy-agent</artifactId>
+									<version>${byte-buddy.version}</version>
+									<type>jar</type>
+									<destFileName>byte-buddy-agent.jar</destFileName>
+								</artifactItem>
+							</artifactItems>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<argLine>@{argLine} -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true</argLine>
+					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false</argLine>
 					<!-- Single fork: the Mockito inline mock-maker's self-attach on
 					     Homebrew OpenJDK 17.0.15 races when surefire forks per-core,
 					     causing intermittent "Mockito cannot mock this class" errors.
@@ -568,6 +611,18 @@
 				<configuration>
 					<source>17</source>
 					<target>17</target>
+					<!-- Default incremental mode ("Changes detected - recompiling the
+					     module!") does a full-module recompile that stages outputs and
+					     has a known race leaving class files missing mid-run (observed
+					     as transient NoClassDefFoundError in surefire). Per-file
+					     staleness checking is deterministic. -->
+					<useIncrementalCompilation>false</useIncrementalCompilation>
+					<!-- Main compile runs annotation processors (Lombok + MapStruct).
+					     Test classes don't use Lombok/MapStruct, so skip annotation
+					     processing during test-compile to avoid the MapStruct NPE
+					     "toplevel.sourcefile is null" (known MapStruct 1.5.5 issue
+					     when the processor re-runs on already-generated sources). -->
+					<testCompilerArgument>-proc:none</testCompilerArgument>
 					<annotationProcessorPaths>
 						<path>
 							<groupId>org.projectlombok</groupId>

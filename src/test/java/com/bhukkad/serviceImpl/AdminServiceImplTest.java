@@ -5,8 +5,11 @@ import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
+import com.bhukkad.entity.Admin;
+import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.repository.AdminRepository;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.OrderRepository;
@@ -54,6 +57,8 @@ class AdminServiceImplTest {
     @Mock
     private DeliveryAgentRepository deliveryAgentRepository;
     @Mock
+    private AdminRepository adminRepository;
+    @Mock
     private RestaurantRepository restaurantRepository;
     @Mock
     private OrderRepository orderRepository;
@@ -85,7 +90,8 @@ class AdminServiceImplTest {
         when(restaurantOwnerRepository.count()).thenReturn(3L);
         when(deliveryAgentRepository.count()).thenReturn(1L);
         when(restaurantRepository.count()).thenReturn(4L);
-        when(restaurantRepository.findByIsActiveTrue()).thenReturn(List.of(restaurant(1L), restaurant(2L)));
+        // Batch B: active restaurant count is now a DB-side COUNT query.
+        when(restaurantRepository.countByIsActiveTrue()).thenReturn(2L);
         when(orderRepository.count()).thenReturn(20L);
         when(orderRepository.countByCreatedAtAfter(any(LocalDateTime.class))).thenReturn(2L);
         when(orderRepository.sumTotalAmount()).thenReturn(null);
@@ -122,7 +128,7 @@ class AdminServiceImplTest {
         when(restaurantOwnerRepository.count()).thenReturn(1L);
         when(deliveryAgentRepository.count()).thenReturn(1L);
         when(restaurantRepository.count()).thenReturn(1L);
-        when(restaurantRepository.findByIsActiveTrue()).thenReturn(List.of());
+        when(restaurantRepository.countByIsActiveTrue()).thenReturn(1L);
         when(orderRepository.count()).thenReturn(1L);
         when(orderRepository.countByCreatedAtAfter(any(LocalDateTime.class))).thenReturn(1L);
         when(orderRepository.sumTotalAmount()).thenReturn(500.0);
@@ -160,7 +166,7 @@ class AdminServiceImplTest {
         Map<String, Object> result = adminService.getAllUsers(0, 10, "customer", "ignored-search");
 
         verify(userRepository).findByRole(eq(User.UserRole.CUSTOMER), any(Pageable.class));
-        verify(userRepository, never()).findByFullNameContainingOrEmailContaining(any(), any(), any());
+        verify(customerRepository, never()).findByFullNameContainingOrEmailContaining(any(), any(), any());
         verify(userRepository, never()).findAll(any(Pageable.class));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> users = (List<Map<String, Object>>) result.get("users");
@@ -181,22 +187,36 @@ class AdminServiceImplTest {
 
     @Test
     void getAllUsers_emptyRoleWithSearch_usesNameOrEmailQuery() {
-        User user = user(2L, User.UserRole.ADMIN);
-        user.setCreatedAt(null);
-        Page<User> page = new PageImpl<>(List.of(user), pageRequest(1, 5), 6);
-        when(userRepository.findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class)))
-                .thenReturn(page);
+        // The admin hit carries a null createdAt to verify the null-safe summary mapping.
+        Admin adminHit = new Admin();
+        adminHit.setId(2L);
+        com.bhukkad.security.AccountFields.setEmail(adminHit, "user2@test.com");
+        com.bhukkad.security.AccountFields.setFullName(adminHit, "User 2");
+        adminHit.setRole(User.UserRole.ADMIN);
+        adminHit.setActive(true);
+        adminHit.setCreatedAt(null);
+        when(customerRepository.findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 5), 0));
+        when(restaurantOwnerRepository.findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 5), 0));
+        when(deliveryAgentRepository.findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 5), 0));
+        when(adminRepository.findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(adminHit), pageRequest(0, 5), 6));
 
-        Map<String, Object> result = adminService.getAllUsers(1, 5, "", "ada");
+        Map<String, Object> result = adminService.getAllUsers(0, 5, "", "ada");
 
-        verify(userRepository).findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class));
+        verify(customerRepository).findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class));
+        verify(restaurantOwnerRepository).findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class));
+        verify(deliveryAgentRepository).findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class));
+        verify(adminRepository).findByFullNameContainingOrEmailContaining(eq("ada"), eq("ada"), any(Pageable.class));
         verify(userRepository, never()).findByRole(any(), any());
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> users = (List<Map<String, Object>>) result.get("users");
         assertNull(users.get(0).get("createdAt"));
         assertEquals(6L, result.get("totalElements"));
         assertEquals(2, result.get("totalPages"));
-        assertEquals(1, result.get("currentPage"));
+        assertEquals(0, result.get("currentPage"));
         assertEquals(5, result.get("size"));
     }
 
@@ -225,12 +245,18 @@ class AdminServiceImplTest {
     @Test
     void getAllUsers_nullRoleWithSearch_usesSearch() {
         Page<User> page = new PageImpl<>(List.of(), pageRequest(0, 10), 0);
-        when(userRepository.findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class)))
-                .thenReturn(page);
+        when(customerRepository.findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 10), 0));
+        when(restaurantOwnerRepository.findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 10), 0));
+        when(deliveryAgentRepository.findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 10), 0));
+        when(adminRepository.findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), pageRequest(0, 10), 0));
 
         adminService.getAllUsers(0, 10, null, "x");
 
-        verify(userRepository).findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class));
+        verify(customerRepository).findByFullNameContainingOrEmailContaining(eq("x"), eq("x"), any(Pageable.class));
     }
 
     // ==================== activate / deactivate ====================
@@ -553,11 +579,13 @@ class AdminServiceImplTest {
     }
 
     private User user(Long id, User.UserRole role) {
-        User user = new User();
+        // V62: credentials live on the role table; AccountFields reads need a
+        // role-typed fixture.
+        Customer user = new Customer();
         user.setId(id);
-        user.setEmail("user" + id + "@test.com");
-        user.setFullName("User " + id);
-        user.setPhoneNumber("999000000" + id);
+        com.bhukkad.security.AccountFields.setEmail(user, "user" + id + "@test.com");
+        com.bhukkad.security.AccountFields.setFullName(user, "User " + id);
+        com.bhukkad.security.AccountFields.setPhoneNumber(user, "999000000" + id);
         user.setRole(role);
         user.setActive(true);
         user.setEmailVerified(false);

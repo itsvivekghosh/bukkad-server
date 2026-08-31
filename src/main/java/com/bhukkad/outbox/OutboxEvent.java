@@ -50,7 +50,15 @@ public class OutboxEvent {
 
     private LocalDateTime publishedAt;
 
+    /**
+     * Set when a sweep claims the event ({@code PROCESSING}) and cleared when it
+     * is finalised. The recovery sweep resets events stuck in {@code PROCESSING}
+     * for longer than {@code app.outbox.stale-processing-after-ms} back to
+     * {@code PENDING}, so a crashed sweep can never strand an event forever.
+     */
+    private LocalDateTime processingStartedAt;
+
     public enum OutboxStatus {
-        PENDING, PUBLISHED, FAILED
+        PENDING, PROCESSING, PUBLISHED, FAILED
     }
 }

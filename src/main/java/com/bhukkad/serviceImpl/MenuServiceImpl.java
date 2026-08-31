@@ -181,7 +181,8 @@ public class MenuServiceImpl implements MenuService {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        return menuItemRepository.findAllById(ids).stream()
+        // Batch fetch-join to avoid N+1 for category/restaurant (was findAllById → lazy per item)
+        return menuItemRepository.findAllByIdsWithDetails(ids).stream()
                 .map(menuItemMapper::toResponse)
                 .collect(java.util.stream.Collectors.toList());
     }
@@ -221,17 +222,23 @@ public class MenuServiceImpl implements MenuService {
     @Override
     @UseReadReplica
     public List<MenuItemResponse> searchMenuItems(String keyword) {
-        String cacheKey = CacheKeyGenerator.menuSearch(keyword);
+        if (keyword == null || keyword.trim().length() < 2) {
+            return List.of();
+        }
+        String trimmed = keyword.trim();
+        String cacheKey = CacheKeyGenerator.menuSearch(trimmed);
         return cacheService.getListOrCompute(cacheKey, MenuItemResponse.class, searchTtl, () -> {
             List<MenuItem> found;
             try {
-                found = menuItemRepository.fullTextSearch(keyword.trim());
-                if (found.isEmpty()) {
-                    found = menuItemRepository.searchByNameWithDetails(keyword);
+                found = menuItemRepository.fullTextSearch(trimmed);
+                if (found.isEmpty() && trimmed.length() >= 3) {
+                    found = menuItemRepository.searchByNameWithDetails(trimmed);
+                } else if (found.isEmpty()) {
+                    found = List.of();
                 }
             } catch (Exception ex) {
-                log.debug("MENU_FULLTEXT_FALLBACK | keyword={}", keyword);
-                found = menuItemRepository.searchByNameWithDetails(keyword);
+                log.debug("MENU_FULLTEXT_FALLBACK | keyword={}", trimmed);
+                found = trimmed.length() >= 3 ? menuItemRepository.searchByNameWithDetails(trimmed) : List.of();
             }
             // Batch-fetch lazy associations for all results in ONE query instead of
             // one findByIdWithDetails per item (N+1).

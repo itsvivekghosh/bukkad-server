@@ -7,28 +7,56 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
+
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.core5.util.Timeout;
 
 @Component
 @Slf4j
 public class NotificationHelper {
 
     private final RestTemplate restTemplate;
+    private final RestTemplate webhookRestTemplate;
     private final GiftCardProperties giftCardProperties;
 
     @Autowired(required = false)
     private JavaMailSender mailSender;
 
-    @Value("${app.notification.webhook.timeout-ms:5000}")
-    private int webhookTimeout;
-
-    public NotificationHelper(RestTemplate restTemplate, GiftCardProperties giftCardProperties) {
+    public NotificationHelper(RestTemplate restTemplate,
+                              GiftCardProperties giftCardProperties,
+                              @Value("${app.notification.webhook.timeout-ms:5000}") int webhookTimeout) {
         this.restTemplate = restTemplate;
         this.giftCardProperties = giftCardProperties;
+        this.webhookRestTemplate = createWebhookRestTemplate(webhookTimeout);
+    }
+
+    private static RestTemplate createWebhookRestTemplate(int webhookTimeout) {
+        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
+        connectionManager.setMaxTotal(50);
+        connectionManager.setDefaultMaxPerRoute(20);
+
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(Timeout.ofMilliseconds(webhookTimeout))
+                .setResponseTimeout(Timeout.ofMilliseconds(webhookTimeout))
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(1000))
+                .build();
+
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(requestConfig)
+                .evictIdleConnections(Timeout.ofSeconds(30))
+                .build();
+
+        return new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));
     }
 
     public void sendWebhookNotification(String webhookUrl, String message) {
@@ -40,12 +68,11 @@ public class NotificationHelper {
 
             HttpEntity<String> request = new HttpEntity<>(jsonBody, headers);
 
-            restTemplate.exchange(
+            webhookRestTemplate.exchange(
                     webhookUrl,
                     HttpMethod.POST,
                     request,
-                    String.class,
-                    UriComponentsBuilder.fromHttpUrl(webhookUrl).build().toUri()
+                    String.class
             );
 
             log.debug("Webhook notification sent to {}", webhookUrl);

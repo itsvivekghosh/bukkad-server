@@ -10,17 +10,23 @@ import com.bhukkad.notification.ResilientEmailSender;
 import com.bhukkad.notification.whatsapp.WhatsAppSender;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AccountFields;
 import com.bhukkad.service.NotificationPreferenceService;
 import com.bhukkad.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.mail.SimpleMailMessage;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationProperties notificationProperties;
@@ -31,6 +37,22 @@ public class NotificationServiceImpl implements NotificationService {
     private final WhatsAppSender whatsAppSender;
     private final PushNotificationSender pushNotificationSender;
     private final NotificationPreferenceService notificationPreferenceService;
+    private final ThreadPoolTaskExecutor lowPriorityTaskExecutor;
+
+    public NotificationServiceImpl(NotificationProperties notificationProperties, OrderRepository orderRepository,
+            UserRepository userRepository, ResilientEmailSender resilientEmailSender, SmsSender smsSender,
+            WhatsAppSender whatsAppSender, PushNotificationSender pushNotificationSender,
+            NotificationPreferenceService notificationPreferenceService, ThreadPoolTaskExecutor lowPriorityTaskExecutor) {
+        this.notificationProperties = notificationProperties;
+        this.orderRepository = orderRepository;
+        this.userRepository = userRepository;
+        this.resilientEmailSender = resilientEmailSender;
+        this.smsSender = smsSender;
+        this.whatsAppSender = whatsAppSender;
+        this.pushNotificationSender = pushNotificationSender;
+        this.notificationPreferenceService = notificationPreferenceService;
+        this.lowPriorityTaskExecutor = lowPriorityTaskExecutor;
+    }
 
     @Override
     public void sendOrderConfirmation(Long orderId) {
@@ -57,10 +79,27 @@ public class NotificationServiceImpl implements NotificationService {
 
         userRepository.findById(agentId).ifPresent(agent -> {
             String agentBody = "New delivery assigned: " + order.getOrderNumber();
-            sendEmail(agent.getEmail(), "New delivery", agentBody);
-            sendSms(agent.getPhoneNumber(), agentBody);
-            sendWhatsapp(agent.getPhoneNumber(), agentBody);
-            sendPush(agent.getId(), "New delivery", agentBody);
+            List<CompletableFuture<Void>> agentFutures = new ArrayList<>();
+            agentFutures.add(CompletableFuture.runAsync(() -> sendEmail(AccountFields.email(agent), "New delivery", agentBody), lowPriorityTaskExecutor)
+                    .orTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("AGENT_EMAIL_TIMEOUT | agentId={}", agentId, ex); return null; }));
+            agentFutures.add(CompletableFuture.runAsync(() -> sendSms(AccountFields.phoneNumber(agent), agentBody), lowPriorityTaskExecutor)
+                    .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("AGENT_SMS_TIMEOUT | agentId={}", agentId, ex); return null; }));
+            agentFutures.add(CompletableFuture.runAsync(() -> sendWhatsapp(AccountFields.phoneNumber(agent), agentBody), lowPriorityTaskExecutor)
+                    .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("AGENT_WHATSAPP_TIMEOUT | agentId={}", agentId, ex); return null; }));
+            agentFutures.add(CompletableFuture.runAsync(() -> sendPush(agent.getId(), "New delivery", agentBody), lowPriorityTaskExecutor)
+                    .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("AGENT_PUSH_TIMEOUT | agentId={}", agentId, ex); return null; }));
+            try {
+                CompletableFuture.allOf(agentFutures.toArray(new CompletableFuture[0])).get();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                log.warn("AGENT_NOTIFICATION_INTERRUPTED | agentId={}", agentId, ex);
+            } catch (ExecutionException ex) {
+                log.warn("AGENT_NOTIFICATION_PARTIAL_FAILURE | agentId={} | error={}", agentId, ex.getMessage());
+            }
         });
     }
 
@@ -92,8 +131,19 @@ public class NotificationServiceImpl implements NotificationService {
         String body = StringUtils.hasText(message) ? message : "Bhukkad test notification";
         switch (channel.toLowerCase()) {
             case "email" -> sendEmail(recipient, "Bhukkad Test", body);
-            case "sms" -> sendSms(recipient, body);
-            case "whatsapp" -> sendWhatsapp(recipient, body);
+            case "sms" -> {
+                // OTP delivery: a real provider that failed must not silently
+                // "succeed" — the caller (phone sign-in / registration) aborts
+                // when delivery did not actually happen.
+                if (!sendSms(recipient, body)) {
+                    throw new BusinessException("Failed to send OTP via SMS. Please try again.");
+                }
+            }
+            case "whatsapp" -> {
+                if (!sendWhatsapp(recipient, body)) {
+                    throw new BusinessException("Failed to send OTP via WhatsApp. Please try again.");
+                }
+            }
             default -> throw new BusinessException("Unsupported channel: " + channel);
         }
     }
@@ -104,17 +154,34 @@ public class NotificationServiceImpl implements NotificationService {
             log.debug("Skipping order notification for customer {} (preferences disabled)", customerId);
             return;
         }
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
         if (notificationPreferenceService.isEmailEnabled(customerId)) {
-            sendEmail(order.getCustomer().getEmail(), subject, body);
+            futures.add(CompletableFuture.runAsync(() -> sendEmail(order.getCustomer().getEmail(), subject, body), lowPriorityTaskExecutor)
+                    .orTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("EMAIL_TIMEOUT | customerId={}", customerId, ex); return null; }));
         }
         if (notificationPreferenceService.isSmsEnabled(customerId)) {
-            sendSms(order.getCustomer().getPhoneNumber(), body);
+            futures.add(CompletableFuture.runAsync(() -> sendSms(order.getCustomer().getPhoneNumber(), body), lowPriorityTaskExecutor)
+                    .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("SMS_TIMEOUT | customerId={}", customerId, ex); return null; }));
         }
         if (notificationPreferenceService.isWhatsappEnabled(customerId)) {
-            sendWhatsapp(order.getCustomer().getPhoneNumber(), body);
+            futures.add(CompletableFuture.runAsync(() -> sendWhatsapp(order.getCustomer().getPhoneNumber(), body), lowPriorityTaskExecutor)
+                    .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("WHATSAPP_TIMEOUT | customerId={}", customerId, ex); return null; }));
         }
         if (notificationPreferenceService.isPushEnabled(customerId)) {
-            sendPush(customerId, subject, body);
+            futures.add(CompletableFuture.runAsync(() -> sendPush(customerId, subject, body), lowPriorityTaskExecutor)
+                    .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .exceptionally(ex -> { log.warn("PUSH_TIMEOUT | customerId={}", customerId, ex); return null; }));
+        }
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("NOTIFICATION_INTERRUPTED | customerId={}", customerId, ex);
+        } catch (ExecutionException ex) {
+            log.warn("NOTIFICATION_PARTIAL_FAILURE | customerId={} | error={}", customerId, ex.getMessage());
         }
     }
 
@@ -136,26 +203,26 @@ public class NotificationServiceImpl implements NotificationService {
         resilientEmailSender.send(message);
     }
 
-    private void sendSms(String phoneNumber, String body) {
+    private boolean sendSms(String phoneNumber, String body) {
         if (!notificationProperties.isEnabled() || !notificationProperties.getSms().isEnabled()) {
             log.info("SMS | to={} | body={}", phoneNumber, body);
-            return;
+            return true;
         }
         if (!StringUtils.hasText(phoneNumber)) {
-            return;
+            return false;
         }
-        smsSender.send(phoneNumber, body);
+        return smsSender.send(phoneNumber, body);
     }
 
-    private void sendWhatsapp(String phoneNumber, String body) {
+    private boolean sendWhatsapp(String phoneNumber, String body) {
         if (!notificationProperties.isEnabled() || !notificationProperties.getWhatsapp().isEnabled()) {
             log.info("WHATSAPP | to={} | body={}", phoneNumber, body);
-            return;
+            return true;
         }
         if (!StringUtils.hasText(phoneNumber)) {
-            return;
+            return false;
         }
-        whatsAppSender.send(phoneNumber, body);
+        return whatsAppSender.send(phoneNumber, body);
     }
 
     private void sendPush(Long userId, String title, String body) {

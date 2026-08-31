@@ -10,6 +10,7 @@ import com.bhukkad.zone.DeliveryZoneService;
 import com.bhukkad.zone.ZoneSurgeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -22,10 +23,22 @@ import java.time.temporal.ChronoUnit;
 public class OrderEtaService {
 
     private final DeliveryTruthProperties properties;
+    private final com.bhukkad.repository.OrderRepository orderRepository;
     private final DeliveryZoneService deliveryZoneService;
     private final ZoneSurgeService zoneSurgeService;
     private final OrderEtaHistoryService etaHistoryService;
     private final RoadDistanceService roadDistanceService;
+
+    /**
+     * Port-facing entrypoint: loads the order and computes its live ETA.
+     * Empty when the order does not exist.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<com.bhukkad.delivery.api.EtaPort.EtaSnapshot> computeLiveEtaForOrder(Long orderId) {
+        return orderRepository.findById(orderId)
+                .map(this::computeLiveEta)
+                .map(OrderEtaService.EtaSnapshot::toApi);
+    }
 
     public EtaSnapshot computeLiveEta(Order order) {
         Restaurant restaurant = order.getRestaurant();
@@ -132,5 +145,12 @@ public class OrderEtaService {
             double trafficFactor,
             double surgeMultiplier,
             String factorsSummary) {
+
+        /** Maps to the delivery-domain api contract. */
+        public com.bhukkad.delivery.api.EtaPort.EtaSnapshot toApi() {
+            return new com.bhukkad.delivery.api.EtaPort.EtaSnapshot(
+                    minutes, etaAt, confidenceLowMinutes, confidenceHighMinutes,
+                    trafficFactor, surgeMultiplier, factorsSummary);
+        }
     }
 }

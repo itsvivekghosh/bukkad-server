@@ -67,14 +67,28 @@ public class RestaurantControllerTest {
     @Test
     void getAllRestaurants_returnsActiveRestaurants() {
         List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
-        when(restaurantService.getAllActiveRestaurants(null)).thenReturn(restaurants);
+        when(restaurantService.getAllActiveRestaurants(null, null, null, null)).thenReturn(restaurants);
         when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
 
-        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null, null, null);
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response = restaurantController.getAllRestaurants(null, null, null, null, null, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(restaurants, response.getBody().getData());
-        verify(restaurantService).getAllActiveRestaurants(null);
+        verify(restaurantService).getAllActiveRestaurants(null, null, null, null);
+    }
+
+    @Test
+    void getAllRestaurants_withLocationParams_passesToService() {
+        List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
+        when(restaurantService.getAllActiveRestaurants(null, 12.97, 77.59, 5.0)).thenReturn(restaurants);
+        when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(new org.springframework.http.HttpHeaders());
+
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
+                restaurantController.getAllRestaurants(null, 12.97, 77.59, 5.0, null, null, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(restaurants, response.getBody().getData());
+        verify(restaurantService).getAllActiveRestaurants(null, 12.97, 77.59, 5.0);
     }
 
     @Test
@@ -192,14 +206,14 @@ public class RestaurantControllerTest {
     @Test
     void getAllRestaurants_returns304WhenNotModified() {
         List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
-        when(restaurantService.getAllActiveRestaurants(null)).thenReturn(restaurants);
+        when(restaurantService.getAllActiveRestaurants(null, null, null, null)).thenReturn(restaurants);
         HttpHeaders headers = new HttpHeaders();
         headers.setETag("W/\"abc\"");
         when(httpCacheSupport.buildCacheHeaders(anyString(), anyString())).thenReturn(headers);
         when(httpCacheSupport.isNotModified("W/\"abc\"", "W/\"abc\"")).thenReturn(true);
 
         ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
-                restaurantController.getAllRestaurants(null, "W/\"abc\"", null, null);
+                restaurantController.getAllRestaurants(null, null, null, null, "W/\"abc\"", null, null);
 
         assertEquals(HttpStatus.NOT_MODIFIED, response.getStatusCode());
     }
@@ -229,6 +243,19 @@ public class RestaurantControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(restaurants, response.getBody().getData());
+    }
+
+    @Test
+    void findTopRatedNearbyRestaurants_returnsTopRated() {
+        List<RestaurantResponse> restaurants = List.of(new RestaurantResponse());
+        when(restaurantService.findTopRatedNearbyRestaurants(12.9, 77.6, 5.0, 10)).thenReturn(restaurants);
+
+        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
+                restaurantController.findTopRatedNearbyRestaurants(12.9, 77.6, 5.0, 10);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(restaurants, response.getBody().getData());
+        verify(restaurantService).findTopRatedNearbyRestaurants(12.9, 77.6, 5.0, 10);
     }
 
     @Test
@@ -330,13 +357,13 @@ public class RestaurantControllerTest {
         List<RestaurantResponse> batch = List.of(new RestaurantResponse());
         when(restaurantService.getRestaurantsByIds(List.of(1L, 2L))).thenReturn(batch);
 
-        ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
-                restaurantController.getAllRestaurants(List.of(1L, 2L), null, null, null);
+         ResponseEntity<ApiResponse<List<RestaurantResponse>>> response =
+                restaurantController.getAllRestaurants(List.of(1L, 2L), null, null, null, null, null, null);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(batch, response.getBody().getData());
         verify(restaurantService).getRestaurantsByIds(List.of(1L, 2L));
-        verify(restaurantService, never()).getAllActiveRestaurants(any());
+        verify(restaurantService, never()).getAllActiveRestaurants(any(), any(), any(), any());
     }
 
     @Test
@@ -344,7 +371,7 @@ public class RestaurantControllerTest {
         java.util.List<Long> many = java.util.stream.LongStream.rangeClosed(1, 101)
                 .boxed().collect(java.util.stream.Collectors.toList());
         assertThrows(com.bhukkad.exception.BusinessException.class,
-                () -> restaurantController.getAllRestaurants(many, null, null, null));
+                () -> restaurantController.getAllRestaurants(many, null, null, null, null, null, null));
         verify(restaurantService, never()).getRestaurantsByIds(any());
     }
 }

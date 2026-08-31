@@ -13,6 +13,7 @@ import com.bhukkad.payment.DunningService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
 import com.bhukkad.payment.strategy.PaymentContext;
+import com.bhukkad.payment.strategy.BNPLStrategy;
 import com.bhukkad.payment.strategy.PaymentStrategyFactory;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.PaymentRepository;
@@ -31,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -38,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -75,6 +78,8 @@ class PaymentServiceImplTest {
     private WalletService walletService;
     @Mock
     private WalletTopUpService walletTopUpService;
+    @Mock
+    private BNPLStrategy bnplStrategy;
     @Mock
     private OrderTimelineService orderTimelineService;
 
@@ -471,8 +476,28 @@ class PaymentServiceImplTest {
 
         service.refundPayment(1L);
 
-        verify(walletService).credit(eq(customer), eq(120.0),
-                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment), anyString());
+        verify(walletService).credit(eq(1L), eq(120.0),
+                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment.getId()), anyString());
+        assertEquals(Payment.PaymentStatus.REFUNDED, payment.getStatus());
+    }
+
+    @Test
+    void refundPayment_bnpl_releasesPendingBalance() {
+        payment.setPaymentMethod(Payment.PaymentMethod.BNPL);
+        payment.setWalletAmount(null);
+        payment.setGatewayAmount(null);
+        payment.setStatus(Payment.PaymentStatus.COMPLETED);
+        payment.setAmount(200.0);
+        when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.refundPayment(1L);
+
+        // No wallet/gateway money moves, but the customer's outstanding BNPL
+        // pending balance (the Redis counter gating the credit limit) is
+        // released so a cancelled order cannot permanently consume BNPL credit.
+        verify(bnplStrategy).releaseBalance(1L, 200.0);
+        verify(walletService, never()).credit(any(), anyDouble(), any(), any(), anyString());
         assertEquals(Payment.PaymentStatus.REFUNDED, payment.getStatus());
     }
 
@@ -485,12 +510,12 @@ class PaymentServiceImplTest {
         payment.setGatewayPaymentId("pay_1");
         payment.setAmount(100.0);
         when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
-        when(paymentGateway.refundPayment(any())).thenReturn(
+        when(paymentGateway.refundPayment(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayRefundResult.builder()
                         .refundId("rf-1")
                         .success(false)
                         .rawResponse("{}")
-                        .build());
+                        .build()));
 
         assertThrows(BusinessException.class, () -> service.refundPayment(1L));
     }
@@ -505,19 +530,19 @@ class PaymentServiceImplTest {
         payment.setAmount(100.0);
         order.setStatus(Order.OrderStatus.CONFIRMED);
         when(paymentRepository.findByIdWithLock(1L)).thenReturn(Optional.of(payment));
-        when(paymentGateway.refundPayment(any())).thenReturn(
+        when(paymentGateway.refundPayment(any())).thenReturn(CompletableFuture.completedFuture(
                 PaymentGateway.GatewayRefundResult.builder()
                         .refundId("rf-2")
                         .success(true)
                         .rawResponse("{\"refunded\":true}")
-                        .build());
+                        .build()));
         when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.refundPayment(1L);
 
         assertEquals("{\"refunded\":true}", payment.getPaymentGatewayResponse());
-        verify(walletService).credit(eq(customer), eq(20.0),
-                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment), anyString());
+        verify(walletService).credit(eq(1L), eq(20.0),
+                eq(WalletTransaction.TransactionType.ORDER_REFUND), eq(payment.getId()), anyString());
         verify(orderTimelineService).recordEvent(eq(1L), eq("ORDER_REFUNDED"), any(), anyString(), any(), anyString());
         verify(notificationService).sendPaymentRefunded(1L, 100.0);
     }

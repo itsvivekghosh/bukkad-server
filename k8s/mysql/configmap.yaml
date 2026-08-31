@@ -12,18 +12,21 @@ data:
     character-set-server=utf8mb4
     collation-server=utf8mb4_unicode_ci
     default-authentication-plugin=mysql_native_password
-    innodb_buffer_pool_size=384M
-    innodb_log_file_size=128M
+    # High-traffic sizing: 768M buffer pool for 1-2Gi MySQL pod, 500 conns supports
+    # 10 app pods × 20 pool = 200 with 60% headroom (vs previous 200 limit that starved at 500).
+    innodb_buffer_pool_size=768M
+    innodb_log_file_size=256M
     innodb_flush_log_at_trx_commit=2
     innodb_flush_method=O_DIRECT
-    innodb_io_capacity=400
-    innodb_io_capacity_max=800
-    max_connections=200
-    table_open_cache=400
+    innodb_io_capacity=600
+    innodb_io_capacity_max=1200
+    max_connections=500
+    max_connect_errors=10000
+    table_open_cache=800
     tmp_table_size=64M
     max_heap_table_size=64M
     slow_query_log=1
-    long_query_time=2
+    long_query_time=1
 ---
 # -----------------------------------------------------------------------------
 # MySQL bootstrap script, mounted at /docker-entrypoint-initdb.d/init.sql.

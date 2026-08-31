@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -170,6 +171,92 @@ class MenuImageServiceTest {
         String result = service.resolvePublicUrl("images/1/2/test.jpg");
 
         assertEquals(url.toString(), result);
+    }
+
+    // ===== Batch B: presign-path + extension branches =====
+
+    @Test
+    void resolvePublicUrl_cloudfrontConfigured_servesFromCdnWithoutPresign() {
+        ImageStorageProperties.CloudFront cloudFront = new ImageStorageProperties.CloudFront();
+        cloudFront.setEnabled(true);
+        cloudFront.setDomain("cdn.bhukkad.dev");
+        when(properties.getCloudfront()).thenReturn(cloudFront);
+
+        String result = service.resolvePublicUrl("images/1/2/test.jpg");
+
+        assertEquals("https://cdn.bhukkad.dev/images/1/2/test.jpg", result);
+        // CDN path must not touch the presigner (no Redis/presign cost on hot path)
+        org.mockito.Mockito.verifyNoInteractions(s3Presigner);
+    }
+
+    @Test
+    void resolvePublicUrl_storageDisabled_returnsStoredValueUnchanged() {
+        when(properties.isEnabled()).thenReturn(false);
+
+        String result = service.resolvePublicUrl("images/1/2/test.jpg");
+
+        assertEquals("images/1/2/test.jpg", result);
+    }
+
+    @Test
+    void resolvePublicUrl_fullHttpUrl_passesThroughWithoutPresign() {
+        String result = service.resolvePublicUrl("https://external.example.com/logo.png");
+
+        assertEquals("https://external.example.com/logo.png", result);
+        org.mockito.Mockito.verifyNoInteractions(s3Presigner);
+    }
+
+    @Test
+    void resolvePublicUrl_nullPresigner_returnsStoredValue() {
+        MenuImageService noPresigner = new MenuImageService(properties, null, null);
+
+        String result = noPresigner.resolvePublicUrl("images/1/2/test.jpg");
+
+        assertEquals("images/1/2/test.jpg", result);
+    }
+
+    @Test
+    void createUploadUrl_nullPresigner_throwsBusinessException() {
+        MenuImageService noPresigner = new MenuImageService(properties, null, null);
+
+        assertThrows(BusinessException.class,
+                () -> noPresigner.createUploadUrl("images/1/2/a.jpg", "image/jpeg"));
+    }
+
+    @Test
+    void generateImageKey_extensionPerContentType() {
+        assertTrue(service.generateImageKey(1L, 2L, "image/png").endsWith(".png"));
+        assertTrue(service.generateImageKey(1L, 2L, "image/webp").endsWith(".webp"));
+        assertTrue(service.generateImageKey(1L, 2L, "image/gif").endsWith(".gif"));
+        assertTrue(service.generateImageKey(1L, 2L, "image/jpeg").endsWith(".jpg"));
+    }
+
+    @Test
+    void resolvePublicUrl_withRedisCache_cachesPresignedUrl() throws Exception {
+        // Batch B: presign URLs are cached in Redis (TTL = expiry - 100s) to avoid
+        // 100k presign ops/s at high QPS. The supplier runs on cache miss and the
+        // presigned URL is stored under menu-image:url:<key>.
+        com.bhukkad.cache.RedisCacheService redis = org.mockito.Mockito.mock(com.bhukkad.cache.RedisCacheService.class);
+        MenuImageService cachedService = new MenuImageService(properties, s3Presigner, redis);
+
+        URL url = new URL("https://s3.example.com/test-bucket/images/1/2/cached.jpg?sig=1");
+        PresignedGetObjectRequest presigned = mock(PresignedGetObjectRequest.class);
+        when(presigned.url()).thenReturn(url);
+        when(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class))).thenReturn(presigned);
+        // Delegate to the supplier so the miss path (and its presign call) is exercised
+        when(redis.getOrCompute(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(String.class),
+                org.mockito.ArgumentMatchers.eq(3500L),
+                org.mockito.ArgumentMatchers.any())).thenAnswer(inv ->
+                        ((java.util.function.Supplier<String>) inv.getArgument(3)).get());
+
+        String result = cachedService.resolvePublicUrl("images/1/2/cached.jpg");
+
+        assertEquals(url.toString(), result);
+        verify(redis).getOrCompute(org.mockito.ArgumentMatchers.eq("menu-image:url:images/1/2/cached.jpg"),
+                org.mockito.ArgumentMatchers.eq(String.class),
+                org.mockito.ArgumentMatchers.eq(3500L),
+                org.mockito.ArgumentMatchers.any());
     }
 
 }

@@ -11,7 +11,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "carts")
+@Table(name = "carts", indexes = {
+        @Index(name = "idx_cart_customer", columnList = "customer_id", unique = true),
+        @Index(name = "idx_cart_restaurant", columnList = "restaurant_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -38,6 +41,9 @@ public class Cart {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "restaurant_id")
     private Restaurant restaurant;
+
+    @Column(name = "coupon_code")
+    private String couponCode;
 
     @LastModifiedDate
     private LocalDateTime updatedAt;

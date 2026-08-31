@@ -19,17 +19,21 @@ import java.util.List;
  * </ul>
  */
 public interface ReviewService {
-    Review createReview(ReviewRequest request);
+    /**
+     * Creates a review. Returns the wire DTO — entities must not cross the
+     * controller boundary (lazy associations break JSON serialization).
+     */
+    com.bhukkad.dto.response.ReviewResponse createReview(ReviewRequest request);
 
     /**
      * Publicly visible reviews for a restaurant, newest first. Pending and rejected reviews
      * are excluded.
      */
-    List<Review> getRestaurantReviews(Long restaurantId);
+    java.util.List<com.bhukkad.dto.response.ReviewResponse> getRestaurantReviews(Long restaurantId);
 
-    List<Review> getCustomerReviews();
+    java.util.List<com.bhukkad.dto.response.ReviewResponse> getCustomerReviews();
 
-    Review getReviewByOrderId(Long orderId);
+    com.bhukkad.dto.response.ReviewResponse getReviewByOrderId(Long orderId);
 
     void deleteReview(Long reviewId);
 

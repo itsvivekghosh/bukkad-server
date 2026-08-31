@@ -3,6 +3,7 @@ package com.bhukkad.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -94,23 +95,28 @@ public class MenuItem {
     @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<CustomizationOption> customizationOptions = new ArrayList<>();
 
-    // ALL ElementCollections must be EAGER to avoid LazyInitializationException
-    @ElementCollection(fetch = FetchType.EAGER)
+    // LAZY with BatchSize avoids N+1 and cartesian product under high traffic.
+    // Service layer must initialize inside Tx when needed (e.g. menu browse).
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "menu_item_tags", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "tag", length = 50)
     private Set<String> tags = new HashSet<>();
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "menu_item_allergens", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "allergen", length = 50)
     private Set<String> allergens = new HashSet<>();
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "menu_item_ingredients", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "ingredient", length = 100)
     private Set<String> ingredients = new HashSet<>();
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @BatchSize(size = 50)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "menu_item_images", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "image_url", length = 500)
     private List<String> additionalImages = new ArrayList<>();

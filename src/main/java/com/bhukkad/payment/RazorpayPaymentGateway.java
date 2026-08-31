@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Component
@@ -35,7 +36,7 @@ public class RazorpayPaymentGateway implements PaymentGateway {
     @Override
     @Retry(name = "paymentGateway")
     @CircuitBreaker(name = "paymentGateway", fallbackMethod = "createOrderFallback")
-    public GatewayOrderResult createOrder(GatewayOrderRequest request) {
+    public CompletableFuture<GatewayOrderResult> createOrder(GatewayOrderRequest request) {
         Map<String, Object> body = new HashMap<>();
         body.put("amount", toPaise(request.amount()));
         body.put("currency", paymentProperties.getRazorpay().getCurrency());
@@ -43,43 +44,46 @@ public class RazorpayPaymentGateway implements PaymentGateway {
         body.put("payment_capture", 1);
 
         JsonNode response = post("/v1/orders", body);
-        return GatewayOrderResult.builder()
-                .gatewayOrderId(response.path("id").asText())
-                .rawResponse(response.toString())
-                .build();
+        return CompletableFuture.completedFuture(
+                GatewayOrderResult.builder()
+                        .gatewayOrderId(response.path("id").asText())
+                        .rawResponse(response.toString())
+                        .build());
     }
 
     @Override
     @Retry(name = "paymentGateway")
     @CircuitBreaker(name = "paymentGateway", fallbackMethod = "capturePaymentFallback")
-    public GatewayPaymentResult capturePayment(GatewayCaptureRequest request) {
+    public CompletableFuture<GatewayPaymentResult> capturePayment(GatewayCaptureRequest request) {
         JsonNode response = get("/v1/orders/" + request.gatewayOrderId() + "/payments");
         JsonNode items = response.path("items");
         if (!items.isArray() || items.isEmpty()) {
             throw new BusinessException("No Razorpay payment found for order " + request.gatewayOrderId());
         }
         JsonNode payment = items.get(0);
-        return GatewayPaymentResult.builder()
-                .gatewayPaymentId(payment.path("id").asText())
-                .transactionId(payment.path("id").asText())
-                .success("captured".equalsIgnoreCase(payment.path("status").asText()))
-                .rawResponse(payment.toString())
-                .build();
+        return CompletableFuture.completedFuture(
+                GatewayPaymentResult.builder()
+                        .gatewayPaymentId(payment.path("id").asText())
+                        .transactionId(payment.path("id").asText())
+                        .success("captured".equalsIgnoreCase(payment.path("status").asText()))
+                        .rawResponse(payment.toString())
+                        .build());
     }
 
     @Override
     @Retry(name = "paymentGateway")
     @CircuitBreaker(name = "paymentGateway", fallbackMethod = "refundPaymentFallback")
-    public GatewayRefundResult refundPayment(GatewayRefundRequest request) {
+    public CompletableFuture<GatewayRefundResult> refundPayment(GatewayRefundRequest request) {
         Map<String, Object> body = new HashMap<>();
         body.put("amount", toPaise(request.amount()));
 
         JsonNode response = post("/v1/payments/" + request.gatewayPaymentId() + "/refund", body);
-        return GatewayRefundResult.builder()
-                .refundId(response.path("id").asText())
-                .success("processed".equalsIgnoreCase(response.path("status").asText()))
-                .rawResponse(response.toString())
-                .build();
+        return CompletableFuture.completedFuture(
+                GatewayRefundResult.builder()
+                        .refundId(response.path("id").asText())
+                        .success("processed".equalsIgnoreCase(response.path("status").asText()))
+                        .rawResponse(response.toString())
+                        .build());
     }
 
     @Override
@@ -152,17 +156,17 @@ public class RazorpayPaymentGateway implements PaymentGateway {
     }
 
     @SuppressWarnings("unused")
-    private GatewayOrderResult createOrderFallback(GatewayOrderRequest request, Throwable cause) {
-        throw new BusinessException("Payment gateway is temporarily unavailable. Please try again.");
+    private CompletableFuture<GatewayOrderResult> createOrderFallback(GatewayOrderRequest request, Throwable cause) {
+        return CompletableFuture.failedFuture(new BusinessException("Payment gateway is temporarily unavailable. Please try again."));
     }
 
     @SuppressWarnings("unused")
-    private GatewayPaymentResult capturePaymentFallback(GatewayCaptureRequest request, Throwable cause) {
-        throw new BusinessException("Payment gateway is temporarily unavailable. Please try again.");
+    private CompletableFuture<GatewayPaymentResult> capturePaymentFallback(GatewayCaptureRequest request, Throwable cause) {
+        return CompletableFuture.failedFuture(new BusinessException("Payment gateway is temporarily unavailable. Please try again."));
     }
 
     @SuppressWarnings("unused")
-    private GatewayRefundResult refundPaymentFallback(GatewayRefundRequest request, Throwable cause) {
-        throw new BusinessException("Payment gateway is temporarily unavailable. Please try again.");
+    private CompletableFuture<GatewayRefundResult> refundPaymentFallback(GatewayRefundRequest request, Throwable cause) {
+        return CompletableFuture.failedFuture(new BusinessException("Payment gateway is temporarily unavailable. Please try again."));
     }
 }

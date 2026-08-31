@@ -5,8 +5,7 @@ import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
 import com.bhukkad.delivery.OrderEtaService;
-import com.bhukkad.entity.Order;
-import com.bhukkad.repository.OrderRepository;
+import com.bhukkad.delivery.api.EtaPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,8 +17,7 @@ public class OrderLiveUpdateBroadcaster {
 
     private final OrderLiveRelay orderLiveRelay;
     private final OrderLiveReplayStore orderLiveReplayStore;
-    private final OrderRepository orderRepository;
-    private final OrderEtaService orderEtaService;
+    private final EtaPort etaPort;
 
     public void broadcastStatusChange(OrderStatusChangedEvent event) {
         OrderLiveUpdate update = baseUpdate(event.orderId(), event.orderNumber(), event.customerId(),
@@ -34,7 +32,7 @@ public class OrderLiveUpdateBroadcaster {
         OrderLiveUpdate update = baseUpdate(event.orderId(), event.orderNumber(), event.customerId(),
                 event.restaurantId(), null, OrderLiveUpdate.EventType.ORDER_CREATED);
         update.setPreviousStatus(null);
-        update.setStatus(Order.OrderStatus.PLACED.name());
+        update.setStatus(com.bhukkad.order.api.OrderApiConstants.STATUS_PLACED);
         update.setChangedAt(event.createdAt());
         dispatch(update);
     }
@@ -90,10 +88,8 @@ public class OrderLiveUpdateBroadcaster {
                 .customerId(customerId)
                 .restaurantId(restaurantId)
                 .deliveryAgentId(agentId);
-        orderRepository.findByIdWithDetails(orderId).ifPresent(order -> {
-            var eta = orderEtaService.computeLiveEta(order);
-            builder.liveEtaMinutes(eta.minutes()).liveEtaAt(eta.etaAt());
-        });
+        etaPort.computeEta(orderId).ifPresent(eta ->
+                builder.liveEtaMinutes(eta.minutes()).liveEtaAt(eta.etaAt()));
         return builder.build();
     }
 

@@ -1,6 +1,7 @@
 package com.bhukkad.notification.sms;
 
 import com.bhukkad.config.NotificationProperties;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -22,13 +23,13 @@ import java.util.Base64;
  *
  * <p>Twilio is an external dependency: a slow or failing provider must not stall
  * the business transaction that triggered the notification. The circuit breaker
- * opens after repeated failures and the fallback degrades to a WARN log instead
- * of throwing, mirroring the "fire-and-forget" contract of the notification
- * pipeline.</p>
+ * opens after repeated failures and the fallback returns {@code false} to signal
+ * non-delivery instead of throwing, so the notification pipeline can decide
+ * whether to fail (OTP registration) or proceed (order notifications) based on
+ * the caller's tolerance for delivery failure.</p>
  *
- * <p>The {@link RestTemplate} is the application-wide configured bean, so the
- * connect/read timeouts from {@code app.http.*} apply — a hung Twilio call can
- * no longer block a thread indefinitely.</p>
+ * <p>Returns {@code true} when the message was accepted by Twilio, {@code false}
+ * when delivery failed (missing credentials, network error, or circuit open).</p>
  */
 @Slf4j
 @Component
@@ -46,17 +47,18 @@ public class TwilioSmsSender implements SmsSender {
 
     @Override
     @CircuitBreaker(name = "notificationSms", fallbackMethod = "smsUnavailable")
-    public void send(String phoneNumber, String body) {
+    @Bulkhead(name = "notificationSms", fallbackMethod = "smsUnavailable")
+    public boolean send(String phoneNumber, String body) {
         if (!StringUtils.hasText(phoneNumber)) {
             log.warn("Skipping SMS — no phone number");
-            return;
+            return false;
         }
         NotificationProperties.Twilio twilio = notificationProperties.getSms().getTwilio();
         if (!StringUtils.hasText(twilio.getAccountSid())
                 || !StringUtils.hasText(twilio.getAuthToken())
                 || !StringUtils.hasText(twilio.getFromNumber())) {
             log.warn("Twilio credentials not configured; SMS not sent");
-            return;
+            return false;
         }
 
         String url = "https://api.twilio.com/2010-04-01/Accounts/" + twilio.getAccountSid() + "/Messages.json";
@@ -73,16 +75,17 @@ public class TwilioSmsSender implements SmsSender {
 
         restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
         log.info("Twilio SMS sent | to={}", phoneNumber);
+        return true;
     }
 
     /**
-     * Circuit-breaker fallback: the notification pipeline is fire-and-forget, so a
-     * failing provider degrades to a WARN instead of propagating the failure to
-     * the business call that triggered it.
+     * Circuit-breaker fallback: returns {@code false} to signal non-delivery
+     * instead of throwing. The caller decides whether to tolerate the failure.
      */
     @SuppressWarnings("unused")
-    void smsUnavailable(String phoneNumber, String body, Throwable ex) {
+    public boolean smsUnavailable(String phoneNumber, String body, Throwable ex) {
         log.warn("Twilio SMS unavailable (circuit open) | to={} | error={}",
                 phoneNumber, ex.getMessage());
+        return false;
     }
 }

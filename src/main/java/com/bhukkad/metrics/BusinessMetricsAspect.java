@@ -1,6 +1,7 @@
 package com.bhukkad.metrics;
 
 import com.bhukkad.dto.response.BatchOrderResponse;
+import com.bhukkad.dto.response.BatchOrderResult;
 import com.bhukkad.dto.response.OrderResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
@@ -51,11 +52,12 @@ public class BusinessMetricsAspect {
     }
 
     private static double resolveBatchTotal(BatchOrderResponse batch) {
-        List<OrderResponse> orders = batch.getOrders();
+        List<BatchOrderResult> orders = batch.getOrders();
         if (orders == null || orders.isEmpty()) {
             return 0.0;
         }
         return orders.stream()
+                .filter(BatchOrderResult::isSuccess)
                 .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount() : 0.0)
                 .sum();
     }

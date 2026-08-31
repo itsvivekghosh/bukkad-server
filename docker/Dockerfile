@@ -25,11 +25,11 @@ FROM eclipse-temurin:17-jre-jammy AS runtime
 
 ENV TZ=Asia/Kolkata \
     LANG=C.UTF-8 \
-    SPRING_PROFILES_ACTIVE=dev \
+    SPRING_PROFILES_ACTIVE=prod \
     SERVER_PORT=8080 \
     HEALTH_PATH=/api/v1/health/ping \
     WAIT_FOR_SERVICES=false \
-    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=50.0 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 -Djava.security.egd=file:/dev/./urandom"
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200 -Djava.security.egd=file:/dev/./urandom -XX:+ExitOnOutOfMemoryError"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates bash \

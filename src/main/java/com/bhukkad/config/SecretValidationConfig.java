@@ -14,7 +14,7 @@ import java.util.Set;
 
 @Slf4j
 @Configuration
-@Profile("prod")
+@Profile({"prod", "staging"})
 public class SecretValidationConfig {
 
     /** HS512 signing requires at least 512 bits (64 bytes) of decoded key material. */
@@ -35,11 +35,21 @@ public class SecretValidationConfig {
             "Vivek@1999"
     );
 
+    private static final Set<String> WEAK_API_KEY_PEPPERS = Set.of(
+            "zYHsmVfyqzrgU+RE/SXJ+Ep59FZMasTNccKToJT9yKpc6Ntk15gfWXCaPV3sGJr0Vw7X5uKeRIuaRUq4VKQECQ==",
+            "changeme",
+            "secret",
+            "your-pepper"
+    );
+
     @Value("${app.jwt.secret:}")
     private String jwtSecret;
 
     @Value("${spring.datasource.password:}")
     private String dbPassword;
+
+    @Value("${app.api-key.pepper:}")
+    private String apiKeyPepper;
 
     @PostConstruct
     void validateRequiredSecrets() {
@@ -65,6 +75,12 @@ public class SecretValidationConfig {
             violations.add("DB_PASSWORD is required in production");
         } else if (WEAK_DB_PASSWORDS.contains(dbPassword)) {
             violations.add("DB_PASSWORD must not use a default or weak value in production");
+        }
+
+        if (!StringUtils.hasText(apiKeyPepper)) {
+            violations.add("API_KEY_PEPPER is required in production");
+        } else if (WEAK_API_KEY_PEPPERS.contains(apiKeyPepper)) {
+            violations.add("API_KEY_PEPPER must not use a default or weak value in production");
         }
 
         if (!violations.isEmpty()) {

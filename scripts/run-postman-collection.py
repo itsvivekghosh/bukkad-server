@@ -137,6 +137,31 @@ def bootstrap():
     vars_map["idempotency_key"] = str(uuid.uuid4())
     vars_map["referred_customer_email"] = f"referred_{SUFFIX}@bhukkad.test"
     vars_map["referred_customer_phone"] = str(9000000000 + NUM_BASE * 4 + 5)
+    # The collection uses {{baseUrl}} as a path prefix; the runner already
+    # prepends BASE (the host), so map it to the versioned API prefix.
+    vars_map["baseUrl"] = "/api/v1"
+    vars_map["base_url"] = "/api/v1"
+    # Standard Postman env var names used by collection auth headers —
+    # resolved from the bootstrapped CUSTOMER session.
+    vars_map["accessToken"] = ""
+    vars_map["refreshToken"] = ""
+    # Collection env aliases for resource IDs populated from bootstrap.
+    # The collection uses camelCase {{addressId}}/{{orderId}}/{{restaurantId}},
+    # while bootstrap captures snake_case keys — copy the values across.
+    vars_map["addressId"] = ""
+    vars_map["orderId"] = ""
+    vars_map["restaurantId"] = ""
+    vars_map["menuItemId"] = ""
+    vars_map["couponCode"] = "SAVE10"
+    # Collection dynamic variables.
+    vars_map["$guid"] = str(uuid.uuid4())
+
+    # Register the bootstrapped account emails so collection items that use
+    # static env vars (e.g. {{customerEmail}}) resolve correctly.
+    vars_map["customerEmail"] = ACCOUNTS["customer"]["email"]
+    vars_map["ownerEmail"] = ACCOUNTS["owner"]["email"]
+    vars_map["agentEmail"] = ACCOUNTS["agent"]["email"]
+    vars_map["adminEmail"] = "admin@bhukkad.dev"
     for role, acct in ACCOUNTS.items():
         if role == "admin":
             # ADMIN role is reserved; admin is bootstrapped from the default
@@ -150,8 +175,12 @@ def bootstrap():
             data = body.get("data") or {}
             if data.get("token"):
                 vars_map[f"{role}_token"] = data["token"]
+                if role == "customer":
+                    vars_map["accessToken"] = data["token"]
             if data.get("refreshToken"):
                 vars_map[f"{role}_refresh_token"] = data["refreshToken"]
+                if role == "customer":
+                    vars_map["refreshToken"] = data["refreshToken"]
             if data.get("userId"):
                 vars_map[f"{role}_id"] = data["userId"]
         extract_values(body)
@@ -222,19 +251,34 @@ def bootstrap_resources():
             order_id = (body.get("data") or {}).get("id")
             if order_id:
                 vars_map["order_id"] = order_id
+                vars_map["orderId"] = order_id
             extract_values(body)
             if status in (200, 201):
                 print(f"  Placed order: {vars_map.get('order_id')} (status {status})")
             else:
                 print(f"  Place order: {status} {str(body)[:120]}")
     print(f"  Post-bootstrap vars: {sorted(k for k in vars_map if not k.endswith('_token'))}")
+    # Map snake_case bootstrap captures to the camelCase names the Postman
+    # collection uses ({{addressId}}, {{orderId}}, {{restaurantId}}, ...).
+    for snake, camel in [
+        ("address_id", "addressId"),
+        ("order_id", "orderId"),
+        ("restaurant_id", "restaurantId"),
+        ("menu_item_id", "menuItemId"),
+        ("category_id", "categoryId"),
+        ("cart_item_id", "cartItemId"),
+    ]:
+        vars_map[camel] = vars_map.get(snake, vars_map.get(camel, ""))
 
 
 def resolve(val, item_name):
     if not isinstance(val, str):
         return val
+    # Postman dynamic variables — regenerate per occurrence.
+    result = val.replace("{{$guid}}", str(uuid.uuid4()))
+    result = result.replace("{{$timestamp}}", str(int(time.time())))
     # {{var}} and {var} placeholders
-    result = val.replace("{{base_url}}", "")
+    result = result.replace("{{base_url}}", "")
     for k, v in list(vars_map.items()):
         result = result.replace("{{" + k + "}}", str(v) if v is not None else "")
         result = result.replace("{" + k + "}", str(v) if v is not None else "")
@@ -284,13 +328,14 @@ def run_request(item):
     """Execute one collection item; returns (ok, reason, status, method, path)."""
     req = item["request"]
     method = req["method"]
-    path = resolve(req["url"]["raw"], item["name"])
+    raw_url = req["url"]["raw"] if isinstance(req["url"], dict) else req["url"]
+    path = resolve(raw_url, item["name"])
     if not path.startswith("/"):
         path = "/" + path
 
     # Append query parameters from the Postman URL object (generate-postman.py
     # puts them in url.query, not in url.raw).
-    query = req.get("url", {}).get("query") or []
+    query = req.get("url", {}).get("query") if isinstance(req.get("url"), dict) else []
     if query:
         parts = []
         for qp in query:
@@ -353,7 +398,8 @@ def run_collection():
     total = passed = failed = skipped = 0
     # Tests that need a non-empty cart after the main order flow consumed it.
     REFILL_BEFORE = {"Batch Checkout", "Apply Coupon to Cart", "Create Scheduled Order",
-                     "Create Order (Async)", "Apply Coupon to Cart — Wrong Restaurant"}
+                     "Create Order (Async)", "Apply Coupon to Cart — Wrong Restaurant",
+                     "Create Order (sync)"}
 
     def refill_cart():
         """Re-add the shared menu item to the customer's cart."""

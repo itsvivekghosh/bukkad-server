@@ -14,6 +14,17 @@ import java.util.Optional;
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
     Optional<Customer> findByEmail(String email);
 
+    Optional<Customer> findByPhoneNumber(String phoneNumber);
+
+    Optional<Customer> findByEmailOrPhoneNumber(String email, String phoneNumber);
+
+    Boolean existsByEmail(String email);
+
+    Boolean existsByPhoneNumber(String phoneNumber);
+
+    org.springframework.data.domain.Page<Customer> findByFullNameContainingOrEmailContaining(
+            String fullName, String email, org.springframework.data.domain.Pageable pageable);
+
     Optional<Customer> findByReferralCode(String referralCode);
 
     long countByReferredById(Long referredById);

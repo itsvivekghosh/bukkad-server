@@ -3,6 +3,8 @@ package com.bhukkad.payment;
 import com.bhukkad.exception.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -74,7 +76,7 @@ class RazorpayPaymentGatewayTest {
         mockPostResponse(jsonResponse);
 
         GatewayOrderResult result = gateway.createOrder(
-                GatewayOrderRequest.builder().amount(100.0).receipt("receipt_1").build());
+                GatewayOrderRequest.builder().amount(100.0).receipt("receipt_1").build()).join();
 
         assertNotNull(result);
         assertEquals("order_123", result.gatewayOrderId());
@@ -92,7 +94,7 @@ class RazorpayPaymentGatewayTest {
         when(responseSpec.body(String.class)).thenThrow(new RuntimeException("Network error"));
 
         assertThrows(BusinessException.class, () ->
-                gateway.createOrder(GatewayOrderRequest.builder().amount(100.0).receipt("r1").build()));
+                gateway.createOrder(GatewayOrderRequest.builder().amount(100.0).receipt("r1").build()).join());
     }
 
     @Test
@@ -105,7 +107,7 @@ class RazorpayPaymentGatewayTest {
                 .amount(100.0)
                 .build();
 
-        GatewayPaymentResult result = gateway.capturePayment(request);
+        GatewayPaymentResult result = gateway.capturePayment(request).join();
 
         assertNotNull(result);
         assertEquals("pay_123", result.gatewayPaymentId());
@@ -122,7 +124,7 @@ class RazorpayPaymentGatewayTest {
                 .amount(100.0)
                 .build();
 
-        assertThrows(BusinessException.class, () -> gateway.capturePayment(request));
+        assertThrows(BusinessException.class, () -> gateway.capturePayment(request).join());
     }
 
     @Test
@@ -135,7 +137,7 @@ class RazorpayPaymentGatewayTest {
                 .amount(100.0)
                 .build();
 
-        GatewayPaymentResult result = gateway.capturePayment(request);
+        GatewayPaymentResult result = gateway.capturePayment(request).join();
 
         assertFalse(result.success());
     }
@@ -153,7 +155,7 @@ class RazorpayPaymentGatewayTest {
                 .amount(100.0)
                 .build();
 
-        assertThrows(BusinessException.class, () -> gateway.capturePayment(request));
+        assertThrows(BusinessException.class, () -> gateway.capturePayment(request).join());
     }
 
     @Test
@@ -164,7 +166,7 @@ class RazorpayPaymentGatewayTest {
         GatewayRefundResult result = gateway.refundPayment(GatewayRefundRequest.builder()
                 .gatewayPaymentId("pay_123")
                 .amount(50.0)
-                .build());
+                .build()).join();
 
         assertNotNull(result);
         assertEquals("ref_123", result.refundId());
@@ -179,7 +181,7 @@ class RazorpayPaymentGatewayTest {
         GatewayRefundResult result = gateway.refundPayment(GatewayRefundRequest.builder()
                 .gatewayPaymentId("pay_123")
                 .amount(50.0)
-                .build());
+                .build()).join();
 
         assertFalse(result.success());
     }
@@ -198,7 +200,7 @@ class RazorpayPaymentGatewayTest {
                 gateway.refundPayment(GatewayRefundRequest.builder()
                         .gatewayPaymentId("pay_123")
                         .amount(50.0)
-                        .build()));
+                        .build()).join());
     }
 
     @Test

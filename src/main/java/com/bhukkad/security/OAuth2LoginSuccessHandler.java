@@ -4,7 +4,7 @@ import com.bhukkad.audit.AuditService;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import com.bhukkad.repository.CustomerRepository;
-import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AccountFields;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +36,6 @@ import java.util.Map;
 @Component
 public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
-    private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
@@ -47,13 +46,11 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     @Value("${app.oauth2.redirect-uri:http://localhost:3000/oauth/callback}")
     private String redirectUri = "http://localhost:3000/oauth/callback";
 
-    public OAuth2LoginSuccessHandler(UserRepository userRepository,
-                                     CustomerRepository customerRepository,
+    public OAuth2LoginSuccessHandler(CustomerRepository customerRepository,
                                      PasswordEncoder passwordEncoder,
                                      JwtTokenProvider jwtTokenProvider,
                                      AuthTokenService authTokenService,
                                      AuditService auditService) {
-        this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
@@ -86,13 +83,13 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         }
         email = email.toLowerCase().trim();
 
-        User user = userRepository.findByEmail(email).orElse(null);
+        User user = customerRepository.findByEmail(email).map(User.class::cast).orElse(null);
         boolean newUser = false;
         if (user == null) {
             user = provisionCustomer(email, fullName);
             newUser = true;
         } else if (!Boolean.TRUE.equals(user.getActive())) {
-            auditService.recordEvent("OAUTH_LOGIN_BLOCKED", "AUTH", user.getEmail(), null, "deactivated", user.getId());
+            auditService.recordEvent("OAUTH_LOGIN_BLOCKED", "AUTH", AccountFields.email(user), null, "deactivated", user.getId());
             redirectWithError(request, response, "Account is deactivated");
             return;
         }
@@ -103,7 +100,7 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
                 user.getId(), refreshToken, jwtTokenProvider.getRemainingValidityMs(refreshToken));
 
         auditService.recordEvent(newUser ? "REGISTER_SOCIAL" : "LOGIN_SOCIAL", "AUTH",
-                user.getEmail(), null, provider, user.getId());
+                AccountFields.email(user), null, provider, user.getId());
         log.info("OAuth login success | userId={} | provider={} | newUser={}", user.getId(), provider, newUser);
 
         String targetUrl = UriComponentsBuilder.fromUriString(redirectUri)
@@ -130,8 +127,8 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
 
     private org.springframework.security.core.userdetails.UserDetails toUserDetails(User user) {
         return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getEmail())
-                .password(user.getPassword())
+                .username(AccountFields.email(user))
+                .password(AccountFields.password(user))
                 .authorities("ROLE_" + user.getRole().name())
                 .build();
     }

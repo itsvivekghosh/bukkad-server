@@ -1,7 +1,6 @@
 package com.bhukkad.security;
 
 import com.bhukkad.entity.User;
-import com.bhukkad.live.OrderLiveAccessService;
 import com.bhukkad.live.OrderLiveTopics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +21,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
-    private final OrderLiveAccessService orderLiveAccessService;
+    private final LiveSubscriptionAuthorizer liveSubscriptionAuthorizer;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -65,17 +64,17 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
         if (destination.startsWith(OrderLiveTopics.KITCHEN_PREFIX)) {
             Long restaurantId = parseId(destination, OrderLiveTopics.KITCHEN_PREFIX);
-            return restaurantId != null && orderLiveAccessService.canSubscribeKitchen(user, restaurantId);
+            return restaurantId != null && liveSubscriptionAuthorizer.canSubscribeKitchen(user, restaurantId);
         }
 
         if (destination.startsWith(OrderLiveTopics.RIDER_PREFIX)) {
             Long agentId = parseId(destination, OrderLiveTopics.RIDER_PREFIX);
-            return agentId != null && orderLiveAccessService.canSubscribeRider(user, agentId);
+            return agentId != null && liveSubscriptionAuthorizer.canSubscribeRider(user, agentId);
         }
 
         if (destination.startsWith(OrderLiveTopics.CUSTOMER_PREFIX)) {
             Long orderId = parseId(destination, OrderLiveTopics.CUSTOMER_PREFIX);
-            return orderId != null && orderLiveAccessService.canSubscribeCustomer(user, orderId);
+            return orderId != null && liveSubscriptionAuthorizer.canSubscribeCustomer(user, orderId);
         }
 
         return false;

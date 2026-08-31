@@ -1,5 +1,6 @@
 package com.bhukkad.notification;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +49,7 @@ public class ResilientEmailSender {
      * @param message fully populated simple mail message
      */
     @CircuitBreaker(name = "notificationEmail", fallbackMethod = "emailUnavailable")
+    @Bulkhead(name = "notificationEmail", fallbackMethod = "emailUnavailable")
     public void send(SimpleMailMessage message) {
         if (mailSender == null) {
             throw new IllegalStateException("JavaMailSender is not configured");
@@ -73,6 +75,7 @@ public class ResilientEmailSender {
      *         or no sender configured)
      */
     @CircuitBreaker(name = "notificationEmail", fallbackMethod = "attachmentUnavailable")
+    @Bulkhead(name = "notificationEmail", fallbackMethod = "attachmentUnavailable")
     public boolean sendWithAttachment(String from,
                                       String to,
                                       String subject,
@@ -104,13 +107,13 @@ public class ResilientEmailSender {
     }
 
     @SuppressWarnings("unused")
-    void emailUnavailable(SimpleMailMessage message, Throwable cause) {
+    public void emailUnavailable(SimpleMailMessage message, Throwable cause) {
         log.warn("EMAIL_CIRCUIT_OPEN | to={} | subject={} | error={}",
                 message.getTo(), message.getSubject(), cause.getMessage());
     }
 
     @SuppressWarnings("unused")
-    private boolean attachmentUnavailable(String from,
+    public boolean attachmentUnavailable(String from,
                                           String to,
                                           String subject,
                                           String body,

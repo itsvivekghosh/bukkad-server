@@ -113,8 +113,8 @@ public class AutoRefundService {
             String target = policy.get().target();
 
             if (RefundPolicyService.TARGET_WALLET.equalsIgnoreCase(target)) {
-                walletService.credit(order.getCustomer(), amount,
-                        WalletTransaction.TransactionType.ORDER_REFUND, payment,
+                walletService.credit(order.getCustomer().getId(), amount,
+                        WalletTransaction.TransactionType.ORDER_REFUND, payment != null ? payment.getId() : null,
                         "Auto refund for cancelled order " + order.getOrderNumber());
                 log.info("Auto refund to wallet completed | orderId={} | amount={}", order.getId(), amount);
                 return true;

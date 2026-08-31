@@ -1,7 +1,9 @@
 package com.bhukkad.security;
 
 import com.bhukkad.entity.User;
-import com.bhukkad.repository.UserRepository;
+import com.bhukkad.entity.Customer;
+import com.bhukkad.security.AccountFields;
+import com.bhukkad.security.AccountLookupService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,19 +24,19 @@ import static org.mockito.Mockito.when;
 class CustomUserDetailsServiceTest {
 
     @Mock
-    private UserRepository userRepository;
+    private AccountLookupService accountLookupService;
 
     private CustomUserDetailsService service;
 
     @BeforeEach
     void setUp() {
-        service = new CustomUserDetailsService(userRepository);
+        service = new CustomUserDetailsService(accountLookupService);
     }
 
     @Test
     void loadUserByUsername_foundActive() {
         User user = buildUser(User.UserRole.CUSTOMER, true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.of(user));
 
         UserDetails details = service.loadUserByUsername("user@example.com");
 
@@ -50,7 +52,7 @@ class CustomUserDetailsServiceTest {
     @Test
     void loadUserByUsername_foundInactive() {
         User user = buildUser(User.UserRole.CUSTOMER, false);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.of(user));
 
         UserDetails details = service.loadUserByUsername("user@example.com");
 
@@ -59,7 +61,7 @@ class CustomUserDetailsServiceTest {
 
     @Test
     void loadUserByUsername_notFound() {
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byIdentifier("missing@example.com")).thenReturn(Optional.empty());
 
         UsernameNotFoundException ex = assertThrows(UsernameNotFoundException.class,
                 () -> service.loadUserByUsername("missing@example.com"));
@@ -70,7 +72,7 @@ class CustomUserDetailsServiceTest {
     @EnumSource(User.UserRole.class)
     void loadUserByUsername_mapsEachRoleToAuthority(User.UserRole role) {
         User user = buildUser(role, true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.of(user));
 
         UserDetails details = service.loadUserByUsername("user@example.com");
 
@@ -80,10 +82,26 @@ class CustomUserDetailsServiceTest {
                 .anyMatch(a -> a.equals("ROLE_" + role.name())));
     }
 
+    @Test
+    void loadUserByUsername_phoneFirstUser_findsByPlaceholderEmail() {
+        User user = buildUser(User.UserRole.CUSTOMER, true);
+        AccountFields.setEmail(user, "phone_1234567890@temp.bhukkad.local");
+        AccountFields.setPassword(user, null);
+        when(accountLookupService.byIdentifier("phone_1234567890@temp.bhukkad.local"))
+                .thenReturn(Optional.of(user));
+
+        UserDetails details = service.loadUserByUsername("phone_1234567890@temp.bhukkad.local");
+
+        assertEquals("phone_1234567890@temp.bhukkad.local", details.getUsername());
+        assertEquals("", details.getPassword());
+    }
+
     private User buildUser(User.UserRole role, boolean active) {
-        User user = new User();
-        user.setEmail("user@example.com");
-        user.setPassword("encoded");
+        // V62: credentials live on the role table; AccountFields reads need a
+        // role-typed instance.
+        Customer user = new Customer();
+        AccountFields.setEmail(user, "user@example.com");
+        AccountFields.setPassword(user, "encoded");
         user.setRole(role);
         user.setActive(active);
         return user;

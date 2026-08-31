@@ -1,5 +1,6 @@
 package com.bhukkad.storage;
 
+import com.bhukkad.cache.RedisCacheService;
 import com.bhukkad.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @Service
-public class MenuImageService {
+public class MenuImageService implements com.bhukkad.mapper.ImageUrlResolver {
 
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "image/jpeg",
@@ -29,12 +30,15 @@ public class MenuImageService {
 
     private final ImageStorageProperties properties;
     private final S3Presigner s3Presigner;
+    private final RedisCacheService redisCacheService;
 
     public MenuImageService(
             ImageStorageProperties properties,
-            @Autowired(required = false) S3Presigner s3Presigner) {
+            @Autowired(required = false) S3Presigner s3Presigner,
+            @Autowired(required = false) RedisCacheService redisCacheService) {
         this.properties = properties;
         this.s3Presigner = s3Presigner;
+        this.redisCacheService = redisCacheService;
     }
 
     public String generateImageKey(Long restaurantId, Long menuItemId, String contentType) {
@@ -68,6 +72,7 @@ public class MenuImageService {
         return presigned.url().toString();
     }
 
+    @Override
     public String resolvePublicUrl(String storedValue) {
         if (!StringUtils.hasText(storedValue)) {
             return null;
@@ -91,6 +96,17 @@ public class MenuImageService {
             return storedValue;
         }
 
+        // Cache presigned URLs to avoid 100k presign ops/s at high QPS (50 items * 2000 RPS)
+        // TTL is expiry - 100s so cache invalidates just before URL expires.
+        if (redisCacheService != null) {
+            String cacheKey = "menu-image:url:" + storedValue;
+            long ttl = Math.max(60, properties.getDownloadUrlExpirySeconds() - 100);
+            return redisCacheService.getOrCompute(cacheKey, String.class, ttl, () -> presignGet(storedValue));
+        }
+        return presignGet(storedValue);
+    }
+
+    private String presignGet(String storedValue) {
         GetObjectRequest getRequest = GetObjectRequest.builder()
                 .bucket(properties.getBucket())
                 .key(storedValue)

@@ -49,6 +49,9 @@ public class RestaurantController {
     @Operation(summary = "Get all restaurants (or batch by ids)")
     public ResponseEntity<ApiResponse<List<RestaurantResponse>>> getAllRestaurants(
             @RequestParam(required = false) java.util.List<Long> ids,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
+            @RequestParam(required = false) Double radiusKm,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch,
             @RequestHeader(value = HttpHeaders.IF_MODIFIED_SINCE, required = false) Long ifModifiedSince,
             @RequestHeader(value = "X-Tenant-Id", required = false) Long tenantId) {
@@ -58,7 +61,8 @@ public class RestaurantController {
             }
             return ResponseEntity.ok(ApiResponse.success(restaurantService.getRestaurantsByIds(ids)));
         }
-        List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants(tenantId);
+        List<RestaurantResponse> restaurants = restaurantService.getAllActiveRestaurants(
+                tenantId, latitude, longitude, radiusKm);
         ApiResponse<List<RestaurantResponse>> body = ApiResponse.success(restaurants);
 
         HttpHeaders headers = httpCacheSupport.buildCacheHeaders(
@@ -110,6 +114,19 @@ public class RestaurantController {
             @RequestParam(defaultValue = "5") double radiusKm,
             @RequestParam(defaultValue = "20") int limit) {
         List<RestaurantResponse> restaurants = restaurantService.findNearbyRestaurants(
+                latitude, longitude, radiusKm, limit);
+        return ResponseEntity.ok(ApiResponse.success(restaurants));
+    }
+
+    @GetMapping("/public/top-nearby")
+    @RateLimited("search")
+    @Operation(summary = "Find top-rated restaurants near a location")
+    public ResponseEntity<ApiResponse<List<RestaurantResponse>>> findTopRatedNearbyRestaurants(
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam(defaultValue = "5") double radiusKm,
+            @RequestParam(defaultValue = "10") int limit) {
+        List<RestaurantResponse> restaurants = restaurantService.findTopRatedNearbyRestaurants(
                 latitude, longitude, radiusKm, limit);
         return ResponseEntity.ok(ApiResponse.success(restaurants));
     }

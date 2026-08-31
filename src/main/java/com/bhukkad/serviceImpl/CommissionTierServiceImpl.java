@@ -10,6 +10,8 @@ import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CommissionTierService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,13 +72,20 @@ public class CommissionTierServiceImpl implements CommissionTierService {
     @Override
     @Transactional
     public void updateCommissionTiers() {
-        List<Restaurant> restaurants = restaurantRepository.findAll();
-        for (Restaurant restaurant : restaurants) {
-            double commissionRate = getEffectiveCommissionRate(restaurant.getId());
-            restaurant.setCommissionPercent(commissionRate * 100);
-            restaurantRepository.save(restaurant);
-        }
-        log.info("Updated commission tiers for {} restaurants", restaurants.size());
+        PageRequest pageRequest = PageRequest.of(0, 100);
+        Page<Restaurant> page;
+        int totalProcessed = 0;
+        do {
+            page = restaurantRepository.findAll(pageRequest);
+            for (Restaurant restaurant : page.getContent()) {
+                double commissionRate = getEffectiveCommissionRate(restaurant.getId());
+                restaurant.setCommissionPercent(commissionRate * 100);
+                restaurantRepository.save(restaurant);
+            }
+            totalProcessed += page.getNumberOfElements();
+            pageRequest = pageRequest.next();
+        } while (page.hasNext());
+        log.info("Updated commission tiers for {} restaurants", totalProcessed);
     }
 
     @Override

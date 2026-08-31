@@ -355,7 +355,7 @@ class OrderServiceImplTest {
         assertEquals("PENDING", response.getPaymentStatus());
         assertEquals("No onions", response.getSpecialInstructions());
 
-        verify(cartItemRepository).deleteAll(anyList());
+        verify(cartItemRepository).deleteAllInBatch(anyList());
         verify(cartRepository).save(cart);
         verify(orderEventPublisher).publishCreated(any(Order.class));
     }

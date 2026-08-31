@@ -134,8 +134,8 @@ class AutoRefundServiceTest {
         boolean refunded = service.autoRefund(order, REASON);
 
         assertTrue(refunded);
-        verify(walletService).credit(eq(order.getCustomer()), eq(500.0),
-                eq(WalletTransaction.TransactionType.ORDER_REFUND), any(Payment.class), anyString());
+        verify(walletService).credit(eq(1L), eq(500.0),
+                eq(WalletTransaction.TransactionType.ORDER_REFUND), any(), anyString());
         verify(paymentServiceImpl, never()).processRefund(any(), anyDouble(), anyString());
     }
 

@@ -1,9 +1,9 @@
 package com.bhukkad.logging;
 
 import com.bhukkad.entity.User;
+import com.bhukkad.security.AccountLookupService;
 import com.bhukkad.logging.alert.AlertService;
 import com.bhukkad.metrics.EndpointSloMetrics;
-import com.bhukkad.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.FilterChain;
@@ -39,7 +39,7 @@ import static org.mockito.Mockito.when;
 class RequestLoggingFilterTest {
 
     @Mock
-    private UserRepository userRepository;
+    private com.bhukkad.security.AccountLookupService accountLookupService;
     @Mock
     private AlertService alertService;
     @Mock
@@ -49,7 +49,7 @@ class RequestLoggingFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new RequestLoggingFilter(userRepository, alertService,
+        filter = new RequestLoggingFilter(accountLookupService, alertService,
                 new EndpointSloMetrics(new SimpleMeterRegistry()));
         ReflectionTestUtils.setField(filter, "debugMode", false);
         SecurityContextHolder.clearContext();
@@ -106,7 +106,7 @@ class RequestLoggingFilterTest {
 
         User user = new User();
         user.setId(7L);
-        when(userRepository.findByEmail("ada@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byEmail("ada@example.com")).thenReturn(Optional.of(user));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("ada@example.com", "x",
                         List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"))));
@@ -198,7 +198,7 @@ class RequestLoggingFilterTest {
 
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("user@example.com", "x", List.of()));
-        when(userRepository.findByEmail("user@example.com")).thenThrow(new RuntimeException("db down"));
+        when(accountLookupService.byEmail("user@example.com")).thenThrow(new RuntimeException("db down"));
         filter.doFilterInternal(request, response, filterChain);
     }
 

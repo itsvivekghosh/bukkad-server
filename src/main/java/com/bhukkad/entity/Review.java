@@ -1,10 +1,12 @@
 package com.bhukkad.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.BatchSize;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
@@ -105,7 +107,12 @@ public class Review {
 
     private Integer deliveryRating;
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    // Not serialized with entities: OSIV is disabled, so Jackson touching this
+    // lazy collection outside the session 500s review listings. The app treats
+    // the field as optional; image responses should go through a DTO.
+    @JsonIgnore
+    @BatchSize(size = 20)
+    @ElementCollection(fetch = FetchType.LAZY)
     private List<String> images = new ArrayList<>();
 
     /**

@@ -52,6 +52,9 @@ spring:
     expiration: ${JWT_EXPIRATION:86400000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
+  api-key:
+    pepper: ${API_KEY_PEPPER:zYHsmVfyqzrgU+RE/SXJ+Ep59FZMasTNccKToJT9yKpc6Ntk15gfWXCaPV3sGJr0Vw7X5uKeRIuaRUq4VKQECQ==}
+
   rate-limit:
     buckets:
       auth-register:
@@ -91,6 +94,12 @@ logging:
 app:
   environment: development
   debug: true
+  # Disable JWT key rotation in dev — the scheduled task rotates the signing
+  # key shortly after startup, which invalidates tokens issued in the same JVM.
+  jwt:
+    rotation:
+      enabled: false
+      interval-ms: 999999999000
   fraud:
     # Local dev and automated test scripts share one IP; log abuse signals without blocking.
     blocking-enabled: false

@@ -232,6 +232,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     List<Order> findByStatusAndScheduledAtLessThanEqual(Order.OrderStatus status, LocalDateTime scheduledAt);
 
+    Page<Order> findByStatusAndScheduledAtLessThanEqual(Order.OrderStatus status, LocalDateTime scheduledAt, Pageable pageable);
+
     long countByCustomerIdAndStatus(Long customerId, Order.OrderStatus status);
 
     @Query("SELECT COALESCE(SUM(o.totalAmount + COALESCE(o.walletAmountUsed, 0)), 0) FROM Order o " +
@@ -387,16 +389,39 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "SELECT id, order_number, customer_id, restaurant_id, status, total_amount, " +
             " delivery_address_id, special_instructions, created_at, updated_at, " +
             " delivered_at, estimated_delivery_at, NOW() " +
-            "FROM orders WHERE created_at < :cutoff LIMIT :limit", nativeQuery = true)
+            "FROM orders WHERE created_at < :cutoff ORDER BY created_at, id LIMIT :limit", nativeQuery = true)
     int archiveOrdersBefore(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
 
     /**
      * Deletes the archived batch from the hot {@code orders} table (must run
-     * after {@link #archiveOrdersBefore} so no data is lost).
+     * after {@link #archiveOrdersBefore} so no data is lost). Uses deterministic
+     * ORDER BY to ensure the same ids as the INSERT when run sequentially.
      */
     @Modifying
     @Query(value = "DELETE FROM orders WHERE id IN (" +
-            "SELECT id FROM (SELECT id FROM orders WHERE created_at < :cutoff LIMIT :limit) t)",
+            "SELECT id FROM (SELECT id FROM orders WHERE created_at < :cutoff ORDER BY created_at, id LIMIT :limit) t)",
             nativeQuery = true)
     int deleteOrdersBefore(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
+
+    // ---------------------------------------------------------------------
+    // Category-pruned hot paths (V63 generated order_category column).
+    // These serve the highest-QPS subset reads — live tracking, restaurant
+    // queues, agent assignment — where pruning FULFILLED/CANCELLED history
+    // via the category-leading composite indexes avoids scanning order
+    // history entirely.
+    // ---------------------------------------------------------------------
+
+    /** Customer's live (in-flight) orders — order-tracking screen. */
+    List<Order> findByCustomerIdAndOrderCategoryOrderByCreatedAtDesc(
+            Long customerId, Order.OrderCategory category);
+
+    /** Restaurant's live order queue — kitchen/ops dashboard. */
+    List<Order> findByRestaurantIdAndOrderCategoryOrderByCreatedAtDesc(
+            Long restaurantId, Order.OrderCategory category);
+
+    /** Agent's active deliveries — assignment screen. */
+    List<Order> findByDeliveryAgentIdAndOrderCategory(Long deliveryAgentId,
+                                                      Order.OrderCategory category);
+
+    long countByRestaurantIdAndOrderCategory(Long restaurantId, Order.OrderCategory category);
 }

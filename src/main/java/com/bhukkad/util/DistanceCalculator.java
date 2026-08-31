@@ -64,6 +64,30 @@ public class DistanceCalculator {
         return distanceInKm <= Constants.MAX_DELIVERY_DISTANCE_KM;
     }
 
+    /**
+     * Compute latitude and longitude deltas that form a bounding box around
+     * the given center point, large enough to contain a circle of
+     * {@code radiusKm}. Used as a coarse pre-filter before the precise
+     * Haversine calculation to leverage the {@code idx_address_lat_lon}
+     * B-tree index and avoid a full table scan.
+     *
+     * @param radiusKm the desired radius in kilometres
+     * @return a two-element array: {@code [latDelta, lonDelta]} in degrees
+     */
+    public static double[] boundingBoxDeltas(double radiusKm) {
+        // 1 degree of latitude ≈ 111.32 km
+        double latDelta = radiusKm / 111.32;
+
+        // 1 degree of longitude varies with latitude; use the equator as the
+        // worst case (where 1 degree ≈ 111.32 km). At higher latitudes the
+        // actual distance per degree shrinks, making the box slightly
+        // conservative — which is correct: we want to over-include for the
+        // coarse pass and let the precise Haversine filter do the final cut.
+        double lonDelta = radiusKm / 111.32;
+
+        return new double[]{latDelta, lonDelta};
+    }
+
     private DistanceCalculator() {
         // Private constructor to prevent instantiation
     }

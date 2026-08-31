@@ -12,7 +12,11 @@ import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.util.NotificationHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,15 +40,30 @@ public class InventoryAlertService {
     @Value("${app.inventory.low-stock-alert-webhook:}")
     private String lowStockAlertWebhook;
 
+    private static final int INVENTORY_BATCH = 100;
+
     @Scheduled(fixedDelayString = "${app.inventory.alert-check-interval-ms:300000}")
-    @Transactional
+    @SchedulerLock(name = "inventory-low-stock-check", lockAtMostFor = "PT10M", lockAtLeastFor = "PT1M")
     public void checkLowStockItems() {
-        List<Restaurant> restaurants = restaurantRepository.findAll();
-        for (Restaurant restaurant : restaurants) {
-            List<MenuItem> lowStockItems = menuItemRepository.findLowStockByRestaurant(restaurant.getId(), 10);
-            for (MenuItem item : lowStockItems) {
-                createAlertIfNeeded(item);
+        int page = 0;
+        Page<Restaurant> batch;
+        do {
+            batch = restaurantRepository.findAll(PageRequest.of(page, INVENTORY_BATCH, Sort.by("id")));
+            for (Restaurant restaurant : batch.getContent()) {
+                checkSingleRestaurant(restaurant.getId());
             }
+            page++;
+            if (batch.hasNext()) {
+                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+        } while (batch.hasNext());
+    }
+
+    @Transactional
+    protected void checkSingleRestaurant(Long restaurantId) {
+        List<MenuItem> lowStockItems = menuItemRepository.findLowStockByRestaurant(restaurantId, 10);
+        for (MenuItem item : lowStockItems) {
+            createAlertIfNeeded(item);
         }
     }
 

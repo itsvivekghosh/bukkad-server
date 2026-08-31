@@ -10,15 +10,12 @@ import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.repository.GroupOrderMemberRepository;
 import com.bhukkad.repository.GroupOrderRepository;
 import com.bhukkad.service.CartService;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.TypedQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,8 +33,7 @@ class GroupOrderServiceTest {
     @Mock private GroupOrderRepository groupOrderRepository;
     @Mock private GroupOrderMemberRepository memberRepository;
     @Mock private CartService cartService;
-    @Mock private EntityManager entityManager;
-    @Mock private TypedQuery<User> phoneQuery;
+    @Mock private com.bhukkad.security.AccountLookupService accountLookupService;
 
     private GroupOrderService service;
 
@@ -73,18 +69,8 @@ class GroupOrderServiceTest {
                     .filter(m -> Objects.equals(m.getUserId(), userId))
                     .findFirst();
         });
-        service = new GroupOrderService(groupOrderRepository, memberRepository, cartService);
-        injectEntityManager();
-    }
-
-    private void injectEntityManager() {
-        try {
-            Field emField = GroupOrderService.class.getDeclaredField("entityManager");
-            emField.setAccessible(true);
-            emField.set(service, entityManager);
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
-            throw new IllegalStateException("Cannot inject EntityManager mock", ex);
-        }
+        service = new GroupOrderService(groupOrderRepository, memberRepository, cartService,
+                accountLookupService);
     }
 
     @Test
@@ -123,9 +109,7 @@ class GroupOrderServiceTest {
     @Test
     void inviteMember_unregisteredPhone_throws() {
         when(groupOrderRepository.findById(5L)).thenReturn(Optional.of(openGroup(5L, 10L)));
-        when(entityManager.createQuery(anyString(), eq(User.class))).thenReturn(phoneQuery);
-        when(phoneQuery.setParameter(eq("phone"), anyString())).thenReturn(phoneQuery);
-        when(phoneQuery.getResultList()).thenReturn(List.of());
+        when(accountLookupService.byPhoneNumber(anyString())).thenReturn(Optional.empty());
 
         assertThrows(BusinessException.class,
                 () -> service.inviteMember(5L, 10L, "+919876543210"));
@@ -136,9 +120,7 @@ class GroupOrderServiceTest {
         User invited = new User();
         invited.setId(20L);
         when(groupOrderRepository.findById(5L)).thenReturn(Optional.of(openGroup(5L, 10L)));
-        when(entityManager.createQuery(anyString(), eq(User.class))).thenReturn(phoneQuery);
-        when(phoneQuery.setParameter(eq("phone"), anyString())).thenReturn(phoneQuery);
-        when(phoneQuery.getResultList()).thenReturn(List.of(invited));
+        when(accountLookupService.byPhoneNumber(anyString())).thenReturn(Optional.of(invited));
 
         GroupOrderResponse response = service.inviteMember(5L, 10L, "+919876543210");
 
@@ -151,9 +133,7 @@ class GroupOrderServiceTest {
     @Test
     void inviteMember_hostPhone_throws() {
         when(groupOrderRepository.findById(5L)).thenReturn(Optional.of(openGroup(5L, 10L)));
-        when(entityManager.createQuery(anyString(), eq(User.class))).thenReturn(phoneQuery);
-        when(phoneQuery.setParameter(eq("phone"), anyString())).thenReturn(phoneQuery);
-        when(phoneQuery.getResultList()).thenReturn(List.of(selfUser(10L)));
+        when(accountLookupService.byPhoneNumber(anyString())).thenReturn(Optional.of(selfUser(10L)));
 
         assertThrows(BusinessException.class,
                 () -> service.inviteMember(5L, 10L, "+919876543210"));

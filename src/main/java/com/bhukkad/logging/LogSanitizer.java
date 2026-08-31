@@ -34,7 +34,16 @@ public final class LogSanitizer {
             "cvv",
             "ssn",
             "otp",
-            "pin"
+            "pin",
+            "mfaToken",
+            "authorization"
+    ));
+
+    // Query param keys that must be masked (lowercase comparison)
+    private static final Set<String> SENSITIVE_QUERY_PARAMS = new HashSet<>(Arrays.asList(
+            "password", "newpassword", "oldpassword", "confirmpassword",
+            "token", "refreshtoken", "secret", "apikey", "otp", "pin",
+            "mfatoken", "code", "authorization", "access_token", "refresh_token"
     ));
 
     private static final int MAX_BODY_LENGTH = 2000;
@@ -105,6 +114,24 @@ public final class LogSanitizer {
                 || ct.contains("xml")
                 || ct.contains("text")
                 || ct.contains("form-urlencoded");
+    }
+
+    /**
+     * Sanitize a single query-param value based on its key.
+     */
+    public static String sanitizeQueryParam(String key, String value) {
+        if (key == null || value == null) return value;
+        if (SENSITIVE_QUERY_PARAMS.contains(key.toLowerCase())) {
+            return "***MASKED***";
+        }
+        // Extra safety: if value looks like JWT (three base64 segments)
+        if (value.length() > 20 && value.chars().filter(ch -> ch == '.').count() == 2) {
+            return "***JWT_MASKED***";
+        }
+        if (value.length() > MAX_HEADER_VALUE_LENGTH) {
+            return value.substring(0, MAX_HEADER_VALUE_LENGTH) + "...TRUNCATED";
+        }
+        return value;
     }
 
     /**

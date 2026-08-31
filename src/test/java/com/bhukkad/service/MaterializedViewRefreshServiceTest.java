@@ -12,6 +12,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -37,6 +40,9 @@ class MaterializedViewRefreshServiceTest {
     private EntityManager entityManager;
 
     @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
     private Query nativeQuery;
 
     @InjectMocks
@@ -47,6 +53,9 @@ class MaterializedViewRefreshServiceTest {
         lenient().when(entityManager.createNativeQuery(any(String.class))).thenReturn(nativeQuery);
         lenient().when(nativeQuery.setParameter(anyInt(), any())).thenReturn(nativeQuery);
         lenient().when(nativeQuery.executeUpdate()).thenReturn(1);
+        // TransactionTemplate calls getTransaction → doInTransaction → commit.
+        lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+                .thenReturn(mock(TransactionStatus.class));
     }
 
     @Test
@@ -54,8 +63,8 @@ class MaterializedViewRefreshServiceTest {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(1L);
 
-        when(restaurantRepository.findAll()).thenReturn(List.of(restaurant));
-        when(restaurantRepository.count()).thenReturn(1L);
+        when(restaurantRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(restaurant)));
         when(reviewRepository.getAverageRatingByRestaurant(1L)).thenReturn(4.5);
         when(reviewRepository.countByRestaurant(1L)).thenReturn(10L);
         when(reviewRepository.countByRestaurantAndStatus(1L, Review.ModerationStatus.APPROVED)).thenReturn(8L);
@@ -75,8 +84,8 @@ class MaterializedViewRefreshServiceTest {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(2L);
 
-        when(restaurantRepository.findAll()).thenReturn(List.of(restaurant));
-        when(restaurantRepository.count()).thenReturn(1L);
+        when(restaurantRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(restaurant)));
         when(orderRepository.countByRestaurantId(2L)).thenReturn(50L);
         when(orderRepository.countByRestaurantIdAndStatusAndCreatedAtAfter(eq(2L), eq(Order.OrderStatus.DELIVERED), any()))
                 .thenReturn(40L);
@@ -98,8 +107,8 @@ class MaterializedViewRefreshServiceTest {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(1L);
 
-        when(restaurantRepository.findAll()).thenReturn(List.of(restaurant));
-        when(restaurantRepository.count()).thenReturn(1L);
+        when(restaurantRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(restaurant)));
         when(reviewRepository.getAverageRatingByRestaurant(1L)).thenReturn(3.0);
         when(reviewRepository.countByRestaurant(1L)).thenReturn(5L);
         when(reviewRepository.countByRestaurantAndStatus(1L, Review.ModerationStatus.APPROVED)).thenReturn(5L);
@@ -111,5 +120,29 @@ class MaterializedViewRefreshServiceTest {
 
         verify(entityManager, atLeast(2)).createNativeQuery(any(String.class));
         verify(nativeQuery, atLeast(2)).executeUpdate();
+    }
+
+    @Test
+    void refresh_runsEachUpsertInsideItsOwnTransaction() {
+        // Regression: @Transactional on internally-invoked protected methods was
+        // silently bypassed (self-invocation), so the scheduled refresh threw
+        // TransactionRequiredException every run and the summaries never updated.
+        // Each upsert now runs in its own TransactionTemplate transaction.
+        Restaurant restaurant = new Restaurant();
+        restaurant.setId(1L);
+        when(restaurantRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(restaurant)));
+        when(reviewRepository.getAverageRatingByRestaurant(1L)).thenReturn(4.0);
+        when(reviewRepository.countByRestaurant(1L)).thenReturn(2L);
+        when(reviewRepository.countByRestaurantAndStatus(1L, Review.ModerationStatus.APPROVED)).thenReturn(2L);
+        when(orderRepository.countByRestaurantId(1L)).thenReturn(1L);
+        when(orderRepository.countByRestaurantIdAndStatusAndCreatedAtAfter(any(), any(), any())).thenReturn(0L);
+        when(orderRepository.sumRestaurantRevenueSince(any(), any())).thenReturn(100.0);
+
+        service.refreshAll();
+
+        // One transaction per upsert per restaurant: ratings + order stats
+        verify(transactionManager, atLeast(2)).getTransaction(any(TransactionDefinition.class));
+        verify(transactionManager, atLeast(2)).commit(any(TransactionStatus.class));
     }
 }

@@ -13,6 +13,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -43,8 +46,8 @@ class ScheduledOrderProcessorTest {
     void dispatchDueOrders_processesAllDueOrders() {
         Order dueOrder1 = order(1L, "ORD-1", LocalDateTime.now().minusMinutes(5));
         Order dueOrder2 = order(2L, "ORD-2", LocalDateTime.now().minusMinutes(1));
-        when(orderRepository.findByStatusAndScheduledAtLessThanEqual(any(Order.OrderStatus.class), any(LocalDateTime.class)))
-                .thenReturn(List.of(dueOrder1, dueOrder2));
+        when(orderRepository.findByStatusAndScheduledAtLessThanEqual(any(Order.OrderStatus.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(dueOrder1, dueOrder2)));
 
         processor.dispatchDueOrders();
 
@@ -64,8 +67,8 @@ class ScheduledOrderProcessorTest {
 
     @Test
     void dispatchDueOrders_noDueOrders() {
-        when(orderRepository.findByStatusAndScheduledAtLessThanEqual(any(Order.OrderStatus.class), any(LocalDateTime.class)))
-                .thenReturn(List.of());
+        when(orderRepository.findByStatusAndScheduledAtLessThanEqual(any(Order.OrderStatus.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         processor.dispatchDueOrders();
 
@@ -76,8 +79,8 @@ class ScheduledOrderProcessorTest {
     void dispatchDueOrders_failureOnOneOrder_doesNotBlockTheRest() {
         Order failingOrder = order(1L, "ORD-1", LocalDateTime.now().minusMinutes(5));
         Order healthyOrder = order(2L, "ORD-2", LocalDateTime.now().minusMinutes(1));
-        when(orderRepository.findByStatusAndScheduledAtLessThanEqual(any(Order.OrderStatus.class), any(LocalDateTime.class)))
-                .thenReturn(List.of(failingOrder, healthyOrder));
+        when(orderRepository.findByStatusAndScheduledAtLessThanEqual(any(Order.OrderStatus.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(failingOrder, healthyOrder)));
         doThrow(new RuntimeException("eta boom")).when(orderEtaService).applyLiveEta(failingOrder);
 
         processor.dispatchDueOrders();

@@ -1,8 +1,9 @@
 package com.bhukkad.security;
 
+import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import com.bhukkad.logging.LoggingConstants;
-import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AccountLookupService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -36,7 +37,7 @@ class JwtAuthenticationFilterTest {
     @Mock
     private CustomUserDetailsService userDetailsService;
     @Mock
-    private UserRepository userRepository;
+    private AccountLookupService accountLookupService;
     @Mock
     private AuthTokenService authTokenService;
     @Mock
@@ -48,7 +49,7 @@ class JwtAuthenticationFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, userRepository, authTokenService);
+        filter = new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, accountLookupService, authTokenService);
         lenient().when(authTokenService.isAccessTokenBlacklisted(any())).thenReturn(false);
         lenient().when(jwtTokenProvider.isRefreshToken(any())).thenReturn(false);
         request = new MockHttpServletRequest();
@@ -126,15 +127,15 @@ class JwtAuthenticationFilterTest {
         request.addHeader("Authorization", "Bearer jwt");
         UserDetails userDetails = org.springframework.security.core.userdetails.User
                 .withUsername("user@example.com").password("p").roles("CUSTOMER").build();
-        User user = new User();
+        Customer user = new Customer();
         user.setId(42L);
-        user.setEmail("user@example.com");
+        com.bhukkad.security.AccountFields.setEmail(user, "user@example.com");
 
         when(jwtTokenProvider.validateToken("jwt")).thenReturn(true);
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.of(user));
 
         filter.doFilter(request, response, filterChain);
 
@@ -171,7 +172,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.of(user));
 
         filter.doFilter(request, response, filterChain);
 
@@ -192,7 +193,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.empty());
+        when(accountLookupService.byIdentifier("user@example.com")).thenReturn(Optional.empty());
 
         filter.doFilter(request, response, filterChain);
 
@@ -211,7 +212,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.extractUsername("jwt")).thenReturn("user@example.com");
         when(userDetailsService.loadUserByUsername("user@example.com")).thenReturn(userDetails);
         when(jwtTokenProvider.isTokenValid("jwt", userDetails)).thenReturn(true);
-        when(userRepository.findByEmail("user@example.com")).thenThrow(new RuntimeException("db down"));
+        when(accountLookupService.byIdentifier("user@example.com")).thenThrow(new RuntimeException("db down"));
 
         filter.doFilter(request, response, filterChain);
 

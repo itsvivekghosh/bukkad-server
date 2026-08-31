@@ -1,5 +1,6 @@
 package com.bhukkad.security;
 
+import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import org.junit.jupiter.api.Test;
 
@@ -9,8 +10,8 @@ class StompPrincipalTest {
 
     @Test
     void getName_returnsUserEmail() {
-        User user = new User();
-        user.setEmail("chef@bhukkad.com");
+        Customer user = new Customer();
+        com.bhukkad.security.AccountFields.setEmail(user, "chef@bhukkad.com");
 
         StompPrincipal principal = new StompPrincipal(user);
 

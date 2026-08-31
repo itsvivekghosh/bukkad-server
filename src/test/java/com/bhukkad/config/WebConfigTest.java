@@ -14,6 +14,12 @@ class WebConfigTest {
     @Test
     void addCorsMappings_configuresApiCors() {
         WebConfig webConfig = new WebConfig();
+        // Batch D: CORS origins are now read from application properties rather
+        // than hard-coded, so inject the default value via reflection for this
+        // plain-unit-test instantiation.
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                webConfig, "allowedOrigins", "http://localhost:3000,http://localhost:4200");
+
         CorsRegistry registry = new CorsRegistry();
 
         webConfig.addCorsMappings(registry);

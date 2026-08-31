@@ -16,6 +16,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
     List<Restaurant> findByIsActiveTrue();
 
+    long countByIsActiveTrue();
+
     List<Restaurant> findByOwnerId(Long ownerId);
 
     // ==================== JOIN FETCH Queries ====================
@@ -23,6 +25,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT DISTINCT r FROM Restaurant r " +
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.features " +
             "LEFT JOIN FETCH r.owner " +
             "WHERE r.id = :id")
     Optional<Restaurant> findByIdWithDetails(@Param("id") Long id);
@@ -30,6 +33,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT DISTINCT r FROM Restaurant r " +
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.features " +
             "LEFT JOIN FETCH r.owner " +
             "WHERE r.id IN :ids")
     List<Restaurant> findAllByIdsWithDetails(@Param("ids") List<Long> ids);
@@ -37,6 +41,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT DISTINCT r FROM Restaurant r " +
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.features " +
             "WHERE r.isActive = true " +
             "ORDER BY r.averageRating DESC")
     List<Restaurant> findAllActiveWithDetails();
@@ -75,17 +80,33 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     // Admin queries
     Page<Restaurant> findByIsActive(Boolean active, Pageable pageable);
 
+    @Query("SELECT DISTINCT r FROM Restaurant r " +
+            "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.features " +
+            "WHERE r.isActive = true " +
+            "ORDER BY r.averageRating DESC")
     List<Restaurant> findTop10ByIsActiveTrueOrderByAverageRatingDesc();
 
     @Query(value = """
             SELECT r.id FROM restaurants r
             INNER JOIN addresses a ON r.address_id = a.id
             WHERE r.is_active = 1
+            AND a.latitude BETWEEN (:lat - :latDelta) AND (:lat + :latDelta)
+            AND (
+              -- Normal case: bounding box does not cross the ±180° meridian
+              (:lon - :lonDelta >= -180 AND :lon + :lonDelta <= 180
+                AND a.longitude BETWEEN (:lon - :lonDelta) AND (:lon + :lonDelta))
+              -- Dateline crossing: lower < -180 or upper > 180 → split into two ranges
+              OR (:lon - :lonDelta < -180
+                AND (a.longitude >= :lon - :lonDelta + 360 OR a.longitude <= :lon + :lonDelta))
+              OR (:lon + :lonDelta > 180
+                AND (a.longitude >= :lon - :lonDelta OR a.longitude <= :lon + :lonDelta - 360))
+            )
             AND (6371 * acos(LEAST(1, GREATEST(-1,
                 cos(radians(:lat)) * cos(radians(a.latitude))
                 * cos(radians(a.longitude) - radians(:lon))
                 + sin(radians(:lat)) * sin(radians(a.latitude))
-            )))) <= :radiusKm
+            )))) <= :radiusKm + :epsilonKm
             ORDER BY (6371 * acos(LEAST(1, GREATEST(-1,
                 cos(radians(:lat)) * cos(radians(a.latitude))
                 * cos(radians(a.longitude) - radians(:lon))
@@ -96,7 +117,10 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     List<Long> findNearbyRestaurantIds(
             @Param("lat") double latitude,
             @Param("lon") double longitude,
+            @Param("latDelta") double latDelta,
+            @Param("lonDelta") double lonDelta,
             @Param("radiusKm") double radiusKm,
+            @Param("epsilonKm") double epsilonKm,
             @Param("limit") int limit);
 
     @Query(value = """

@@ -23,13 +23,16 @@ public class WalletTransaction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "customer_id", nullable = false)
-    private Customer customer;
+    /**
+     * Phase 2: plain id references instead of entity joins — the wallet domain
+     * must not depend on identity/payment aggregates. The DB columns and FKs
+     * are unchanged.
+     */
+    @Column(name = "customer_id", nullable = false)
+    private Long customerId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "payment_id")
-    private Payment payment;
+    @Column(name = "payment_id")
+    private Long paymentId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

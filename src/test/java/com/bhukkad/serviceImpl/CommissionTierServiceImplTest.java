@@ -120,7 +120,8 @@ class CommissionTierServiceImplTest {
         restaurant.setId(1L);
         restaurant.setCommissionPercent(null);
 
-        when(restaurantRepository.findAll()).thenReturn(List.of(restaurant));
+        when(restaurantRepository.findAll(org.springframework.data.domain.Pageable.ofSize(100)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(restaurant)));
         when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
 
         service.updateCommissionTiers();

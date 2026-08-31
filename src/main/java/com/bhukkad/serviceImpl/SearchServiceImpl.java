@@ -27,6 +27,16 @@ public class SearchServiceImpl implements SearchService {
     @UseReadReplica
     public UnifiedSearchResponse unifiedSearch(String keyword) {
         businessMetrics.search();
+        if (keyword == null || keyword.trim().length() < 2) {
+            return UnifiedSearchResponse.builder()
+                    .restaurants(List.of())
+                    .menuItems(List.of())
+                    .restaurantCount(0)
+                    .menuItemCount(0)
+                    .build();
+        }
+        // Sequential is fine for 60s cached; parallel would add thread contention at 1k QPS.
+        // Keep serial but both paths are now cached via getListOrCompute with jitter.
         List<RestaurantResponse> restaurants = restaurantService.searchRestaurants(keyword);
         List<MenuItemResponse> menuItems = menuService.searchMenuItems(keyword);
         return UnifiedSearchResponse.builder()

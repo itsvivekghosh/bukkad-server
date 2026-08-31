@@ -8,7 +8,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -33,39 +34,44 @@ class TwilioSmsSenderTest {
         sender = new TwilioSmsSender(props, restTemplate);
     }
 
-    @Test void send_sendsViaTwilioApi() {
+    @Test void send_sendsViaTwilioApi_returnsTrue() {
         when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
                 .thenReturn(null);
 
-        sender.send("+911234567890", "Hello via Twilio");
+        boolean delivered = sender.send("+911234567890", "Hello via Twilio");
 
+        assertTrue(delivered);
         verify(restTemplate).postForEntity(
                 org.mockito.ArgumentMatchers.startsWith("https://api.twilio.com/"),
                 any(),
                 eq(String.class));
     }
 
-    @Test void send_emptyPhone_skips() {
-        sender.send("", "test");
+    @Test void send_emptyPhone_returnsFalse() {
+        boolean delivered = sender.send("", "test");
+        assertFalse(delivered);
         verify(restTemplate, org.mockito.Mockito.never())
                 .postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void send_nullPhone_skips() {
-        sender.send(null, "test");
+    @Test void send_nullPhone_returnsFalse() {
+        boolean delivered = sender.send(null, "test");
+        assertFalse(delivered);
         verify(restTemplate, org.mockito.Mockito.never())
                 .postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void send_missingCredentials_skips() {
+    @Test void send_missingCredentials_returnsFalse() {
         TwilioSmsSender withoutCreds = new TwilioSmsSender(new NotificationProperties(), restTemplate);
-        withoutCreds.send("+911234567890", "no creds");
+        boolean delivered = withoutCreds.send("+911234567890", "no creds");
+        assertFalse(delivered);
         verify(restTemplate, org.mockito.Mockito.never())
                 .postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void circuitBreakerFallback_doesNotThrow() {
-        assertDoesNotThrow(() -> org.springframework.test.util.ReflectionTestUtils.invokeMethod(
-                sender, "smsUnavailable", "+911234567890", "msg", new RuntimeException("twilio down")));
+    @Test void circuitBreakerFallback_returnsFalse() {
+        Object result = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                sender, "smsUnavailable", "+911234567890", "msg", new RuntimeException("twilio down"));
+        assertFalse((Boolean) result);
     }
 }

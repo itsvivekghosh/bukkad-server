@@ -158,25 +158,25 @@ class RiderPayoutServiceCursorTest {
 
     @Test
     void settlePendingPayouts_marksAllPendingAsPaid() throws Exception {
-        DeliveryAgent agent = new DeliveryAgent();
-        setField(agent, "id", 42L);
-        when(deliveryAgentRepository.findById(42L)).thenReturn(Optional.of(agent));
-        RiderEarning pending = earning(7L, LocalDateTime.now());
-        pending.setStatus(RiderEarning.EarningStatus.PENDING);
-        when(riderEarningRepository.findByAgentIdAndStatus(42L, RiderEarning.EarningStatus.PENDING))
-                .thenReturn(List.of(pending));
+        // Batch B fix: settlement is now a single atomic UPDATE — one agent
+        // existence check plus one bulk UPDATE instead of load-modify-save rows.
+        when(deliveryAgentRepository.existsById(42L)).thenReturn(true);
+        when(riderEarningRepository.atomicSettleByAgent(
+                eq(42L), eq(RiderEarning.EarningStatus.PENDING),
+                eq(RiderEarning.EarningStatus.PAID), any(LocalDateTime.class)))
+                .thenReturn(1);
 
         int settled = service.settlePendingPayouts(42L);
 
         assertEquals(1, settled);
-        assertEquals(RiderEarning.EarningStatus.PAID, pending.getStatus());
-        assertNotNull(pending.getPaidAt());
-        verify(riderEarningRepository).saveAll(any());
+        verify(riderEarningRepository).atomicSettleByAgent(
+                eq(42L), eq(RiderEarning.EarningStatus.PENDING),
+                eq(RiderEarning.EarningStatus.PAID), any(LocalDateTime.class));
     }
 
     @Test
     void settlePendingPayouts_agentNotFound_throws() throws Exception {
-        when(deliveryAgentRepository.findById(404L)).thenReturn(Optional.empty());
+        when(deliveryAgentRepository.existsById(404L)).thenReturn(false);
 
         assertThrows(ResourceNotFoundException.class,
                 () -> service.settlePendingPayouts(404L));

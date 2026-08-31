@@ -55,20 +55,49 @@ public class WafFilter extends OncePerRequestFilter {
 
     private boolean isSuspicious(HttpServletRequest request) {
         Enumeration<String> names = request.getParameterNames();
-        if (names == null) {
-            return false;
-        }
-        while (names.hasMoreElements()) {
-            String name = names.nextElement();
-            if (matches(name)) {
-                return true;
-            }
-            for (String value : request.getParameterValues(name)) {
-                if (matches(value)) {
+        if (names != null) {
+            while (names.hasMoreElements()) {
+                String name = names.nextElement();
+                if (matches(name)) {
                     return true;
+                }
+                for (String value : request.getParameterValues(name)) {
+                    if (matches(value)) {
+                        return true;
+                    }
                 }
             }
         }
+        // Also inspect JSON / form body for SQLi/XSS — query-param check alone
+        // is bypassable via POST { "name": "<script>" }.
+        String contentType = request.getContentType();
+        if (contentType != null && (contentType.contains("json") || contentType.contains("form-urlencoded"))) {
+            try {
+                // Use cached body if available, otherwise read stream with limit
+                String body = null;
+                if (request instanceof com.bhukkad.logging.CachedBodyHttpServletRequest cached) {
+                    body = cached.getBody();
+                } else {
+                    // Fallback: read up to MAX_VALUE_LENGTH*2 chars to avoid OOM
+                    var reader = request.getReader();
+                    if (reader != null) {
+                        char[] buf = new char[MAX_VALUE_LENGTH * 2];
+                        int read = reader.read(buf);
+                        if (read > 0) {
+                            body = new String(buf, 0, read);
+                        }
+                    }
+                }
+                if (body != null && !body.isBlank() && matches(body)) {
+                    return true;
+                }
+            } catch (Exception e) {
+                // Fail open for body read errors — log and continue
+                log.debug("WAF body inspect failed: {}", e.getMessage());
+            }
+        }
+        // Also check relevant headers that may carry injection (e.g. X-Forwarded-For abuse is already handled,
+        // but custom headers like X-Search-Keyword could be used)
         return false;
     }
 

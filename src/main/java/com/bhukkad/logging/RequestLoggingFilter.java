@@ -2,7 +2,7 @@ package com.bhukkad.logging;
 
 import com.bhukkad.logging.alert.AlertService;
 import com.bhukkad.metrics.EndpointSloMetrics;
-import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AccountLookupService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -30,7 +30,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
     private static final Logger perfLogger = LoggerFactory.getLogger(LoggingConstants.PERFORMANCE_LOGGER);
 
-    private final UserRepository userRepository;
+    private final AccountLookupService accountLookupService;
     private final ObjectMapper objectMapper;
     private final AlertService alertService;
     private final EndpointSloMetrics endpointSloMetrics;
@@ -44,8 +44,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             "/api/v1/health", "/health"
     };
 
-    public RequestLoggingFilter(UserRepository userRepository, AlertService alertService, EndpointSloMetrics endpointSloMetrics) {
-        this.userRepository = userRepository;
+    public RequestLoggingFilter(AccountLookupService accountLookupService, AlertService alertService, EndpointSloMetrics endpointSloMetrics) {
+        this.accountLookupService = accountLookupService;
         this.alertService = alertService;
         this.endpointSloMetrics = endpointSloMetrics;
         this.objectMapper = new ObjectMapper();
@@ -125,7 +125,17 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             Map<String, String[]> paramMap = request.getParameterMap();
             if (!paramMap.isEmpty()) {
                 Map<String, Object> params = new LinkedHashMap<>();
-                paramMap.forEach((key, values) -> params.put(key, values.length == 1 ? values[0] : Arrays.asList(values)));
+                paramMap.forEach((key, values) -> {
+                    Object sanitized;
+                    if (values.length == 1) {
+                        sanitized = LogSanitizer.sanitizeQueryParam(key, values[0]);
+                    } else {
+                        sanitized = Arrays.stream(values)
+                                .map(v -> LogSanitizer.sanitizeQueryParam(key, v))
+                                .toList();
+                    }
+                    params.put(key, sanitized);
+                });
                 logMap.put("queryParams", params);
             }
 
@@ -254,7 +264,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                 if (!auth.getAuthorities().isEmpty()) {
                     MDC.put(LoggingConstants.USER_ROLE, auth.getAuthorities().iterator().next().getAuthority());
                 }
-                userRepository.findByEmail(email).ifPresent(user ->
+                accountLookupService.byEmail(email).ifPresent(user ->
                         MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId())));
             }
         } catch (Exception e) {

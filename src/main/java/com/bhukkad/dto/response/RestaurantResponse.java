@@ -38,4 +38,11 @@ public class RestaurantResponse {
     private String virtualBrandName;
     private String onboardingStatus;
     private Long tenantId;
+
+    /**
+     * Distance in kilometres from the user's delivery location, populated when
+     * the requesting endpoint is invoked with {@code lat}/{@code lon} query
+     * parameters. Null on global (non-proximity) listings.
+     */
+    private Double distanceKm;
 }

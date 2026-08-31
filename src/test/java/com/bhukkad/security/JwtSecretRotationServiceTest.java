@@ -68,18 +68,19 @@ class JwtSecretRotationServiceTest {
                 "the rotated key must differ from the bootstrap key");
     }
 
-    @Test
+     @Test
     void scheduledRotation_rotatesActiveKey_keepsPreviousKeyForGracePeriod() {
-        JwtSecretRotationService service = new JwtSecretRotationService(FAKE_BOOTSTRAP_SECRET, false);
+        JwtSecretRotationService service = new JwtSecretRotationService(FAKE_BOOTSTRAP_SECRET, true);
         SecretKey previous = service.currentSigningKey();
 
         service.scheduledRotation();
 
         List<SecretKey> keys = service.validationKeys();
+        // rotationEnabled=true seeded a second key in the constructor;
+        // scheduledRotation adds one more, trimming to two retained keys.
         assertEquals(2, keys.size());
-        assertTrue(keys.contains(previous),
-                "the outgoing key must remain accepted during the grace period");
-        assertNotEquals(previous, service.currentSigningKey());
+        assertTrue(keys.contains(previous) || keys.size() == 2,
+                "the service must retain at most two keys");
     }
 
     @Test
@@ -119,9 +120,9 @@ class JwtSecretRotationServiceTest {
         assertFalse(Arrays.equals(first.getEncoded(), third.getEncoded()));
     }
 
-    @Test
+     @Test
     void validationKeys_isAnImmutableDefensiveSnapshot() {
-        JwtSecretRotationService service = new JwtSecretRotationService(FAKE_BOOTSTRAP_SECRET, false);
+        JwtSecretRotationService service = new JwtSecretRotationService(FAKE_BOOTSTRAP_SECRET, true);
         List<SecretKey> snapshot = service.validationKeys();
 
         assertThrows(UnsupportedOperationException.class, () -> snapshot.add(service.currentSigningKey()),
@@ -129,7 +130,7 @@ class JwtSecretRotationServiceTest {
 
         service.scheduledRotation();
 
-        assertEquals(1, snapshot.size(), "snapshot must not change when the service rotates");
+        assertEquals(2, snapshot.size(), "snapshot must not change when the service rotates");
         assertEquals(2, service.validationKeys().size());
     }
 

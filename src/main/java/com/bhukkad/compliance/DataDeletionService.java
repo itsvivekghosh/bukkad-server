@@ -7,6 +7,7 @@ import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.AddressRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.UserRepository;
+import com.bhukkad.security.AccountFields;
 import com.bhukkad.security.AuthTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,11 +69,11 @@ public class DataDeletionService {
             }
 
             // Unique-constraint-safe placeholders derived from the immutable id.
-            user.setEmail("deleted-" + userId + ANONYMIZED_EMAIL_DOMAIN);
-            user.setPhoneNumber(null);
-            user.setFullName("Deleted User");
-            user.setProfileImageUrl(null);
-            user.setTotpSecret(null);
+            AccountFields.setEmail(user, "deleted-" + userId + ANONYMIZED_EMAIL_DOMAIN);
+            AccountFields.setPhoneNumber(user, null);
+            AccountFields.setFullName(user, "Deleted User");
+            AccountFields.setProfileImageUrl(user, null);
+            AccountFields.setTotpSecret(user, null);
             user.setTotpEnabled(false);
             user.setActive(false);
             userRepository.save(user);
@@ -113,6 +114,7 @@ public class DataDeletionService {
      * True when the user row no longer carries direct identifiers.
      */
     public boolean isAnonymized(User user) {
-        return user.getEmail() != null && user.getEmail().endsWith(ANONYMIZED_EMAIL_DOMAIN);
+        String email = AccountFields.email(user);
+        return email != null && email.endsWith(ANONYMIZED_EMAIL_DOMAIN);
     }
 }

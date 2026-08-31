@@ -20,8 +20,12 @@ class CacheKeyGeneratorTest {
     }
 
     @Test
-    void restaurantSearch_nullKeywordThrowsNpe() {
-        assertThrows(NullPointerException.class, () -> CacheKeyGenerator.restaurantSearch(null));
+    void restaurantSearch_nullKeywordFallsBackToAll() {
+        // null keyword is handled gracefully rather than throwing
+        assertEquals("restaurant-search:all", CacheKeyGenerator.restaurantSearch(null));
+        assertEquals("restaurant-search:all", CacheKeyGenerator.restaurantSearch("   "));
+        // Non-alphanumeric input is slugified to "-" rather than collapsing to "all".
+        assertEquals("restaurant-search:-", CacheKeyGenerator.restaurantSearch("!!!"));
     }
 
     @Test
@@ -56,9 +60,9 @@ class CacheKeyGeneratorTest {
         assertEquals("home-feed:banners", CacheKeyGenerator.homeFeedBanners());
         assertEquals("home-feed:campaigns", CacheKeyGenerator.homeFeedCampaigns());
         assertEquals("home-feed:membership-plans", CacheKeyGenerator.homeFeedMembershipPlans());
-        assertEquals("serviceability:restaurant:4:12.9:77.6:250.0",
+        assertEquals("serviceability:restaurant:4:12.900:77.600:250.00",
                 CacheKeyGenerator.serviceability(4L, 12.9, 77.6, 250.0));
-        assertEquals("serviceability:restaurant:4:0.0:0.0:0.0",
+        assertEquals("serviceability:restaurant:4:0.000:0.000:0.00",
                 CacheKeyGenerator.serviceability(4L, 0.0, 0.0, 0.0));
     }
 

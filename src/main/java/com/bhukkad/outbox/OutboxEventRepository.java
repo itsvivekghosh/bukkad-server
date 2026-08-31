@@ -1,10 +1,11 @@
 package com.bhukkad.outbox;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -33,4 +34,20 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     List<OutboxEvent> findPendingForProcessing(@Param("status") String status, @Param("limit") int limit);
+
+    /**
+     * Events claimed by a sweep but never finalised (a pod crashed or was
+     * killed mid-publish). The recovery sweep resets these back to
+     * {@code PENDING} so they are retried instead of being stranded forever.
+     */
+    @Query("SELECT e FROM OutboxEvent e WHERE e.status = :status " +
+            "AND e.processingStartedAt IS NOT NULL AND e.processingStartedAt < :staleBefore")
+    List<OutboxEvent> findStaleProcessing(@Param("status") OutboxEvent.OutboxStatus status,
+                                          @Param("staleBefore") LocalDateTime staleBefore);
+
+    /**
+     * Row count per status, used by the outbox lag metric (how far behind the
+     * poller is) and by admin dashboards.
+     */
+    long countByStatus(OutboxEvent.OutboxStatus status);
 }

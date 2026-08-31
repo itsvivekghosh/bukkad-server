@@ -3,6 +3,7 @@ package com.bhukkad.controller;
 import com.bhukkad.config.ApiPaths;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.DeadLetterEventResponse;
+import com.bhukkad.outbox.DeadLetterEventResponseMapper;
 import com.bhukkad.outbox.DeadLetterEventService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,7 +39,7 @@ public class AdminDeadLetterController {
     public ResponseEntity<ApiResponse<List<DeadLetterEventResponse>>> list(
             @RequestParam(defaultValue = "20") int limit) {
         List<DeadLetterEventResponse> events = deadLetterEventService.listRecent(limit).stream()
-                .map(DeadLetterEventResponse::from)
+                .map(DeadLetterEventResponseMapper::from)
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(events));
     }
@@ -53,13 +54,13 @@ public class AdminDeadLetterController {
     @Operation(summary = "Get dead-letter event", description = "Returns a single DLQ row including its full payload preview")
     public ResponseEntity<ApiResponse<DeadLetterEventResponse>> getById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(
-                DeadLetterEventResponse.from(deadLetterEventService.getById(id))));
+                DeadLetterEventResponseMapper.from(deadLetterEventService.getById(id))));
     }
 
     @PostMapping("/{id}/requeue")
     @Operation(summary = "Requeue dead-letter event", description = "Re-drives one DLQ row back into the outbox for retry (idempotent)")
     public ResponseEntity<ApiResponse<DeadLetterEventResponse>> requeue(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(
-                DeadLetterEventResponse.from(deadLetterEventService.requeueOne(id))));
+                DeadLetterEventResponseMapper.from(deadLetterEventService.requeueOne(id))));
     }
 }

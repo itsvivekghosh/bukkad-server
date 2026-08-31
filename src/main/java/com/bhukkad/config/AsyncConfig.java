@@ -57,13 +57,18 @@ public class AsyncConfig implements SchedulingConfigurer {
     private int lowQueueCapacity;
 
     @Bean(name = "orderTaskExecutor")
-    public Executor orderTaskExecutor() {
+    public ThreadPoolTaskExecutor orderTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(orderCorePoolSize);
         executor.setMaxPoolSize(orderMaxPoolSize);
         executor.setQueueCapacity(orderQueueCapacity);
         executor.setThreadNamePrefix("order-async-");
         executor.setTaskDecorator(new MdcTaskDecorator());
+        // CallerRunsPolicy provides backpressure: caller thread executes task when queue full
+        // instead of AbortPolicy dropping with RejectedExecutionException.
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
         executor.initialize();
         return executor;
     }
@@ -74,13 +79,16 @@ public class AsyncConfig implements SchedulingConfigurer {
      * path. Uses the {@code app.async.low.*} configuration block.
      */
     @Bean(name = "lowPriorityTaskExecutor")
-    public Executor lowPriorityTaskExecutor() {
+    public ThreadPoolTaskExecutor lowPriorityTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(lowCorePoolSize);
         executor.setMaxPoolSize(lowMaxPoolSize);
         executor.setQueueCapacity(lowQueueCapacity);
         executor.setThreadNamePrefix("low-priority-async-");
         executor.setTaskDecorator(new MdcTaskDecorator());
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
         executor.initialize();
         return executor;
     }
@@ -106,7 +114,7 @@ public class AsyncConfig implements SchedulingConfigurer {
                 return new MdcPropagatingScheduledExecutorService(raw);
             }
         };
-        scheduler.setPoolSize(4);
+        scheduler.setPoolSize(8);
         scheduler.setThreadNamePrefix("sched-");
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(30);
@@ -127,13 +135,18 @@ public class AsyncConfig implements SchedulingConfigurer {
      * store on its next reconnect.
      */
     @Bean(name = "sseDispatchExecutor")
-    public Executor sseDispatchExecutor() {
+    public ThreadPoolTaskExecutor sseDispatchExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(8);
         executor.setQueueCapacity(500);
         executor.setThreadNamePrefix("sse-dispatch-");
         executor.setTaskDecorator(new MdcTaskDecorator());
+        // When SSE queue full, caller (Redis listener) runs dispatch inline — prevents silent drop
+        // but risks slow listener; metric below alerts on saturation. CallerRuns also bounds memory.
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
         executor.initialize();
         return executor;
     }

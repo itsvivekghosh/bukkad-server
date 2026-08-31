@@ -217,6 +217,15 @@ class RestaurantOnboardingServiceTest {
 
         when(restaurantRepository.findAllActiveWithDetails())
                 .thenReturn(List.of(approved, rejected, otherTenant));
+        // Batch C: getAllActiveRestaurants now goes through cacheService; stub the
+        // cache to delegate to the supplier so the repository result flows through.
+        when(cacheService.getListOrCompute(anyString(), any(), anyLong(), any()))
+                .thenAnswer(inv -> {
+                    @SuppressWarnings("unchecked")
+                    java.util.function.Supplier<java.util.List<com.bhukkad.dto.response.RestaurantResponse>> supplier =
+                            (java.util.function.Supplier<java.util.List<com.bhukkad.dto.response.RestaurantResponse>>) inv.getArgument(3);
+                    return supplier.get();
+                });
 
         var result = restaurantService.getAllActiveRestaurants(3L);
 

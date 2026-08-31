@@ -1,22 +1,27 @@
 package com.bhukkad.logging.alert;
 
 import com.bhukkad.config.AlertingProperties;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
+
+import org.springframework.http.MediaType;
 
 import java.util.Map;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class WebhookAlertNotifier {
 
     private final AlertingProperties alertingProperties;
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient;
+
+    public WebhookAlertNotifier(AlertingProperties alertingProperties,
+                                RestClient webhookRestClient) {
+        this.alertingProperties = alertingProperties;
+        this.restClient = webhookRestClient;
+    }
 
     public void sendIfEnabled(AlertSeverity severity,
                             AlertCategory category,

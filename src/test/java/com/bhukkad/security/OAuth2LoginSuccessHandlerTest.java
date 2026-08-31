@@ -53,7 +53,7 @@ class OAuth2LoginSuccessHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new OAuth2LoginSuccessHandler(userRepository, customerRepository,
+        handler = new OAuth2LoginSuccessHandler(customerRepository,
                 passwordEncoder, jwtTokenProvider, authTokenService, auditService);
     }
 
@@ -65,12 +65,12 @@ class OAuth2LoginSuccessHandlerTest {
 
     @Test
     void onAuthenticationSuccess_provisionsNewCustomerAndRedirectsWithTokens() throws Exception {
-        when(userRepository.findByEmail("new.user@gmail.com")).thenReturn(Optional.empty());
+        when(customerRepository.findByEmail("new.user@gmail.com")).thenReturn(Optional.empty());
         Customer saved = new Customer();
         saved.setId(11L);
-        saved.setEmail("new.user@gmail.com");
+        AccountFields.setEmail(saved, "new.user@gmail.com");
         saved.setRole(User.UserRole.CUSTOMER);
-        saved.setPassword("encoded");
+        AccountFields.setPassword(saved, "encoded");
         when(customerRepository.save(any(Customer.class))).thenReturn(saved);
         when(passwordEncoder.encode(anyString())).thenReturn("encoded");
         when(jwtTokenProvider.generateAccessToken(any())).thenReturn("access.jwt");
@@ -96,13 +96,13 @@ class OAuth2LoginSuccessHandlerTest {
 
     @Test
     void onAuthenticationSuccess_linksExistingUserWithoutCreatingAccount() throws Exception {
-        User existing = new User();
+        Customer existing = new Customer();
         existing.setId(7L);
-        existing.setEmail("existing@gmail.com");
+        AccountFields.setEmail(existing, "existing@gmail.com");
         existing.setActive(true);
         existing.setRole(User.UserRole.CUSTOMER);
-        existing.setPassword("hash");
-        when(userRepository.findByEmail("existing@gmail.com")).thenReturn(Optional.of(existing));
+        AccountFields.setPassword(existing, "hash");
+        when(customerRepository.findByEmail("existing@gmail.com")).thenReturn(Optional.of(existing));
         when(jwtTokenProvider.generateAccessToken(any())).thenReturn("a");
         when(jwtTokenProvider.generateRefreshToken(any())).thenReturn("r");
         when(jwtTokenProvider.getRemainingValidityMs(anyString())).thenReturn(1000L);
@@ -122,7 +122,7 @@ class OAuth2LoginSuccessHandlerTest {
         handler.onAuthenticationSuccess(new MockHttpServletRequest(), response,
                 googleAuth(Map.of("email", "")));
 
-        verify(userRepository, never()).findByEmail(any());
+        verify(customerRepository, never()).findByEmail(any());
         assertTrue(response.getRedirectedUrl().contains("error="));
     }
 }

@@ -222,7 +222,7 @@ public class CustomerServiceImpl implements CustomerService {
         }
         Customer customer = getCurrentCustomer();
         walletService.credit(
-                customer,
+                customer.getId(),
                 amount,
                 WalletTransaction.TransactionType.ADJUSTMENT,
                 null,
@@ -348,6 +348,8 @@ public class CustomerServiceImpl implements CustomerService {
                 .profileImageUrl(customer.getProfileImageUrl())
                 .active(customer.getActive())
                 .emailVerified(customer.getEmailVerified())
+                .phoneVerified(customer.getPhoneVerified())
+                .profileCompleted(customer.getProfileCompleted())
                 .loyaltyPoints(customer.getLoyaltyPoints())
                 .walletBalance(customer.getWalletBalance())
                 .role(customer.getRole().name())

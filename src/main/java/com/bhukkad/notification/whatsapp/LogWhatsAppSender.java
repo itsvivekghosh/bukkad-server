@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
 public class LogWhatsAppSender implements WhatsAppSender {
 
     @Override
-    public void send(String phoneNumber, String body) {
+    public boolean send(String phoneNumber, String body) {
         log.info("WHATSAPP | to={} | body={}", phoneNumber, body);
+        return true;
     }
 }

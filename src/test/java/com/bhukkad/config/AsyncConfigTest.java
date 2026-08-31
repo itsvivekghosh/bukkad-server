@@ -69,7 +69,7 @@ class AsyncConfigTest {
 
         ThreadPoolTaskScheduler scheduler = config.scheduledTaskExecutor();
         try {
-            assertEquals(4, (Integer) ReflectionTestUtils.getField(scheduler, "poolSize"));
+            assertEquals(8, (Integer) ReflectionTestUtils.getField(scheduler, "poolSize"));
             assertEquals("sched-", (String) ReflectionTestUtils.getField(scheduler, "threadNamePrefix"));
             assertEquals(Boolean.TRUE,
                     (Boolean) ReflectionTestUtils.getField(scheduler, "waitForTasksToCompleteOnShutdown"));
@@ -93,7 +93,7 @@ class AsyncConfigTest {
         assertTrue(wired instanceof ThreadPoolTaskScheduler);
         ThreadPoolTaskScheduler scheduler = (ThreadPoolTaskScheduler) wired;
         try {
-            assertEquals(4, (Integer) ReflectionTestUtils.getField(scheduler, "poolSize"));
+            assertEquals(8, (Integer) ReflectionTestUtils.getField(scheduler, "poolSize"));
             assertTrue(scheduler.getScheduledExecutor() instanceof MdcPropagatingScheduledExecutorService);
         } finally {
             scheduler.shutdown();
@@ -132,6 +132,40 @@ class AsyncConfigTest {
             assertTrue(decorator instanceof MdcTaskDecorator);
         } finally {
             ((ThreadPoolTaskExecutor) executor).shutdown();
+        }
+    }
+
+    @Test
+    void sseDispatchExecutor_usesBoundedPoolWithCallerRunsPolicy() {
+        AsyncConfig config = new AsyncConfig();
+
+        ThreadPoolTaskExecutor executor = config.sseDispatchExecutor();
+        try {
+            // Batch D: bounded queue (500) so SSE fan-out saturates visibly
+            assertEquals(2, executor.getCorePoolSize());
+            assertEquals(8, executor.getMaxPoolSize());
+            assertEquals(500, executor.getQueueCapacity());
+            assertEquals("sse-dispatch-", executor.getThreadNamePrefix());
+            // CallerRunsPolicy: when the queue is full the Redis listener thread runs
+            // the dispatch inline instead of silently dropping the update.
+            assertTrue(executor.getThreadPoolExecutor().getRejectedExecutionHandler()
+                    instanceof java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy);
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
+    void sseDispatchExecutor_installsMdcTaskDecorator() {
+        AsyncConfig config = new AsyncConfig();
+
+        ThreadPoolTaskExecutor executor = config.sseDispatchExecutor();
+        try {
+            Object decorator = ReflectionTestUtils.getField(executor, "taskDecorator");
+            assertNotNull(decorator);
+            assertTrue(decorator instanceof MdcTaskDecorator);
+        } finally {
+            executor.shutdown();
         }
     }
 }

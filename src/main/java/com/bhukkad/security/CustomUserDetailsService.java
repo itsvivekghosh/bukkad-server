@@ -1,7 +1,6 @@
 package com.bhukkad.security;
 
 import com.bhukkad.entity.User;
-import com.bhukkad.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -15,16 +14,21 @@ import java.util.Collections;
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
 
-    private final UserRepository userRepository;
+    private final AccountLookupService accountLookupService;
 
     @Override
-    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
+    public UserDetails loadUserByUsername(String identifier) throws UsernameNotFoundException {
+        User user = accountLookupService.byIdentifier(identifier)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + identifier));
+
+        String identifierValue = AccountFields.email(user) != null
+                ? AccountFields.email(user)
+                : AccountFields.phoneNumber(user);
+        String password = AccountFields.password(user) != null ? AccountFields.password(user) : "";
 
         return new org.springframework.security.core.userdetails.User(
-                user.getEmail(),
-                user.getPassword(),
+                identifierValue != null ? identifierValue : identifier,
+                password,
                 user.getActive(),
                 true,
                 true,

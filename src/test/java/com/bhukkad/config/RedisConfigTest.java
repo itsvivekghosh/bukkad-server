@@ -12,6 +12,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class RedisConfigTest {
 
@@ -67,5 +68,35 @@ class RedisConfigTest {
         assertNotNull(cacheManager.getCache("cart"));
         assertNotNull(cacheManager.getCache("coupon-list"));
         assertNotNull(cacheManager.getCache("recommended"));
+    }
+
+    // ===== Batch C: string template + invalidation listener container =====
+
+    @Test
+    void stringRedisTemplate_buildsWithConnectionFactory() {
+        org.springframework.data.redis.connection.RedisConnectionFactory cf =
+                mock(org.springframework.data.redis.connection.RedisConnectionFactory.class);
+
+        org.springframework.data.redis.core.StringRedisTemplate template =
+                redisConfig.stringRedisTemplate(cf);
+
+        assertNotNull(template);
+        // Template is wired to the provided connection factory
+        assertEquals(cf, template.getConnectionFactory());
+    }
+
+    @Test
+    void cacheInvalidationListenerContainer_subscribesToChannel() {
+        org.springframework.data.redis.connection.RedisConnectionFactory cf =
+                mock(org.springframework.data.redis.connection.RedisConnectionFactory.class);
+        com.bhukkad.cache.invalidation.CacheInvalidationSubscriber subscriber =
+                mock(com.bhukkad.cache.invalidation.CacheInvalidationSubscriber.class);
+        when(subscriber.getChannel()).thenReturn("bhukkad:cache:invalidate");
+
+        org.springframework.data.redis.listener.RedisMessageListenerContainer container =
+                redisConfig.cacheInvalidationListenerContainer(cf, subscriber);
+
+        assertNotNull(container);
+        assertEquals(cf, container.getConnectionFactory());
     }
 }

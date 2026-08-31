@@ -25,4 +25,8 @@ public class CartResponse {
     private List<RestaurantCartGroup> restaurantCarts;
     private Double subtotal;
     private Integer itemCount;
+    /** Coupon code currently applied to the cart, if any. */
+    private String couponCode;
+    /** Discount amount computed from the applied coupon (0 when no coupon). */
+    private Double discountAmount;
 }

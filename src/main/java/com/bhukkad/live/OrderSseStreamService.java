@@ -15,26 +15,45 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OrderSseStreamService {
 
-    private static final long DEFAULT_TIMEOUT = 60_000L; // 60 seconds
+    private static final long DEFAULT_TIMEOUT = 300_000L; // 5 minutes — reduces reconnect churn vs 60s
 
     private final OrderLiveReplayStore replayStore;
+    private final Executor sseDispatchExecutor;
+
+    public OrderSseStreamService(OrderLiveReplayStore replayStore,
+                                 @Qualifier("sseDispatchExecutor") Executor sseDispatchExecutor) {
+        this.replayStore = replayStore;
+        this.sseDispatchExecutor = sseDispatchExecutor;
+    }
 
     /**
      * Maximum concurrent emitters per stream key (an order, a restaurant's
-     * kitchen, or a rider). Bounds pod memory: every connection holds a servlet
-     * async context, and a flood of guests reconnecting to one order would
-     * otherwise exhaust the pod. New subscribers beyond the cap are rejected
-     * with {@link SseCapacityExceededException} (mapped to 503) instead of
-     * degrading existing subscribers.
+     * kitchen, or a rider). Bounds per-stream pod memory: a flood of guests
+     * reconnecting to one order cannot exceed this. New subscribers beyond the
+     * cap are rejected with {@link SseCapacityExceededException} (mapped to 503)
+     * instead of degrading existing subscribers.
      */
     @Value("${app.live.sse.max-emitters-per-stream:50}")
     int maxEmittersPerStream = 50;
+
+    /**
+     * Fleet-wide per-pod cap on concurrent SSE connections across all streams.
+     * Every connection holds a servlet async context + buffers, so this bounds
+     * total pod memory against connection floods regardless of stream spread.
+     */
+    @Value("${app.live.sse.max-total-emitters:2000}")
+    int maxTotalEmitters = 2000;
+
+    private final AtomicInteger totalEmitters = new AtomicInteger();
 
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
@@ -88,6 +107,7 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
                                   String replayStreamKey,
                                   String lastEventId,
                                   Object snapshot) {
+        reserveGlobalBudget(channel, key);
         SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
         CopyOnWriteArrayList<SseEmitter> emitters =
                 streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>());
@@ -96,6 +116,7 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         // the brief serialization is immaterial.
         synchronized (emitters) {
             if (emitters.size() >= maxEmittersPerStream) {
+                totalEmitters.decrementAndGet();
                 log.warn("SSE_CAPACITY_EXCEEDED | channel={} | id={} | current={} | max={}",
                         channel, key, emitters.size(), maxEmittersPerStream);
                 throw new SseCapacityExceededException(
@@ -158,14 +179,24 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         }
         for (SseEmitter emitter : emitters) {
             try {
-                sendUpdate(emitter, update);
-            } catch (Exception e) {
-                // Remove the dead emitter from every stream map it may be
-                // registered in, then complete it, so the connection count and
-                // future broadcasts no longer include it.
-                removeFromAllStreams(emitter);
-                removeAndCompleteEmitter(emitter);
-                log.debug("SSE emitter removed after send failure: {}", e.getMessage());
+                sseDispatchExecutor.execute(() -> {
+                    try {
+                        sendUpdate(emitter, update);
+                    } catch (Exception e) {
+                        removeFromAllStreams(emitter);
+                        removeAndCompleteEmitter(emitter);
+                        log.debug("SSE emitter removed after send failure: {}", e.getMessage());
+                    }
+                });
+            } catch (Exception ex) {
+                // Executor rejected (should not happen with CallerRunsPolicy, but degrade)
+                log.warn("SSE dispatch rejected, falling back to inline send | error={}", ex.getMessage());
+                try {
+                    sendUpdate(emitter, update);
+                } catch (Exception e) {
+                    removeFromAllStreams(emitter);
+                    removeAndCompleteEmitter(emitter);
+                }
             }
         }
     }
@@ -194,12 +225,34 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         }
     }
 
+    /**
+     * Reserves one slot in the per-pod connection budget. The budget counts
+     * every live connection across all streams; when it is exhausted new
+     * subscribers are rejected (503) so a connection flood can never exhaust
+     * pod memory regardless of how the load is spread across streams.
+     */
+    private void reserveGlobalBudget(String channel, Long key) {
+        int reserved = totalEmitters.incrementAndGet();
+        if (reserved > maxTotalEmitters) {
+            totalEmitters.decrementAndGet();
+            log.warn("SSE_GLOBAL_BUDGET_EXCEEDED | channel={} | id={} | total={} | max={}",
+                    channel, key, reserved, maxTotalEmitters);
+            throw new SseCapacityExceededException(
+                    "Server SSE connection budget reached (" + maxTotalEmitters + "); retry shortly");
+        }
+    }
+
     private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
                          Long key,
                          SseEmitter emitter) {
         CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
         if (emitters != null) {
-            emitters.remove(emitter);
+            // Decrement the global budget only if this emitter was actually
+            // present, so double-invoked cleanup (onError + onCompletion) cannot
+            // drive the counter negative.
+            if (emitters.remove(emitter)) {
+                totalEmitters.decrementAndGet();
+            }
             if (emitters.isEmpty()) {
                 streams.remove(key, emitters);
             }
@@ -242,12 +295,22 @@ private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams
         }
         for (SseEmitter emitter : emitters) {
             try {
-                emitter.send(SseEmitter.event().comment("heartbeat"));
-            } catch (IOException | IllegalStateException e) {
-                // IOException: client disconnected; IllegalStateException:
-                // emitter already completed. Either way the stream is dead.
-                removeFromAllStreams(emitter);
-                removeAndCompleteEmitter(emitter);
+                sseDispatchExecutor.execute(() -> {
+                    try {
+                        emitter.send(SseEmitter.event().comment("heartbeat"));
+                    } catch (IOException | IllegalStateException e) {
+                        removeFromAllStreams(emitter);
+                        removeAndCompleteEmitter(emitter);
+                    }
+                });
+            } catch (Exception ex) {
+                // CallerRuns fallback — inline
+                try {
+                    emitter.send(SseEmitter.event().comment("heartbeat"));
+                } catch (IOException | IllegalStateException e) {
+                    removeFromAllStreams(emitter);
+                    removeAndCompleteEmitter(emitter);
+                }
             }
         }
     }

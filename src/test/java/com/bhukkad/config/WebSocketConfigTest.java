@@ -52,6 +52,57 @@ class WebSocketConfigTest {
         verify(registry, never()).enableSimpleBroker("/topic");
     }
 
+    // ===== Batch D: CORS origin resolution branches =====
+
+    @Test
+    void registerStompEndpoints_prefersAllowedOriginPatternsWhenSet() throws Exception {
+        StompBrokerProperties brokerProperties = new StompBrokerProperties();
+        WebSocketConfig config = new WebSocketConfig(
+                jwtHandshakeInterceptor, stompAuthChannelInterceptor, brokerProperties);
+        org.springframework.test.util.ReflectionTestUtils.setField(config, "allowedOrigins", "https://a.com");
+        org.springframework.test.util.ReflectionTestUtils.setField(config, "allowedOriginPatterns", "https://*.bhukkad.com,https://b.com");
+
+        java.lang.reflect.Method m = WebSocketConfig.class.getDeclaredMethod("resolvedAllowedOrigins");
+        m.setAccessible(true);
+        String[] origins = (String[]) m.invoke(config);
+
+        // Patterns take precedence over plain origins
+        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                new String[]{"https://*.bhukkad.com", "https://b.com"}, origins);
+    }
+
+    @Test
+    void registerStompEndpoints_fallsBackToAllowedOriginsWhenPatternsBlank() throws Exception {
+        StompBrokerProperties brokerProperties = new StompBrokerProperties();
+        WebSocketConfig config = new WebSocketConfig(
+                jwtHandshakeInterceptor, stompAuthChannelInterceptor, brokerProperties);
+        org.springframework.test.util.ReflectionTestUtils.setField(config, "allowedOrigins", "https://a.com, https://b.com");
+        org.springframework.test.util.ReflectionTestUtils.setField(config, "allowedOriginPatterns", "  ");
+
+        java.lang.reflect.Method m = WebSocketConfig.class.getDeclaredMethod("resolvedAllowedOrigins");
+        m.setAccessible(true);
+        String[] origins = (String[]) m.invoke(config);
+
+        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                new String[]{"https://a.com", " https://b.com"}, origins);
+    }
+
+    @Test
+    void registerStompEndpoints_defaultsToLocalhost3000WhenNothingSet() throws Exception {
+        StompBrokerProperties brokerProperties = new StompBrokerProperties();
+        WebSocketConfig config = new WebSocketConfig(
+                jwtHandshakeInterceptor, stompAuthChannelInterceptor, brokerProperties);
+        org.springframework.test.util.ReflectionTestUtils.setField(config, "allowedOrigins", "");
+        org.springframework.test.util.ReflectionTestUtils.setField(config, "allowedOriginPatterns", null);
+
+        java.lang.reflect.Method m = WebSocketConfig.class.getDeclaredMethod("resolvedAllowedOrigins");
+        m.setAccessible(true);
+        String[] origins = (String[]) m.invoke(config);
+
+        org.junit.jupiter.api.Assertions.assertArrayEquals(
+                new String[]{"http://localhost:3000"}, origins);
+    }
+
     @Test
     void registerStompEndpoints_registersSockJsAndNativeEndpoints() {
         StompBrokerProperties brokerProperties = new StompBrokerProperties();
@@ -62,11 +113,11 @@ class WebSocketConfigTest {
         StompWebSocketEndpointRegistration nativeEndpoint = mock(StompWebSocketEndpointRegistration.class);
 
         when(registry.addEndpoint("/ws")).thenReturn(sockJsEndpoint);
-        when(sockJsEndpoint.setAllowedOriginPatterns("*")).thenReturn(sockJsEndpoint);
+        when(sockJsEndpoint.setAllowedOriginPatterns(new String[]{"http://localhost:3000"})).thenReturn(sockJsEndpoint);
         when(sockJsEndpoint.addInterceptors(jwtHandshakeInterceptor)).thenReturn(sockJsEndpoint);
         when(sockJsEndpoint.withSockJS()).thenReturn(mock(org.springframework.web.socket.config.annotation.SockJsServiceRegistration.class));
         when(registry.addEndpoint("/ws-native")).thenReturn(nativeEndpoint);
-        when(nativeEndpoint.setAllowedOriginPatterns("*")).thenReturn(nativeEndpoint);
+        when(nativeEndpoint.setAllowedOriginPatterns(new String[]{"http://localhost:3000"})).thenReturn(nativeEndpoint);
         when(nativeEndpoint.addInterceptors(jwtHandshakeInterceptor)).thenReturn(nativeEndpoint);
 
         assertDoesNotThrow(() -> config.registerStompEndpoints(registry));

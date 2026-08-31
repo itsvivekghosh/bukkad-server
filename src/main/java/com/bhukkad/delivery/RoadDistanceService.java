@@ -2,14 +2,9 @@ package com.bhukkad.delivery;
 
 import com.bhukkad.config.RoadDistanceProperties;
 import com.bhukkad.util.DistanceCalculator;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.Optional;
 
@@ -32,15 +27,12 @@ import java.util.Optional;
 public class RoadDistanceService {
 
     private final RoadDistanceProperties properties;
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    private final OsrmClient osrmClient;
 
     public RoadDistanceService(RoadDistanceProperties properties,
-                               RestTemplate restTemplate,
-                               ObjectMapper objectMapper) {
+                               OsrmClient osrmClient) {
         this.properties = properties;
-        this.restTemplate = restTemplate;
-        this.objectMapper = objectMapper;
+        this.osrmClient = osrmClient;
     }
 
     /**
@@ -59,9 +51,13 @@ public class RoadDistanceService {
      */
     public RoadRoute route(double fromLat, double fromLon, double toLat, double toLon) {
         if (properties.isEnabled() && !properties.getOsrmUrl().isBlank()) {
-            Optional<RoadRoute> osrm = tryOsrm(fromLat, fromLon, toLat, toLon);
-            if (osrm.isPresent()) {
-                return osrm.get();
+            try {
+                Optional<RoadRoute> osrm = osrmClient.fetchRoute(fromLat, fromLon, toLat, toLon);
+                if (osrm.isPresent()) {
+                    return osrm.get();
+                }
+            } catch (Exception ex) {
+                log.warn("OSRM error, using haversine fallback | error={}", ex.getMessage());
             }
         }
         double km = DistanceCalculator.calculateDistance(fromLat, fromLon, toLat, toLon);
@@ -72,41 +68,5 @@ public class RoadDistanceService {
     /** True when OSRM road routing is currently active (not the haversine fallback). */
     public boolean isRoadRoutingActive() {
         return properties.isEnabled() && !properties.getOsrmUrl().isBlank();
-    }
-
-    @CircuitBreaker(name = "osrm", fallbackMethod = "osrmFallback")
-    private Optional<RoadRoute> tryOsrm(double fromLat, double fromLon, double toLat, double toLon) {
-        try {
-            String url = properties.getOsrmUrl()
-                    + "/route/v1/driving/" + fromLon + "," + fromLat + ";" + toLon + "," + toLat
-                    + "?overview=false&steps=false";
-            String body = restTemplate.getForObject(url, String.class);
-            JsonNode root = objectMapper.readTree(body);
-            JsonNode route = root.path("routes").path(0);
-            if (route.isMissingNode()) {
-                log.warn("OSRM route missing | from=({},{}) to=({},{})", fromLat, fromLon, toLat, toLon);
-                return Optional.empty();
-            }
-            double distanceMeters = route.path("distance").asDouble(0);
-            double durationSeconds = route.path("duration").asDouble(0);
-            if (distanceMeters <= 0 || durationSeconds <= 0) {
-                return Optional.empty();
-            }
-            RoadRoute result = new RoadRoute(distanceMeters / 1000.0, durationSeconds / 60.0, true);
-            log.debug("OSRM route | km={} | min={}", result.distanceKm(), result.durationMin());
-            return Optional.of(result);
-        } catch (Exception ex) {
-            // Malformed payload or transport error → caller falls back to haversine.
-            log.warn("OSRM route error | from=({},{}) to=({},{}) | error={}",
-                    fromLat, fromLon, toLat, toLon, ex.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    @SuppressWarnings("unused")
-    private Optional<RoadRoute> osrmFallback(double fromLat, double fromLon, double toLat, double toLon,
-                                             Throwable ex) {
-        log.warn("OSRM unavailable, using haversine fallback | error={}", ex.getMessage());
-        return Optional.empty();
     }
 }

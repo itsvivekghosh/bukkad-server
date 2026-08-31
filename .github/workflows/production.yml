@@ -209,6 +209,10 @@ jobs:
             printf 'JWT_REFRESH_EXPIRATION=%s\n' "${{ secrets.JWT_REFRESH_EXPIRATION }}"
             printf 'GHCR_TOKEN=%s\n' "${{ secrets.GHCR_READ_TOKEN }}"
             printf 'REDIS_LOCAL=%s\n' "${REDIS_LOCAL}"
+            printf 'TWILIO_ACCOUNT_SID=%s\n' "${{ secrets.TWILIO_ACCOUNT_SID }}"
+            printf 'TWILIO_AUTH_TOKEN=%s\n' "${{ secrets.TWILIO_AUTH_TOKEN }}"
+            printf 'TWILIO_FROM_NUMBER=%s\n' "${{ secrets.TWILIO_FROM_NUMBER }}"
+            printf 'TWILIO_WHATSAPP_FROM_NUMBER=%s\n' "${{ secrets.TWILIO_WHATSAPP_FROM_NUMBER }}"
           } > /tmp/deploy-env.txt
 
           if [ "${REDIS_LOCAL}" = "true" ]; then

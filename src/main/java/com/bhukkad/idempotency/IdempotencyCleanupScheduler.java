@@ -2,6 +2,7 @@ package com.bhukkad.idempotency;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,7 @@ public class IdempotencyCleanupScheduler {
     private final IdempotencyRecordRepository idempotencyRecordRepository;
 
     @Scheduled(cron = "0 0 * * * *")
+    @SchedulerLock(name = "idempotency-cleanup", lockAtMostFor = "PT15M", lockAtLeastFor = "PT1M")
     @Transactional
     public void purgeExpiredRecords() {
         int removed = idempotencyRecordRepository.deleteByExpiresAtBefore(LocalDateTime.now());

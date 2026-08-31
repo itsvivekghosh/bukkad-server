@@ -2,6 +2,7 @@ package com.bhukkad.compliance;
 
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Order;
+import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
@@ -67,7 +68,7 @@ class DataExportServiceTest {
         request.setId(1L);
         request.setUserId(5L);
 
-        User user = new User();
+        Customer user = new Customer();
         user.setId(5L);
         user.setEmail("a@b.com");
         user.setFullName("Ada");

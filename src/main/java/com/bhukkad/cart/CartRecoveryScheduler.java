@@ -2,6 +2,7 @@ package com.bhukkad.cart;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ public class CartRecoveryScheduler {
     private final CartRecoveryService cartRecoveryService;
 
     @Scheduled(fixedDelayString = "${app.cart.recovery.interval-ms:600000}")
+    @SchedulerLock(name = "cart-recovery-sweep", lockAtMostFor = "PT15M", lockAtLeastFor = "PT1M")
     public void run() {
         if (!properties.isEnabled()) {
             log.debug("CART_RECOVERY_SCHEDULER_DISABLED");

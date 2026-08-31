@@ -8,10 +8,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class TwilioWhatsAppSenderTest {
@@ -31,47 +34,53 @@ class TwilioWhatsAppSenderTest {
         sender = new TwilioWhatsAppSender(props, restTemplate);
     }
 
-    @Test void send_sendsViaTwilioApi() {
-        org.mockito.Mockito.when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
+    @Test void send_sendsViaTwilioApi_returnsTrue() {
+        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
                 .thenReturn(null);
 
-        sender.send("+911234567890", "Hello WhatsApp");
+        boolean delivered = sender.send("+911234567890", "Hello WhatsApp");
 
+        assertTrue(delivered);
         verify(restTemplate).postForEntity(
                 org.mockito.ArgumentMatchers.startsWith("https://api.twilio.com/"),
                 any(),
                 eq(String.class));
     }
 
-    @Test void send_alreadyPrefixedPhone_notDoublePrefixed() {
-        org.mockito.Mockito.when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
+    @Test void send_alreadyPrefixedPhone_notDoublePrefixed_returnsTrue() {
+        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
                 .thenReturn(null);
 
-        sender.send("whatsapp:+911234567890", "Hello");
+        boolean delivered = sender.send("whatsapp:+911234567890", "Hello");
+        assertTrue(delivered);
         verify(restTemplate).postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void send_emptyPhone_skips() {
-        sender.send("", "test");
+    @Test void send_emptyPhone_returnsFalse() {
+        boolean delivered = sender.send("", "test");
+        assertFalse(delivered);
         verify(restTemplate, org.mockito.Mockito.never())
                 .postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void send_nullPhone_skips() {
-        sender.send(null, "test");
+    @Test void send_nullPhone_returnsFalse() {
+        boolean delivered = sender.send(null, "test");
+        assertFalse(delivered);
         verify(restTemplate, org.mockito.Mockito.never())
                 .postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void send_missingCredentials_skips() {
+    @Test void send_missingCredentials_returnsFalse() {
         TwilioWhatsAppSender withoutCreds = new TwilioWhatsAppSender(new NotificationProperties(), restTemplate);
-        withoutCreds.send("+911234567890", "no creds");
+        boolean delivered = withoutCreds.send("+911234567890", "no creds");
+        assertFalse(delivered);
         verify(restTemplate, org.mockito.Mockito.never())
                 .postForEntity(anyString(), any(), eq(String.class));
     }
 
-    @Test void fallback_doesNotThrow() {
-        org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+    @Test void fallback_returnsFalse() {
+        Object result = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
                 sender, "whatsAppUnavailable", "+911234567890", "msg", new RuntimeException("down"));
+        assertFalse((Boolean) result);
     }
 }

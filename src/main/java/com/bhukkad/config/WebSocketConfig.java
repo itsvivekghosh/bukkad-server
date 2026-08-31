@@ -21,6 +21,22 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final StompAuthChannelInterceptor stompAuthChannelInterceptor;
     private final StompBrokerProperties stompBrokerProperties;
 
+    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:4200}")
+    private String allowedOrigins;
+
+    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origin-patterns:}")
+    private String allowedOriginPatterns;
+
+    private String[] resolvedAllowedOrigins() {
+        if (allowedOriginPatterns != null && !allowedOriginPatterns.isBlank()) {
+            return allowedOriginPatterns.split(",");
+        }
+        if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+            return allowedOrigins.split(",");
+        }
+        return new String[]{"http://localhost:3000"};
+    }
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
         if (stompBrokerProperties.getType() == StompBrokerProperties.BrokerType.RABBITMQ) {
@@ -41,13 +57,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        String[] origins = resolvedAllowedOrigins();
+        // Use patterns to allow subdomains when needed (e.g. https://*.bhukkad.com)
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns(origins)
                 .addInterceptors(jwtHandshakeInterceptor)
                 .withSockJS();
 
         registry.addEndpoint("/ws-native")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns(origins)
                 .addInterceptors(jwtHandshakeInterceptor);
     }
 

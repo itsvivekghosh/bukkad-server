@@ -7,6 +7,7 @@ import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.Review;
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.dto.response.ReviewResponse;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
@@ -127,12 +128,12 @@ class ReviewServiceImplTest {
                 .thenReturn(8L);
 
         ReviewRequest request = reviewRequest(10L);
-        Review result = reviewService.createReview(request);
+        ReviewResponse result = reviewService.createReview(request);
 
         assertEquals(77L, result.getId());
-        assertEquals(customer, result.getCustomer());
-        assertEquals(restaurant, result.getRestaurant());
-        assertEquals(order, result.getOrder());
+        assertEquals(1L, result.getCustomer().getId());
+        assertEquals(30L, result.getRestaurant().getId());
+        assertEquals(10L, result.getOrder().getId());
         assertEquals(5, result.getRating());
         assertEquals("Great food", result.getComment());
         assertEquals(4, result.getFoodRating());
@@ -173,29 +174,46 @@ class ReviewServiceImplTest {
 
     @Test
     void getRestaurantReviews_returnsOnlyApprovedReviews() {
-        List<Review> reviews = List.of(new Review());
+        Review review = new Review();
+        review.setId(7L);
+        review.setRating(4);
+        review.setCustomer(customer(1L));
+        review.setRestaurant(restaurant(30L));
         when(reviewRepository.findByRestaurantIdAndModerationStatusWithDetails(
-                30L, Review.ModerationStatus.APPROVED)).thenReturn(reviews);
+                30L, Review.ModerationStatus.APPROVED)).thenReturn(List.of(review));
 
-        assertSame(reviews, reviewService.getRestaurantReviews(30L));
+        List<ReviewResponse> result = reviewService.getRestaurantReviews(30L);
+
+        assertEquals(1, result.size());
+        assertEquals(7L, result.get(0).getId());
+        assertEquals(30L, result.get(0).getRestaurant().getId());
     }
 
     @Test
     void getCustomerReviews_usesCurrentUserId() {
-        List<Review> reviews = List.of(new Review());
+        Review review = new Review();
+        review.setId(9L);
+        review.setCustomer(customer(1L));
+        review.setRestaurant(restaurant(30L));
         when(securityUtils.getCurrentUserId()).thenReturn(1L);
-        when(reviewRepository.findByCustomerIdWithDetails(1L)).thenReturn(reviews);
+        when(reviewRepository.findByCustomerIdWithDetails(1L)).thenReturn(List.of(review));
 
-        assertSame(reviews, reviewService.getCustomerReviews());
+        List<ReviewResponse> result = reviewService.getCustomerReviews();
+
+        assertEquals(1, result.size());
+        assertEquals(9L, result.get(0).getId());
+        assertEquals(1L, result.get(0).getCustomer().getId());
     }
 
     @Test
     void getReviewByOrderId_found() {
         Review review = new Review();
         review.setId(4L);
+        review.setCustomer(customer(1L));
+        review.setRestaurant(restaurant(30L));
         when(reviewRepository.findByOrderIdWithDetails(10L)).thenReturn(Optional.of(review));
 
-        assertSame(review, reviewService.getReviewByOrderId(10L));
+        assertEquals(4L, reviewService.getReviewByOrderId(10L).getId());
     }
 
     @Test
