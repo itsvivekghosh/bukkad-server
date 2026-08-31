@@ -64,3 +64,4 @@ __pycache__/
 mvnw.cmd
 
 scripts/reports/
+src/test/resources/archunit_store/

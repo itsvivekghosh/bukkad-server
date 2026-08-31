@@ -22,9 +22,10 @@ public interface TrendingDishRepository extends JpaRepository<TrendingDish, Long
     @Query(value = "INSERT INTO trending_dishes " +
             "(menu_item_id, restaurant_id, dish_name, quantity_sold, last_order_at) " +
             "VALUES (:menuItemId, :restaurantId, :dishName, :quantity, :orderedAt) " +
-            "ON DUPLICATE KEY UPDATE quantity_sold = quantity_sold + :quantity, " +
-            "last_order_at = GREATEST(last_order_at, :orderedAt), " +
-            "dish_name = VALUES(dish_name)",
+            "ON CONFLICT (menu_item_id) DO UPDATE SET " +
+            "quantity_sold = trending_dishes.quantity_sold + EXCLUDED.quantity_sold, " +
+            "last_order_at = GREATEST(trending_dishes.last_order_at, EXCLUDED.last_order_at), " +
+            "dish_name = EXCLUDED.dish_name",
             nativeQuery = true)
     int upsert(@Param("menuItemId") Long menuItemId,
                @Param("restaurantId") Long restaurantId,

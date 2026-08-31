@@ -4,6 +4,7 @@ import com.bhukkad.cache.OrderCacheService;
 import com.bhukkad.delivery.OrderEtaService;
 import com.bhukkad.delivery.RiderDispatchService;
 import com.bhukkad.live.RiderLocationTrackingService;
+import com.bhukkad.dto.request.UpdateDeliveryProfileRequest;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.DeliveryAgent;
@@ -68,23 +69,23 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     @Transactional
-    public DeliveryAgentResponse updateProfile(Long id, DeliveryAgent updates) {
+    public DeliveryAgentResponse updateProfile(Long id, UpdateDeliveryProfileRequest request) {
         DeliveryAgent agent = getOwnedAgent(id);
 
-        if (StringUtils.hasText(updates.getFullName())) {
-            agent.setFullName(updates.getFullName());
+        if (StringUtils.hasText(request.getFullName())) {
+            agent.setFullName(request.getFullName());
         }
-        if (StringUtils.hasText(updates.getPhoneNumber())) {
-            agent.setPhoneNumber(updates.getPhoneNumber());
+        if (StringUtils.hasText(request.getPhoneNumber())) {
+            agent.setPhoneNumber(request.getPhoneNumber());
         }
-        if (StringUtils.hasText(updates.getVehicleType())) {
-            agent.setVehicleType(updates.getVehicleType());
+        if (StringUtils.hasText(request.getVehicleType())) {
+            agent.setVehicleType(request.getVehicleType());
         }
-        if (StringUtils.hasText(updates.getVehicleNumber())) {
-            agent.setVehicleNumber(updates.getVehicleNumber());
+        if (StringUtils.hasText(request.getVehicleNumber())) {
+            agent.setVehicleNumber(request.getVehicleNumber());
         }
-        if (StringUtils.hasText(updates.getLicenseNumber())) {
-            agent.setLicenseNumber(updates.getLicenseNumber());
+        if (StringUtils.hasText(request.getLicenseNumber())) {
+            agent.setLicenseNumber(request.getLicenseNumber());
         }
 
         deliveryAgentRepository.save(agent);

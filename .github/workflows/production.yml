@@ -63,6 +63,11 @@ jobs:
     name: "🏭 Production Deployment"
     runs-on: ubuntu-latest
     needs: [ci, build-and-push]
+    # Production approval gate: this job references the GitHub "production"
+    # environment. The environment protection rules MUST be configured in the
+    # repository settings (Settings → Environments → production): set
+    # "Required reviewers" to 1 so every deploy to production waits for manual
+    # approval before any step of this job runs.
     environment:
       name: production
       url: http://${{ vars.PROD_EC2_HOST }}:8080
@@ -213,6 +218,10 @@ jobs:
             printf 'TWILIO_AUTH_TOKEN=%s\n' "${{ secrets.TWILIO_AUTH_TOKEN }}"
             printf 'TWILIO_FROM_NUMBER=%s\n' "${{ secrets.TWILIO_FROM_NUMBER }}"
             printf 'TWILIO_WHATSAPP_FROM_NUMBER=%s\n' "${{ secrets.TWILIO_WHATSAPP_FROM_NUMBER }}"
+            printf 'APP_PAYMENT_RAZORPAY_ENABLED=true\n'
+            printf 'RAZORPAY_KEY_ID=%s\n' "${{ secrets.PROD_RAZORPAY_KEY_ID }}"
+            printf 'RAZORPAY_KEY_SECRET=%s\n' "${{ secrets.PROD_RAZORPAY_KEY_SECRET }}"
+            printf 'RAZORPAY_WEBHOOK_SECRET=%s\n' "${{ secrets.PROD_RAZORPAY_WEBHOOK_SECRET }}"
           } > /tmp/deploy-env.txt
 
           if [ "${REDIS_LOCAL}" = "true" ]; then

@@ -122,8 +122,6 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.GET, V1 + "/home/**").permitAll();
                     // Mobile (BFF) composite feed - Public GET
                     auth.requestMatchers(HttpMethod.GET, V1 + "/mobile/**").permitAll();
-                    // Analytics exports - public CSV streaming (read-only aggregates)
-                    auth.requestMatchers(HttpMethod.GET, V1 + "/analytics/export/**").permitAll();
 
                     // GraphQL endpoint — single POST endpoint that exposes both
                     // the anonymous homeFeed query and the authenticated
@@ -170,6 +168,9 @@ public class SecurityConfig {
 
                     // ==================== ADMIN ====================
                     auth.requestMatchers(V1 + "/admin/**").hasRole("ADMIN");
+                    // Analytics exports stream PII (customer names/phones, rider
+                    // phones/emails) and must not be anonymously reachable.
+                    auth.requestMatchers(HttpMethod.GET, V1 + "/analytics/export/**").hasRole("ADMIN");
                     auth.requestMatchers(HttpMethod.POST, V1 + "/coupons").hasAnyRole("ADMIN", "RESTAURANT_OWNER");
                     auth.requestMatchers(HttpMethod.PUT, V1 + "/coupons/**").hasRole("ADMIN");
                     auth.requestMatchers(HttpMethod.DELETE, V1 + "/coupons/**").hasRole("ADMIN");

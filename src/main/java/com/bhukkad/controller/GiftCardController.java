@@ -57,6 +57,7 @@ public class GiftCardController {
     }
 
     @GetMapping("/{code}")
+    @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<ApiResponse<GiftCardResponse>> getGiftCardByCode(@PathVariable String code) {
         GiftCardResponse giftCard = giftCardService.getGiftCardByCode(code);
         return ResponseEntity.ok(ApiResponse.success(giftCard));

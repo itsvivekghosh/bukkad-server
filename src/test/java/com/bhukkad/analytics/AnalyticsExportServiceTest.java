@@ -128,6 +128,53 @@ class AnalyticsExportServiceTest {
         assertTrue(csv.lines().skip(1).findFirst().orElse("").contains(",,"));
     }
 
+    @Test
+    void streamOrdersCsv_bindsUserInputAsParameters_notConcatenated() throws Exception {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
+        String maliciousFrom = "2026-01-01' OR '1'='1";
+        String maliciousTo = "2026-12-31' --";
+        service.streamOrdersCsv(pw, maliciousFrom, maliciousTo);
+        pw.flush();
+
+        // The injection payload must be bound as a parameter (a ? placeholder in
+        // the SQL), never concatenated into the query text.
+        org.mockito.ArgumentCaptor<String> sqlCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Object[]> paramsCaptor =
+                org.mockito.ArgumentCaptor.forClass(Object[].class);
+        org.mockito.Mockito.verify(jdbcTemplate).query(
+                sqlCaptor.capture(), any(RowCallbackHandler.class), paramsCaptor.capture());
+
+        assertFalse(sqlCaptor.getValue().contains("OR '1'='1"));
+        assertFalse(sqlCaptor.getValue().contains("--"));
+        assertEquals(2, paramsCaptor.getValue().length);
+        assertEquals(maliciousFrom, paramsCaptor.getValue()[0]);
+        assertEquals(maliciousTo, paramsCaptor.getValue()[1]);
+    }
+
+    @Test
+    void streamPaymentsCsv_bindsStatusAsParameter() throws Exception {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
+        String maliciousStatus = "COMPLETED' OR '1'='1";
+        service.streamPaymentsCsv(pw, null, null, maliciousStatus);
+        pw.flush();
+
+        org.mockito.ArgumentCaptor<String> sqlCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Object[]> paramsCaptor =
+                org.mockito.ArgumentCaptor.forClass(Object[].class);
+        org.mockito.Mockito.verify(jdbcTemplate).query(
+                sqlCaptor.capture(), any(RowCallbackHandler.class), paramsCaptor.capture());
+
+        assertFalse(sqlCaptor.getValue().contains("OR '1'='1"));
+        assertEquals(1, paramsCaptor.getValue().length);
+        assertEquals(maliciousStatus, paramsCaptor.getValue()[0]);
+    }
+
     // ---- helpers ----
 
     /** Sets up the mock to capture the RowCallbackHandler and returns it. */
@@ -136,7 +183,7 @@ class AnalyticsExportServiceTest {
         doAnswer(invocation -> {
             captured[0] = invocation.getArgument(1);
             return null;
-        }).when(jdbcTemplate).query(anyString(), any(RowCallbackHandler.class));
+        }).when(jdbcTemplate).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
         return new RowCallbackHandler() {
             @Override
             public void processRow(ResultSet rs) throws java.sql.SQLException {

@@ -24,6 +24,7 @@ import java.time.Duration;
  * and 10s read; override via {@code app.http.timeout.*} in each environment.</p>
  */
 @Configuration
+@SuppressWarnings("deprecation") // RequestConfig.Builder#setConnectTimeout is deprecated in httpclient5 5.2.1 (Spring Boot 3.2-managed) with no non-deprecated replacement
 public class RestTemplateConfig {
 
     @Value("${app.http.connect-timeout-ms:5000}")

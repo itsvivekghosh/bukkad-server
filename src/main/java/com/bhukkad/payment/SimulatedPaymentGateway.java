@@ -42,6 +42,11 @@ public class SimulatedPaymentGateway implements PaymentGateway {
 
     @Override
     public boolean verifyWebhookSignature(String payload, String signature) {
-        return true;
+        // Fail closed on missing signature: simulated mode must not silently
+        // accept forged webhooks. A non-blank signature is accepted because
+        // simulated mode has no shared secret to validate against; production
+        // deployments MUST configure the real Razorpay gateway (enforced by
+        // SecretValidationConfig).
+        return signature != null && !signature.isBlank();
     }
 }

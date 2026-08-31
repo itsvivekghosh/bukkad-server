@@ -8,7 +8,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.2.0</version>
+		<version>3.2.12</version>
 		<relativePath/>
 	</parent>
 
@@ -21,7 +21,7 @@
 	<properties>
 		<java.version>17</java.version>
 		<lombok.version>1.18.26</lombok.version>
-		<jwt.version>0.11.5</jwt.version>
+		<jwt.version>0.12.7</jwt.version>
 		<mapstruct.version>1.5.5.Final</mapstruct.version>
 		<mockito.version>5.15.2</mockito.version>
 		<byte-buddy.version>1.17.6</byte-buddy.version>
@@ -90,21 +90,16 @@
 			<artifactId>spring-boot-starter-amqp</artifactId>
 		</dependency>
 
-		<!-- Database -->
+		<!-- PostgreSQL — the sole production database. -->
 		<dependency>
-			<groupId>com.mysql</groupId>
-			<artifactId>mysql-connector-j</artifactId>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
 
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-mysql</artifactId>
 		</dependency>
 
 		<dependency>
@@ -212,6 +207,13 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<!-- Guava cache for auth result caching (login latency reduction). -->
+		<dependency>
+			<groupId>com.google.guava</groupId>
+			<artifactId>guava</artifactId>
+			<version>33.1.0-jre</version>
+		</dependency>
+
 		<dependency>
 			<groupId>io.micrometer</groupId>
 			<artifactId>micrometer-registry-prometheus</artifactId>
@@ -221,6 +223,11 @@
 		<dependency>
 			<groupId>io.micrometer</groupId>
 			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>context-propagation</artifactId>
+			<version>1.2.1</version>
 		</dependency>
 		<dependency>
 			<groupId>io.opentelemetry</groupId>
@@ -288,7 +295,7 @@
 			<scope>test</scope>
 		</dependency>
 
-		<!-- Integration tests: real MySQL + Redis via Testcontainers -->
+		<!-- Integration tests: real PostgreSQL + Redis via Testcontainers -->
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>junit-jupiter</artifactId>
@@ -297,7 +304,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>mysql</artifactId>
+			<artifactId>postgresql</artifactId>
 			<version>${testcontainers.version}</version>
 			<scope>test</scope>
 		</dependency>
@@ -491,7 +498,7 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false</argLine>
+					<argLine>@{argLine} -Xshare:off -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=true</argLine>
 					<!-- Single fork: the Mockito inline mock-maker's self-attach on
 					     Homebrew OpenJDK 17.0.15 races when surefire forks per-core,
 					     causing intermittent "Mockito cannot mock this class" errors.

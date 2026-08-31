@@ -7,6 +7,7 @@ import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SecretValidationConfigTest {
 
@@ -25,8 +26,22 @@ class SecretValidationConfigTest {
         ReflectionTestUtils.setField(config, "jwtSecret", STRONG_JWT_SECRET);
         ReflectionTestUtils.setField(config, "dbPassword", "BhukkadProd!Secure#2026");
         ReflectionTestUtils.setField(config, "apiKeyPepper", STRONG_PEPPER);
+        ReflectionTestUtils.setField(config, "razorpayEnabled", true);
 
         assertDoesNotThrow(config::validateRequiredSecrets);
+    }
+
+    @Test
+    void validateRequiredSecrets_rejectsSimulatedGatewayInProduction() {
+        SecretValidationConfig config = new SecretValidationConfig();
+        ReflectionTestUtils.setField(config, "jwtSecret", STRONG_JWT_SECRET);
+        ReflectionTestUtils.setField(config, "dbPassword", "BhukkadProd!Secure#2026");
+        ReflectionTestUtils.setField(config, "apiKeyPepper", STRONG_PEPPER);
+        ReflectionTestUtils.setField(config, "razorpayEnabled", false);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, config::validateRequiredSecrets);
+        assertTrue(ex.getMessage().contains("app.payment.razorpay.enabled must be true"),
+                "expected razorpay guard message but was: " + ex.getMessage());
     }
 
     @Test
@@ -36,6 +51,7 @@ class SecretValidationConfigTest {
                 "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970");
         ReflectionTestUtils.setField(config, "dbPassword", "root");
         ReflectionTestUtils.setField(config, "apiKeyPepper", "changeme");
+        ReflectionTestUtils.setField(config, "razorpayEnabled", true);
 
         assertThrows(IllegalStateException.class, config::validateRequiredSecrets);
     }
@@ -48,6 +64,7 @@ class SecretValidationConfigTest {
                 Base64.getEncoder().encodeToString("too-short".getBytes()));
         ReflectionTestUtils.setField(config, "dbPassword", "BhukkadProd!Secure#2026");
         ReflectionTestUtils.setField(config, "apiKeyPepper", STRONG_PEPPER);
+        ReflectionTestUtils.setField(config, "razorpayEnabled", true);
 
         assertThrows(IllegalStateException.class, config::validateRequiredSecrets);
     }
@@ -58,6 +75,7 @@ class SecretValidationConfigTest {
         ReflectionTestUtils.setField(config, "jwtSecret", "not!!valid!!base64!!!");
         ReflectionTestUtils.setField(config, "dbPassword", "BhukkadProd!Secure#2026");
         ReflectionTestUtils.setField(config, "apiKeyPepper", STRONG_PEPPER);
+        ReflectionTestUtils.setField(config, "razorpayEnabled", true);
 
         assertThrows(IllegalStateException.class, config::validateRequiredSecrets);
     }

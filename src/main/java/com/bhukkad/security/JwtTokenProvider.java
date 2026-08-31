@@ -86,11 +86,11 @@ public class JwtTokenProvider {
         claims.put(TOKEN_TYPE_CLAIM, MFA_TOKEN_TYPE);
         claims.put(USER_ID_CLAIM, userId);
         return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(email)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + mfaExpirationMs))
-                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS512)
+                .claims(claims)
+                .subject(email)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + mfaExpirationMs))
+                .signWith(secretRotationService.currentSigningKey())
                 .compact();
     }
 
@@ -153,11 +153,11 @@ public class JwtTokenProvider {
 
         return Jwts
                 .builder()
-                .setClaims(extraClaims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(now)
-                .setExpiration(expiryDate)
-                .signWith(secretRotationService.currentSigningKey(), SignatureAlgorithm.HS512)
+                .claims(extraClaims)
+                .subject(userDetails.getUsername())
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(secretRotationService.currentSigningKey())
                 .compact();
     }
 
@@ -216,7 +216,7 @@ public class JwtTokenProvider {
      * Extract all claims from token, trying the current then previous keys.
      */
     private Claims extractAllClaims(String token) {
-        return parse(token).getBody();
+        return parse(token).getPayload();
     }
 
     /**
@@ -228,10 +228,10 @@ public class JwtTokenProvider {
         JwtException lastException = null;
         for (SecretKey key : keys) {
             try {
-                return Jwts.parserBuilder()
-                        .setSigningKey(key)
+                return Jwts.parser()
+                        .verifyWith(key)
                         .build()
-                        .parseClaimsJws(token);
+                        .parseSignedClaims(token);
             } catch (JwtException ex) {
                 lastException = ex;
             }

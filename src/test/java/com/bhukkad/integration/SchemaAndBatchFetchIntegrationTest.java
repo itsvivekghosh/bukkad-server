@@ -51,7 +51,10 @@ class SchemaAndBatchFetchIntegrationTest extends AbstractJpaIntegrationTest {
 
     @BeforeEach
     void cleanTestData() {
-        jdbcTemplate.update("DELETE FROM restaurant_cuisines WHERE restaurant_id IN (1,2)");
+        // Other integration tests (Proximity/SearchFulltext) commit @Sql data
+        // into the shared container; clear any leftover references to the rows
+        // this class manages so FK constraints never block the cleanup.
+        jdbcTemplate.update("DELETE FROM restaurant_cuisines WHERE restaurant_id IN (1,2) OR cuisine_id IN (1,2)");
         jdbcTemplate.update("DELETE FROM restaurants WHERE id IN (1,2)");
         jdbcTemplate.update("DELETE FROM cuisines WHERE id IN (1,2)");
         jdbcTemplate.update("DELETE FROM addresses WHERE id IN (1,2)");
@@ -107,26 +110,26 @@ class SchemaAndBatchFetchIntegrationTest extends AbstractJpaIntegrationTest {
 
     private void insertRestaurant(long id, String name) {
         jdbcTemplate.update("""
-                INSERT INTO users (id, email, password, full_name, role, active, email_verified, created_at)
-                VALUES (?, ?, ?, ?, 'RESTAURANT_OWNER', 1, 0, NOW())
-                """, id, "owner" + id + "@bhukkad.test", "pw", "Owner " + id);
-        jdbcTemplate.update("""
-                INSERT INTO restaurant_owners (id, verified)
-                VALUES (?, 1)
+                INSERT INTO users (id, role, active, email_verified, created_at)
+                VALUES (?, 'RESTAURANT_OWNER', TRUE, FALSE, CURRENT_TIMESTAMP)
                 """, id);
         jdbcTemplate.update("""
+                INSERT INTO restaurant_owners (id, verified, email, password, full_name)
+                VALUES (?, TRUE, ?, 'pw', ?)
+                """, id, "owner" + id + "@bhukkad.test", "Owner " + id);
+        jdbcTemplate.update("""
                 INSERT INTO addresses (id, address_line1, city, state, pincode, latitude, longitude, is_default)
-                VALUES (?, ?, 'Bangalore', 'KA', '560001', 12.97, 77.59, 1)
+                VALUES (?, ?, 'Bangalore', 'KA', '560001', 12.97, 77.59, TRUE)
                 """, id, "Addr " + id);
         jdbcTemplate.update("""
                 INSERT INTO restaurants
                     (id, name, owner_id, address_id, opening_time, closing_time, is_active, is_open,
                      free_delivery_available, created_at)
-                VALUES (?, ?, ?, ?, '09:00:00', '23:00:00', 1, 1, 1, NOW())
+                VALUES (?, ?, ?, ?, '09:00:00', '23:00:00', TRUE, TRUE, TRUE, CURRENT_TIMESTAMP)
                 """, id, name, id, id);
         jdbcTemplate.update("""
                 INSERT INTO cuisines (id, name, active)
-                VALUES (?, ?, 1)
+                VALUES (?, ?, TRUE)
                 """, id, "Cuisine " + id);
         jdbcTemplate.update("""
                 INSERT INTO restaurant_cuisines (restaurant_id, cuisine_id)

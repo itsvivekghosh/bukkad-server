@@ -88,7 +88,7 @@ public class WafFilter extends OncePerRequestFilter {
                         }
                     }
                 }
-                if (body != null && !body.isBlank() && matches(body)) {
+                if (body != null && !body.isBlank() && matches(stripEncryptedFields(body))) {
                     return true;
                 }
             } catch (Exception e) {
@@ -106,5 +106,19 @@ public class WafFilter extends OncePerRequestFilter {
             return false;
         }
         return SQLI_PATTERN.matcher(value).find() || XSS_PATTERN.matcher(value).find();
+    }
+
+    /**
+     * Removes JWE-encrypted password fields from a JSON body before pattern
+     * matching. The ciphertext is base64url, which legitimately contains {@code -}
+     * and {@code _}; random ciphertext can therefore include {@code --}, {@code /*}
+     * or {@code ;} sequences that match SQLi/XSS patterns and would cause the WAF
+     * to block valid auth requests intermittently. The encrypted value is
+     * untrusted input, but pattern-matching ciphertext provides no security — the
+     * decryption layer (JwePasswordCrypto + nonce validation) enforces integrity.
+     */
+    private static String stripEncryptedFields(String body) {
+        return body.replaceAll("\"encryptedPassword\"\\s*:\\s*\"[^\"]*\"",
+                "\"encryptedPassword\":\"<encrypted>\"");
     }
 }

@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bhukkad-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bhukkad
+      POSTGRES_USER: bhukkad
+      POSTGRES_PASSWORD: bhukkad_pass
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data_test:/var/lib/postgresql/data
+    networks:
+      - bhukkad-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhukkad -d bhukkad"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: bhukkad-redis-test
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data_test:/data
+    networks:
+      - bhukkad-test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data_test:
+  redis_data_test:
+
+networks:
+  bhukkad-test-network:
+    driver: bridge

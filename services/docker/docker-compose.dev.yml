@@ -1,0 +1,143 @@
+# Full local dev stack for the microservices (plan §2.1/§11): one PostgreSQL per
+# service, Redpanda (Kafka API) for events, nginx as the edge router.
+# Start: docker compose -f services/docker/docker-compose.dev.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # 7 services × Hikari pool 8 + Flyway/psql overhead; default max is 100.
+    command: ["postgres", "-c", "max_connections=300"]
+    environment:
+      POSTGRES_USER: bhukkad
+      POSTGRES_PASSWORD: bhukkad_dev
+    ports: ["5432:5432"]
+    volumes:
+      - bhukkad-pgdata:/var/lib/postgresql/data
+      # Provision all seven per-service databases on first boot.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhukkad"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redpanda:
+    image: redpandadata/redpanda:v23.3.13
+    command:
+      - redpanda start
+      - --smp 1
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092
+      - --rpc-addr 0.0.0.0:33145
+      - --advertise-rpc-addr redpanda:33145
+    ports: ["29092:29092", "9644:9644"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q Healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  nginx:
+    image: nginx:1.27-alpine
+    # 8088 on the host: the monolith already owns 8080 in local dev.
+    ports: ["8088:80"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - identity
+      - restaurant
+      - order
+      - payment
+      - delivery
+      - notification
+      - admin-analytics
+
+  identity:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: identity}}
+    container_name: bhukkad-identity
+    image: ghcr.io/bhukkad/identity:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_identity
+      IDENTITY_DB_USERNAME: bhukkad
+      IDENTITY_DB_PASSWORD: bhukkad_dev
+      JWT_SECRET: dev-secret-change-me-0123456789abcdef0123456789abcdef
+    depends_on: [postgres]
+
+  restaurant:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: restaurant}}
+    container_name: bhukkad-restaurant
+    image: ghcr.io/bhukkad/restaurant:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      RESTAURANT_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_restaurants
+      RESTAURANT_DB_USERNAME: bhukkad
+      RESTAURANT_DB_PASSWORD: bhukkad_dev
+    depends_on: [postgres]
+
+  order:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: order}}
+    container_name: bhukkad-order
+    image: ghcr.io/bhukkad/order:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      ORDER_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_orders
+      ORDER_DB_USERNAME: bhukkad
+      ORDER_DB_PASSWORD: bhukkad_dev
+    depends_on: [postgres]
+
+  payment:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: payment}}
+    container_name: bhukkad-payment
+    image: ghcr.io/bhukkad/payment:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_payments
+      PAYMENT_DB_USERNAME: bhukkad
+      PAYMENT_DB_PASSWORD: bhukkad_dev
+    depends_on: [postgres]
+
+  delivery:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: delivery}}
+    container_name: bhukkad-delivery
+    image: ghcr.io/bhukkad/delivery:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      DELIVERY_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_delivery
+      DELIVERY_DB_USERNAME: bhukkad
+      DELIVERY_DB_PASSWORD: bhukkad_dev
+    depends_on: [postgres]
+
+  notification:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: notification}}
+    container_name: bhukkad-notification
+    image: ghcr.io/bhukkad/notification:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_notification
+      NOTIFICATION_DB_USERNAME: bhukkad
+      NOTIFICATION_DB_PASSWORD: bhukkad_dev
+    depends_on: [postgres]
+
+  admin-analytics:
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: admin-analytics}}
+    container_name: bhukkad-admin-analytics
+    image: ghcr.io/bhukkad/admin-analytics:latest
+    environment:
+      SERVER_PORT: "8080"
+      spring.datasource.hikari.maximum-pool-size: "8"
+      ADMIN_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_admin
+      ADMIN_DB_USERNAME: bhukkad
+      ADMIN_DB_PASSWORD: bhukkad_dev
+    depends_on: [postgres]
+
+volumes:
+  bhukkad-pgdata:

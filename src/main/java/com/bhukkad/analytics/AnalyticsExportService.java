@@ -43,18 +43,21 @@ public class AnalyticsExportService {
             WHERE 1=1
             """);
 
+        java.util.List<Object> params = new java.util.ArrayList<>();
         if (fromDate != null && !fromDate.isEmpty()) {
-            sql.append(" AND o.created_at >= '").append(fromDate).append("'");
+            sql.append(" AND o.created_at >= ?");
+            params.add(fromDate);
         }
         if (toDate != null && !toDate.isEmpty()) {
-            sql.append(" AND o.created_at <= '").append(toDate).append("'");
+            sql.append(" AND o.created_at <= ?");
+            params.add(toDate);
         }
         sql.append(" ORDER BY o.created_at DESC");
 
         writer.println("Order ID,Order Number,Status,Total Amount,Created At,Customer Name,Customer Phone," +
                 "Restaurant Name,Restaurant City,Rider Name,Rider Phone");
 
-        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writeOrderRow(writer, rs));
+        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writeOrderRow(writer, rs), params.toArray());
     }
 
     public void streamRestaurantsCsv(java.io.PrintWriter writer, String city) {
@@ -66,15 +69,17 @@ public class AnalyticsExportService {
             WHERE 1=1
             """);
 
+        java.util.List<Object> params = new java.util.ArrayList<>();
         if (city != null && !city.isEmpty()) {
-            sql.append(" AND r.city = '").append(city.replace("'", "''")).append("'");
+            sql.append(" AND r.city = ?");
+            params.add(city);
         }
         sql.append(" ORDER BY r.name");
 
         writer.println("Restaurant ID,Name,Address,City,Phone,Is Active,Is Open,Opening Time,Closing Time," +
                 "Average Delivery Time,Commission Rate,Created At");
 
-        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writeRestaurantRow(writer, rs));
+        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writeRestaurantRow(writer, rs), params.toArray());
     }
 
     public void streamRidersCsv(java.io.PrintWriter writer, String city) {
@@ -86,15 +91,17 @@ public class AnalyticsExportService {
             WHERE 1=1
             """);
 
+        java.util.List<Object> params = new java.util.ArrayList<>();
         if (city != null && !city.isEmpty()) {
-            sql.append(" AND d.city = '").append(city.replace("'", "''")).append("'");
+            sql.append(" AND d.city = ?");
+            params.add(city);
         }
         sql.append(" ORDER BY d.full_name");
 
         writer.println("Rider ID,Full Name,Phone,Email,Vehicle Type,License Plate,Is Active,City," +
                 "Current Latitude,Current Longitude,Created At,Updated At");
 
-        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writeRiderRow(writer, rs));
+        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writeRiderRow(writer, rs), params.toArray());
     }
 
     public void streamPaymentsCsv(java.io.PrintWriter writer, String fromDate, String toDate, String status) {
@@ -108,21 +115,25 @@ public class AnalyticsExportService {
             WHERE 1=1
             """);
 
+        java.util.List<Object> params = new java.util.ArrayList<>();
         if (fromDate != null && !fromDate.isEmpty()) {
-            sql.append(" AND p.created_at >= '").append(fromDate).append("'");
+            sql.append(" AND p.created_at >= ?");
+            params.add(fromDate);
         }
         if (toDate != null && !toDate.isEmpty()) {
-            sql.append(" AND p.created_at <= '").append(toDate).append("'");
+            sql.append(" AND p.created_at <= ?");
+            params.add(toDate);
         }
         if (status != null && !status.isEmpty()) {
-            sql.append(" AND p.status = '").append(status.replace("'", "''")).append("'");
+            sql.append(" AND p.status = ?");
+            params.add(status);
         }
         sql.append(" ORDER BY p.created_at DESC");
 
         writer.println("Payment ID,Gateway Payment ID,Order ID,Amount,Payment Method,Status,Gateway," +
                 "Gateway Transaction ID,Created At,Completed At,Order Number,Customer Name");
 
-        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writePaymentRow(writer, rs));
+        jdbcTemplate.query(sql.toString(), (RowCallbackHandler) rs -> writePaymentRow(writer, rs), params.toArray());
     }
 
     private void writeOrderRow(PrintWriter writer, ResultSet rs) throws SQLException {

@@ -15,6 +15,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+// Mockito any() matchers on RedisTemplate.execute produce benign unchecked warnings
+@SuppressWarnings("unchecked")
 class RateLimitServiceTest {
 
     @Mock

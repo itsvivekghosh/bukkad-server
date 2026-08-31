@@ -6,7 +6,7 @@ import com.bhukkad.entity.WalletTransaction;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.PaymentRepository;
-import com.bhukkad.serviceImpl.PaymentServiceImpl;
+import com.bhukkad.service.PaymentService;
 import com.bhukkad.util.PriceCalculator;
 import com.bhukkad.wallet.WalletService;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AutoRefundService {
 
     private final RefundPolicyService refundPolicyService;
-    private final PaymentServiceImpl paymentServiceImpl;
+    private final PaymentService paymentService;
     private final WalletService walletService;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
@@ -121,7 +121,7 @@ public class AutoRefundService {
             }
 
             if (RefundPolicyService.TARGET_GATEWAY.equalsIgnoreCase(target)) {
-                paymentServiceImpl.processRefund(order.getId(), amount, cancellationReason);
+                paymentService.processRefund(order.getId(), amount, cancellationReason);
                 log.info("Auto refund via gateway completed | orderId={} | amount={} | reason={}",
                         order.getId(), amount, cancellationReason);
                 return true;

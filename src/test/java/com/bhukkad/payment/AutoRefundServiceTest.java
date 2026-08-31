@@ -6,7 +6,7 @@ import com.bhukkad.entity.Payment;
 import com.bhukkad.entity.WalletTransaction;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.PaymentRepository;
-import com.bhukkad.serviceImpl.PaymentServiceImpl;
+import com.bhukkad.service.PaymentService;
 import com.bhukkad.wallet.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +45,7 @@ class AutoRefundServiceTest {
     private RefundPolicyService refundPolicyService;
 
     @Mock
-    private PaymentServiceImpl paymentServiceImpl;
+    private PaymentService paymentService;
 
     @Mock
     private WalletService walletService;
@@ -68,7 +68,7 @@ class AutoRefundServiceTest {
     void setUp() {
         org.mockito.Mockito.lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
         service = new AutoRefundService(
-                refundPolicyService, paymentServiceImpl, walletService, orderRepository, paymentRepository,
+                refundPolicyService, paymentService, walletService, orderRepository, paymentRepository,
                 stringRedisTemplate);
     }
 
@@ -118,7 +118,7 @@ class AutoRefundServiceTest {
         boolean refunded = service.autoRefund(order(), REASON);
 
         assertTrue(refunded);
-        verify(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+        verify(paymentService).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
         verify(walletService, never()).credit(any(), anyDouble(), any(), any(), anyString());
     }
 
@@ -136,7 +136,7 @@ class AutoRefundServiceTest {
         assertTrue(refunded);
         verify(walletService).credit(eq(1L), eq(500.0),
                 eq(WalletTransaction.TransactionType.ORDER_REFUND), any(), anyString());
-        verify(paymentServiceImpl, never()).processRefund(any(), anyDouble(), anyString());
+        verify(paymentService, never()).processRefund(any(), anyDouble(), anyString());
     }
 
     @Test
@@ -147,7 +147,7 @@ class AutoRefundServiceTest {
         boolean refunded = service.autoRefund(order(), REASON);
 
         assertFalse(refunded);
-        verify(paymentServiceImpl, never()).processRefund(any(), anyDouble(), anyString());
+        verify(paymentService, never()).processRefund(any(), anyDouble(), anyString());
         verify(walletService, never()).credit(any(), anyDouble(), any(), any(), anyString());
     }
 
@@ -162,7 +162,7 @@ class AutoRefundServiceTest {
         boolean refunded = service.autoRefund(order(), REASON);
 
         assertFalse(refunded);
-        verify(paymentServiceImpl, never()).processRefund(any(), anyDouble(), anyString());
+        verify(paymentService, never()).processRefund(any(), anyDouble(), anyString());
     }
 
     @Test
@@ -176,7 +176,7 @@ class AutoRefundServiceTest {
 
         assertTrue(first);
         assertFalse(second);
-        verify(paymentServiceImpl, times(1)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+        verify(paymentService, times(1)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
         verify(walletService, never()).credit(any(), anyDouble(), any(), any(), anyString());
     }
 
@@ -187,12 +187,12 @@ class AutoRefundServiceTest {
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
 
         AutoRefundService replicaB = new AutoRefundService(
-                refundPolicyService, paymentServiceImpl, walletService, orderRepository, paymentRepository,
+                refundPolicyService, paymentService, walletService, orderRepository, paymentRepository,
                 stringRedisTemplate);
 
         assertTrue(service.autoRefund(order(), REASON));
         assertFalse(replicaB.autoRefund(order(), REASON));
-        verify(paymentServiceImpl, times(1)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+        verify(paymentService, times(1)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
     }
 
     @Test
@@ -201,7 +201,7 @@ class AutoRefundServiceTest {
         stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
         org.mockito.Mockito.doThrow(new IllegalStateException("gateway down"))
-                .when(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+                .when(paymentService).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
 
         boolean refunded = service.autoRefund(order(), REASON);
 
@@ -214,11 +214,11 @@ class AutoRefundServiceTest {
         stubRedisClaim();
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(pendingPayment()));
         org.mockito.Mockito.doThrow(new IllegalStateException("transient"))
-                .when(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+                .when(paymentService).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
 
         assertFalse(service.autoRefund(order(), REASON));
         assertFalse(service.autoRefund(order(), REASON));
-        verify(paymentServiceImpl, times(2)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+        verify(paymentService, times(2)).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
     }
 
     @Test
@@ -231,7 +231,7 @@ class AutoRefundServiceTest {
         boolean refunded = service.autoRefund(order(), REASON);
 
         assertTrue(refunded);
-        verify(paymentServiceImpl).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
+        verify(paymentService).processRefund(eq(ORDER_ID), eq(500.0), eq(REASON));
     }
 
     @Test

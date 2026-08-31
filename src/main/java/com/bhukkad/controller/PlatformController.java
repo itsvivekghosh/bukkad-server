@@ -14,6 +14,7 @@ import com.bhukkad.tenant.TenantService;
 import com.bhukkad.zone.CityConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +26,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping(ApiPaths.V1_PREFIX + "/platform")
+@PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
 public class PlatformController {
 

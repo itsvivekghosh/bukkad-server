@@ -1,5 +1,6 @@
 package com.bhukkad.service;
 
+import com.bhukkad.dto.request.UpdateDeliveryProfileRequest;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.DeliveryAgent;
@@ -10,7 +11,7 @@ public interface DeliveryService {
     DeliveryAgentResponse getProfile();
     DeliveryAgent getDeliveryAgentById(Long id);
     DeliveryAgent getCurrentDeliveryAgent();
-    DeliveryAgentResponse updateProfile(Long id, DeliveryAgent agent);
+    DeliveryAgentResponse updateProfile(Long id, UpdateDeliveryProfileRequest request);
 
     // Availability
     void toggleAvailability(Boolean available);

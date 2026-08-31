@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       service:
-        description: "Build only this service module (Phase 3 multi-module). Leave empty for the monolith build."
+        description: "Build only this service module (services/ reactor). Leave empty for the monolith build."
         required: false
         type: string
         default: ""
@@ -41,7 +41,7 @@ jobs:
       - name: Compile
         run: |
           if [ -n "${{ inputs.service }}" ]; then
-            ./mvnw -B -f multi-module/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
+            ./mvnw -B -f services/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
           else
             ./mvnw -B compile -DskipTests
           fi
@@ -68,14 +68,14 @@ jobs:
         run: chmod +x mvnw
 
       - name: Build and test service module
-        run: ./mvnw -B -f multi-module/pom.xml -pl ${{ inputs.service }} -am test
+        run: ./mvnw -B -f services/pom.xml -pl ${{ inputs.service }} -am test
 
       - name: Upload service test reports
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: service-${{ inputs.service }}-test-reports
-          path: multi-module/${{ inputs.service }}/target/surefire-reports/
+          path: services/${{ inputs.service }}/target/surefire-reports/
           retention-days: 14
 
   test:

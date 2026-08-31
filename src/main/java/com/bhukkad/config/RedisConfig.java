@@ -11,7 +11,11 @@ import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter;
 import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.bhukkad.cache.invalidation.CacheInvalidationSubscriber;
+import io.lettuce.core.ClientOptions;
+import io.lettuce.core.SocketOptions;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +24,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
@@ -33,8 +39,66 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
+@EnableConfigurationProperties(RedisProperties.class)
 @EnableCaching
 public class RedisConfig {
+
+    /**
+     * Bounds the Redis TCP connect + command timeouts. Without an explicit
+     * socket connect timeout, the OS default (often 60s+) makes connection
+     * creation block while holding the connection factory's shared-connection
+     * lock — every other Redis operation hangs behind it. 2s socket + 2s
+     * command keeps startup and degraded paths fast and fail-open (see
+     * ClientEncryptionKeyService).
+     *
+     * <p>This bean replaces Spring Boot's auto-configured factory so the
+     * socket options are applied. Pool config is derived from
+     * {@link RedisProperties} so application.yml {@code spring.data.redis}
+     * and {@code spring.data.redis.lettuce.pool} are respected.
+     */
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory(RedisProperties props) {
+        org.springframework.data.redis.connection.RedisConfiguration configuration;
+        if (props.getSentinel() != null && org.springframework.util.StringUtils.hasText(props.getSentinel().getMaster())
+                && props.getSentinel().getNodes() != null && !props.getSentinel().getNodes().isEmpty()) {
+            // Sentinel failover mode: master name + node list (host:port pairs).
+            org.springframework.data.redis.connection.RedisSentinelConfiguration sentinel =
+                    new org.springframework.data.redis.connection.RedisSentinelConfiguration(
+                            props.getSentinel().getMaster(),
+                            new java.util.LinkedHashSet<>(props.getSentinel().getNodes()));
+            sentinel.setPassword(org.springframework.data.redis.connection.RedisPassword.of(props.getPassword()));
+            sentinel.setDatabase(props.getDatabase());
+            configuration = sentinel;
+        } else {
+            org.springframework.data.redis.connection.RedisStandaloneConfiguration standalone =
+                    new org.springframework.data.redis.connection.RedisStandaloneConfiguration(
+                            props.getHost(), props.getPort());
+            standalone.setDatabase(props.getDatabase());
+            standalone.setPassword(org.springframework.data.redis.connection.RedisPassword.of(props.getPassword()));
+            configuration = standalone;
+        }
+
+        ClientOptions clientOptions = ClientOptions.builder()
+                .socketOptions(SocketOptions.builder()
+                        .connectTimeout(Duration.ofSeconds(2))
+                        .build())
+                .build();
+
+        org.apache.commons.pool2.impl.GenericObjectPoolConfig<?> poolConfig =
+                new org.apache.commons.pool2.impl.GenericObjectPoolConfig<>();
+        poolConfig.setMaxTotal(props.getLettuce().getPool().getMaxActive());
+        poolConfig.setMaxIdle(props.getLettuce().getPool().getMaxIdle());
+        poolConfig.setMinIdle(props.getLettuce().getPool().getMinIdle());
+        poolConfig.setMaxWait(props.getLettuce().getPool().getMaxWait());
+
+        LettucePoolingClientConfiguration pool = LettucePoolingClientConfiguration.builder()
+                .poolConfig(poolConfig)
+                .clientOptions(clientOptions)
+                .commandTimeout(props.getTimeout())
+                .build();
+
+        return new LettuceConnectionFactory(configuration, pool);
+    }
 
     @Value("${cache.ttl.restaurant:1800}")
     private long restaurantTtl;

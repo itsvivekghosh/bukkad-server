@@ -257,6 +257,12 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private void populateUserContext() {
         try {
+            // If JwtAuthenticationFilter already populated MDC (it runs earlier in
+            // the filter chain), skip the extra DB lookup. This avoids up to 4
+            // redundant queries per authenticated request.
+            if (MDC.get(LoggingConstants.USER_ID) != null) {
+                return;
+            }
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
             if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal())) {
                 String email = auth.getName();

@@ -540,13 +540,34 @@ class CouponServiceImplTest {
     }
 
     @Test
+    void recordCouponUsage_usesAtomicIncrement() {
+        Coupon coupon = validCoupon();
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(1);
+
+        couponService.recordCouponUsage(coupon);
+
+        verify(couponRepository).incrementUsedCountIfWithinLimit(1L);
+    }
+
+    @Test
     void recordCouponUsage_withoutCustomer_incrementsAndSkipsUsageRow() {
         Coupon coupon = validCoupon();
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(1);
 
         couponService.recordCouponUsage(coupon);
 
         assertEquals(2, coupon.getUsedCount());
-        verify(couponRepository).save(coupon);
+        verify(couponRepository).incrementUsedCountIfWithinLimit(1L);
+        verify(couponUsageRepository, never()).save(any());
+    }
+
+    @Test
+    void recordCouponUsage_limitReached_throws() {
+        Coupon coupon = validCoupon();
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(0);
+
+        assertThrows(BusinessException.class,
+                () -> couponService.recordCouponUsage(coupon, 5L, null));
         verify(couponUsageRepository, never()).save(any());
     }
 
@@ -555,11 +576,12 @@ class CouponServiceImplTest {
         Coupon coupon = validCoupon();
         Customer customer = new Customer();
         customer.setId(5L);
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(1);
         when(customerRepository.findById(5L)).thenReturn(Optional.of(customer));
 
         couponService.recordCouponUsage(coupon, 5L, null);
 
-        verify(couponRepository).save(coupon);
+        verify(couponRepository).incrementUsedCountIfWithinLimit(1L);
         verify(couponUsageRepository).save(any(CouponUsage.class));
         verify(orderRepository, never()).findById(any());
     }
@@ -571,6 +593,7 @@ class CouponServiceImplTest {
         customer.setId(5L);
         Order order = new Order();
         order.setId(9L);
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(1);
         when(customerRepository.findById(5L)).thenReturn(Optional.of(customer));
         when(orderRepository.findById(9L)).thenReturn(Optional.of(order));
 
@@ -582,6 +605,7 @@ class CouponServiceImplTest {
     @Test
     void recordCouponUsage_customerNotFound_throws() {
         Coupon coupon = validCoupon();
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(1);
         when(customerRepository.findById(404L)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
@@ -593,6 +617,7 @@ class CouponServiceImplTest {
         Coupon coupon = validCoupon();
         Customer customer = new Customer();
         customer.setId(5L);
+        when(couponRepository.incrementUsedCountIfWithinLimit(1L)).thenReturn(1);
         when(customerRepository.findById(5L)).thenReturn(Optional.of(customer));
         when(orderRepository.findById(404L)).thenReturn(Optional.empty());
 

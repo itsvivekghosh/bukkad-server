@@ -1,6 +1,7 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.dto.request.RiderLocationRequest;
+import com.bhukkad.dto.request.UpdateDeliveryProfileRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.CursorPagedResponse;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
@@ -61,7 +62,7 @@ public class DeliveryControllerTest {
     void updateProfile_loadsCurrentAgentThenUpdates() {
         DeliveryAgent current = new DeliveryAgent();
         current.setId(8L);
-        DeliveryAgent payload = new DeliveryAgent();
+        UpdateDeliveryProfileRequest payload = new UpdateDeliveryProfileRequest();
         DeliveryAgentResponse updated = DeliveryAgentResponse.builder().id(8L).build();
 
         when(deliveryService.getCurrentDeliveryAgent()).thenReturn(current);

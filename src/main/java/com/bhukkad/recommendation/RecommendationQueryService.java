@@ -112,7 +112,9 @@ public class RecommendationQueryService {
         // findAllByIdsWithDetails does not preserve order — re-map explicitly.
         Map<Long, com.bhukkad.entity.MenuItem> byId = new LinkedHashMap<>();
         for (Object row : entityManager.createQuery(
-                        "SELECT m FROM MenuItem m LEFT JOIN FETCH m.category WHERE m.id IN (:ids)")
+                        "SELECT m FROM MenuItem m LEFT JOIN FETCH m.category " +
+                        "LEFT JOIN FETCH m.tags LEFT JOIN FETCH m.allergens LEFT JOIN FETCH m.ingredients " +
+                        "WHERE m.id IN (:ids)")
                 .setParameter("ids", ids)
                 .getResultList()) {
             com.bhukkad.entity.MenuItem item = (com.bhukkad.entity.MenuItem) row;

@@ -336,12 +336,12 @@ public class AdminServiceImpl implements AdminService {
     private Page<User> searchAccountsAcrossRoles(String search, PageRequest pageRequest) {
         List<User> merged = new ArrayList<>();
         long total = 0;
-        Page<? extends User>[] pages = new Page[]{
+        List<Page<? extends User>> pages = List.of(
                 customerRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest),
                 restaurantOwnerRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest),
                 deliveryAgentRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest),
                 adminRepository.findByFullNameContainingOrEmailContaining(search, search, pageRequest)
-        };
+        );
         for (Page<? extends User> p : pages) {
             total += p.getTotalElements();
             merged.addAll(p.getContent());

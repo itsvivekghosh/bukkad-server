@@ -1,32 +1,26 @@
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: bhukkad-mysql-prod
+  postgres:
+    image: postgres:16-alpine
+    container_name: bhukkad-postgres-prod
     restart: always
     init: true
     environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:bhukkad}
+      POSTGRES_USER: ${POSTGRES_USER:bhukkad}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:3306:3306"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - mysql_data_prod:/var/lib/mysql
-      - ./mysql/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-      - ./mysql/my.cnf:/etc/mysql/conf.d/99-bhukkad.cnf:ro
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./postgres/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - bhukkad-prod-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "--password=${MYSQL_ROOT_PASSWORD}", "--connect-timeout=5"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:bhukkad} -d ${POSTGRES_DB:bhukkad}"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 45s
-    command: >
-      --default-authentication-plugin=mysql_native_password
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
     deploy:
       resources:
         limits:
@@ -75,22 +69,26 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       WAIT_FOR_SERVICES: "false"
       HEALTH_PATH: /api/v1/health/ping
-      DB_HOST: mysql
-      DB_PORT: "3306"
-      DB_USERNAME: ${MYSQL_USER}
-      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USERNAME: ${POSTGRES_USER:bhukkad}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       SERVER_PORT: "8080"
       JWT_SECRET: ${JWT_SECRET}
-      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxGCPauseMillis=200"
+      APP_PAYMENT_RAZORPAY_ENABLED: "true"
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
+      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+MaxGCPauseMillis=200"
     expose:
       - "8080"
     volumes:
       - app_logs_prod:/tmp/logs/bhukkad
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -118,9 +116,11 @@ services:
     restart: always
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/conf.d/bhukkad.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       app:
         condition: service_healthy
@@ -132,13 +132,66 @@ services:
           cpus: "0.5"
           memory: 256M
 
+  # Daily automated backups (PostgreSQL dump + Redis snapshot) into a named volume.
+  # Off-site copy can be added by setting S3_BUCKET + AWS_* env vars.
+  backup:
+    image: alpine:3.19
+    container_name: bhukkad-backup-prod
+    restart: unless-stopped
+    init: true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache postgresql-client redis >/dev/null 2>&1
+        while true; do
+          echo "[$$(date)] Running scheduled backup"
+          sh /scripts/backup-postgres.sh || echo "[$$(date)] PostgreSQL backup FAILED"
+          sh /scripts/backup-redis.sh || echo "[$$(date)] Redis backup FAILED"
+          sleep $${BACKUP_INTERVAL_HOURS:-24}h
+        done
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USERNAME: ${POSTGRES_USER:bhukkad}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:bhukkad}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      BACKUP_DIR: /backup
+      REDIS_DATA_DIR: /redis-data
+      RETENTION_DAYS: "30"
+      S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
+    volumes:
+      - backup_data_prod:/backup
+      - redis_data_prod:/redis-data:ro
+      - ./scripts/backup-postgres.sh:/scripts/backup-postgres.sh:ro
+      - ./scripts/backup-redis.sh:/scripts/backup-redis.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bhukkad-prod-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
 volumes:
-  mysql_data_prod:
-    name: bhukkad_mysql_prod
+  postgres_data_prod:
+    name: bhukkad_postgres_prod
   redis_data_prod:
     name: bhukkad_redis_prod
   app_logs_prod:
     name: bhukkad_logs_prod
+  backup_data_prod:
+    name: bhukkad_backups_prod
 
 networks:
   bhukkad-prod-network:

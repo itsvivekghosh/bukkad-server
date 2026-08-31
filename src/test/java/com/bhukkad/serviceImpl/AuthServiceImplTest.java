@@ -91,11 +91,22 @@ class AuthServiceImplTest {
     @Mock
     private com.bhukkad.service.PhoneVerificationService phoneVerificationService;
 
+    @Mock
+    private java.util.concurrent.Executor lowPriorityTaskExecutor;
+
     @InjectMocks
     private AuthServiceImpl authService;
 
     @BeforeEach
     void setUp() {
+        // The executor is used for the async password rehash; execute the
+        // runnable synchronously so the rehash-side effects (userRepository.save)
+        // are visible to the test's verify() calls. Lenient: most tests never
+        // trigger the rehash path.
+        org.mockito.Mockito.lenient().doAnswer(inv -> {
+            ((Runnable) inv.getArgument(0)).run();
+            return null;
+        }).when(lowPriorityTaskExecutor).execute(org.mockito.ArgumentMatchers.any(Runnable.class));
         lenient().when(passwordEncoder.encode(anyString())).thenReturn("encoded-password");
         lenient().when(jwtTokenProvider.generateAccessToken(any(UserDetails.class))).thenReturn("access-token");
         lenient().when(jwtTokenProvider.generateRefreshToken(any(UserDetails.class))).thenReturn("refresh-token");
@@ -191,14 +202,16 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void register_restaurantOwner_setsVerifiedTrue() {
+    void register_restaurantOwner_registersUnverified() {
         RegisterRequest request = registerRequest(User.UserRole.RESTAURANT_OWNER);
         when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
         when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
         when(restaurantOwnerRepository.save(any(RestaurantOwner.class))).thenAnswer(inv -> {
             RestaurantOwner owner = inv.getArgument(0);
             owner.setId(20L);
-            assertTrue(owner.getVerified());
+            // Self-registration must NOT grant verified status — admin approval
+            // (verifyRestaurantOwner) is required before privileged operations.
+            assertFalse(owner.getVerified());
             assertEquals(User.UserRole.RESTAURANT_OWNER, owner.getRole());
             return owner;
         });
@@ -211,7 +224,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void register_deliveryAgent_success() {
+    void register_deliveryAgent_registersUnverified() {
         RegisterRequest request = registerRequest(User.UserRole.DELIVERY_AGENT);
         when(accountLookupService.existsAnywhereByEmail(request.getEmail())).thenReturn(false);
         when(accountLookupService.existsAnywhereByPhoneNumber(request.getPhoneNumber())).thenReturn(false);
@@ -220,6 +233,9 @@ class AuthServiceImplTest {
             agent.setId(30L);
             assertEquals(User.UserRole.DELIVERY_AGENT, agent.getRole());
             assertTrue(agent.getActive());
+            // Delivery agents must also register unverified; DeliveryServiceImpl
+            // rejects unverified agents on privileged operations.
+            assertFalse(agent.getVerified());
             return agent;
         });
 
@@ -249,14 +265,25 @@ class AuthServiceImplTest {
         assertThrows(NullPointerException.class, () -> authService.register(request));
     }
 
+    private Authentication loginAuth() {
+        return org.mockito.Mockito.mock(Authentication.class);
+    }
+
+    private Authentication loginAuthWithEmail(String email) {
+        Authentication auth = loginAuth();
+        org.mockito.Mockito.lenient().when(auth.getName()).thenReturn(email);
+        return auth;
+    }
+
     @Test
     void login_success() {
         LoginRequest request = new LoginRequest();
         request.setEmail("user@example.com");
         request.setPassword("secret1");
         Customer user = activeUser();
+        Authentication auth = loginAuthWithEmail("user@example.com");
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
-                .thenReturn(org.mockito.Mockito.mock(Authentication.class));
+                .thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         AuthResponse response = authService.login(request);
@@ -272,7 +299,8 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setEmail("missing@example.com");
         request.setPassword("secret1");
-        when(authenticationManager.authenticate(any())).thenReturn(null);
+        Authentication auth = loginAuthWithEmail("missing@example.com");
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
         when(accountLookupService.byEmail("missing@example.com")).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.login(request));
@@ -286,8 +314,9 @@ class AuthServiceImplTest {
         request.setEmail("user@example.com");
         request.setPassword("secret1");
         Customer user = activeUser(); // stored password is "encoded-password" (legacy)
+        Authentication auth = loginAuthWithEmail("user@example.com");
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
-                .thenReturn(org.mockito.Mockito.mock(Authentication.class));
+                .thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
         when(userRepository.save(user)).thenReturn(user);
         when(passwordEncoder.encode("secret1")).thenReturn("{argon2}$argon2id$new-hash");
@@ -305,8 +334,9 @@ class AuthServiceImplTest {
         request.setPassword("secret1");
         Customer user = activeUser();
         AccountFields.setPassword(user, "{argon2}$argon2id$v=19$m=65536,t=3,p=1$salt$hash");
+        Authentication auth = loginAuthWithEmail("user@example.com");
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
-                .thenReturn(org.mockito.Mockito.mock(Authentication.class));
+                .thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         authService.login(request);
@@ -322,7 +352,8 @@ class AuthServiceImplTest {
         request.setPassword("secret1");
         Customer user = activeUser();
         user.setActive(false);
-        when(authenticationManager.authenticate(any())).thenReturn(null);
+        Authentication auth = loginAuthWithEmail("user@example.com");
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(user));
 
         BusinessException ex = assertThrows(BusinessException.class, () -> authService.login(request));
@@ -666,6 +697,8 @@ class AuthServiceImplTest {
         admin.setRole(User.UserRole.ADMIN);
         admin.setTotpEnabled(true);
         admin.setTotpSecret("JBSWY3DPEHPK3PXP");
+        Authentication auth = loginAuthWithEmail("user@example.com");
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(admin));
         when(jwtTokenProvider.generateMfaToken(1L, "user@example.com")).thenReturn("mfa-token");
 
@@ -682,6 +715,8 @@ class AuthServiceImplTest {
         User owner = activeUser();
         owner.setRole(User.UserRole.RESTAURANT_OWNER);
         owner.setTotpEnabled(true);
+        Authentication auth = loginAuthWithEmail("user@example.com");
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(owner));
         when(jwtTokenProvider.generateMfaToken(1L, "user@example.com")).thenReturn("mfa-token");
 
@@ -696,6 +731,8 @@ class AuthServiceImplTest {
         User customer = activeUser();
         customer.setRole(User.UserRole.CUSTOMER);
         customer.setTotpEnabled(true);
+        Authentication auth = loginAuthWithEmail("user@example.com");
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
         when(accountLookupService.byEmail("user@example.com")).thenReturn(Optional.of(customer));
 
         AuthResponse response = authService.login(loginRequest());

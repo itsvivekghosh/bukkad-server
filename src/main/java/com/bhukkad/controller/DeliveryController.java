@@ -3,6 +3,7 @@ package com.bhukkad.controller;
 import com.bhukkad.config.ApiPaths;
 
 import com.bhukkad.dto.request.RiderLocationRequest;
+import com.bhukkad.dto.request.UpdateDeliveryProfileRequest;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
 import com.bhukkad.dto.response.OrderResponse;
@@ -10,7 +11,6 @@ import com.bhukkad.dto.response.RiderBatchResponse;
 import com.bhukkad.dto.response.RiderLocationResponse;
 import com.bhukkad.delivery.RiderBatchDispatchService;
 import com.bhukkad.delivery.RiderLocationService;
-import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.service.DeliveryService;
 import com.bhukkad.service.RiderPayoutService;
 import lombok.RequiredArgsConstructor;
@@ -65,9 +65,9 @@ public class DeliveryController {
     }
 
     @PutMapping("/profile")
-    public ResponseEntity<ApiResponse<DeliveryAgentResponse>> updateProfile(@RequestBody DeliveryAgent agent) {
+    public ResponseEntity<ApiResponse<DeliveryAgentResponse>> updateProfile(@RequestBody UpdateDeliveryProfileRequest request) {
         DeliveryAgentResponse updatedAgent = deliveryService.updateProfile(
-                deliveryService.getCurrentDeliveryAgent().getId(), agent);
+                deliveryService.getCurrentDeliveryAgent().getId(), request);
         return ResponseEntity.ok(ApiResponse.success("Profile updated successfully", updatedAgent));
     }
 

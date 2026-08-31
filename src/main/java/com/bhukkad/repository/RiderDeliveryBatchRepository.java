@@ -14,4 +14,6 @@ public interface RiderDeliveryBatchRepository extends JpaRepository<RiderDeliver
 
     Optional<RiderDeliveryBatch> findFirstByAgentIdAndStatusOrderByCreatedAtDesc(
             Long agentId, RiderDeliveryBatch.BatchStatus status);
+
+    long countByStatus(RiderDeliveryBatch.BatchStatus status);
 }

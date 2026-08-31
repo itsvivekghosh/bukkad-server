@@ -8,7 +8,7 @@ import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;
-import com.bhukkad.serviceImpl.OrderPricingServiceImpl;
+import com.bhukkad.service.OrderPricingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,7 +28,7 @@ class LoyaltyRedemptionServiceTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private CustomerRepository customerRepository;
-    @Mock private OrderPricingServiceImpl orderPricingService;
+    @Mock private OrderPricingService orderPricingService;
 
     private LoyaltyProperties loyaltyProperties;
     private LoyaltyRedemptionService service;

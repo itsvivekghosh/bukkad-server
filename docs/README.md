@@ -1,43 +1,38 @@
 # Bhukkad Backend Documentation
 
-## Documentation map
+Welcome to the Bhukkad Food Delivery System backend documentation. This repository contains the comprehensive API documentation, developer guides, and product understanding for the Bhukkad platform.
 
-| Document | Description |
-|----------|-------------|
-| [getting-started.md](./getting-started.md) | Prerequisites, first run, local dev |
-| [docker.md](./docker.md) | Docker Compose, scripts, health checks |
-| [kubernetes.md](./kubernetes.md) | Minikube/cluster deploy |
-| [configuration.md](./configuration.md) | Environment variables, profiles, secrets |
-| [api-usage.md](./api-usage.md) | Auth, roles, endpoints, curl examples |
-| [technical-manual.md](./technical-manual.md) | **Consolidated technical API manual** — every endpoint: purpose, params, response schemas (2xx/4xx/5xx), behavioral analysis |
-| [api/README.md](./api/README.md) | **Frontend integration guide** — conventions, auth, errors, SSE, idempotency |
-| [api/auth.md](./api/auth.md) | Auth endpoints (register/login/MFA/tokens/passwords) |
-| [api/account.md](./api/account.md) | Profile, addresses, wallet, loyalty, referrals, subscriptions |
-| [api/discovery.md](./api/discovery.md) | Home feed, search, restaurants, menu, coupons |
-| [api/orders.md](./api/orders.md) | Cart, order create/track/cancel, delivery actions, SSE, group/gift |
-| [api/payments.md](./api/payments.md) | Payment status, webhooks, refunds, disputes |
-| [api/delivery.md](./api/delivery.md) | Rider app: earnings, availability, location, batches |
-| [api/reviews.md](./api/reviews.md) | Order reviews, menu-item ratings |
-| [api/admin.md](./api/admin.md) | Admin dashboards, users, feature flags, DLQ, fraud |
-| [features.md](./features.md) | Platform features V10–V17 (consolidated) |
-| [operations.md](./operations.md) | Logs, metrics, migrations, troubleshooting |
-| [testing.md](./testing.md) | Unit/regression tests, coverage, CI |
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | CI/CD, EC2 deploy, secrets checklist |
+## Documentation Structure
 
-## Quick links
+- **[DEVELOPER_API.md](DEVELOPER_API.md)** — Complete API reference for developers, including endpoints, request/response schemas, authentication, and code examples.
+- **[PRODUCT_API.md](PRODUCT_API.md)** — Product-focused API guide explaining business flows, use cases, and integration patterns.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — System architecture, module organization, and technology stack.
+- **[OPERATIONS.md](OPERATIONS.md)** — Deployment, monitoring, and operational runbooks.
 
-| Resource | URL |
-|----------|-----|
-| API base | `http://localhost:8080/api/v1` |
-| Swagger | `http://localhost:8080/swagger-ui.html` |
-| Health | `http://localhost:8080/api/v1/health/ping` |
+## Quick Links
 
-## Audience guide
+### For Developers
+- [Getting Started](ARCHITECTURE.md#getting-started)
+- [API Reference](DEVELOPER_API.md)
+- [Authentication](DEVELOPER_API.md#authentication)
+- [Error Handling](DEVELOPER_API.md#error-handling)
 
-| Role | Start here |
-|------|------------|
-| New developer | [getting-started.md](./getting-started.md) → [api-usage.md](./api-usage.md) |
-| DevOps | [DEPLOYMENT.md](./DEPLOYMENT.md) → [operations.md](./operations.md) |
-| On-call | [operations.md](./operations.md) |
+### For Product Managers
+- [API Overview](PRODUCT_API.md)
+- [Customer Journey](PRODUCT_API.md#customer-journey)
+- [Restaurant Owner Flow](PRODUCT_API.md#restaurant-owner-flow)
+- [Delivery Agent Flow](PRODUCT_API.md#delivery-agent-flow)
 
-All REST endpoints use the `/api/v1` prefix.
+## Tech Stack
+
+- **Java 17** with Spring Boot 3.2
+- **MySQL 8.0** primary database
+- **Redis** for caching, sessions, and rate limiting
+- **JWT** for authentication
+- **Flyway** for database migrations
+- **Docker** for containerization
+- **Maven** for build management
+
+## Support
+
+For issues or questions, please refer to the main repository README or contact the development team.

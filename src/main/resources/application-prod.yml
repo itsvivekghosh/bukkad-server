@@ -4,13 +4,13 @@ spring:
       on-profile: prod
 
   datasource:
-    url: ${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:bhukkad}?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true}
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:bhukkad}?currentSchema=public&ssl=false}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: BhukkadProdPool
-      # High-traffic: 30 per pod × 10 pods = 300 << MySQL 500 (40% headroom).
+      # High-traffic: 30 per pod × 10 pods = 300 << PostgreSQL 500 (40% headroom).
       # Previous 20 × 10 = 200 had queueing under burst; Tomcat 80 needs ~30 Hikari.
       # Formula: pods × pool ≤ 0.8 × max_connections.
       maximum-pool-size: ${DB_POOL_SIZE:30}
@@ -28,13 +28,25 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       database: 0
-      timeout: 5000ms
+      timeout: 2000ms
+      # Sentinel failover: when REDIS_SENTINEL_MASTER and REDIS_SENTINEL_NODES
+      # are set, Spring Boot auto-configures RedisSentinelConfiguration and the
+      # connection factory switches to sentinel mode. Leave unset for direct
+      # single-node Redis (the default).
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:}
+        nodes: ${REDIS_SENTINEL_NODES:}
       lettuce:
         pool:
           max-active: 40
           max-idle: 20
           min-idle: 5
-          max-wait: 3000ms
+          max-wait: 1000ms
+        cluster:
+          refresh:
+            adaptive: true
+          nodes: ${REDIS_CLUSTER_NODES:}
+          max-redirects: 3
 
   jpa:
     show-sql: false
@@ -51,9 +63,31 @@ spring:
           batch_size: 50
           fetch_size: 50
 
+  graphql:
+    graphiql:
+      enabled: false
+    websocket:
+      enabled: false
+
 app:
   environment: production
   debug: false
+  datasource:
+    read-replica:
+      # Read-replica MySQL pool(s). When enabled + DB_REPLICA_URL set, the
+      # read-replica routing datasource is activated and read-only transactions
+      # are load-balanced across the replica pool(s); writes always go to the
+      # primary. Disabled (default) → primary used for both reads and writes.
+      enabled: ${DB_REPLICA_ENABLED:false}
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_REPLICA_USERNAME:}
+      password: ${DB_REPLICA_PASSWORD:}
+      hikari:
+        pool-name: BhukkadReadReplicaPool
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:25}
+        minimum-idle: 5
+        connection-timeout: 30000
+        read-only: true
   notification:
     # Real OTP / transactional delivery via Twilio. Credentials come from
     # secrets (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
@@ -106,16 +140,11 @@ cache:
     home-feed: 300
     serviceability: 300
 
-# Disable debug endpoints in production
+# API docs are disabled by default in production (attack surface + no value to
+# end users). Override with SPRINGDOC_ENABLED=true (e.g. a staging deploy that
+# shares the prod profile but needs Swagger UI / OpenAPI JSON).
 springdoc:
   swagger-ui:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}
   api-docs:
-    enabled: false
-
-spring:
-  graphql:
-    graphiql:
-      enabled: false
-    websocket:
-      enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}

@@ -110,6 +110,45 @@ class LogSanitizerTest {
     }
 
     @Test
+    void sanitizeQueryParam_masksSensitiveKeys() {
+        // Password flows travel as query params (change-password, reset-password)
+        // and must never land in INFO logs.
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("oldPassword", "OldPass123!"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("newPassword", "NewPass456!"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("token", "reset-token-abc"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("mfaToken", "mfa-jwt-abc"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("code", "123456"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("otp", "123456"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("apiKey", "bhk_abc_123"));
+        assertEquals("***MASKED***", LogSanitizer.sanitizeQueryParam("Authorization", "Bearer abc"));
+    }
+
+    @Test
+    void sanitizeQueryParam_masksJwtShapedValuesEvenWithInnocentKeys() {
+        // Defense in depth: a JWT-looking value (two dots, >20 chars) is masked
+        // regardless of the query-param key.
+        assertEquals("***JWT_MASKED***",
+                LogSanitizer.sanitizeQueryParam("ref", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig"));
+        assertEquals("***JWT_MASKED***",
+                LogSanitizer.sanitizeQueryParam("returnTo", "header.payload.signature"));
+    }
+
+    @Test
+    void sanitizeQueryParam_keepsInnocentValues() {
+        assertEquals("2026-01-01", LogSanitizer.sanitizeQueryParam("fromDate", "2026-01-01"));
+        assertEquals("12.9716,77.5946", LogSanitizer.sanitizeQueryParam("latlng", "12.9716,77.5946"));
+        assertEquals("123", LogSanitizer.sanitizeQueryParam("restaurantId", "123"));
+        assertEquals("Mumbai", LogSanitizer.sanitizeQueryParam("city", "Mumbai"));
+    }
+
+    @Test
+    void sanitizeQueryParam_nullSafe() {
+        // Null key or null value is passed through untouched (no crash, no mask).
+        assertEquals("v", LogSanitizer.sanitizeQueryParam(null, "v"));
+        assertNull(LogSanitizer.sanitizeQueryParam("key", null));
+    }
+
+    @Test
     void privateConstructor() throws Exception {
         Constructor<LogSanitizer> ctor = LogSanitizer.class.getDeclaredConstructor();
         ctor.setAccessible(true);

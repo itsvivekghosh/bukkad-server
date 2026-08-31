@@ -1,6 +1,7 @@
 package com.bhukkad.payment;
 
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.exception.PaymentGatewayException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -27,6 +28,9 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
+// Spring RestClient's fluent mock chain is raw-typed; the unchecked warnings
+// from mocking RequestHeadersSpec/RequestHeadersUriSpec are benign.
+@SuppressWarnings("unchecked")
 class RazorpayPaymentGatewayTest {
 
     @Mock
@@ -84,7 +88,7 @@ class RazorpayPaymentGatewayTest {
     }
 
     @Test
-    void createOrder_throwsBusinessExceptionOnFailure() throws Exception {
+    void createOrder_throwsPaymentGatewayExceptionOnFailure() throws Exception {
         when(restClient.post()).thenReturn(requestBodyUriSpec);
         when(requestBodyUriSpec.uri("/v1/orders")).thenReturn(requestBodySpec);
         when(requestBodySpec.headers(any())).thenReturn(requestBodySpec);
@@ -93,7 +97,7 @@ class RazorpayPaymentGatewayTest {
         when(requestBodySpec.retrieve()).thenReturn(responseSpec);
         when(responseSpec.body(String.class)).thenThrow(new RuntimeException("Network error"));
 
-        assertThrows(BusinessException.class, () ->
+        assertThrows(PaymentGatewayException.class, () ->
                 gateway.createOrder(GatewayOrderRequest.builder().amount(100.0).receipt("r1").build()).join());
     }
 
@@ -143,7 +147,7 @@ class RazorpayPaymentGatewayTest {
     }
 
     @Test
-    void capturePayment_throwsBusinessExceptionOnFailure() throws Exception {
+    void capturePayment_throwsPaymentGatewayExceptionOnFailure() throws Exception {
         when(restClient.get()).thenReturn(requestHeadersUriSpec);
         when(requestHeadersUriSpec.uri("/v1/orders/order_123/payments")).thenReturn(requestHeadersSpec);
         when(requestHeadersSpec.headers(any())).thenReturn(requestHeadersSpec);
@@ -155,7 +159,7 @@ class RazorpayPaymentGatewayTest {
                 .amount(100.0)
                 .build();
 
-        assertThrows(BusinessException.class, () -> gateway.capturePayment(request).join());
+        assertThrows(PaymentGatewayException.class, () -> gateway.capturePayment(request).join());
     }
 
     @Test
@@ -187,7 +191,7 @@ class RazorpayPaymentGatewayTest {
     }
 
     @Test
-    void refundPayment_throwsBusinessExceptionOnFailure() throws Exception {
+    void refundPayment_throwsPaymentGatewayExceptionOnFailure() throws Exception {
         when(restClient.post()).thenReturn(requestBodyUriSpec);
         when(requestBodyUriSpec.uri("/v1/payments/pay_123/refund")).thenReturn(requestBodySpec);
         when(requestBodySpec.headers(any())).thenReturn(requestBodySpec);
@@ -196,7 +200,7 @@ class RazorpayPaymentGatewayTest {
         when(requestBodySpec.retrieve()).thenReturn(responseSpec);
         when(responseSpec.body(String.class)).thenThrow(new RuntimeException("Refund failed"));
 
-        assertThrows(BusinessException.class, () ->
+        assertThrows(PaymentGatewayException.class, () ->
                 gateway.refundPayment(GatewayRefundRequest.builder()
                         .gatewayPaymentId("pay_123")
                         .amount(50.0)
@@ -253,5 +257,5 @@ class RazorpayPaymentGatewayTest {
 
     // Fallback methods (invoked only by Resilience4j @CircuitBreaker at runtime) are
     // exercised through their public entry points above; the failure-path tests cover
-    // the BusinessException thrown when the RestClient call fails.
+    // the PaymentGatewayException thrown when the RestClient call fails.
 }

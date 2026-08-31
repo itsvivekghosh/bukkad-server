@@ -47,11 +47,11 @@ wait_for_healthy() {
 
 resolve_container_names() {
   if [[ "$PROFILE" == "prod" ]]; then
-    MYSQL_CONTAINER="bhukkad-mysql-prod"
+    POSTGRES_CONTAINER="bhukkad-postgres-prod"
     REDIS_CONTAINER="bhukkad-redis-prod"
     APP_CONTAINER="bhukkad-app-prod"
   else
-    MYSQL_CONTAINER="bhukkad-mysql-dev"
+    POSTGRES_CONTAINER="bhukkad-postgres-dev"
     REDIS_CONTAINER="bhukkad-redis-dev"
     REDPANDA_CONTAINER="bhukkad-redpanda-dev"
     APP_CONTAINER="bhukkad-app-dev"
@@ -110,15 +110,15 @@ else
   log "Skipping build"
 fi
 
-log "Starting infrastructure (MySQL, Redis, Redpanda)..."
+log "Starting infrastructure (PostgreSQL, Redis, Redpanda)..."
 if [[ "$PROFILE" == "dev" ]]; then
-  docker compose -f "$COMPOSE_FILE" up -d mysql redis redpanda
+  docker compose -f "$COMPOSE_FILE" up -d postgres redis redpanda
 else
-  docker compose -f "$COMPOSE_FILE" up -d mysql redis
+  docker compose -f "$COMPOSE_FILE" up -d postgres redis
 fi
-if ! wait_for_healthy "MySQL" "$MYSQL_CONTAINER" 180; then
-  docker logs "$MYSQL_CONTAINER" 2>&1 | tail -25 || true
-  error "MySQL failed health check. Retry with: $(basename "$0") --clean"
+if ! wait_for_healthy "PostgreSQL" "$POSTGRES_CONTAINER" 180; then
+  docker logs "$POSTGRES_CONTAINER" 2>&1 | tail -25 || true
+  error "PostgreSQL failed health check. Retry with: $(basename "$0") --clean"
 fi
 if ! wait_for_healthy "Redis" "$REDIS_CONTAINER" 60; then
   docker logs "$REDIS_CONTAINER" 2>&1 | tail -15 || true
@@ -139,7 +139,7 @@ fi
 
 if [[ "$PROFILE" == "dev" && "$WITH_TOOLS" == "true" ]]; then
   log "Starting dev tools..."
-  docker compose -f "$COMPOSE_FILE" --profile tools up -d redis-commander phpmyadmin || true
+  docker compose -f "$COMPOSE_FILE" --profile tools up -d redis-commander pgadmin || true
 fi
 
 log "Stack status"
@@ -162,6 +162,6 @@ EOF
 if [[ "$PROFILE" == "dev" ]]; then
   cat <<EOF
   Redis UI:   http://localhost:8081
-  phpMyAdmin: http://localhost:8082
+  pgAdmin:    http://localhost:8082
 EOF
 fi

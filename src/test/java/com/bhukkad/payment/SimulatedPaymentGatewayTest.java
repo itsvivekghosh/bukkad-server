@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,7 +47,18 @@ class SimulatedPaymentGatewayTest {
     }
 
     @Test
-    void verifyWebhookSignature_returnsTrue() {
+    void verifyWebhookSignature_rejectsNullSignature() {
+        assertFalse(gateway.verifyWebhookSignature("payload", null));
+    }
+
+    @Test
+    void verifyWebhookSignature_rejectsBlankSignature() {
+        assertFalse(gateway.verifyWebhookSignature("payload", ""));
+        assertFalse(gateway.verifyWebhookSignature("payload", "   "));
+    }
+
+    @Test
+    void verifyWebhookSignature_acceptsNonBlankSignature() {
         assertTrue(gateway.verifyWebhookSignature("payload", "signature"));
     }
 }

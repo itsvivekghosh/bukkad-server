@@ -388,7 +388,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             " delivered_at, estimated_delivery_at, archived_at) " +
             "SELECT id, order_number, customer_id, restaurant_id, status, total_amount, " +
             " delivery_address_id, special_instructions, created_at, updated_at, " +
-            " delivered_at, estimated_delivery_at, NOW() " +
+            " delivered_at, estimated_delivery_at, CURRENT_TIMESTAMP " +
             "FROM orders WHERE created_at < :cutoff ORDER BY created_at, id LIMIT :limit", nativeQuery = true)
     int archiveOrdersBefore(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
 

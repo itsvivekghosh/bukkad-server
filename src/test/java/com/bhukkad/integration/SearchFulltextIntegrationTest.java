@@ -19,17 +19,16 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates the MySQL FULLTEXT search queries (native {@code MATCH ... AGAINST})
- * against a real MySQL 8 instance with the V1 FULLTEXT indexes. These are the
- * queries behind menu/restaurant search; a missing FULLTEXT index surfaces here
- * as MySQL error 1191 at CI time instead of in production.
+ * Validates the PostgreSQL full-text search queries (native {@code @@} /
+ * {@code plainto_tsquery} on tsvector expressions) against a real PostgreSQL
+ * instance with the GIN tsvector indexes. These are the queries behind
+ * menu/restaurant search; a missing index surfaces here as a sequential scan
+ * or error at CI time instead of in production.
  *
  * <p>The tests deliberately run WITHOUT a surrounding transaction
- * ({@code NOT_SUPPORTED}): InnoDB's FULLTEXT index does not see rows inserted
- * in the same uncommitted transaction, so the fixture INSERTs must commit
- * before {@code MATCH ... AGAINST} runs. Each repository call opens its own
- * short transaction and {@link #cleanTestData()} resets the tables before
- * every test.</p>
+ * ({@code NOT_SUPPORTED}): the fixture INSERTs must commit before the search
+ * query runs. Each repository call opens its own short transaction and
+ * {@link #cleanTestData()} resets the tables before every test.</p>
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -48,6 +47,9 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
     @BeforeEach
     void cleanTestData() {
+        // restaurant_cuisines must be cleared before restaurants (FK); also
+        // clears rows committed by other tests in the shared container.
+        jdbcTemplate.update("DELETE FROM restaurant_cuisines");
         jdbcTemplate.update("DELETE FROM menu_items");
         jdbcTemplate.update("DELETE FROM menu_categories");
         jdbcTemplate.update("DELETE FROM restaurants");
@@ -61,8 +63,6 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
         List<Restaurant> results = restaurantRepository.fullTextSearchByName("butter");
 
-        // The fixture keeps 3 restaurants with only 1 matching "butter" so the
-        // search term stays below MySQL's 50% relevance threshold.
         assertThat(results).extracting(Restaurant::getName).contains("Butter Chicken Palace");
     }
 
@@ -85,27 +85,32 @@ class SearchFulltextIntegrationTest extends AbstractJpaIntegrationTest {
 
     private void insertFixture() {
         jdbcTemplate.update("""
-                INSERT INTO users (id, email, password, full_name, role, active, email_verified, created_at)
+                INSERT INTO users (id, role, active, email_verified, created_at)
                 VALUES
-                (1, 'ft-owner@test.com', 'x', 'FT Owner', 'RESTAURANT_OWNER', 1, 1, NOW(6)),
-                (2, 'ft-owner2@test.com', 'x', 'FT Owner Two', 'RESTAURANT_OWNER', 1, 1, NOW(6)),
-                (3, 'ft-owner3@test.com', 'x', 'FT Owner Three', 'RESTAURANT_OWNER', 1, 1, NOW(6))
+                (1, 'RESTAURANT_OWNER', TRUE, TRUE, CURRENT_TIMESTAMP),
+                (2, 'RESTAURANT_OWNER', TRUE, TRUE, CURRENT_TIMESTAMP),
+                (3, 'RESTAURANT_OWNER', TRUE, TRUE, CURRENT_TIMESTAMP)
                 """);
-        jdbcTemplate.update("INSERT INTO restaurant_owners (id) VALUES (1), (2), (3)");
+        jdbcTemplate.update("""
+                INSERT INTO restaurant_owners (id, verified, email, password, full_name)
+                VALUES (1, TRUE, 'ft-owner@test.com', 'x', 'FT Owner'),
+                       (2, TRUE, 'ft-owner2@test.com', 'x', 'FT Owner Two'),
+                       (3, TRUE, 'ft-owner3@test.com', 'x', 'FT Owner Three')
+                """);
         jdbcTemplate.update("""
                 INSERT INTO restaurants (id, name, owner_id, opening_time, closing_time, is_active, created_at)
                 VALUES
-                (1, 'Butter Chicken Palace', 1, '10:00:00', '23:00:00', 1, NOW(6)),
-                (2, 'Green Bowl', 2, '10:00:00', '23:00:00', 1, NOW(6)),
-                (3, 'Tandoori Express', 3, '10:00:00', '23:00:00', 1, NOW(6))
+                (1, 'Butter Chicken Palace', 1, '10:00:00', '23:00:00', TRUE, CURRENT_TIMESTAMP),
+                (2, 'Green Bowl', 2, '10:00:00', '23:00:00', TRUE, CURRENT_TIMESTAMP),
+                (3, 'Tandoori Express', 3, '10:00:00', '23:00:00', TRUE, CURRENT_TIMESTAMP)
                 """);
         jdbcTemplate.update("INSERT INTO menu_categories (id, name, restaurant_id) VALUES (1, 'Mains', 1), (2, 'Sides', 2), (3, 'Desserts', 3)");
         jdbcTemplate.update("""
                 INSERT INTO menu_items (id, name, category_id, price, food_type, is_veg, created_at)
                 VALUES
-                (1, 'Butter Chicken', 1, 320.0, 'NON_VEG', 0, NOW(6)),
-                (2, 'Green Salad', 2, 150.0, 'VEG', 1, NOW(6)),
-                (3, 'Gulab Jamun', 3, 100.0, 'VEG', 1, NOW(6))
+                (1, 'Butter Chicken', 1, 320.0, 'NON_VEG', FALSE, CURRENT_TIMESTAMP),
+                (2, 'Green Salad', 2, 150.0, 'VEG', TRUE, CURRENT_TIMESTAMP),
+                (3, 'Gulab Jamun', 3, 100.0, 'VEG', TRUE, CURRENT_TIMESTAMP)
                 """);
     }
 }

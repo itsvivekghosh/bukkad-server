@@ -51,7 +51,7 @@ class DisputeControllerTest {
         ResponseEntity<ApiResponse<DisputeResponse>> resp = controller.fileDispute(1L, request);
 
         assertNotNull(resp);
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
     }
 
     @Test
@@ -60,7 +60,7 @@ class DisputeControllerTest {
         when(disputeResolutionService.listForCustomer(5L)).thenReturn(List.of(disputeResponse));
 
         ResponseEntity<ApiResponse<List<DisputeResponse>>> resp = controller.myDisputes();
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
     }
 
     @Test
@@ -68,7 +68,7 @@ class DisputeControllerTest {
         when(disputeResolutionService.listForAdmin()).thenReturn(List.of(disputeResponse));
 
         ResponseEntity<ApiResponse<List<DisputeResponse>>> resp = controller.listDisputes();
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
     }
 
     @Test
@@ -77,7 +77,7 @@ class DisputeControllerTest {
 
         ResponseEntity<ApiResponse<DisputeResponse>> resp = controller.getDispute(3L);
 
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
         assertEquals(disputeResponse, resp.getBody().getData());
     }
 
@@ -91,7 +91,7 @@ class DisputeControllerTest {
 
         ResponseEntity<ApiResponse<DisputeResponse>> resp = controller.resolveDispute(3L, request);
 
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
         assertEquals("Dispute resolved", resp.getBody().getMessage());
         assertEquals(disputeResponse, resp.getBody().getData());
     }
@@ -102,7 +102,7 @@ class DisputeControllerTest {
 
         ResponseEntity<ApiResponse<Map<String, Integer>>> resp = controller.autoResolve();
 
-        assertEquals(200, resp.getStatusCodeValue());
+        assertEquals(200, resp.getStatusCode().value());
         assertEquals("Auto-resolution sweep completed", resp.getBody().getMessage());
         assertEquals(7, resp.getBody().getData().get("resolved"));
     }

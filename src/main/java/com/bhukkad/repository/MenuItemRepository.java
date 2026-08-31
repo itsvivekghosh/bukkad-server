@@ -63,9 +63,9 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
     @Query(value = """
             SELECT m.* FROM menu_items m
-            WHERE m.available = 1
-            AND MATCH(m.name, m.description) AGAINST(:keyword IN NATURAL LANGUAGE MODE)
-            ORDER BY MATCH(m.name, m.description) AGAINST(:keyword IN NATURAL LANGUAGE MODE) DESC
+            WHERE m.available = TRUE
+            AND to_tsvector('english', coalesce(m.name, '') || ' ' || coalesce(m.description, '')) @@ plainto_tsquery('english', :keyword)
+            ORDER BY ts_rank(to_tsvector('english', coalesce(m.name, '') || ' ' || coalesce(m.description, '')), plainto_tsquery('english', :keyword)) DESC
             LIMIT 100
             """, nativeQuery = true)
     List<MenuItem> fullTextSearch(@Param("keyword") String keyword);

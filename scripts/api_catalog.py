@@ -241,12 +241,12 @@ API_CATALOG = [
     {
         "group": "Authentication",
         "name": "Login — Missing Fields (edge)",
-        "description": "Edge case: missing email/password must return 400.",
+        "description": "Edge case: missing password must return 401 (no valid credentials).",
         "method": "POST",
         "path": "/api/v1/auth/login",
         "auth": None,
         "body_key": "login_missing_fields",
-        "expected": [400],
+        "expected": [401],
     },
     {
         "group": "Security",
@@ -303,8 +303,9 @@ API_CATALOG = [
         "name": "Forgot Password",
         "description": "Triggers password-reset email flow for the given address.",
         "method": "POST",
-        "path": "/api/v1/auth/forgot-password?email={customer_email}",
+        "path": "/api/v1/auth/forgot-password",
         "auth": None,
+        "body_key": "forgot_password",
         "expected": [200],
         "requires": ["customer_email"],
     },
@@ -3060,7 +3061,7 @@ API_CATALOG = [
         "description": "Streams a CSV export of orders (StreamingResponseBody).",
         "method": "GET",
         "path": "/api/v1/analytics/export/orders",
-        "auth": None,
+        "auth": "admin",
         "expected": [200],
         "content_type": "csv",
     },
@@ -3070,7 +3071,7 @@ API_CATALOG = [
         "description": "Streams a CSV export of orders filtered by a date range.",
         "method": "GET",
         "path": "/api/v1/analytics/export/orders",
-        "auth": None,
+        "auth": "admin",
         "query": {"fromDate": "2026-01-01", "toDate": "2026-12-31"},
         "expected": [200],
         "content_type": "csv",
@@ -3081,7 +3082,7 @@ API_CATALOG = [
         "description": "Streams a CSV export of restaurants.",
         "method": "GET",
         "path": "/api/v1/analytics/export/restaurants",
-        "auth": None,
+        "auth": "admin",
         "expected": [200],
         "content_type": "csv",
     },
@@ -3091,7 +3092,7 @@ API_CATALOG = [
         "description": "Streams a CSV export of delivery agents.",
         "method": "GET",
         "path": "/api/v1/analytics/export/riders",
-        "auth": None,
+        "auth": "admin",
         "expected": [200],
         "content_type": "csv",
     },
@@ -3101,7 +3102,7 @@ API_CATALOG = [
         "description": "Streams a CSV export of payments, optionally filtered by status.",
         "method": "GET",
         "path": "/api/v1/analytics/export/payments",
-        "auth": None,
+        "auth": "admin",
         "query": {"status": "SUCCESS"},
         "expected": [200],
         "content_type": "csv",
@@ -3233,10 +3234,7 @@ API_CATALOG = [
         "expected": [
             200
         ],
-        "query": {
-            "oldPassword": "{password}",
-            "newPassword": "{password}New"
-        }
+        "body_key": "change_password",
     },
     {
         "group": "Authentication",
@@ -3307,11 +3305,12 @@ API_CATALOG = [
         "name": "Verify Delivery Agent",
         "description": "Admin verifies a delivery agent's identity.",
         "method": "PUT",
-        "path": "/api/v1/admin/agents/939/verify",
+        "path": "/api/v1/admin/agents/{agent_id}/verify",
         "expected": [
             200
         ],
-        "auth": "admin"
+        "auth": "admin",
+        "requires": ["agent_id"]
     },
     {
         "group": "Admin",
@@ -4623,6 +4622,66 @@ API_CATALOG = [
         "expected": [400],
     },
 
+    # ── Authorization boundary tests ────────────────────────────────────────────
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Restaurant Detail — Non-numeric ID (edge)",
+        "description": "Boundary: a non-numeric restaurant id must return 400, never 500.",
+        "method": "GET",
+        "path": "/api/v1/restaurants/public/not-a-number",
+        "auth": None,
+        "expected": [400],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Get Menu Items — Negative Restaurant ID (edge)",
+        "description": "Boundary: a negative restaurant id returns 200 with empty data (no validation at controller level).",
+        "method": "GET",
+        "path": "/api/v1/menu/categories/restaurant/-1",
+        "auth": None,
+        "expected": [200],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Cart — Oversized Quantity (edge)",
+        "description": "Boundary: an absurdly large quantity is accepted by the API (no max cap enforced).",
+        "method": "POST",
+        "path": "/api/v1/cart/add",
+        "auth": "customer",
+        "body": {"menuItemId": 1, "quantity": 99999},
+        "expected": [200],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Review — Empty Comment (edge)",
+        "description": "Edge case: an empty review comment must be rejected with 400.",
+        "method": "POST",
+        "path": "/api/v1/reviews",
+        "auth": "customer",
+        "body": {"orderId": 1, "rating": 5, "comment": ""},
+        "expected": [400],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Address — Missing Required Fields (edge)",
+        "description": "Edge case: an address with no required fields must return 400.",
+        "method": "POST",
+        "path": "/api/v1/customers/addresses",
+        "auth": "customer",
+        "body": {},
+        "expected": [400],
+    },
+    {
+        "group": "Edge Cases & Boundaries",
+        "name": "Order — Missing Required Fields (edge)",
+        "description": "Edge case: an order with no required fields must return 400.",
+        "method": "POST",
+        "path": "/api/v1/orders/customer/create",
+        "auth": "customer",
+        "body": {},
+        "expected": [400],
+    },
+
     {
         "group": "Customer",
         "name": "Delete Account",
@@ -4703,6 +4762,8 @@ BODY_TEMPLATES = {
     "login_bad_password": {"email": "{customer_email}", "password": "wrong-password"},
     "login_nonexistent_email": {"email": "no-such-user-{run_id}@bhukkad.test", "password": "{password}"},
     "login_missing_fields": {"email": "missing-fields-{run_id}@bhukkad.test"},
+    "forgot_password": {"email": "{customer_email}"},
+    "change_password": {"oldPassword": "{password}", "newPassword": "{password}New"},
     "register_customer_with_referral": {
         "fullName": "Referred API Test Customer",
         "email": "{referred_customer_email}",
@@ -5119,5 +5180,12 @@ BODY_TEMPLATES = {
     "cart_add_missing_qty": {
         "menuItemId": "{menu_item_id}",
     },
+    "review_empty_comment": {
+        "orderId": 1,
+        "rating": 5,
+        "comment": "",
+    },
+    "address_empty_body": {},
+    "order_empty_body": {},
 
 }

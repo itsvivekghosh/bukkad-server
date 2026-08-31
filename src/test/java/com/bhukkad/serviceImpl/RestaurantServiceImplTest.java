@@ -86,7 +86,7 @@ class RestaurantServiceImplTest {
                     .build();
         });
 
-        lenient().when(cacheService.getListOrCompute(anyString(), any(Class.class), anyLong(), any()))
+        lenient().when(cacheService.getListOrCompute(anyString(), any(), anyLong(), any()))
                 .thenAnswer(invocation -> {
                     String key = invocation.getArgument(0);
                     Class<?> type = invocation.getArgument(1);
@@ -101,7 +101,7 @@ class RestaurantServiceImplTest {
                     return value;
                 });
 
-        lenient().when(cacheService.getOrCompute(anyString(), any(Class.class), anyLong(), any()))
+        lenient().when(cacheService.getOrCompute(anyString(), any(), anyLong(), any()))
                 .thenAnswer(invocation -> {
                     String key = invocation.getArgument(0);
                     Class<?> type = invocation.getArgument(1);

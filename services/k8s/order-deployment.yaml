@@ -1,0 +1,49 @@
+# Reference Kubernetes manifests for a microservice (plan §11/P8). Replicate per
+# service: <service>-deployment.yaml, <service>-service.yaml, <service>-hpa.yaml,
+# <service>-pdb.yaml, with the service's own DB URL and image.
+# Shown here for order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order
+  labels: {app: order}
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: order}
+  template:
+    metadata:
+      labels: {app: order}
+    spec:
+      containers:
+        - name: order
+          image: ghcr.io/bhukkad/order:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: ORDER_DB_URL, value: jdbc:postgresql://postgres:5432/bhukkad_orders}
+            - {name: ORDER_DB_USERNAME, valueFrom: {secretKeyRef: {name: db-secrets, key: username}}}
+            - {name: ORDER_DB_PASSWORD, valueFrom: {secretKeyRef: {name: db-secrets, key: password}}}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: 1, memory: 1Gi}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order
+spec:
+  selector: {app: order}
+  ports:
+    - {port: 8080, targetPort: 8080}

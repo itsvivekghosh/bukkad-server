@@ -29,6 +29,7 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -729,5 +730,46 @@ class OrderPlacementServiceTest {
 
         service.createOrder(request, null);
         verify(orderIdempotencyService, never()).beginOrderCreate(anyString(), anyLong());
+    }
+
+    @Test
+    void createOrder_gatewayFailure_compensatesOrderAndRestoresStock() {
+        OrderRequest request = buildOrderRequest();
+        stubHappyPathPrerequisites("gw-idem-key");
+        when(paymentService.processPayment(anyLong(), any()))
+                .thenThrow(new RuntimeException("gateway capture failed"));
+
+        assertThrows(RuntimeException.class, () -> service.createOrder(request, "gw-idem-key"));
+
+        // The committed order is cancelled so it never reaches the kitchen with
+        // an uncollectable payment (approved architecture §10, transaction #1).
+        ArgumentCaptor<Order> savedOrder = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository, atLeast(1)).save(savedOrder.capture());
+        Order compensated = savedOrder.getAllValues().get(savedOrder.getAllValues().size() - 1);
+        assertEquals(Order.OrderStatus.CANCELLED, compensated.getStatus());
+        assertEquals("Payment failed", compensated.getCancellationReason());
+        // Reserved stock is restored for the failed order: the decrement sync
+        // during placement plus the compensation sync after the failure.
+        verify(menuItemRepository).restoreStockAtomic(30L, 2);
+        verify(stockReservationService, atLeast(2)).syncStock(any(MenuItem.class));
+        verify(orderCacheService, atLeast(1)).invalidateOrder(100L, 1L, 10L);
+        // The idempotency record is marked failed so a retry can re-attempt.
+        verify(orderIdempotencyService).failOrderCreate("gw-idem-key");
+    }
+
+    @Test
+    void createOrder_gatewayFailure_compensationFailure_doesNotMaskOriginalError() {
+        OrderRequest request = buildOrderRequest();
+        stubHappyPathPrerequisites(null);
+        when(paymentService.processPayment(anyLong(), any()))
+                .thenThrow(new RuntimeException("gateway capture failed"));
+        // Best-effort compensation: even when stock restoration fails, the
+        // original gateway error must propagate so the caller sees the real cause.
+        when(menuItemRepository.restoreStockAtomic(anyLong(), anyInt()))
+                .thenThrow(new RuntimeException("compensation failed"));
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> service.createOrder(request, null));
+        assertEquals("gateway capture failed", ex.getMessage());
     }
 }

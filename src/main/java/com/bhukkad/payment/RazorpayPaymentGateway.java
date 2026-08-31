@@ -1,6 +1,7 @@
 package com.bhukkad.payment;
 
 import com.bhukkad.exception.BusinessException;
+import com.bhukkad.exception.PaymentGatewayException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -118,8 +119,10 @@ public class RazorpayPaymentGateway implements PaymentGateway {
                     .retrieve()
                     .body(String.class);
             return objectMapper.readTree(response);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            throw new BusinessException("Razorpay request failed: " + e.getMessage());
+            throw new PaymentGatewayException("Razorpay request failed: " + e.getMessage(), e);
         }
     }
 
@@ -131,8 +134,10 @@ public class RazorpayPaymentGateway implements PaymentGateway {
                     .retrieve()
                     .body(String.class);
             return objectMapper.readTree(response);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            throw new BusinessException("Razorpay request failed: " + e.getMessage());
+            throw new PaymentGatewayException("Razorpay request failed: " + e.getMessage(), e);
         }
     }
 

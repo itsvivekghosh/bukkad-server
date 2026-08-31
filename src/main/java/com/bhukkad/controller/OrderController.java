@@ -448,6 +448,7 @@ public class OrderController {
 
     // Common endpoint
     @GetMapping("/number/{orderNumber}")
+    @PreAuthorize("hasRole('CUSTOMER') or hasRole('RESTAURANT_OWNER') or hasRole('DELIVERY_AGENT') or hasRole('ADMIN')")
     @Operation(summary = "Get order by number")
     public ResponseEntity<MappingJacksonValue> getOrderByNumber(
             @PathVariable String orderNumber,

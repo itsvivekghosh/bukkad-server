@@ -40,6 +40,7 @@ public class WalletBalance {
     @Column(name = "customer_id", nullable = false, unique = true)
     private Long customerId;
 
+    @Builder.Default
     @Column(nullable = false)
     private Double balance = 0.0;
 

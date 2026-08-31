@@ -83,4 +83,32 @@ class JwePasswordCryptoTest {
         assertNotNull(decrypted.nonce());
         assertTrue(decrypted.timestamp() > 0);
     }
+
+    @Test
+    void decrypt_afterKeyRotation_stillDecryptsInFlightJwe() throws Exception {
+        // Client encrypts with the current public key...
+        RSAPublicKey pub = realKeyService.getPublicKey();
+        RSAEncrypter encrypter = new RSAEncrypter(pub);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("password", "inFlightPassword");
+        payload.put("nonce", UUID.randomUUID().toString());
+        payload.put("timestamp", Instant.now().getEpochSecond());
+        String jsonPayload = MAPPER.writeValueAsString(payload);
+
+        JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.RSA_OAEP_256, EncryptionMethod.A256GCM)
+                .contentType("JWT")
+                .build();
+        JWEObject jweObject = new JWEObject(header, new Payload(jsonPayload));
+        jweObject.encrypt(encrypter);
+        String jweString = jweObject.serialize();
+
+        // ...then the key rotates before the login request is decrypted.
+        realKeyService.generateKeyPair();
+
+        var decrypted = crypto.decrypt(jweString);
+        assertEquals("inFlightPassword", decrypted.password(),
+                "JWE created with the pre-rotation public key must still decrypt "
+                        + "within the grace window");
+    }
 }

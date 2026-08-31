@@ -51,9 +51,7 @@ public class AdminOperationsDashboardService {
         long pendingSettlementCount = settlementRepository.countByStatus(
                 RestaurantSettlement.SettlementStatus.PENDING);
         long pendingPayoutCount = riderEarningRepository.countByStatus(RiderEarning.EarningStatus.PENDING);
-        long activeBatches = batchRepository.findAll().stream()
-                .filter(b -> b.getStatus() == RiderDeliveryBatch.BatchStatus.ACTIVE)
-                .count();
+        long activeBatches = batchRepository.countByStatus(RiderDeliveryBatch.BatchStatus.ACTIVE);
 
         Map<String, Long> ordersByStatus = new LinkedHashMap<>();
         for (com.bhukkad.entity.Order.OrderStatus status : com.bhukkad.entity.Order.OrderStatus.values()) {

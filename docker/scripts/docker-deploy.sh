@@ -25,10 +25,10 @@ echo "════════════════════════�
 
 # Empty values from deploy-env.txt must not override Spring defaults
 DB_HOST="${DB_HOST:-localhost}"
-DB_PORT="${DB_PORT:-3306}"
+DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-bhukkad}"
-JDBC_PARAMS="createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
-DB_URL="${DB_URL:-jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?${JDBC_PARAMS}}"
+JDBC_PARAMS="currentSchema=public&ssl=false"
+DB_URL="${DB_URL:-jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}?${JDBC_PARAMS}}"
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_LOCAL="${REDIS_LOCAL:-false}"
@@ -120,6 +120,10 @@ if [ "${DOCKER_NETWORK}" = "host" ]; then
 fi
 
 echo "Starting container..."
+# APP_PAYMENT_RAZORPAY_ENABLED is Spring Boot's relaxed binding for
+# app.payment.razorpay.enabled. Production MUST set this true — the simulated
+# gateway cannot validate webhook signatures and is rejected by
+# SecretValidationConfig in the prod profile.
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
@@ -139,7 +143,7 @@ docker run -d \
   -e JWT_SECRET="${JWT_SECRET:-}" \
   -e JWT_EXPIRATION="${JWT_EXPIRATION:-3600000}" \
   -e JWT_REFRESH_EXPIRATION="${JWT_REFRESH_EXPIRATION:-86400000}" \
-  -e RAZORPAY_ENABLED="${RAZORPAY_ENABLED:-false}" \
+  -e APP_PAYMENT_RAZORPAY_ENABLED="${APP_PAYMENT_RAZORPAY_ENABLED:-false}" \
   -e RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-}" \
   -e RAZORPAY_KEY_SECRET="${RAZORPAY_KEY_SECRET:-}" \
   -e RAZORPAY_WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-}" \

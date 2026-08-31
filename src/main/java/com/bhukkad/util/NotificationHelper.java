@@ -39,6 +39,7 @@ public class NotificationHelper {
         this.webhookRestTemplate = createWebhookRestTemplate(webhookTimeout);
     }
 
+    @SuppressWarnings("deprecation") // RequestConfig.Builder#setConnectTimeout deprecated in httpclient5 5.2.1; no non-deprecated replacement
     private static RestTemplate createWebhookRestTemplate(int webhookTimeout) {
         PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
         connectionManager.setMaxTotal(50);

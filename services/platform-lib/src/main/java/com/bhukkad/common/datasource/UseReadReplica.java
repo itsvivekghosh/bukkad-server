@@ -1,0 +1,15 @@
+package com.bhukkad.common.datasource;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * Marks a service method whose queries may be served from a read replica
+ * (port of {@code com.bhukkad.datasource.UseReadReplica}).
+ */
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface UseReadReplica {
+}

@@ -3,6 +3,8 @@ package com.bhukkad.security;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.security.interfaces.RSAPrivateKey;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class ClientEncryptionKeyServiceTest {
@@ -40,5 +42,49 @@ class ClientEncryptionKeyServiceTest {
         service.generateKeyPair();
         String newKey = service.getPublicKeyJwk();
         assertNotEquals(oldKey, newKey);
+    }
+
+    @Test
+    void rotate_keepsPreviousKeyWithinGraceWindow() {
+        service.generateKeyPair();
+        RSAPrivateKey oldKey = service.getPrivateKey();
+        service.generateKeyPair();
+
+        assertTrue(service.hasPreviousKeyInGrace(),
+                "previous key must remain decryptable during the grace window");
+        assertEquals(oldKey, service.previousPrivateKey());
+        assertNotEquals(oldKey, service.getPrivateKey());
+    }
+
+    @Test
+    void redisKeyPair_loadsIdenticalKeyAcrossInstances() {
+        org.springframework.data.redis.core.StringRedisTemplate redis =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        org.springframework.data.redis.core.ValueOperations<String, String> valueOps =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.ValueOperations.class);
+        org.mockito.Mockito.when(redis.opsForValue()).thenReturn(valueOps);
+
+        // Instance A generates + persists to Redis (asynchronously).
+        ClientEncryptionKeyService instanceA = new ClientEncryptionKeyService(redis);
+        instanceA.generateKeyPair();
+        String publicA = instanceA.getPublicKeyJwk();
+
+        // Wait (up to 5s) for the async Redis write to land instead of racing
+        // the background thread, then capture the persisted payload.
+        org.mockito.ArgumentCaptor<String> captor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(valueOps, org.mockito.Mockito.timeout(5000)).set(
+                org.mockito.ArgumentMatchers.eq("bhukkad:encryption:keypair"),
+                captor.capture(),
+                org.mockito.ArgumentMatchers.any(java.time.Duration.class));
+
+        // Instance B (different pod) loads the SAME pair from Redis.
+        org.mockito.Mockito.when(valueOps.get("bhukkad:encryption:keypair"))
+                .thenReturn(captor.getValue());
+        ClientEncryptionKeyService instanceB = new ClientEncryptionKeyService(redis);
+        instanceB.init();
+
+        assertEquals(publicA, instanceB.getPublicKeyJwk(),
+                "multi-pod deployment must share the same encryption key pair");
     }
 }

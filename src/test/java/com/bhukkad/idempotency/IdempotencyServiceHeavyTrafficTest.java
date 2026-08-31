@@ -19,6 +19,9 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+// Mockito `any()` matchers on the generic RedisTemplate.execute(...) signature
+// produce benign unchecked-warning noise in the verify() calls below.
+@SuppressWarnings("unchecked")
 class IdempotencyServiceHeavyTrafficTest {
 
     @Mock

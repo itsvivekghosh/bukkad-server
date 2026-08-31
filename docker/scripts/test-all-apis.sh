@@ -243,10 +243,11 @@ check_server() {
 }
 
 # Reset fraud counters from prior test runs (same IP triggers auth-register limits).
-if command -v mysql >/dev/null 2>&1; then
-    mysql -h "${DB_HOST:-localhost}" -P "${DB_PORT:-3306}" -u "${DB_USERNAME:-root}" \
-        -p"${DB_PASSWORD:-root}" "${DB_NAME:-bhukkad}" \
-        -e "DELETE FROM fraud_events;" 2>/dev/null || true
+if command -v psql >/dev/null 2>&1; then
+    PGPASSWORD="${DB_PASSWORD:-bhukkad_pass}" psql \
+        -h "${DB_HOST:-localhost}" -p "${DB_PORT:-5432}" -U "${DB_USERNAME:-bhukkad}" \
+        -d "${DB_NAME:-bhukkad}" \
+        -c "DELETE FROM fraud_events;" 2>/dev/null || true
 fi
 
 login_admin() {

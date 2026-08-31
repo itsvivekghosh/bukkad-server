@@ -14,7 +14,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Method;
-import java.sql.Connection;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -69,8 +68,6 @@ class DataSourceConfigTest {
     void dataSource_noReplicaConfigured_replicaTargetFallsBackToWrite() throws Exception {
         ReadReplicaProperties props = new ReadReplicaProperties(); // enabled=false
         DataSource writeDs = mock(DataSource.class);
-        Connection probe = mock(Connection.class);
-        when(writeDs.getConnection()).thenReturn(probe);
 
         DataSource result = config.dataSource(writeDs, config.readDataSource(props, writeDs, new DataSourceProperties()), props, new DataSourceProperties());
 
@@ -84,16 +81,14 @@ class DataSourceConfigTest {
     void dataSource_singleReplica_createsHikariPoolForReplicaTarget() throws Exception {
         ReadReplicaProperties props = new ReadReplicaProperties();
         props.setEnabled(true);
-        props.setUrl("jdbc:mysql://replica:3306/bhukkad");
+        props.setUrl("jdbc:postgresql://replica:5432/bhukkad");
         props.setUsername("replica_user");
         props.setPassword("replica_pass");
 
         DataSourceProperties primary = new DataSourceProperties();
-        primary.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        primary.setDriverClassName("org.postgresql.Driver");
 
         DataSource writeDs = mock(DataSource.class);
-        Connection probe = mock(Connection.class);
-        when(writeDs.getConnection()).thenReturn(probe);
 
         DataSource result = config.dataSource(writeDs, config.readDataSource(props, writeDs, primary), props, primary);
 
@@ -102,7 +97,7 @@ class DataSourceConfigTest {
         assertInstanceOf(HikariDataSource.class, replica);
         HikariDataSource hikari = (HikariDataSource) replica;
         assertEquals("BhukkadReadReplicaPool", hikari.getPoolName());
-        assertEquals("jdbc:mysql://replica:3306/bhukkad", hikari.getJdbcUrl());
+        assertEquals("jdbc:postgresql://replica:5432/bhukkad", hikari.getJdbcUrl());
         assertEquals("replica_user", hikari.getUsername());
         assertTrue(hikari.isReadOnly());
     }
@@ -112,20 +107,18 @@ class DataSourceConfigTest {
         ReadReplicaProperties props = new ReadReplicaProperties();
         props.setEnabled(true);
         ReadReplicaProperties.Replica r1 = new ReadReplicaProperties.Replica();
-        r1.setUrl("jdbc:mysql://replica1:3306/bhukkad");
+        r1.setUrl("jdbc:postgresql://replica1:5432/bhukkad");
         r1.setUsername("rep1");
         ReadReplicaProperties.Replica r2 = new ReadReplicaProperties.Replica();
-        r2.setUrl("jdbc:mysql://replica2:3306/bhukkad");
+        r2.setUrl("jdbc:postgresql://replica2:5432/bhukkad");
         r2.setUsername("rep2");
         props.getReplicas().add(r1);
         props.getReplicas().add(r2);
 
         DataSourceProperties primary = new DataSourceProperties();
-        primary.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        primary.setDriverClassName("org.postgresql.Driver");
 
         DataSource writeDs = mock(DataSource.class);
-        Connection probe = mock(Connection.class);
-        when(writeDs.getConnection()).thenReturn(probe);
 
         DataSource result = config.dataSource(writeDs, config.readDataSource(props, writeDs, primary), props, primary);
 
@@ -135,8 +128,8 @@ class DataSourceConfigTest {
         HikariDataSource pool1 = (HikariDataSource) targets.get("REPLICA_1");
         assertNotNull(pool0);
         assertNotNull(pool1);
-        assertEquals("jdbc:mysql://replica1:3306/bhukkad", pool0.getJdbcUrl());
-        assertEquals("jdbc:mysql://replica2:3306/bhukkad", pool1.getJdbcUrl());
+        assertEquals("jdbc:postgresql://replica1:5432/bhukkad", pool0.getJdbcUrl());
+        assertEquals("jdbc:postgresql://replica2:5432/bhukkad", pool1.getJdbcUrl());
         assertEquals("BhukkadReadReplicaPool-0", pool0.getPoolName());
         assertEquals("BhukkadReadReplicaPool-1", pool1.getPoolName());
     }
@@ -145,8 +138,6 @@ class DataSourceConfigTest {
     void dataSource_wrapsRoutingDataSourceInLazyProxy() throws Exception {
         ReadReplicaProperties props = new ReadReplicaProperties(); // no replica
         DataSource writeDs = mock(DataSource.class);
-        Connection probe = mock(Connection.class);
-        when(writeDs.getConnection()).thenReturn(probe);
 
         DataSource result = config.dataSource(writeDs, config.readDataSource(props, writeDs, new DataSourceProperties()), props, new DataSourceProperties());
 

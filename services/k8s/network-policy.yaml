@@ -1,0 +1,49 @@
+# Service-level network policy for the Bhukkad microservices mesh.
+# Restricts ingress traffic to the edge gateway (nginx) and intra-service
+# calls. Apply with:
+#   kubectl apply -f services/k8s/network-policy.yaml
+#
+# mTLS note: with STRICT PeerAuthentication (see mtls-istio.yaml) every
+# workload must run an Istio sidecar. Inbound mesh traffic then arrives at
+# the sidecar ports (15008/15006) rather than the app port, and kubelet
+# health probes hit 15021 — so those ports are allowed here.
+# Egress is NOT restricted by this policy. If an egress rule is added later,
+# do not block the sidecar's outbound traffic: the standard kubelet/mesh
+# ports (15012, 15021, 15090, etc.) are handled by Istio's own default
+# network policies — only app-egress restrictions are safe to add.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bhukkad-allow-internal
+  namespace: bhukkad
+spec:
+  # Default-deny ingress for all pods in the namespace.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow ingress from the edge gateway (nginx) and its health checks.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: bhukkad
+              component: nginx
+      ports:
+        - port: 15008 # sidecar: mTLS tunnel (HBONE)
+        - port: 15006 # sidecar: plaintext inbound redirect
+        - port: 15021 # sidecar: kubelet health probe
+        - port: 15090 # sidecar: telemetry
+        - port: 8080 # app: microservice HTTP
+        - port: 9090 # app: management
+    # Allow intra-namespace traffic on service ports and sidecar ports.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+      ports:
+        - port: 15008 # sidecar: mTLS tunnel (HBONE)
+        - port: 15006 # sidecar: plaintext inbound redirect
+        - port: 15021 # sidecar: kubelet health probe
+        - port: 15090 # sidecar: telemetry
+        - port: 8080 # app: microservice HTTP
+        - port: 9090 # app: management

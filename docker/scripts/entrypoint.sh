@@ -30,7 +30,7 @@ wait_for_tcp() {
 }
 
 if [ "$WAIT_FOR_SERVICES" = "true" ]; then
-  wait_for_tcp "${DB_HOST:-mysql}" "${DB_PORT:-3306}" "MySQL"
+  wait_for_tcp "${DB_HOST:-postgres}" "${DB_PORT:-5432}" "PostgreSQL"
   wait_for_tcp "${REDIS_HOST:-redis}" "${REDIS_PORT:-6379}" "Redis"
 fi
 

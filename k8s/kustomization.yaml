@@ -7,18 +7,23 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - secrets.yaml
-  - mysql/pvc.yaml
-  - mysql/configmap.yaml
-  - mysql/deployment.yaml
-  - mysql/service.yaml
-  # mysql-replica and redis-sentinel are kept as reference manifests but not
-  # applied: replica has no replication bootstrap and read-replica routing is
-  # disabled (DB_REPLICA_ENABLED=false); sentinel cannot monitor a password-
-  # protected Redis master and the app connects to bhukkad-redis directly.
+  - postgres/pvc.yaml
+  - postgres/configmap.yaml
+  - postgres/deployment.yaml
+  - postgres/service.yaml
   - redis/configmap.yaml
   - redis/pvc.yaml
   - redis/deployment.yaml
   - redis/service.yaml
+  # Redis Sentinel — enabled: the sentinel manifest now supports password auth
+  # (sentinel auth-pass via REDIS_PASSWORD secret) so the three-replica sentinel
+  # deployment can monitor the password-protected master. Requires the
+  # bhukkad-redis service and redis-sentinel ConfigMap/deployment to be present.
+  - redis/redis-sentinel.yaml
+  # Secrets from Vault: the ExternalSecret materializes bhukkad-secrets from the
+  # Vault SecretStore (see scripts/provision-vault.sh to seed the paths).
+  - secret-store.yaml
+  - external-secret.yaml
   - rabbitmq/deployment.yaml
   - app/serviceaccount.yaml
   - app/deployment.yaml
@@ -30,6 +35,9 @@ resources:
   - nginx/deployment.yaml
   - nginx/service.yaml
   - ingress.yaml
+  - backup-scripts.yaml
+  - backup-pvc.yaml
+  - backup-cronjob.yaml
 
 labels:
   - includeSelectors: true

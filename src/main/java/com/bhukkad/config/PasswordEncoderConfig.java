@@ -1,5 +1,7 @@
 package com.bhukkad.config;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
@@ -7,49 +9,61 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Provides the shared {@link PasswordEncoder} bean.
+ * Provides the shared {@link PasswordEncoder} bean with configurable algorithm
+ * and parameters.
  *
  * <p>Defined in its own configuration class (rather than in
- * {@link SecurityConfig}) to break a circular reference: {@link SecurityConfig}
- * depends on {@code OAuth2LoginSuccessHandler}, which depends on the
+ * {@link org.springframework.security.config.annotation.web.configuration.WebSecurityConfig})
+ * to break a circular reference: {@link SecurityConfig} depends on
+ * {@code OAuth2LoginSuccessHandler}, which depends on the
  * {@code PasswordEncoder} bean. If the encoder were declared inside
  * {@link SecurityConfig}, Spring could not create it while
  * {@link SecurityConfig} was still being constructed.
  *
  * <p><strong>Hashing scheme:</strong> new passwords are hashed with
- * <strong>Argon2id</strong> ({@code {argon2}} prefix, 64 MiB memory, 3
- * iterations — OWASP-recommended parameters). Legacy hashes produced by the
- * old plain BCrypt encoder remain verifiable: {@code DelegatingPasswordEncoder}
- * matches them through its default {@link BCryptPasswordEncoder} (both the
- * unprefixed {@code $2a$...} format used before this upgrade and explicit
- * {@code {bcrypt}} prefixes). Callers should re-encode stored hashes to
- * Argon2id on successful login (see {@code AuthServiceImpl}).
+ * <strong>Argon2id</strong> ({@code {argon2}} prefix, configurable params).
+ * Legacy hashes produced by the old plain BCrypt encoder remain verifiable:
+ * {@code DelegatingPasswordEncoder} matches them through its default
+ * {@link BCryptPasswordEncoder} (both the unprefixed {@code $2a$...} format
+ * used before this upgrade and explicit {@code {bcrypt}} prefixes).
  */
 @Configuration
 public class PasswordEncoderConfig {
 
-    /** Argon2id: 16-byte salt, 32-byte hash, 1 lane, 64 MiB, 3 iterations. */
-    private static final int ARGON2_SALT_LENGTH = 16;
-    private static final int ARGON2_HASH_LENGTH = 32;
-    private static final int ARGON2_PARALLELISM = 1;
-    private static final int ARGON2_MEMORY_KIB = 64 * 1024;
-    private static final int ARGON2_ITERATIONS = 3;
+    @Bean
+    @ConfigurationProperties(prefix = "app.security.password-encoder")
+    public PasswordEncoderProperties passwordEncoderProperties() {
+        return new PasswordEncoderProperties();
+    }
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        Map<String, PasswordEncoder> encoders = new HashMap<>();
-        encoders.put("argon2", new Argon2PasswordEncoder(
-                ARGON2_SALT_LENGTH, ARGON2_HASH_LENGTH, ARGON2_PARALLELISM,
-                ARGON2_MEMORY_KIB, ARGON2_ITERATIONS));
-        encoders.put("bcrypt", new BCryptPasswordEncoder(12));
+    public PasswordEncoder passwordEncoder(PasswordEncoderProperties properties) {
+        String algorithm = properties.getAlgorithm() != null ? properties.getAlgorithm() : "argon2";
+        Map<String, PasswordEncoder> encoders = new java.util.HashMap<>();
+
+        if ("bcrypt".equalsIgnoreCase(algorithm)) {
+            // BCrypt-only mode: use BCrypt as primary encoder.
+            encoders.put("bcrypt", new BCryptPasswordEncoder(properties.getBcrypt().getStrength()));
+            DelegatingPasswordEncoder encoder = new DelegatingPasswordEncoder("bcrypt", encoders);
+            encoder.setDefaultPasswordEncoderForMatches(new BCryptPasswordEncoder());
+            return encoder;
+        }
+
+        // Default: Argon2id primary, BCrypt fallback for legacy hashes.
+        PasswordEncoderProperties.Argon2 argon2 = properties.getArgon2();
+        Argon2PasswordEncoder argon2Encoder = new Argon2PasswordEncoder(
+                argon2.getSaltLength(),
+                argon2.getHashLength(),
+                argon2.getParallelism(),
+                argon2.getMemoryKib(),
+                argon2.getIterations());
+        encoders.put("argon2", argon2Encoder);
+        encoders.put("bcrypt", new BCryptPasswordEncoder(properties.getBcrypt().getStrength()));
 
         DelegatingPasswordEncoder encoder = new DelegatingPasswordEncoder("argon2", encoders);
-        // Legacy hashes written by the pre-upgrade BCryptPasswordEncoder carry no
-        // {id} prefix; delegate them to BCrypt so existing accounts keep working.
         encoder.setDefaultPasswordEncoderForMatches(new BCryptPasswordEncoder());
         return encoder;
     }

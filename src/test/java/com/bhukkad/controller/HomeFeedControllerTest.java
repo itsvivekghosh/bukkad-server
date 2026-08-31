@@ -27,6 +27,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+// Mockito generic matchers on HomeFeedCacheService produce benign unchecked warnings
+@SuppressWarnings("unchecked")
 class HomeFeedControllerTest {
 
     @Mock

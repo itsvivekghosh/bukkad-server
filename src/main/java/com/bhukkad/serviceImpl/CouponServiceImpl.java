@@ -7,6 +7,7 @@ import com.bhukkad.entity.CouponUsage;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
+import com.bhukkad.datasource.UseReadReplica;
 import com.bhukkad.exception.BusinessException;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CouponRepository;
@@ -51,6 +52,7 @@ public class CouponServiceImpl implements CouponService {
     }
 
     @Override
+    @UseReadReplica
     public List<Coupon> getActiveCoupons(Long restaurantId) {
         LocalDateTime now = LocalDateTime.now();
         if (restaurantId != null) {
@@ -74,17 +76,20 @@ public class CouponServiceImpl implements CouponService {
         return couponRepository.save(coupon);
     }
 
+    @UseReadReplica
     public Coupon getCouponByCode(String code) {
         return couponRepository.findByCode(code)
                 .orElseThrow(() -> new ResourceNotFoundException("Coupon not found"));
     }
 
     @Override
+    @UseReadReplica
     public Coupon validateCoupon(String code, Double orderAmount, Long restaurantId) {
         return validateCoupon(code, orderAmount, restaurantId, null);
     }
 
     @Override
+    @UseReadReplica
     public Coupon validateCoupon(String code, Double orderAmount, Long restaurantId, Long customerId) {
         Coupon coupon = getCouponByCode(code);
 
@@ -227,8 +232,18 @@ public class CouponServiceImpl implements CouponService {
 
     @Override
     public void recordCouponUsage(Coupon coupon, Long customerId, Long orderId) {
+        // Atomic guarded increment: the usage-limit check and the increment are a
+        // single UPDATE, so concurrent checkouts can neither exceed the limit nor
+        // lose increments (read-modify-write race). If the limit was already
+        // reached, the coupon was validated earlier and this is a conflict —
+        // fail the surrounding order transaction rather than over-accept.
+        int updated = couponRepository.incrementUsedCountIfWithinLimit(coupon.getId());
+        if (updated != 1) {
+            throw new BusinessException("Coupon usage limit reached");
+        }
+        // Keep the managed entity consistent with the database for callers that
+        // read usedCount after recording (e.g. response mapping).
         coupon.setUsedCount(coupon.getUsedCount() + 1);
-        couponRepository.save(coupon);
 
         if (customerId == null) {
             return;

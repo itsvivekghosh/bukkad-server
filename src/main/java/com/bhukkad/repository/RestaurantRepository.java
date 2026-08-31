@@ -50,6 +50,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
             "LEFT JOIN FETCH r.owner " +
+            "LEFT JOIN FETCH r.features " +
             "WHERE r.owner.id = :ownerId " +
             "ORDER BY r.createdAt DESC")
     List<Restaurant> findByOwnerIdWithDetails(@Param("ownerId") Long ownerId);
@@ -57,6 +58,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT DISTINCT r FROM Restaurant r " +
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.features " +
             "WHERE r.isActive = true " +
             "AND LOWER(r.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     List<Restaurant> searchByNameWithDetails(@Param("keyword") String keyword);
@@ -68,6 +70,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT DISTINCT r FROM Restaurant r " +
             "LEFT JOIN FETCH r.address " +
             "LEFT JOIN FETCH r.cuisines " +
+            "LEFT JOIN FETCH r.features " +
             "WHERE r.id IN (" +
             "  SELECT r2.id FROM Restaurant r2 LEFT JOIN r2.cuisines c " +
             "  WHERE r2.isActive = true " +
@@ -90,7 +93,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query(value = """
             SELECT r.id FROM restaurants r
             INNER JOIN addresses a ON r.address_id = a.id
-            WHERE r.is_active = 1
+            WHERE r.is_active = TRUE
             AND a.latitude BETWEEN (:lat - :latDelta) AND (:lat + :latDelta)
             AND (
               -- Normal case: bounding box does not cross the ±180° meridian
@@ -125,9 +128,9 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
     @Query(value = """
             SELECT r.* FROM restaurants r
-            WHERE r.is_active = 1
-            AND MATCH(r.name) AGAINST(:keyword IN NATURAL LANGUAGE MODE)
-            ORDER BY MATCH(r.name) AGAINST(:keyword IN NATURAL LANGUAGE MODE) DESC
+            WHERE r.is_active = TRUE
+            AND to_tsvector('english', r.name) @@ plainto_tsquery('english', :keyword)
+            ORDER BY ts_rank(to_tsvector('english', r.name), plainto_tsquery('english', :keyword)) DESC
             LIMIT 50
             """, nativeQuery = true)
     List<Restaurant> fullTextSearchByName(@Param("keyword") String keyword);

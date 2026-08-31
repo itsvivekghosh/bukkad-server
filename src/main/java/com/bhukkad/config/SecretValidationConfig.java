@@ -51,9 +51,23 @@ public class SecretValidationConfig {
     @Value("${app.api-key.pepper:}")
     private String apiKeyPepper;
 
+    /**
+     * Production must run the real Razorpay gateway. The simulated gateway has
+     * no shared secret to validate webhook signatures against, so with it
+     * active any caller could POST a forged {@code payment.captured} webhook
+     * and mark orders paid. Refuse to boot in prod/staging unless the real
+     * gateway is enabled.
+     */
+    @Value("${app.payment.razorpay.enabled:false}")
+    private boolean razorpayEnabled;
+
     @PostConstruct
     void validateRequiredSecrets() {
         List<String> violations = new ArrayList<>();
+
+        if (!razorpayEnabled) {
+            violations.add("app.payment.razorpay.enabled must be true in production (simulated gateway is not secure)");
+        }
 
         if (!StringUtils.hasText(jwtSecret)) {
             violations.add("JWT_SECRET is required in production");

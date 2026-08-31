@@ -1,267 +1,308 @@
-# Operations & Troubleshooting
+# Bhukkad Operations Guide
 
-Day-2 operations: testing, logging, metrics, database migrations, and common fixes.
+This document provides operational guidance for deploying, monitoring, and maintaining the Bhukkad Food Delivery System in production.
 
-## Build & test
+## Table of Contents
 
+- [Deployment](#deployment)
+- [Configuration](#configuration)
+- [Monitoring](#monitoring)
+- [Health Checks](#health-checks)
+- [Scaling](#scaling)
+- [Backup & Recovery](#backup--recovery)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Deployment
+
+### Docker Deployment
+
+#### Build Image
 ```bash
-# Full test suite
-mvn clean test
-
-# Skip tests (faster package)
-mvn clean package -DskipTests
-
-# Single test class
-mvn test -Dtest=OrderServiceImplTest
-
-# Compile only
-mvn compile -q
+docker build -f docker/Dockerfile -t bhukkad:latest .
 ```
 
-**CI expectation:** all tests pass (~700+). Tests use Mockito; no live DB required.
-
-## Logs
-
-Single log file:
-
-| File | Contents |
-|------|----------|
-| `logs/app.log` | All application output (errors, orders, payments, security, alerts) |
-
-Console output is enabled in `dev` only. Production writes to `logs/app.log` only.
-
-Configuration: `src/main/resources/logback-spring.xml`
-
-### Request tracing
-
-Every API response includes:
-
-| Header | Description |
-|--------|-------------|
-| `X-Trace-Id` | 16-char distributed trace ID (propagated from inbound `X-Trace-Id`, `X-Correlation-Id`, or W3C `traceparent`) |
-| `X-Request-Id` | 8-char per-request ID (propagated from `X-Request-Id`) |
-| `X-Timestamp` | Response timestamp (UTC) |
-
-`ApiResponse` JSON bodies also include `traceId` and `requestId` fields for client-side correlation.
-
-Log patterns include trace and request IDs via MDC in `logs/app.log`.
-
+#### Run with Docker Compose
 ```bash
-# Find all logs for a trace
-grep "abcd1234abcd1234" logs/app.log
-
-# Check response headers
-curl -si http://localhost:8080/api/v1/health/ping | grep -i x-trace
+docker compose -f docker/docker-compose.prod.yml up -d
 ```
 
-### Alerting
+#### Environment Variables
+Required production environment variables:
+- `DB_HOST` — MySQL host
+- `DB_PORT` — MySQL port (default: 3306)
+- `DB_USERNAME` — Database username
+- `DB_PASSWORD` — Database password
+- `REDIS_HOST` — Redis host
+- `REDIS_PORT` — Redis port (default: 6379)
+- `JWT_SECRET` — Base64-encoded JWT signing key (min 64 bytes)
+- `RAZORPAY_KEY_ID` — Payment gateway key
+- `RAZORPAY_KEY_SECRET` — Payment gateway secret
 
-Operational alerts use logger `ALERT` and are written to `logs/app.log` for:
+### Kubernetes Deployment
 
-- Slow requests (warning ≥1s, critical ≥3s)
-- HTTP 4xx/5xx responses
-- Unhandled exceptions
-- Auth failures (401/403)
+```bash
+kubectl apply -f k8s/
+```
 
-Optional webhook (Slack/Discord/PagerDuty-compatible JSON POST):
+Key Kubernetes resources:
+- Deployment: 10 replicas, resource limits 2CPU/4GB
+- Service: ClusterIP for internal, LoadBalancer for external
+- HPA: Scale based on CPU (70%) and memory (80%)
+- ConfigMap: Application configuration
+- Secret: Sensitive credentials
 
+---
+
+## Configuration
+
+### Application Profiles
+
+| Profile | Purpose |
+|---------|---------|
+| `dev` | Local development with debug logging |
+| `prod` | Production with optimized settings |
+
+### Key Configuration Properties
+
+#### Database
 ```yaml
-app.alerting.webhook.enabled: true
-app.alerting.webhook.url: https://hooks.example.com/alert
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 10000
 ```
 
-Configure thresholds under `app.alerting.*` in `application.yml`.
+#### Redis
+```yaml
+spring:
+  data:
+    redis:
+      lettuce:
+        pool:
+          max-active: 40
+          max-idle: 20
+```
 
-### Docker
+#### Cache TTLs
+```yaml
+cache:
+  ttl:
+    restaurant: 3600
+    menu-item: 1800
+    order: 300
+```
 
+---
+
+## Monitoring
+
+### Health Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/actuator/health` | Overall health status |
+| `/actuator/health/liveness` | Liveness probe |
+| `/actuator/health/readiness` | Readiness probe |
+| `/actuator/metrics` | Application metrics |
+| `/actuator/prometheus` | Prometheus metrics |
+
+### Key Metrics to Monitor
+
+- **Request Rate**: Requests per second by endpoint
+- **Error Rate**: 4xx and 5xx response rates
+- **Latency**: P50, P95, P99 response times
+- **Database**: Connection pool utilization, query time
+- **Redis**: Memory usage, hit rate, connected clients
+- **JVM**: GC pause times, heap usage, thread count
+
+### Alerts
+
+| Alert | Threshold | Severity |
+|-------|-----------|----------|
+| High Error Rate | > 5% 5xx responses | Critical |
+| High Latency | P99 > 2s | Warning |
+| DB Connections | > 80% pool utilization | Warning |
+| Redis Memory | > 85% usage | Warning |
+| Disk Space | < 20% free | Critical |
+
+---
+
+## Health Checks
+
+### Liveness Probe
 ```bash
-docker logs -f bhukkad-app-dev
-docker logs bhukkad-mysql-dev --tail 50
+curl -f http://localhost:8080/actuator/health/liveness
 ```
 
-### Kubernetes
-
+### Readiness Probe
 ```bash
-kubectl logs -n bhukkad -l component=api -f --tail=200
-kubectl logs -n bhukkad <pod-name> -c bhukkad-app --previous
+curl -f http://localhost:8080/actuator/health/readiness
 ```
 
-## Health & readiness
-
-| Endpoint | Use |
-|----------|-----|
-| `GET /api/v1/health/ping` | Fast liveness |
-| `GET /api/v1/health` | App metadata |
-| `GET /api/v1/health/detailed` | DB + Redis + JVM |
-| `GET /actuator/health` | Spring Actuator aggregate |
-| `GET /actuator/health/liveness` | K8s liveness |
-| `GET /actuator/health/readiness` | K8s readiness |
-
+### Database Health
 ```bash
-curl -s http://localhost:8080/api/v1/health/detailed | jq .
+curl -f http://localhost:8080/actuator/health/db
 ```
 
-## Metrics (Prometheus)
-
-Prod exposes `/actuator/prometheus`.
-
-- **Dev:** open access when `app.monitoring.prometheus.require-auth=false`
-- **Prod:** requires `ADMIN` JWT or `Authorization: Bearer $PROMETHEUS_BEARER_TOKEN`
-
-Custom metrics include order counters (`OrderMetrics`).
-
-## Database migrations (Flyway)
-
-Migration files live in `src/main/resources/db/migration/`:
-
-- `V1__baseline_schema.sql` — consolidated baseline schema
-- `V2__platform_operations.sql` — platform/operations tables
-- `V27__api_keys.sql` — partner API key management
-- `V28__missing_entity_tables.sql` — entity/summary tables dropped in the V1 consolidation
-
-See [db/migration/README.md](../src/main/resources/db/migration/README.md) for details.
-
-**Rules:**
-
-- Never edit an already-applied migration (e.g. `V1`, `V2`, `V27`, `V28`) after it ships
-  to shared environments — add the next version file (`V29__your_change.sql`) instead
-- New migration files must be idempotent (`CREATE TABLE IF NOT EXISTS`, guarded
-  `ALTER TABLE`) so they are safe on both fresh and existing databases
-- App uses `ddl-auto: none` — Hibernate never alters the schema; Flyway owns it
-- Existing databases with pre-consolidation history are handled by
-  `ignore-migration-patterns: "*:missing"`; run `flyway-repair` after any checksum
-  change (see CI `FLYWAY_REPAIR_ON_DEPLOY`)
-
-### Check migration status
-
-Inspect app startup logs for Flyway lines, or connect to MySQL:
-
-```sql
-SELECT * FROM flyway_schema_history ORDER BY installed_rank;
-```
-
-### Failed migration
-
-1. Fix SQL in a new versioned file (or repair dev DB)
-2. For dev: `DROP DATABASE bhukkad;` and restart
-3. For prod: use Flyway repair CLI or manual DBA intervention — never drop prod
-
-## Cache administration
-
-```http
-GET  /api/v1/cache/stats
-DELETE /api/v1/cache/clear/{cacheName}
-```
-
-Requires `ADMIN` role (or `app.debug=true` in dev).
-
-## Redis
-
+### Redis Health
 ```bash
-# Local
-redis-cli ping
-
-# Docker
-docker exec -it bhukkad-redis-dev redis-cli ping
-
-# K8s
-kubectl exec -n bhukkad deploy/bhukkad-redis -- redis-cli ping
+curl -f http://localhost:8080/actuator/health/redis
 ```
 
-## Order live updates debugging
+---
 
-1. Confirm Redis is up (live relay uses pub/sub across instances)
-2. Test SSE: `curl -N -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/orders/stream/customer/1`
-3. Check `app.cluster.live-relay.enabled=true`
+## Scaling
 
-## Payment testing
+### Vertical Scaling
+- Increase pod CPU/memory for higher throughput
+- Recommended: 2 CPU cores, 4GB RAM per pod
+- Max recommended: 4 CPU cores, 8GB RAM per pod
 
-**Simulated (default):** payments complete in-process without external gateway.
+### Horizontal Scaling
+- Scale pods based on request rate
+- 1 pod ≈ 500 RPS sustained
+- Recommended: 10 pods for 5k RPS
 
-**Razorpay:**
+### Database Scaling
+- Read replicas for read-heavy workloads
+- Connection pool: 30 per pod × 10 pods = 300 max
+- MySQL max_connections: 500 recommended
 
-1. Set `RAZORPAY_ENABLED=true` and keys
-2. Create order → `GET /api/v1/payments/orders/{orderId}` for `gatewayOrderId`
-3. Complete payment in Razorpay test mode or send webhook to `/api/v1/payments/webhooks/razorpay`
+### Cache Scaling
+- Redis Cluster for > 100k keys
+- Memory: 4GB minimum, 16GB recommended
+- Persistence: RDB snapshots every 6 hours
 
-## Security incidents
+---
 
-| Issue | Action |
-|-------|--------|
-| JWT secret leaked | Rotate `JWT_SECRET`, force re-login |
-| K8s secrets committed | Rotate all credentials in `k8s/secrets.yaml` |
-| Prometheus exposed | Enable `require-auth` + bearer token |
+## Backup & Recovery
 
-## Performance tuning
-
-| Layer | Knob |
-|-------|------|
-| JVM | `JAVA_OPTS`, `MaxRAMPercentage` |
-| HikariCP | `spring.datasource.hikari.maximum-pool-size` |
-| Redis | `cache.ttl.*`, connection pool in prod yml |
-| MySQL | `innodb_buffer_pool_size` in `docker/mysql/my.cnf` or k8s configmap |
-| K8s HPA | `k8s/app/hpa.yaml` CPU/memory targets |
-
-## Useful scripts
-
-| Script | Purpose |
-|--------|---------|
-| `docker/scripts/deploy.sh` | Compose deploy |
-| `docker/scripts/health_check.sh` | Health verification |
-| `docker/scripts/swagger-test.sh` | Quick HTTP smoke test |
-| `docker/scripts/stop.sh` | Stop compose stack |
-| `k8s/scripts/deploy.sh` | K8s deploy |
-| `k8s/scripts/status.sh` | Cluster status |
-| `k8s/scripts/destroy.sh` | Tear down k8s |
-
-## Common errors
-
-### `401 Unauthorized`
-
-- Missing or expired JWT
-- Wrong role for endpoint (e.g. customer hitting owner API)
-
-### `403 Forbidden`
-
-- Valid token but insufficient role
-- Prometheus without auth in prod
-
-### `429 Too Many Requests`
-
-- Rate limit exceeded — back off and retry
-
-### `OptimisticLockingFailureException`
-
-- Concurrent order update — client should retry
-
-### `Cart contains items from a different restaurant`
-
-- Legacy message; multi-restaurant carts are supported — ensure `restaurantId` in order matches items being checked out
-
-### Flyway `Validate failed`
-
-- Database schema doesn't match migrations — align DB or add migration
-
-## On-call quick commands
-
+### Database Backups
 ```bash
-# Is the app up?
-curl -fsS http://localhost:8080/api/v1/health/ping
+# Daily backup
+mysqldump -h localhost -u root -p bhukkad > backup_$(date +%Y%m%d).sql
 
-# Docker stack
-docker compose -f docker/docker-compose.dev.yml ps
-
-# K8s
-kubectl get pods -n bhukkad
-kubectl rollout status deployment/bhukkad-app -n bhukkad
-
-# Recent errors
-kubectl logs -n bhukkad -l component=api --tail=100 | grep -i error
+# Restore
+mysql -h localhost -u root -p bhukkad < backup_20260830.sql
 ```
 
-## Getting help
+### Redis Backups
+```bash
+# RDB snapshot (automatic via Redis config)
+redis-cli BGSAVE
 
-1. Check logs and health/detailed endpoint
-2. Reproduce with Swagger or curl
-3. Run `mvn test` to confirm codebase health
-4. See [configuration.md](./configuration.md) for env var mismatches
+# AOF (append-only file) for point-in-time recovery
+redis-cli CONFIG SET appendonly yes
+```
+
+### Disaster Recovery
+- Database: Daily automated backups, 30-day retention
+- Redis: RDB snapshots every 6 hours
+- Application state: Stateless, no local persistence
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### High Memory Usage
+1. Check heap dump: `jmap -dump:format=b,file=heap.hprof <pid>`
+2. Analyze with Eclipse MAT
+3. Look for memory leaks in cache or session storage
+
+#### Slow Database Queries
+1. Enable query logging: `spring.jpa.properties.hibernate.format_sql=true`
+2. Check slow query log in MySQL
+3. Use `EXPLAIN` to analyze query plans
+
+#### Redis Connection Issues
+1. Check Redis memory: `redis-cli INFO memory`
+2. Check connected clients: `redis-cli INFO clients`
+3. Verify network connectivity from app pods
+
+#### JWT Token Errors
+1. Verify `JWT_SECRET` is set and valid
+2. Check token expiration in logs
+3. Ensure clock synchronization across servers
+
+### Log Locations
+
+| Component | Log Location |
+|-----------|-------------|
+| Application | `/var/log/bhukkad/app.log` |
+| MySQL | `/var/log/mysql/error.log` |
+| Redis | `/var/log/redis/redis-server.log` |
+| Nginx | `/var/log/nginx/access.log` |
+
+### Emergency Procedures
+
+#### Rollback Deployment
+```bash
+kubectl rollout undo deployment/bhukkad -n production
+```
+
+#### Database Maintenance
+```bash
+# Read-only mode
+kubectl set env deployment/bhukkad DB_READ_ONLY=true
+
+# Restart pods
+kubectl rollout restart deployment/bhukkad -n production
+```
+
+#### Scale Down for Maintenance
+```bash
+kubectl scale deployment/bhukkad --replicas=2 -n production
+```
+
+---
+
+## Security
+
+### Secrets Management
+- All secrets stored in Kubernetes Secrets or Vault
+- Never commit secrets to version control
+- Rotate JWT_SECRET quarterly
+
+### Network Security
+- TLS 1.3 for all external traffic
+- Internal communication via mTLS
+- WAF rules for common attack patterns
+
+### Access Control
+- RBAC for Kubernetes access
+- Least privilege for service accounts
+- Audit logging for all admin actions
+
+---
+
+## Performance Tuning
+
+### JVM Tuning
+```bash
+-Xms2g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+```
+
+### Database Tuning
+- `innodb_buffer_pool_size`: 70% of available RAM
+- `max_connections`: 500
+- `query_cache_type`: 0 (disabled for MySQL 8.0)
+
+### Redis Tuning
+- `maxmemory`: 4GB
+- `maxmemory-policy`: allkeys-lru
+- `save`: 900 1 300 10 60 10000
+
+---
+
+## Contact
+
+For production issues:
+- **PagerDuty**: bhukkad-oncall
+- **Slack**: #bhukkad-ops
+- **Email**: ops@bhukkad.com

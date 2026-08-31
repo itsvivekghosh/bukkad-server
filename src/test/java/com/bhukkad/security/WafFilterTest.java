@@ -96,4 +96,46 @@ class WafFilterTest {
 
         verify(filterChain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
+
+    private MockHttpServletRequest jsonRequest(String body) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/auth/register");
+        request.setContentType("application/json");
+        request.setContent(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return request;
+    }
+
+    @Test
+    void jweEncryptedPassword_withSqlLikeCiphertext_passesThrough() throws ServletException, IOException {
+        // JWE ciphertext is base64url: it can legitimately contain "--", "/*" or
+        // ";" sequences that match SQLi patterns. The WAF must not block valid
+        // auth requests because the encrypted blob happens to look malicious.
+        String jwe = "eyJhbGciOiJSU0EtT0FFUC0yNTYifQ.eyJwYXNzd29yZCI6InRlc3QifQ."
+                + "abc--def/*ghi;ij==.sig";
+        MockHttpServletRequest request = jsonRequest(
+                "{\"email\":\"user@example.com\",\"encryptedPassword\":\"" + jwe + "\"}");
+
+        doFilter(request);
+
+        verify(filterChain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void jweEncryptedPassword_injectionStillBlocked() throws ServletException, IOException {
+        // A real SQLi in a NON-encrypted field must still be blocked even when
+        // an encryptedPassword field is present.
+        MockHttpServletRequest request = jsonRequest(
+                "{\"email\":\"x' OR '1'='1\",\"encryptedPassword\":\"eyJhbGciOiJSU0EtT0FFUC0yNTYifQ.sig\"}");
+
+        assertEquals(400, doFilter(request).getStatus());
+        verifyNoInteractions(filterChain);
+    }
+
+    @Test
+    void jweEncryptedPassword_unionSelectStillBlocked() throws ServletException, IOException {
+        MockHttpServletRequest request = jsonRequest(
+                "{\"fullName\":\"x UNION SELECT password FROM users\","
+                        + "\"encryptedPassword\":\"eyJhbGciOiJSU0EtT0FFUC0yNTYifQ.sig\"}");
+
+        assertEquals(400, doFilter(request).getStatus());
+    }
 }

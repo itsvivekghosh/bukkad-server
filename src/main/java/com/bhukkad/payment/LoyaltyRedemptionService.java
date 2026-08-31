@@ -8,7 +8,7 @@ import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.exception.UnauthorizedException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;
-import com.bhukkad.serviceImpl.OrderPricingServiceImpl;
+import com.bhukkad.service.OrderPricingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Applies a loyalty-point discount to an order before payment. Converts points
  * to rupees at {@code app.loyalty.points-per-rupee}, caps the redemption at
  * {@code app.loyalty.max-redemption-percent} of the order total, applies the
- * discount through {@link OrderPricingServiceImpl#applyLoyaltyDiscount} and
+ * discount through {@link OrderPricingService#applyLoyaltyDiscount} and
  * debits the customer's point balance.
  */
 @Slf4j
@@ -29,7 +29,7 @@ public class LoyaltyRedemptionService {
     private final LoyaltyProperties loyaltyProperties;
     private final OrderRepository orderRepository;
     private final CustomerRepository customerRepository;
-    private final OrderPricingServiceImpl orderPricingService;
+    private final OrderPricingService orderPricingService;
 
     @Transactional
     public LoyaltyRedemptionResult redeemPoints(Long customerId, Long orderId, int points) {

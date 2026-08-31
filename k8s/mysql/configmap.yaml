@@ -62,4 +62,9 @@ data:
     GRANT ALL PRIVILEGES ON bhukkad.* TO 'bhukkad_user'@'%';
     FLUSH PRIVILEGES;
 
+    -- Replication user for the read replica StatefulSet.
+    CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '$MYSQL_REPLICATION_PASSWORD';
+    GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
+    FLUSH PRIVILEGES;
+
     SELECT 'Database initialized!' AS status;

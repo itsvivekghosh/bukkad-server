@@ -2,6 +2,7 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.OrderCacheService;
 import com.bhukkad.delivery.RiderDispatchService;
+import com.bhukkad.dto.request.UpdateDeliveryProfileRequest;
 import com.bhukkad.dto.response.DeliveryAgentResponse;
 import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.entity.Customer;
@@ -120,7 +121,7 @@ class DeliveryServiceImplTest {
     @Test
     void updateProfile_updatesProvidedFields() {
         DeliveryAgent existing = agent(5L);
-        DeliveryAgent updates = new DeliveryAgent();
+        UpdateDeliveryProfileRequest updates = new UpdateDeliveryProfileRequest();
         updates.setFullName("New Name");
         updates.setPhoneNumber("1111111111");
         updates.setVehicleType("SCOOTER");
@@ -144,7 +145,7 @@ class DeliveryServiceImplTest {
     @Test
     void updateProfile_blankFieldsAreIgnored() {
         DeliveryAgent existing = agent(5L);
-        DeliveryAgent updates = new DeliveryAgent();
+        UpdateDeliveryProfileRequest updates = new UpdateDeliveryProfileRequest();
         updates.setFullName("  ");
         updates.setPhoneNumber("");
         updates.setVehicleType(null);
@@ -167,7 +168,7 @@ class DeliveryServiceImplTest {
         when(securityUtils.getCurrentUserId()).thenReturn(5L);
 
         UnauthorizedException ex = assertThrows(UnauthorizedException.class,
-                () -> deliveryService.updateProfile(9L, new DeliveryAgent()));
+                () -> deliveryService.updateProfile(9L, new UpdateDeliveryProfileRequest()));
         assertEquals("Cannot update another agent's profile", ex.getMessage());
     }
 

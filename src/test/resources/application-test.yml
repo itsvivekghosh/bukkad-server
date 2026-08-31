@@ -7,6 +7,11 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      # Mirrors the base application.yml exclusion list. Profile-specific
+      # autoconfigure.exclude REPLACES the base list, so both entries must be
+      # repeated here or the full context tries to wire gRPC server security
+      # (no GrpcAuthenticationReader bean exists in this app).
+      - net.devh.boot.grpc.server.autoconfigure.GrpcServerSecurityAutoConfiguration
 
   jpa:
     hibernate:

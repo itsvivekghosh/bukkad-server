@@ -45,6 +45,7 @@ class OrderCategorizationIntegrationTest extends AbstractJpaIntegrationTest {
 
     private Long customerId;
     private Long restaurantId;
+    private Long addressId;
 
     @BeforeEach
     void seedCustomer() {
@@ -63,7 +64,7 @@ class OrderCategorizationIntegrationTest extends AbstractJpaIntegrationTest {
 
         jdbcTemplate.update("""
                 INSERT INTO users (role, active, email_verified, phone_verified, profile_completed, created_at)
-                VALUES ('RESTAURANT_OWNER', TRUE, FALSE, FALSE, FALSE, NOW())
+                VALUES ('RESTAURANT_OWNER', TRUE, FALSE, FALSE, FALSE, CURRENT_TIMESTAMP)
                 """);
         Long ownerUserId = jdbcTemplate.queryForObject("SELECT MAX(id) FROM users", Long.class);
         jdbcTemplate.update(
@@ -71,18 +72,27 @@ class OrderCategorizationIntegrationTest extends AbstractJpaIntegrationTest {
                 ownerUserId);
         jdbcTemplate.update("""
                 INSERT INTO restaurants (name, owner_id, opening_time, closing_time, created_at)
-                VALUES ('Category Kitchen', ?, '09:00:00', '23:00:00', NOW())
+                VALUES ('Category Kitchen', ?, '09:00:00', '23:00:00', CURRENT_TIMESTAMP)
                 """, ownerUserId);
         restaurantId = jdbcTemplate.queryForObject(
                 "SELECT id FROM restaurants ORDER BY id DESC LIMIT 1", Long.class);
+
+        // orders.delivery_address_id is NOT NULL; seed a delivery address.
+        jdbcTemplate.update("""
+                INSERT INTO addresses (customer_id, address_line1, city, state, pincode, latitude, longitude, is_default)
+                VALUES (?, 'Category Test Addr', 'Bangalore', 'KA', '560001', 12.97, 77.59, TRUE)
+                """, customerId);
+        addressId = jdbcTemplate.queryForObject(
+                "SELECT id FROM addresses WHERE customer_id = ? ORDER BY id DESC LIMIT 1",
+                Long.class, customerId);
     }
 
     private Long insertOrder(String status) {
         jdbcTemplate.update("""
-                INSERT INTO orders (order_number, customer_id, restaurant_id, status,
+                INSERT INTO orders (order_number, customer_id, restaurant_id, delivery_address_id, status,
                                     subtotal, total_amount, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 100.0, 100.0, NOW(), NOW())
-                """, "CAT-" + status + "-" + System.nanoTime(), customerId, restaurantId, status);
+                VALUES (?, ?, ?, ?, ?, 100.0, 100.0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, "CAT-" + status + "-" + System.nanoTime(), customerId, restaurantId, addressId, status);
         return jdbcTemplate.queryForObject(
                 "SELECT id FROM orders WHERE customer_id = ? ORDER BY id DESC LIMIT 1",
                 Long.class, customerId);
@@ -157,10 +167,9 @@ class OrderCategorizationIntegrationTest extends AbstractJpaIntegrationTest {
     @Test
     void indexBackingTheCategoryQueries_exists() {
         Integer indexes = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM information_schema.STATISTICS
-                WHERE TABLE_SCHEMA = DATABASE()
-                  AND TABLE_NAME = 'orders'
-                  AND INDEX_NAME IN ('idx_order_customer_category',
+                SELECT COUNT(DISTINCT INDEXNAME) FROM pg_indexes
+                WHERE TABLENAME = 'orders'
+                  AND INDEXNAME IN ('idx_order_customer_category',
                                      'idx_order_restaurant_category',
                                      'idx_order_agent_category',
                                      'idx_order_category_created')

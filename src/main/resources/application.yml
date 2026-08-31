@@ -2,11 +2,6 @@ spring:
   application:
     name: bhukkad-server
 
-  main:
-    # paymentServiceImpl <-> dunningService is an intentional cycle: payments
-    # queue dunning retries, and dunning calls back to process payment retries.
-    allow-circular-references: true
-
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
@@ -18,7 +13,7 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
-  # Write datasource connection pool. Size from MySQL max_connections ÷ expected
+  # Write datasource connection pool. Size from PostgreSQL max_connections ÷ expected
   # pod count with headroom (e.g. 4-core pod × 10 replicas ≈ 300 connections at 30 per pod).
   # Gateway payment calls no longer hold connections here (payment processing
   # runs outside the DB transaction), so the pool serves request concurrency
@@ -53,18 +48,24 @@ spring:
         cluster:
           refresh:
             adaptive: true
+          # Redis Cluster — activated when REDIS_CLUSTER_NODES is supplied (e.g.
+          # "host1:6379,host2:6379,host3:6379"). When empty, the app uses the
+          # single-node host/port above. This lets the fleet scale past 1M keys
+          # without code changes.
+          nodes: ${REDIS_CLUSTER_NODES:}
+          max-redirects: 3
 
   jpa:
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: false
     open-in-view: false
     properties:
       hibernate:
         type:
           prefer_native_enum_types: false
-        format_sql: true
-        use_sql_comments: true
+        format_sql: false
+        use_sql_comments: false
         jdbc:
           batch_size: 50
           fetch_size: 50
@@ -76,10 +77,16 @@ spring:
 
   flyway:
     enabled: true
-    out-of-order: true
+    # out-of-order is required for this repo's squash-baseline layout (V1 is the
+    # squashed baseline, V62+ are appended), where a DB that was mid-rollout can
+    # legitimately apply a later migration before an earlier one. This makes
+    # schema evolution NON-reproducible, so production should pin
+    # FLYWAY_OUT_OF_ORDER=false once all environments converge, and rely on the
+    # ignore-missing-patterns below for the V2–V61 squash gap.
+    out-of-order: ${FLYWAY_OUT_OF_ORDER:true}
     baseline-on-migrate: true
-    locations: classpath:db/migration
-    ignore-migration-patterns: "*:missing"
+    locations: classpath:db/migration-pg
+    ignore-migration-patterns: ${FLYWAY_IGNORE_MISSING:*:missing}
 
   jackson:
     serialization:
@@ -120,6 +127,34 @@ spring:
           apple:
             authorization-uri: https://appleid.apple.com/auth/authorize
             token-uri: https://appleid.apple.com/auth/token
+
+    # Password hashing: Argon2id is the default (OWASP-recommended, memory-hard).
+    # For heavy-traffic pods where CPU is the bottleneck, switch to BCrypt
+    # strength 12 by setting PASSWORD_ENCODER_ALGORITHM=bcrypt. The trade-off:
+    #   - Argon2id: 64 MiB, 3 iterations — slower but resistant to GPU/ASIC attacks
+    #   - BCrypt 12: ~72ms on modern CPU — faster but less resistant to hardware attacks
+    # Both schemes are supported simultaneously via DelegatingPasswordEncoder;
+    # existing hashes remain valid during algorithm rotation.
+    password-encoder:
+      algorithm: ${PASSWORD_ENCODER_ALGORITHM:argon2}
+      argon2:
+        salt-length: 16
+        hash-length: 32
+        parallelism: 1
+        memory-kib: ${ARGON2_MEMORY_KIB:65536}
+        iterations: ${ARGON2_ITERATIONS:3}
+      bcrypt:
+        strength: ${BCRYPT_STRENGTH:12}
+
+    # Authentication result cache: stores successful (email, password) -> user id
+    # mappings for a short TTL to avoid repeated BCrypt/Argon2 verification on
+    # the same credentials within a session. This trades a small amount of
+    # security (password changes don't invalidate the cache immediately) for
+    # significant CPU savings under heavy login traffic.
+    auth-cache:
+      enabled: ${AUTH_CACHE_ENABLED:true}
+      maximum-size: ${AUTH_CACHE_MAX_SIZE:10000}
+      expire-after-write-seconds: ${AUTH_CACHE_TTL_SECONDS:30}
 
 server:
   port: 8080
@@ -403,7 +438,7 @@ app:
   payment:
     provider: simulated
     razorpay:
-      enabled: false
+      enabled: ${APP_PAYMENT_RAZORPAY_ENABLED:false}
       key-id: ${RAZORPAY_KEY_ID:}
       key-secret: ${RAZORPAY_KEY_SECRET:}
       webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
@@ -574,6 +609,7 @@ app:
         bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
         platform-topic: bhukkad.platform.events
         consumer-group: bhukkad-platform-consumer
+        dlq-topic: bhukkad.platform.events.dlt
 
   monitoring:
     prometheus:

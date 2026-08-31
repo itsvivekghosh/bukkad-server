@@ -24,6 +24,7 @@ import com.bhukkad.repository.RestaurantOwnerRepository;
 import com.bhukkad.repository.UserRepository;
 import com.bhukkad.security.AccountFields;
 import com.bhukkad.security.AccountLookupService;
+import com.bhukkad.security.AuthResultCache;
 import com.bhukkad.security.AuthTokenService;
 import com.bhukkad.security.JwtTokenProvider;
 import com.bhukkad.referral.AffiliateService;
@@ -36,9 +37,11 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -46,9 +49,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
-@RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
@@ -68,6 +72,42 @@ public class AuthServiceImpl implements AuthService {
     private final PhoneVerificationService phoneVerificationService;
     private final ReferralService referralService;
     private final AffiliateService affiliateService;
+    private final Executor lowPriorityTaskExecutor;
+    private final AuthResultCache authResultCache;
+
+    public AuthServiceImpl(UserRepository userRepository,
+                           AccountLookupService accountLookupService,
+                           CustomerRepository customerRepository,
+                           RestaurantOwnerRepository restaurantOwnerRepository,
+                           DeliveryAgentRepository deliveryAgentRepository,
+                           PasswordEncoder passwordEncoder,
+                           JwtTokenProvider jwtTokenProvider,
+                           AuthenticationManager authenticationManager,
+                           SecurityEventLogger securityEventLogger,
+                           AuthTokenService authTokenService,
+                           NotificationService notificationService,
+                           PhoneVerificationService phoneVerificationService,
+                           ReferralService referralService,
+                           AffiliateService affiliateService,
+                           @Qualifier("lowPriorityTaskExecutor") Executor lowPriorityTaskExecutor,
+                           AuthResultCache authResultCache) {
+        this.userRepository = userRepository;
+        this.accountLookupService = accountLookupService;
+        this.customerRepository = customerRepository;
+        this.restaurantOwnerRepository = restaurantOwnerRepository;
+        this.deliveryAgentRepository = deliveryAgentRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.authenticationManager = authenticationManager;
+        this.securityEventLogger = securityEventLogger;
+        this.authTokenService = authTokenService;
+        this.notificationService = notificationService;
+        this.phoneVerificationService = phoneVerificationService;
+        this.referralService = referralService;
+        this.affiliateService = affiliateService;
+        this.lowPriorityTaskExecutor = lowPriorityTaskExecutor;
+        this.authResultCache = authResultCache;
+    }
 
     /**
      * Registers a new user account.
@@ -95,7 +135,12 @@ public class AuthServiceImpl implements AuthService {
 
         User user;
 
-        switch (request.getRole()) {
+        User.UserRole role = request.getRole();
+        if (role == null) {
+            role = User.UserRole.CUSTOMER;
+        }
+
+        switch (role) {
             case CUSTOMER:
                 Customer customer = new Customer();
                 customer.setEmail(request.getEmail());
@@ -120,7 +165,10 @@ public class AuthServiceImpl implements AuthService {
                 owner.setPhoneNumber(request.getPhoneNumber());
                 owner.setRole(User.UserRole.RESTAURANT_OWNER);
                 owner.setActive(true);
-                owner.setVerified(true);
+                // Not verified by default — admin must call verifyRestaurantOwner
+                // before the account can perform privileged operations. This
+                // prevents instant privileged-role escalation via self-registration.
+                owner.setVerified(false);
                 user = restaurantOwnerRepository.save(owner);
                 break;
 
@@ -152,11 +200,29 @@ public class AuthServiceImpl implements AuthService {
         log.info("Login attempt | Email: {}", request.getEmail());
 
         try {
-            authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
-            );
+            // Check auth cache first to skip expensive password hashing on
+            // repeat logins within the TTL window.
+            Authentication authentication = null;
+            String email = request.getEmail();
+            String password = request.getPassword();
 
-            User user = accountLookupService.byEmail(request.getEmail())
+            if (authResultCache != null) {
+                try {
+                    authentication = authResultCache.authenticate(email, password);
+                } catch (org.springframework.security.core.AuthenticationException e) {
+                    // Cache miss or invalid credentials - fall through to full auth
+                    log.debug("AUTH_CACHE_MISS | full auth required | email={}", email);
+                }
+            }
+
+            if (authentication == null) {
+                authentication = authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(email, password)
+                );
+            }
+
+            email = authentication.getName();
+            User user = accountLookupService.byEmail(email)
                     .orElseThrow(() -> new BusinessException("User not found"));
 
             if (!user.getActive()) {
@@ -168,9 +234,18 @@ public class AuthServiceImpl implements AuthService {
             // legacy scheme (plain BCrypt before the upgrade). The raw password is
             // known here because authenticationManager already verified it above;
             // this becomes a no-op once the stored hash carries the {argon2} prefix.
-            if (passwordEncoder.upgradeEncoding(AccountFields.password(user)) || !AccountFields.password(user).startsWith("{argon2}")) {
-                AccountFields.setPassword(user,passwordEncoder.encode(request.getPassword()));
-                userRepository.save(user);
+            String currentPassword = AccountFields.password(user);
+            if (currentPassword != null
+                    && (passwordEncoder.upgradeEncoding(currentPassword)
+                        || !currentPassword.startsWith("{argon2}"))) {
+                AccountFields.setPassword(user, passwordEncoder.encode(request.getPassword()));
+                // Async save to avoid blocking the login response on a write that
+                // does not affect token issuance.
+                CompletableFuture.runAsync(() -> userRepository.save(user), lowPriorityTaskExecutor)
+                        .exceptionally(e -> {
+                            log.error("Password rehash save failed for userId={}", user.getId(), e);
+                            return null;
+                        });
             }
 
             MDC.put(LoggingConstants.USER_ID, String.valueOf(user.getId()));
@@ -527,7 +602,8 @@ public class AuthServiceImpl implements AuthService {
         User user = accountLookupService.byEmail(email)
                 .orElseThrow(() -> new BusinessException("User not found"));
 
-        if (!passwordEncoder.matches(oldPassword, AccountFields.password(user))) {
+        String currentPassword = AccountFields.password(user);
+        if (currentPassword == null || !passwordEncoder.matches(oldPassword, currentPassword)) {
             throw new BusinessException("Current password is incorrect");
         }
 
@@ -539,7 +615,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("New password must be different");
         }
 
-        AccountFields.setPassword(user,passwordEncoder.encode(newPassword));
+        AccountFields.setPassword(user, passwordEncoder.encode(newPassword));
         userRepository.save(user);
         authTokenService.revokeAllRefreshTokens(user.getId());
         securityEventLogger.logPasswordChange(user.getId(), email);

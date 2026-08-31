@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: bhukkad-mysql-replica
   namespace: bhukkad
@@ -7,6 +7,7 @@ metadata:
     app: bhukkad
     component: mysql-replica
 spec:
+  serviceName: "bhukkad-mysql-replica"
   replicas: 1
   selector:
     matchLabels:
@@ -18,11 +19,50 @@ spec:
         app: bhukkad
         component: mysql-replica
     spec:
+      initContainers:
+        - name: init-replica
+          image: mysql:8.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for primary MySQL..."
+              until mysqladmin ping -h bhukkad-mysql -u root -p"$MYSQL_ROOT_PASSWORD" --silent; do
+                echo "Primary not ready, waiting..."
+                sleep 5
+              done
+              echo "Primary is ready, configuring replication..."
+              mysql -h bhukkad-mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "
+                CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '$REPLICATION_PASSWORD';
+                GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
+                FLUSH PRIVILEGES;
+                FLUSH TABLES WITH READ LOCK;
+                SHOW MASTER STATUS;
+              "
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: MYSQL_REPLICATION_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
       containers:
         - name: mysql-replica
           image: mysql:8.0
           ports:
             - containerPort: 3306
+              name: mysql
           env:
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
@@ -34,19 +74,65 @@ spec:
                 configMapKeyRef:
                   name: bhukkad-config
                   key: MYSQL_DATABASE
+            - name: MYSQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: MYSQL_REPLICATION_PASSWORD
           args:
-            - --server-id=2
-            - --log-bin=mysql-bin
-            - --relay-log=relay-bin
-            - --read-only=1
-            - --character-set-server=utf8mb4
-            - --collation-server=utf8mb4_unicode_ci
+            - --defaults-extra-file=/etc/mysql/conf.d/replica.cnf
+          resources:
+            requests:
+              cpu: 300m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           volumeMounts:
             - name: mysql-replica-data
               mountPath: /var/lib/mysql
+            - name: replica-config
+              mountPath: /etc/mysql/conf.d/replica.cnf
+              subPath: replica.cnf
       volumes:
-        - name: mysql-replica-data
-          emptyDir: {}
+        - name: replica-config
+          configMap:
+            name: bhukkad-mysql-replica-config
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-replica-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
 ---
 apiVersion: v1
 kind: Service
@@ -64,3 +150,4 @@ spec:
   ports:
     - port: 3306
       targetPort: 3306
+

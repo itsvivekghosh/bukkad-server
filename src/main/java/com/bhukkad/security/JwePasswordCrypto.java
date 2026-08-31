@@ -3,6 +3,7 @@ package com.bhukkad.security;
 import com.nimbusds.jose.JWEObject;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.RSADecrypter;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.security.interfaces.RSAPrivateKey;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Map;
 import java.util.UUID;
 
@@ -47,15 +47,21 @@ public class JwePasswordCrypto {
      */
     public DecryptedPayload decrypt(String jweString) {
         try {
-            RSAPrivateKey privateKey = keyService.getPrivateKey();
-            RSADecrypter decrypter = new RSADecrypter(privateKey);
-
             JWEObject jweObject = JWEObject.parse(jweString);
-            jweObject.decrypt(decrypter);
+
+            // Try the current key first; if a rotation happened within the
+            // grace window the payload may have been encrypted with the
+            // previous public key, so fall back to the previous private key.
+            if (!decryptWith(keyService.getPrivateKey(), jweObject)) {
+                RSAPrivateKey previous = keyService.previousPrivateKey();
+                if (previous != null && !decryptWith(previous, jweObject)) {
+                    throw new SecurityException("JWE decryption failed with current and previous keys");
+                }
+            }
 
             Payload payload = jweObject.getPayload();
             String json = payload.toString();
-            Map<String, Object> claims = MAPPER.readValue(json, Map.class);
+            Map<String, Object> claims = MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});
 
             String password = (String) claims.get("password");
             String nonce = (String) claims.get("nonce");
@@ -80,9 +86,21 @@ public class JwePasswordCrypto {
             log.debug("JWE_DECRYPTED | nonce={} | ts={}", nonce, timestamp);
             return new DecryptedPayload(password, nonce, timestamp);
 
+        } catch (SecurityException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("JWE_DECRYPT_FAILED | error={}", e.getMessage());
             throw new SecurityException("Failed to decrypt payload", e);
+        }
+    }
+
+    /** Attempts to decrypt with the given key; returns false when the key does not match. */
+    private boolean decryptWith(RSAPrivateKey key, JWEObject jweObject) {
+        try {
+            jweObject.decrypt(new RSADecrypter(key));
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 

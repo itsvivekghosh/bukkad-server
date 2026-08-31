@@ -1,6 +1,7 @@
 package com.bhukkad.mapper;
 
 import com.bhukkad.dto.response.MenuItemResponse;
+import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 
 import org.mapstruct.Mapper;
@@ -16,7 +17,7 @@ public abstract class MenuItemMapper {
     @Autowired
     protected ImageUrlResolver imageUrlResolver;
 
-    @Mapping(source = "category.name", target = "categoryName")
+    @Mapping(target = "categoryName", expression = "java(categoryName(menuItem))")
     @Mapping(target = "foodType", expression = "java(enumName(menuItem.getFoodType()))")
     @Mapping(target = "spiceLevel", expression = "java(enumName(menuItem.getSpiceLevel()))")
     @Mapping(target = "imageUrl", ignore = true)
@@ -43,5 +44,11 @@ public abstract class MenuItemMapper {
 
     protected String enumName(Enum<?> value) {
         return value != null ? value.name() : null;
+    }
+
+    protected String categoryName(MenuItem menuItem) {
+        return menuItem != null && menuItem.getCategory() != null
+                ? menuItem.getCategory().getName()
+                : null;
     }
 }

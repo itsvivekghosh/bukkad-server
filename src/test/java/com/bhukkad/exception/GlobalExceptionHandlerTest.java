@@ -133,7 +133,8 @@ class GlobalExceptionHandlerTest {
     @Test
     void handleHttpMessageNotReadable() {
         ResponseEntity<ApiResponse<Void>> resp = handler.handleHttpMessageNotReadable(
-                new org.springframework.http.converter.HttpMessageNotReadableException("bad body"), mock(WebRequest.class));
+                new org.springframework.http.converter.HttpMessageNotReadableException("bad body",
+                        mock(org.springframework.http.HttpInputMessage.class)), mock(WebRequest.class));
         assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
 

@@ -29,6 +29,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
+// Mockito generic matchers on RedisTemplate.execute produce benign unchecked warnings
+@SuppressWarnings("unchecked")
 class AlertServiceTest {
 
     @Mock

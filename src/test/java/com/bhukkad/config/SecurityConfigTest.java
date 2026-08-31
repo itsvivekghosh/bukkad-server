@@ -68,7 +68,8 @@ class SecurityConfigTest {
         // The PasswordEncoder bean now lives in PasswordEncoderConfig; verify the
         // real bean (not the mock) hashes new passwords with Argon2id while
         // still verifying legacy plain-BCrypt hashes.
-        PasswordEncoder encoder = new PasswordEncoderConfig().passwordEncoder();
+        PasswordEncoder encoder = new PasswordEncoderConfig().passwordEncoder(
+                new com.bhukkad.config.PasswordEncoderProperties());
         assertInstanceOf(DelegatingPasswordEncoder.class, encoder);
 
         String encoded = encoder.encode("secret");
