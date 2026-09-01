@@ -140,7 +140,7 @@ public class OutboxEventProcessor {
     private void processAndFinalize(OutboxEvent event) {
         try (AutoCloseable span = TracingBridge.startSpan("outbox-" + event.getEventType())) {
             publish(event);
-            externalEventBridge.forward(event);
+            externalEventBridge.forwardForResult(event);
             finalizeSuccess(event);
         } catch (Exception ex) {
             finalizeFailure(event, ex);

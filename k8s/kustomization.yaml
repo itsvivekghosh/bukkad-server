@@ -11,6 +11,12 @@ resources:
   - postgres/configmap.yaml
   - postgres/deployment.yaml
   - postgres/service.yaml
+  # P8 read scale-out: read-replica StatefulSet + Service (streams from the
+  # primary via the `repl` role; read-only workloads route here).
+  - postgres/read-replica.yaml
+  # P8 connection pooler: pgbouncer caps per-app Hikari sockets to the primary.
+  - pgbouncer/deployment.yaml
+  - pgbouncer/service.yaml
   - redis/configmap.yaml
   - redis/pvc.yaml
   - redis/deployment.yaml
@@ -30,6 +36,34 @@ resources:
   - app/service.yaml
   - app/pdb.yaml
   - app/hpa.yaml
+  - restaurant/deployment.yaml
+  - restaurant/service.yaml
+  - restaurant/pdb.yaml
+  - restaurant/hpa.yaml
+  - identity/deployment.yaml
+  - identity/service.yaml
+  - identity/pdb.yaml
+  - identity/hpa.yaml
+  - order/deployment.yaml
+  - order/service.yaml
+  - order/pdb.yaml
+  - order/hpa.yaml
+  - payment/deployment.yaml
+  - payment/service.yaml
+  - payment/pdb.yaml
+  - payment/hpa.yaml
+  - delivery/deployment.yaml
+  - delivery/service.yaml
+  - delivery/pdb.yaml
+  - delivery/hpa.yaml
+  - notification/deployment.yaml
+  - notification/service.yaml
+  - notification/pdb.yaml
+  - notification/hpa.yaml
+  - admin-analytics/deployment.yaml
+  - admin-analytics/service.yaml
+  - admin-analytics/pdb.yaml
+  - admin-analytics/hpa.yaml
   - logging/fluent-bit-configmap.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml

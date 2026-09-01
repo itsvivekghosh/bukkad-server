@@ -26,6 +26,10 @@ public final class TraceContext {
         return MDC.get(TRACE_ID);
     }
 
+    public static String currentSpanId() {
+        return MDC.get(SPAN_ID);
+    }
+
     public static String currentRequestId() {
         return MDC.get(REQUEST_ID);
     }
@@ -39,6 +43,12 @@ public final class TraceContext {
     public static void putRequestId(String requestId) {
         if (requestId != null && !requestId.isBlank()) {
             MDC.put(REQUEST_ID, requestId);
+        }
+    }
+
+    public static void putSpanId(String spanId) {
+        if (spanId != null && !spanId.isBlank()) {
+            MDC.put(SPAN_ID, spanId);
         }
     }
 

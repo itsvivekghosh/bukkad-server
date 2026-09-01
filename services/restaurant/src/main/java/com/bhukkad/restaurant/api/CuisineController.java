@@ -15,13 +15,18 @@ public class CuisineController {
 
     private final CuisineService cuisineService;
 
+    /**
+     * Returns the cuisine list wrapped in the standard {@link ApiResponse}
+     * envelope — identical to the monolith's {@code /api/v1/cuisines} contract
+     * so flipping the gateway route never breaks clients.
+     */
     @GetMapping
-    public List<Cuisine> all() {
-        return cuisineService.all();
+    public ApiResponse<List<Cuisine>> all() {
+        return ApiResponse.success(cuisineService.all());
     }
 
     @PostMapping
-    public Cuisine create(@RequestParam @NotBlank String name) {
-        return cuisineService.create(name);
+    public ApiResponse<Cuisine> create(@RequestParam @NotBlank String name) {
+        return ApiResponse.success(cuisineService.create(name));
     }
 }

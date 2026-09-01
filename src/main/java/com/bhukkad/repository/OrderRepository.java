@@ -151,7 +151,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query(SUMMARY_SELECT +
             "WHERE o.customer.id = :customerId " +
-            "AND (:cursorCreatedAt IS NULL OR o.createdAt < :cursorCreatedAt " +
+            "AND (o.createdAt < :cursorCreatedAt " +
             "OR (o.createdAt = :cursorCreatedAt AND o.id < :cursorId)) " +
             "ORDER BY o.createdAt DESC, o.id DESC")
     List<OrderSummaryResponse> findCustomerOrderSummariesAfterCursor(
@@ -169,7 +169,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query(SUMMARY_SELECT +
             "WHERE o.customer.id = :customerId " +
             "AND o.status = 'SCHEDULED' " +
-            "AND (:cursorCreatedAt IS NULL OR o.scheduledAt < :cursorCreatedAt " +
+            "AND (o.scheduledAt < :cursorCreatedAt " +
             "OR (o.scheduledAt = :cursorCreatedAt AND o.id < :cursorId)) " +
             "ORDER BY o.scheduledAt ASC, o.id ASC")
     List<OrderSummaryResponse> findCustomerScheduledOrderSummariesAfterCursor(
@@ -180,7 +180,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query(SUMMARY_SELECT +
             "WHERE o.restaurant.id = :restaurantId " +
-            "AND (:cursorCreatedAt IS NULL OR o.createdAt < :cursorCreatedAt " +
+            "AND (o.createdAt < :cursorCreatedAt " +
             "OR (o.createdAt = :cursorCreatedAt AND o.id < :cursorId)) " +
             "ORDER BY o.createdAt DESC, o.id DESC")
     List<OrderSummaryResponse> findRestaurantOrderSummariesAfterCursor(
@@ -191,7 +191,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query(SUMMARY_SELECT +
             "WHERE o.deliveryAgent.id = :agentId " +
-            "AND (:cursorCreatedAt IS NULL OR o.createdAt < :cursorCreatedAt " +
+            "AND (o.createdAt < :cursorCreatedAt " +
             "OR (o.createdAt = :cursorCreatedAt AND o.id < :cursorId)) " +
             "ORDER BY o.createdAt DESC, o.id DESC")
     List<OrderSummaryResponse> findDeliveryAgentOrderSummariesAfterCursor(
@@ -314,7 +314,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     // Restaurant analytics aggregates (daily revenue + hourly volume).
     //
     // Implemented as native queries because:
-    //  - JPQL has no portable DATE()/HOUR() functions
+    //  - JPQL has no portable EXTRACT(HOUR FROM ...) equivalent
     //  - this project deliberately avoids vendor date functions elsewhere
     //  - a single grouped query replaces the prior per-day loop (N round-trips)
     // ---------------------------------------------------------------------
@@ -351,13 +351,13 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
      * @param startDate    inclusive lower bound on {@code created_at}
      * @return aggregate rows ordered by hour ascending
      */
-    @Query(value = "SELECT HOUR(created_at) AS hr, COUNT(*) AS cnt " +
+    @Query(value = "SELECT EXTRACT(HOUR FROM created_at) AS hr, COUNT(*) AS cnt " +
             "FROM orders " +
             "WHERE restaurant_id = :restaurantId " +
             "AND status = 'DELIVERED' " +
             "AND created_at >= :startDate " +
-            "GROUP BY HOUR(created_at) " +
-            "ORDER BY HOUR(created_at) ASC", nativeQuery = true)
+            "GROUP BY EXTRACT(HOUR FROM created_at) " +
+            "ORDER BY EXTRACT(HOUR FROM created_at) ASC", nativeQuery = true)
     List<Object[]> findHourlyDeliveredCounts(@Param("restaurantId") Long restaurantId,
                                              @Param("startDate") LocalDateTime startDate);
 
@@ -367,11 +367,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
      *
      * @return rows of {@code [hourOfDay(int), count(long)]} ordered by hour
      */
-    @Query(value = "SELECT HOUR(created_at) AS hr, COUNT(*) AS cnt " +
+    @Query(value = "SELECT EXTRACT(HOUR FROM created_at) AS hr, COUNT(*) AS cnt " +
             "FROM orders " +
             "WHERE created_at >= :startDate " +
-            "GROUP BY HOUR(created_at) " +
-            "ORDER BY HOUR(created_at) ASC", nativeQuery = true)
+            "GROUP BY EXTRACT(HOUR FROM created_at) " +
+            "ORDER BY EXTRACT(HOUR FROM created_at) ASC", nativeQuery = true)
     List<Object[]> findPlatformHourlyOrderCounts(@Param("startDate") LocalDateTime startDate);
 
     /** Counts orders placed by a customer since the given timestamp (recovery/risk queries). */

@@ -60,9 +60,22 @@ public class SagaCoordinator {
                 saga.updateStep(step.name(), SagaInstance.STATUS_STEP_COMPLETED);
                 sagaInstanceRepository.save(saga);
 
-                String compensationPayload = step.action().execute(step.name(), payload);
                 SagaStep persisted = findStep(saga, i);
-                persisted.markCompleted(compensationPayload);
+                try {
+                    String compensationPayload = step.action().execute(step.name(), payload);
+                    persisted.markCompleted(compensationPayload);
+                } catch (RuntimeException ex) {
+                    // The step's action threw after it may already have performed
+                    // side effects. Persist the failure on THIS step row (previously
+                    // left PENDING with no error) so saga_steps records exactly which
+                    // step failed and why, then unwind to compensation. The failing
+                    // step is intentionally NOT compensated — only prior completed steps are.
+                    persisted.markFailed(ex.getMessage() != null
+                            ? ex.getMessage()
+                            : ex.getClass().getSimpleName());
+                    sagaStepRepository.save(persisted);
+                    throw ex;
+                }
                 sagaStepRepository.save(persisted);
                 log.debug("SAGA_STEP_COMPLETED | sagaId={} | step={}", sagaId, step.name());
             }

@@ -21,10 +21,35 @@ public class ExternalEventBridge {
             return;
         }
         if (externalEventsProperties.isKafkaEnabled()) {
-            kafkaPublisher.ifAvailable(publisher -> publisher.publish(event));
+            kafkaPublisher.ifAvailable(p -> p.publish(event));
             return;
         }
         log.info("EXTERNAL_EVENT | type={} | aggregateId={} | payload={}",
                 event.getEventType(), event.getAggregateId(), event.getPayload());
+    }
+
+    /**
+     * Synchronous forward used by the outbox poller so an event is only
+     * marked PUBLISHED after the external system acknowledges receipt.
+     * Falls back to fire-and-forget ({@link #forward}) for non-Kafka backends.
+     */
+    public void forwardForResult(OutboxEvent event) {
+        if (!externalEventsProperties.isEnabled()) {
+            return;
+        }
+        if (externalEventsProperties.isKafkaEnabled()) {
+            kafkaPublisher.ifAvailable(publisher -> {
+                try {
+                    publisher.publishForResult(event);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for Kafka ack", e);
+                } catch (Exception e) {
+                    throw new IllegalStateException("Failed to publish event to Kafka: " + event.getEventType(), e);
+                }
+            });
+            return;
+        }
+        forward(event);
     }
 }

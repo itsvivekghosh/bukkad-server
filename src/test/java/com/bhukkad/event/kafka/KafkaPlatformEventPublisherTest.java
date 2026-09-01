@@ -22,7 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class KafkaPlatformEventPublisherTest {
@@ -98,5 +100,27 @@ class KafkaPlatformEventPublisherTest {
         publisher.publish(event);
 
         verify(kafkaTemplate).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    void publishForResult_waitsForSendResult() throws Exception {
+        org.apache.kafka.common.TopicPartition tp = new org.apache.kafka.common.TopicPartition("topic", 0);
+        org.apache.kafka.clients.producer.RecordMetadata metadata =
+                new org.apache.kafka.clients.producer.RecordMetadata(
+                        tp, 0L, 0L, 0L, null, 0, 0);
+        org.apache.kafka.clients.producer.ProducerRecord<String, String> record =
+                new org.apache.kafka.clients.producer.ProducerRecord<>("topic", "key", "value");
+        org.springframework.kafka.support.SendResult<String, String> sendResult =
+                new org.springframework.kafka.support.SendResult<>(record, metadata);
+
+        java.util.concurrent.CompletableFuture<org.springframework.kafka.support.SendResult<String, String>> future =
+                mock(java.util.concurrent.CompletableFuture.class);
+        when(future.get(30, java.util.concurrent.TimeUnit.SECONDS)).thenReturn(sendResult);
+        when(kafkaTemplate.send(any(ProducerRecord.class))).thenReturn(future);
+
+        org.springframework.kafka.support.SendResult<String, String> result = publisher.publishForResult(event());
+
+        assertNotNull(result);
+        verify(future).get(30, java.util.concurrent.TimeUnit.SECONDS);
     }
 }

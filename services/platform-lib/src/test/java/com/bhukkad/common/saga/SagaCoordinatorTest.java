@@ -10,9 +10,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.mockito.ArgumentCaptor;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -138,9 +141,47 @@ class SagaCoordinatorTest {
         when(instanceRepository.findBySagaId("saga-6")).thenReturn(null);
 
         assertThatThrownBy(() -> coordinator().executeSaga("ORDER_CREATION", "saga-6", "{}", List.of()))
-                .isInstanceOf(BusinessException.class)
+                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("at least one step");
     }
+
+    @Test
+    void executeSaga_stepFailure_marksFailedStepFailedWithErrorMessage() {
+        SagaInstance saga = SagaInstance.start("ORDER_CREATION", "saga-7", "{}");
+        stubLookups(saga);
+
+        SagaAction step0 = new SagaAction() {
+            @Override public String execute(String n, String p) { return "c0"; }
+            @Override public void compensate(String n, String p, String c) { }
+        };
+        SagaAction step1 = new SagaAction() {
+            @Override public String execute(String n, String p) {
+                throw new IllegalStateException("pay failed");
+            }
+            @Override public void compensate(String n, String p, String c) { }
+        };
+
+        SagaInstance result = coordinator().executeSaga("ORDER_CREATION", "saga-7", "{}",
+                List.of(SagaStepDefinition.of("RESERVE", step0), SagaStepDefinition.of("PAY", step1)));
+
+        // Previously-completed step0 is compensated; saga ends COMPENSATED.
+        assertThat(result.getStatus()).isEqualTo(SagaInstance.STATUS_COMPENSATED);
+
+        // Regression: the failing step must be persisted as FAILED with its
+        // error message (previously left PENDING with no error), so saga_steps
+        // records exactly which step failed and why.
+        ArgumentCaptor<SagaStep> captor = ArgumentCaptor.forClass(SagaStep.class);
+        verify(stepRepository, atLeast(1)).save(captor.capture());
+        Optional<SagaStep> failed = captor.getAllValues().stream()
+                .filter(s -> SagaStep.STATUS_FAILED.equals(s.getStatus()))
+                .findFirst();
+        assertThat(failed)
+                .as("failing step persisted as FAILED with error message")
+                .isPresent();
+        assertThat(failed.get().getStepOrder()).isEqualTo(1);
+        assertThat(failed.get().getErrorMessage()).contains("pay failed");
+    }
+
 
     private static SagaAction action(List<String> order, String exec, String compensation) {
         return new SagaAction() {

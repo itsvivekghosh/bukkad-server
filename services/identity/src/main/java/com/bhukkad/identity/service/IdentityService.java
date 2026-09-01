@@ -68,6 +68,24 @@ public class IdentityService {
         return new LoginResult(token, customer.getId(), customer.getFullName());
     }
 
+    /**
+     * Rotates a still-valid access token into a fresh one. The presented token
+     * is verified (signature + expiry) via introspection; if it is valid, a new
+     * token is issued for the same customer. Invalid/expired tokens are rejected
+     * with the same 404-as-401 response the login path uses (no user enumeration).
+     */
+    @Transactional(readOnly = true)
+    public LoginResult refresh(String token) {
+        JwtService.IntrospectionResult result = jwtService.introspect(token);
+        if (!result.valid() || result.customerId() == null) {
+            throw new ResourceNotFoundException("Invalid or expired token");
+        }
+        Customer customer = customerRepository.findById(result.customerId())
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid or expired token"));
+        String freshToken = jwtService.issue(customer.getId(), customer.getEmail());
+        return new LoginResult(freshToken, customer.getId(), customer.getFullName());
+    }
+
     public record LoginResult(String token, Long customerId, String fullName) {
     }
 }

@@ -67,14 +67,29 @@ public class SagaCoordinator {
         try {
             for (int i = 0; i < steps.size(); i++) {
                 SagaStepDefinition step = steps.get(i);
-                saga.updateStep(step.name(), STATUS_STEP_COMPLETED);
+                // Fetch the persisted step so we can mark it failed on execution error
+                SagaStep persisted = findStep(saga, i);
+                saga.setCurrentStep(step.name());
                 sagaEventRepository.save(saga);
 
-                String compensationPayload = step.action().execute(step.name(), payload);
-                SagaStep persisted = findStep(saga, i);
-                persisted.markCompleted(compensationPayload);
-                sagaStepRepository.save(persisted);
-                log.debug("SAGA_STEP_COMPLETED | sagaId={} | step={}", sagaId, step.name());
+                try {
+                    String compensationPayload = step.action().execute(step.name(), payload);
+                    persisted.markCompleted(compensationPayload);
+                    sagaStepRepository.save(persisted);
+                    saga.updateStep(step.name(), STATUS_STEP_COMPLETED);
+                    sagaEventRepository.save(saga);
+                    log.debug("SAGA_STEP_COMPLETED | sagaId={} | step={}", sagaId, step.name());
+                } catch (RuntimeException ex) {
+                    // Mark the failed step with the error before unwinding compensation.
+                    // The step is NOT compensated (matches intent: it never completed).
+                    persisted.markFailed(ex.getMessage());
+                    sagaStepRepository.save(persisted);
+                    log.warn("SAGA_STEP_FAILED | sagaId={} | step={} | error={}",
+                            sagaId, step.name(), ex.getMessage());
+                    saga.updateStep(step.name(), STATUS_FAILED);
+                    sagaEventRepository.save(saga);
+                    return compensate(saga, steps, i, payload, ex);
+                }
             }
             saga.markCompleted();
             sagaEventRepository.save(saga);

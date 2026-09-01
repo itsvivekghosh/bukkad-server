@@ -33,7 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 /**
@@ -114,7 +113,7 @@ class OrderServiceBatchReadTest {
     void getCustomerOrdersByCursor_firstPage_noNextCursor() {
         when(securityUtils.getCurrentUserId()).thenReturn(42L);
         List<OrderSummaryResponse> batch = List.of(summary(1L), summary(2L));
-        when(orderRepository.findCustomerOrderSummariesAfterCursor(eq(42L), isNull(), isNull(), any()))
+        when(orderRepository.findCustomerOrderSummariesAfterCursor(eq(42L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any()))
                 .thenReturn(batch);
 
         var result = service.getCustomerOrdersByCursor(null, 10);
@@ -129,7 +128,7 @@ class OrderServiceBatchReadTest {
         when(securityUtils.getCurrentUserId()).thenReturn(42L);
         // size+1 rows returned => one extra row signals another page
         List<OrderSummaryResponse> batch = List.of(summary(1L), summary(2L), summary(3L));
-        when(orderRepository.findCustomerOrderSummariesAfterCursor(eq(42L), isNull(), isNull(), any()))
+        when(orderRepository.findCustomerOrderSummariesAfterCursor(eq(42L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any()))
                 .thenReturn(batch);
 
         var result = service.getCustomerOrdersByCursor(null, 2);
@@ -160,7 +159,7 @@ class OrderServiceBatchReadTest {
         owner.setId(7L);
         restaurant.setOwner(owner);
         when(restaurantRepository.findByIdWithDetails(10L)).thenReturn(Optional.of(restaurant));
-        when(orderRepository.findRestaurantOrderSummariesAfterCursor(eq(10L), isNull(), isNull(), any()))
+        when(orderRepository.findRestaurantOrderSummariesAfterCursor(eq(10L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any()))
                 .thenReturn(List.of());
 
         var result = service.getRestaurantOrdersByCursor(10L, null, 5);
@@ -187,7 +186,7 @@ class OrderServiceBatchReadTest {
         agent.setId(31L);
         agent.setRole(User.UserRole.DELIVERY_AGENT);
         when(securityUtils.getCurrentUser()).thenReturn(agent);
-        when(orderRepository.findDeliveryAgentOrderSummariesAfterCursor(eq(31L), isNull(), isNull(), any()))
+        when(orderRepository.findDeliveryAgentOrderSummariesAfterCursor(eq(31L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any()))
                 .thenReturn(List.of(summary(9L)));
 
         var result = service.getDeliveryAgentOrdersByCursor(null, null, 5);

@@ -39,6 +39,10 @@ public class SecurityConfig {
                         .requestMatchers("/health/**", "/actuator/**").permitAll()
                         // identity issues the tokens: register/login are public.
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        // Token introspection (/internal/verify) must be callable
+                        // WITHOUT a token — it reports whether a presented token is
+                        // valid, which is the whole point of introspection.
+                        .requestMatchers("/api/v1/internal/**").permitAll()
                         .anyRequest().authenticated());
 
         PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();

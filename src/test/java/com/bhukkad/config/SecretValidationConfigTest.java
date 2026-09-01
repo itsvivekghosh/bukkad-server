@@ -79,4 +79,22 @@ class SecretValidationConfigTest {
 
         assertThrows(IllegalStateException.class, config::validateRequiredSecrets);
     }
+
+    /**
+     * Regression guard for the dev/staging JWT bootstrap secret. HS512 rejects
+     * keys shorter than 512 bits with a {@code WeakKeyException} at token-signing
+     * time; the operational value shipped in {@code docker/.env.dev} and the
+     * in-code default in {@code application-dev.yml} must therefore decode to at
+     * least 64 bytes. This test pins that invariant so the secret is never
+     * accidentally downgraded back to the old 384-bit value.
+     */
+    @Test
+    void devProfileJwtSecret_mustDecodeToAtLeast512Bits() {
+        // application-dev.yml default (also used by docker-compose.dev.yml).
+        String devDefaultSecret =
+                "SYWYJMIn1nll7QKTf7jHdW+93p7xJ1RfXGtK35mgeV8w9I5oFshm9OhEJJoLn2T0ZpYPlY8auXHyxjLbofSIOA";
+        int decodedBytes = Base64.getDecoder().decode(devDefaultSecret).length;
+        assertTrue(decodedBytes >= 64,
+                "dev JWT secret must decode to >= 64 bytes (512 bits) for HS512, got " + decodedBytes);
+    }
 }

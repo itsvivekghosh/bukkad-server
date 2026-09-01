@@ -28,6 +28,7 @@ public class RiderEarningService {
         earning.setAmount(PriceCalculator.roundToTwoDecimals(
                 riderEarningsProperties.getPerDelivery()
                         + (order.getTipAmount() != null ? order.getTipAmount() : 0.0)));
+        earning.setBonusAmount(0.0);
         earning.setStatus(RiderEarning.EarningStatus.PENDING);
         riderEarningRepository.save(earning);
     }

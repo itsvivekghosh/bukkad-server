@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.bhukkad</groupId>
+		<artifactId>bhukkad-microservices</artifactId>
+		<version>1.0.0</version>
+	</parent>
+
+	<artifactId>gateway</artifactId>
+	<name>Bhukkad API Gateway</name>
+	<description>Edge gateway (P0). A single reactive Spring Cloud Gateway that
+		fronts the monolith and newly-cut services. Traffic is split by path so
+		strangler flips are route-only edits; auth is passthrough (each service
+		validates its own JWT via platform-lib's PlatformJwtValidator).</description>
+
+	<dependencies>
+		<!-- Shared platform infra: actuator health/metrics wiring, tracing,
+		     error model. No web/datasource; web-starter is optional in
+		     platform-lib so this module stays purely reactive (WebFlux). -->
+		<dependency>
+			<groupId>com.bhukkad</groupId>
+			<artifactId>platform-lib</artifactId>
+		</dependency>
+
+		<!-- Spring Cloud Gateway (WebFlux + Netty). Deliberately NOT
+		     spring-boot-starter-web (Servlet) — the gateway is a reactive edge. -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-gateway</artifactId>
+		</dependency>
+
+		<!-- Health/liveness/readiness + metrics for probes + Prometheus scrape. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+
+		<!-- Test deps inherited via spring-boot-starter-test (JUnit 5, WebTestClient, AssertJ). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+		</plugins>
+	</build>
+</project>

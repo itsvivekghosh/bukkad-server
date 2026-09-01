@@ -14,14 +14,20 @@ import java.util.Date;
 
 /**
  * Issues and verifies signed JWTs for authenticated customers. Uses HS256 with
- * the configured secret (plan §8: HS512 shared-secret only intra-monolith; a
- * per-service JWKS pair is the P8 hardening step).
+ * the configured secret (plan §8: HMAC shared-secret before P8 JWKS hardening).
  */
 @Service
 @RequiredArgsConstructor
 public class JwtService {
 
     private final JwtProperties properties;
+
+    /**
+     * Result of token introspection (RFC 7662). Returned as a 200 OK with
+     * {@code valid: false} for invalid/expired tokens — never throws.
+     */
+    public record IntrospectionResult(boolean valid, Long customerId, String email, String scope, Instant expiresAt) {
+    }
 
     public String issue(Long customerId, String email) {
         try {
@@ -62,6 +68,33 @@ public class JwtService {
             throw e;
         } catch (Exception e) {
             throw new IllegalArgumentException("JWT invalid", e);
+        }
+    }
+
+    /**
+     * Token introspection (RFC 7662 style): verifies signature and expiry and
+     * returns the claims, or {@code valid: false} for any malformed/expired
+     * token. Never throws — this is the backend for {@code /internal/verify}.
+     */
+    public IntrospectionResult introspect(String token) {
+        try {
+            SignedJWT jwt = SignedJWT.parse(token);
+            if (!jwt.verify(new MACVerifier(properties.secret()))) {
+                return new IntrospectionResult(false, null, null, null, null);
+            }
+            JWTClaimsSet claims = jwt.getJWTClaimsSet();
+            Instant expiresAt = claims.getExpirationTime() == null ? null : claims.getExpirationTime().toInstant();
+            if (expiresAt == null || expiresAt.isBefore(Instant.now())) {
+                return new IntrospectionResult(false, null, null, null, null);
+            }
+            return new IntrospectionResult(
+                    true,
+                    Long.parseLong(claims.getSubject()),
+                    claims.getStringClaim("email"),
+                    claims.getStringClaim("scope"),
+                    expiresAt);
+        } catch (Exception e) {
+            return new IntrospectionResult(false, null, null, null, null);
         }
     }
 }

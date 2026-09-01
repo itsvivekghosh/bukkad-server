@@ -27,7 +27,7 @@ public interface RestaurantSettlementRepository extends JpaRepository<Restaurant
     @Query("""
             SELECT s FROM RestaurantSettlement s
             WHERE s.restaurant.id = :restaurantId
-            AND (:cursorCreatedAt IS NULL OR s.createdAt < :cursorCreatedAt
+            AND (s.createdAt < :cursorCreatedAt
                  OR (s.createdAt = :cursorCreatedAt AND s.id < :cursorId))
             ORDER BY s.createdAt DESC, s.id DESC
             """)

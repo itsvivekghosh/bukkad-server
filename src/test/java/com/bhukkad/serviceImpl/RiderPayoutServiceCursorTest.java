@@ -12,6 +12,7 @@ import com.bhukkad.repository.DeliveryAgentRepository;
 import com.bhukkad.repository.RiderEarningRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.DeliveryService;
+import com.bhukkad.util.CursorUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -33,7 +34,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,7 +63,7 @@ class RiderPayoutServiceCursorTest {
         RiderEarning older = earning(100L, LocalDateTime.now().minusDays(2));
         RiderEarning newer = earning(101L, LocalDateTime.now().minusDays(1));
         when(riderEarningRepository.findByAgentIdAfterCursor(
-                eq(42L), isNull(), isNull(), any(Pageable.class)))
+                eq(42L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class)))
                 .thenReturn(List.of(newer, older));
 
         CursorPagedResponse<RiderPayoutResponse> page = service.getPayoutHistoryByCursor(null, 1);
@@ -77,7 +77,7 @@ class RiderPayoutServiceCursorTest {
     void lastPage_noCursor() {
         when(securityUtils.getCurrentUserId()).thenReturn(42L);
         when(riderEarningRepository.findByAgentIdAfterCursor(
-                eq(42L), isNull(), isNull(), any(Pageable.class)))
+                eq(42L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class)))
                 .thenReturn(List.of(earning(100L, LocalDateTime.now())));
 
         CursorPagedResponse<RiderPayoutResponse> page = service.getPayoutHistoryByCursor(null, 5);

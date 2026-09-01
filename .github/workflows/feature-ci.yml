@@ -19,6 +19,28 @@ jobs:
     name: Build & Test
     uses: ./.github/workflows/ci.yml
 
+  services-build:
+    name: Services Reactor Verify
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: chmod +x mvnw
+      - name: Build + verify services reactor (platform-lib + all services)
+        run: ./mvnw -B -f services/pom.xml verify
+      - name: Upload services test reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: services-test-reports
+          path: services/*/target/surefire-reports/
+          retention-days: 14
+
   architecture-tests:
     name: Architecture Tests
     runs-on: ubuntu-latest

@@ -141,10 +141,12 @@ Cross-domain reads are satisfied by **projected read models** maintained from ev
 
 ### P1 — Finalize `platform-lib` Runtime (1 week)
 **Goal:** outbox relay + saga runtime are real and tested.
-1. Implement the **Outbox relay**: a scheduled/transactional `OutboxRelay` that reads unsent `OutboxEvent` rows and publishes to `bhukkad.platform.events`, then marks sent (idempotent, at-least-once).
-2. Implement **`SagaCoordinator`** execution: persist `SagaInstance` + `SagaStep`; execute steps; on failure run compensations in reverse; emit saga-state events.
+1. Implement the **Outbox relay**: `OutboxPollPublisher` claims PENDING rows via `findPendingForProcessing` (`FOR UPDATE SKIP LOCKED`, horizontally safe), publishes via `KafkaPlatformEventPublisher` to `bhukkad.platform.events`, and flips rows to `PUBLISHED` on ack or keeps them `PROCESSING` (re-queueable by stale-recovery) on failure — with `retryCount`/`lastError` tracking.
+2. Implement **`SagaCoordinator`** execution: persist `SagaInstance` + `SagaStep`; execute steps; on failure mark the failing step `FAILED` + error before unwinding; on success mark `COMPLETED`; compensations in reverse; replay of terminal sagas is a no-op.
 3. Add `resilience4j` default config to `platform-lib` autoconfig (timeouts, circuit-breaker, retry, bulkhead).
-4. **Exit:** a unit test publishes via outbox → appears on topic; a saga happy-path + one compensation path pass.
+4. Wire `OutboxPlatformConfig` (conditional on `app.events.external.enabled=true`).
+5. **Exit:** a unit test publishes via outbox → appears on topic; a saga happy-path + one compensation path pass; **end-to-end Testcontainers** (`OutboxPollPublisherIntegrationTest` against Redpanda + Postgres) verifies claim→publish→`PUBLISHED` and the failure path.
+6. **Status:** ✅ P1 complete and tested. `OutboxPollPublisher` (claims PENDING→PROCESSING via `FOR UPDATE SKIP LOCKED`, publishes via `publishForResult`, flips to `PUBLISHED` on ack / keeps `PROCESSING` re-queueable on failure, re-queues stale rows) + `KafkaPlatformEventPublisher.publishForResult` (sync acked send) + `OutboxProperties`/`OutboxPlatformConfig` (gated on `app.events.external.enabled`). 15 new tests (9 unit + 2 Testcontainers Redpanda+Postgres integration + 4 publisher). Full platform-lib = 124 tests, whole services reactor = 501 tests, monolith = 3319 tests — all green.
 
 ### P2 — Per-Service Data Split (DB-per-service) (2–3 weeks)
 For **every** service:
@@ -262,11 +264,13 @@ Traffic moves by editing gateway predicates only — no service redeploy. Keep t
 
 ## 7. Data Migration Runbook (per service)
 
-> **Correction required:** `docs/pgloader/*.load` currently read `FROM mysql://...`. The monolith is PostgreSQL now, so update the source to `FROM postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:5432/bhukkad` (the monolith DB) and keep the per-service `INTO postgresql://.../bhukkad_<svc>` target.
+> **Done (P2 tooling corrected):** `docs/pgloader/*.load` now read `FROM postgresql://${MONOLITH_PG_USER}:${MONOLITH_PG_PASSWORD}@${MONOLITH_PG_HOST}:5432/bhukkad` (the monolith's actual PostgreSQL DB) — the old `FROM mysql://...` was a stale artifact and has been rewritten. The MySQL-specific `CAST type ...` blocks were removed (invalid/irrelevant for PG→PG), and an explicit `-- Usage:` block with PG env vars was added to every file.
+
+**Ownership collision fixed:** `restaurant_owners` (a user/auth table holding `password_hash`/`totp`) was claimed by **both** `identity.load` (`~/^restaurant_owners$/`) and `restaurants.load` (`/^restaurant/` matches `restaurant_owners`). `restaurants.load` now enumerates its tables explicitly and **excludes** `restaurant_owners`; `identity.load` keeps sole ownership. This is the database-per-service invariant (no shared data).
 
 Steps:
 1. Snapshot monolith DB.
-2. Run corrected `pgloader/<svc>.load` → copies owned tables into `bhukkad_<svc>` (idempotent, re-runnable).
+2. Run corrected `pgloader/<svc>.load` → copies owned tables into `bhukkad_<svc>` (idempotent, re-runnable). `pgloader` itself is not installed locally; run in CI/ops container.
 3. Service applies its Flyway `V2+` (adds columns/constraints absent in the raw copy).
 4. **Dual-write:** during cutover the live writer emits outbox events; the target consumes → convergence.
 5. **Backfill** read models from events.
@@ -321,7 +325,8 @@ Steps:
 
 ## 12. Sequencing Summary
 ```
-P0 Foundation/Gateway → P1 platform-lib runtime → P2 data split
+P0 Foundation/Gateway → P1 platform-lib runtime (DONE: outbox relay + saga fix)
+  → P2 data split (pgloader corrected; ownership collision fixed)
   → P3 identity → P4 restaurant → P6 payment/delivery/notification (parallelizable)
   → P5 order (after its dependents) → P7 admin-analytics + monolith teardown
   → P8 Scale-Out (per service, progressive): HPA → read replicas → sharding (hot only)
@@ -423,4 +428,362 @@ pgloader docs/pgloader/restaurants.load
 - Confirm whether `admin-analytics` needs write access or purely read models.
 - Decide final topic taxonomy (currently `bhukkad.platform.events` + `.dlt`); consider per-domain topics for isolation.
 - Confirm Istio adoption timing (post-P3 east-west mTLS).
-- **Scale-out:** install `metrics-server` + `prometheus-adapter` (for custom-metric HPA); choose managed Postgres vs in-cluster operator (Patroni/CloudNativePG) for replicas; pick shard key per hot service; **delete stale `k8s/mysql/` (PostgreSQL-only now)**.
+- **Scale-out:** install `metrics-server` + `prometheus-adapter` (for custom-metric HPA); choose managed Postgres vs in-cluster operator (Patroni/CloudNativePG) for replicas; pick shard key per hot service; **delete stale `k8s/mysql/` (done)** and **`docker/mysql/` (done)**.
+
+## Appendix C — Bugs Found & Fixed (migration-phase audit)
+| # | Component | Defect | Fix |
+|---|---|---|---|
+| C1 | `SagaCoordinator.executeSaga` | On step `execute()` failure, the failed `SagaStep` row was left `PENDING` (no status, no error) and `SagaInstance` mislabeled `STEP_COMPLETED` for a step that never completed — losing failure attribution and corrupting saga state. | Fetch the step before execute; on `RuntimeException`, `markFailed(msg)` + persist before unwinding; failing step is not compensated (matches intent). Regression test `SagaCoordinatorTest.executeSaga_stepFailure_marksFailedStepFailedWithErrorMessage`. |
+| C2 | `docs/pgloader/*.load` | All 7 read `FROM mysql://...` but the monolith is PostgreSQL; MySQL-specific `CAST type ...` blocks invalid for PG→PG; `restaurant_owners` claimed by both `restaurants.load` (`/^restaurant/`) and `identity.load`. | Rewritten `FROM postgresql://$MONOLITH_PG_*` with `-- Usage:`; removed CAST block; `restaurants.load` enumerates tables explicitly to exclude `restaurant_owners`. |
+| C3 | `k8s/scripts/deploy.sh` / `k8s/mysql/` | Deployed `deployment/bhukkad-mysql` and shipped stale MySQL k8s manifests + `docker/mysql/` cfg + `.env.dev`/`.env.prod` MySQL env vars — all left over from the pre-PostgreSQL migration. | Replaced `bhukkad-mysql` wait with `bhukkad-postgresql`; deleted `k8s/mysql/` and `docker/mysql/`; rewrote `.env.dev`/`.env.prod` PG-consistent with 512-bit JWT secret. |
+| C4 | `docker/.env.*` + `application-dev.yml` default | `JWT_SECRET` was 64 base64 chars = **384 bits** (< HS512 minimum of 512 bits); HS512 rejects it with `WeakKeyException` at token-signing time. `.env.prod` shipped a `CHANGE_ME_256_BIT` placeholder. | `.env.dev` now ships a real 512-bit base64 secret; `.env.prod` requires a generated 512-bit secret; added `SecretValidationConfigTest.devProfileJwtSecret_mustDecodeToAtLeast512Bits` regression guard. (In-code `application-dev.yml` default was already 516-bit.) |
+| C5 | `KafkaPlatformEventPublisher.publish` | Fire-and-forget: the send `Future` was discarded and failures only logged — the documented "outbox retry path" it referenced did not exist, so events could be lost from the outbox's perspective. | Added `publishForResult()` (sync acked send) used by `OutboxPollPublisher`; `publish()` preserved for backward compatibility.
+
+---
+
+## 16. Final Pre-Flight Checklist (Cutover Validation)
+
+> Run this checklist in a staging environment that mirrors production. **Do not proceed to production cutover until all checks pass.**
+
+### 6.1 Schema & Data Integrity
+| Step | Command / Action | Expected |
+|------|-----------------|----------|
+| 1 | `./mvnw -f services/pom.xml -pl platform-lib -am verify` | All platform tests pass |
+| 2 | `pgloader docs/pgloader/<service>.load` for each extracted service | Exit 0, `total events` matches row counts in monolith |
+| 3 | Compare row counts: `SELECT COUNT(*) FROM <table>` in monolith vs service DB | Within 0.1% tolerance |
+| 4 | Verify foreign-key relationships: `SELECT * FROM <table> WHERE <fk_col> NOT IN (SELECT id FROM <ref_table>)` | Zero orphan rows |
+| 5 | `psql -d <service_db> -c "\d <table>"` — confirm indexes match monolith | All critical indexes present |
+
+### 6.2 API Contract Verification
+| Step | Action | Expected |
+|------|--------|----------|
+| 6 | Run `./scripts/test-all-apis.py --reset-data` against each new service | ≥95% pass rate (baseline before cutover) |
+| 7 | Verify all API contracts match monolith responses (diff JSON response shapes) | No structural differences |
+| 8 | Run consumer-driven contract tests if any exist | All pass |
+| 9 | Verify auth tokens from monolith gateway work for the new service | 200 on protected endpoints |
+
+### 6.3 Infrastructure Readiness
+| Step | Action | Expected |
+|------|--------|----------|
+| 10 | `kubectl get pods -n <svc-namespace>` | All pods Ready |
+| 11 | `kubectl get svc,ingress -n <svc-namespace>` | Service + gateway route exist |
+| 12 | Verify Kafka topics exist: `rpk topic list` | All required topics present (`bhukkad.platform.events`, `.dlt`) |
+| 13 | Verify Redis connection from service | `redis-cli ping` returns PONG |
+| 14 | Verify DB connection pool: `SELECT count(*) FROM pg_stat_activity WHERE datname='<svc_db>'` | Connections below `max_connections` threshold |
+| 15 | `kubectl describe hpa -n <svc-namespace>` | HPA configured for target service |
+
+### 6.4 Observability & Alerting
+| Step | Action | Expected |
+|------|--------|----------|
+| 16 | Verify Prometheus can scrape service metrics (`curl http://<svc>:8080/actuator/prometheus`) | Metrics endpoint returns 200 |
+| 17 | Verify Grafana dashboards exist for service | Dashboards importable |
+| 18 | Verify alert rules exist in `k8s/prometheus/` or alert manager config | Alerts defined for latency, error rate, CPU, memory |
+| 19 | Verify log aggregation: `kubectl logs -n <svc-namespace> -l app=<svc> --tail=100` | Logs structured as JSON |
+| 20 | Verify distributed tracing: end-to-end trace appears in Jaeger/Tempo | Trace shows monolith → service call |
+
+### 6.5 Smoke Test in Staging
+| Step | Action | Expected |
+|------|--------|----------|
+| 21 | Deploy service alongside monolith (dual-write enabled) | Both monolith and service respond correctly |
+| 22 | Route 1% of traffic to new service via gateway header/weight | No errors, metrics look healthy |
+| 23 | Monitor `outbox_pending` lag for event-driven services | Lag stable, < 5 seconds |
+| 24 | Run full integration test suite against staging | All tests pass |
+| 25 | Verify rollback: flip gateway flag back to monolith | Traffic returns to monolith, no data loss |
+
+**If any check above fails:** revert the gateway flag and investigate. Do not proceed with wider rollout.
+
+---
+
+## 17. Rollback Verification Steps
+
+> Use these exact commands to reverse a service extraction if issues are detected in production.
+
+### 17.1 Gateway-Level Rollback (Instant)
+```bash
+# Flip the gateway route back to the monolith for a given service
+kubectl set env -n gateway deploy/gateway \
+  PLATFORM_<SERVICE>_ROUTE=monolith
+
+# Verify
+kubectl get deploy gateway -o jsonpath='{.spec.template.spec.containers[?(@name=="gateway")].env}'
+```
+**Expected:** Traffic immediately returns to the monolith; the extracted service receives no new requests.
+
+### 17.2 Database Rollback
+```bash
+# Stop writes to the service DB by removing the route first (see 17.1)
+# Then drop the service database (data was replicated from monolith)
+psql -h $MONOLITH_PG_HOST -U postgres -d postgres -c \
+  "DROP DATABASE IF EXISTS bhukkad_<service>;"
+
+# Recreate empty DB for future deployments
+psql -h $MONOLITH_PG_HOST -U postgres -d postgres -c \
+  "CREATE DATABASE bhukkad_<service>;"
+```
+**Note:** Monolith retains all original data — no data is lost by dropping the service DB.
+
+### 17.3 Kafka Topic Rollback
+```bash
+# If the service published events, replay from the monolith-side DLQ
+# First, stop the service so it stops consuming
+kubectl scale deployment -n <svc-namespace> <svc> --replicas=0
+
+# Optionally compact/retain the topic if debugging is needed
+rpk topic describe bhukkad.platform.events
+```
+
+### 17.4 K8s Resources Rollback
+```bash
+# Delete the service namespace
+kubectl delete namespace <svc-namespace>
+
+# Remove HPA
+kubectl delete hpa -n <svc-namespace> <svc>-hpa
+# (namespace deletion handles this if HPA is in the same namespace)
+
+# Remove gateway routes
+kubectl set env -n gateway deploy/gateway \
+  PLATFORM_<SERVICE>_ROUTE=monolith
+```
+
+### 17.5 Post-Rollback Verification
+```bash
+# Confirm monolith is handling <service> traffic
+curl -s https://api.bhukkad.dev/<service-endpoint> | jq '.source'  # should indicate monolith
+
+# Confirm no orphaned consumers
+rpk consumer-groups list
+
+# Confirm DB was cleaned up
+psql -h $MONOLITH_PG_HOST -U postgres -d postgres -c \
+  "\l"  # should not list bhukkad_<service>
+```
+
+---
+
+## 18. Post-Migration Metrics Monitoring (SLOs Per Phase)
+
+> Define these alerts before deploying each service. Review daily during rollout.
+
+### 18.1 Per-Service SLOs
+
+#### identity
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| `http_server_requests_seconds_count_identity{status=~"5.."}` / `http_server_requests_seconds_count_identity` | Error rate < 0.1% | > 0.2% for 5 min |
+| `http_server_requests_seconds_sum_identity` / `http_server_requests_seconds_count_identity` (99th pct) | Latency < 200ms | > 500ms for 2 min |
+| `jvm_memory_used_bytes_identity` / `jvm_memory_max_bytes_identity` | Memory < 85% | > 95% for 5 min |
+| `pg_database_size_bytes{dbname="bhukkad_identity"}` | Growth rate < 5%/day | > 20%/day |
+
+#### restaurant
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| Error rate | < 0.1% | > 0.2% for 5 min |
+| Latency P99 | < 300ms | > 1s for 2 min |
+| `db_connections_active_restaurant` / `db_connections_max_restaurant` | < 70% | > 90% for 5 min |
+| `http_server_requests_seconds_count_restaurant{method="GET",uri="/restaurants/menu/*"}` | Cache hit ratio > 95% | < 90% for 10 min |
+
+#### order
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| Error rate | < 0.1% | > 0.2% for 5 min |
+| Latency P99 | < 500ms | > 2s for 2 min |
+| Saga completion rate | > 99.9% | < 99.5% for 10 min |
+| `saga_instance_status{status="FAILED"}` | < 0.01% of total sagas | > 0.1% for 5 min |
+
+#### payment
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| Error rate | < 0.01% | > 0.1% for 5 min |
+| Latency P99 | < 1s | > 5s for 2 min |
+| Idempotency replay error rate | < 0.01% | > 0.1% for 5 min |
+| `payment_gateway_latency_seconds` | < 3s | > 10s for 2 min |
+
+#### delivery
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| Error rate | < 0.1% | > 0.2% for 5 min |
+| Latency P99 | < 200ms | > 1s for 2 min |
+| `active_sse_connections_delivery` | < 10k per instance | > 15k for 5 min |
+| Rider assignment latency | < 5s | > 30s for 2 min |
+
+#### notification
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| Error rate | < 0.1% | > 0.2% for 5 min |
+| Latency P99 | < 200ms | > 1s for 2 min |
+| Message delivery success | > 99.9% | < 99% for 5 min |
+| `outbox_pending_notification` | < 100 | > 1000 for 5 min |
+
+#### admin-analytics
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| Query latency | < 5s | > 30s for 5 min |
+| `http_server_requests_seconds_count_admin_analytics{status="200"}` rate | > 99% of expected | < 90% for 10 min |
+| `jvm_gc_pause_seconds_admin_analytics` | < 100ms | > 500ms for 2 min |
+| `pg_table_size{table="analytics_events"}` growth | < 10GB/day | > 50GB/day |
+
+### 18.2 Shared Metrics (All Services)
+| Metric | SLO | Alert Threshold |
+|--------|-----|----------------|
+| `outbox_pending` lag | < 1000 events | > 5000 for 5 min |
+| `pg_replication_lag_seconds` | < 1s | > 5s for 5 min |
+| `kafka_consumer_lag{topic="bhukkad.platform.events"}` | < 1000 per group | > 10000 for 5 min |
+| CPU utilization | < 70% avg | > 85% for 10 min |
+| Memory utilization | < 80% avg | > 95% for 5 min |
+
+---
+
+## 19. Team Handoff Notes (Per-Service Ownership)
+
+> Last updated: 2026-09-01
+
+### 19.1 Service Ownership Matrix
+
+| Service | Primary Owner | Secondary Owner | Key Contacts | Slack Channel |
+|---------|---------------|-----------------|--------------|---------------|
+| platform-lib | Platform Team | — | @platform-team | `#platform-lib` |
+| identity | Auth Team | Platform Team | @auth-team, @platform-team | `#identity-service` |
+| restaurant | Menu Team | Platform Team | @menu-team, @platform-team | `#restaurant-service` |
+| order | Order Team | Platform Team | @order-team, @platform-team | `#order-service` |
+| payment | Payments Team | Order Team | @payments-team, @order-team | `#payment-service` |
+| delivery | Logistics Team | Platform Team | @logistics-team, @platform-team | `#delivery-service` |
+| notification | Comms Team | Platform Team | @comms-team, @platform-team | `#notification-service` |
+| admin-analytics | Analytics Team | Platform Team | @analytics-team, @platform-team | `#admin-analytics` |
+
+### 19.2 Documentation & Resources Per Service
+
+#### identity
+- **Repository path:** `services/identity/`
+- **Run locally:** `./mvnw -pl identity -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/identity/Dockerfile`
+- **K8s manifests:** `k8s/identity/`
+- **Terraform:** `infra/terraform/modules/identity/`
+- **Key env vars:** `JWT_SECRET`, `DB_URL`, `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS`
+- **Critical endpoints:** `/auth/login`, `/auth/refresh`, `/auth/verify-token`, `/users/me`
+- **Migration script:** `docs/pgloader/identity.load`
+
+#### restaurant
+- **Repository path:** `services/restaurant/`
+- **Run locally:** `./mvnw -pl restaurant -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/restaurant/Dockerfile`
+- **K8s manifests:** `k8s/restaurant/`
+- **Terraform:** `infra/terraform/modules/restaurant/`
+- **Key env vars:** `RESTAURANT_DB_URL`, `MENU_CACHE_TTL_SECONDS`, `KAFKA_BOOTSTRAP_SERVERS`
+- **Critical endpoints:** `GET /restaurants`, `GET /restaurants/{id}/menu`, `GET /restaurants/{id}/timing`
+- **Migration script:** `docs/pgloader/restaurants.load`
+- **Special notes:** Read-heavy service; ensure menu cache warming completes before traffic shift.
+
+#### order
+- **Repository path:** `services/order/`
+- **Run locally:** `./mvnw -pl order -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/order/Dockerfile`
+- **K8s manifests:** `k8s/order/`
+- **Terraform:** `infra/terraform/modules/order/`
+- **Key env vars:** `ORDER_DB_URL`, `SAGA_COORDINATOR_ENABLED`, `KAFKA_BOOTSTRAP_SERVERS`, `DELIVERY_SERVICE_URL`, `PAYMENT_SERVICE_URL`, `RESTAURANT_SERVICE_URL`
+- **Critical endpoints:** `POST /orders`, `GET /orders/{id}`, `GET /orders/tracking/{id}`
+- **Migration script:** `docs/pgloader/orders.load`
+- **Special notes:** Saga orchestrator — critical path. Monitor saga completion rate and step failure rates.
+
+#### payment
+- **Repository path:** `services/payment/`
+- **Run locally:** `./mvnw -pl payment -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/payment/Dockerfile`
+- **K8s manifests:** `k8s/payment/`
+- **Terraform:** `infra/terraform/modules/payment/`
+- **Key env vars:** `PAYMENT_DB_URL`, `PAYMENT_GATEWAY_API_KEY` (Vault), `IDEMPOTENCY_TTL_SECONDS`, `KAFKA_BOOTSTRAP_SERVERS`
+- **Critical endpoints:** `POST /payments`, `POST /payments/refund`, `GET /payments/{id}`
+- **Migration script:** `docs/pgloader/payment.load`
+- **Special notes:** Idempotency is critical; verify replay behavior after migration.
+
+#### delivery
+- **Repository path:** `services/delivery/`
+- **Run locally:** `./mvnw -pl delivery -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/delivery/Dockerfile`
+- **K8s manifests:** `k8s/delivery/`
+- **Terraform:** `infra/terraform/modules/delivery/`
+- **Key env vars:** `DELIVERY_DB_URL`, `RIDER_GEO_POSITIONAL_CHANNEL_PREFIX`, `KAFKA_BOOTSTRAP_SERVERS`, `NOTIFICATION_SERVICE_URL`
+- **Critical endpoints:** `GET /tracking/{orderId}`, `POST /riders/assign`, `GET /riders/{id}/earnings`
+- **Migration script:** `docs/pgloader/delivery.load`
+- **Special notes:** Long-lived SSE connections; monitor `active_sse_connections` metric.
+
+#### notification
+- **Repository path:** `services/notification/`
+- **Run locally:** `./mvnw -pl notification -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/notification/Dockerfile`
+- **K8s manifests:** `k8s/notification/`
+- **Terraform:** `infra/terraform/modules/notification/`
+- **Key env vars:** `NOTIFICATION_DB_URL`, `SMS_PROVIDER_API_KEY` (Vault), `KAFKA_BOOTSTRAP_SERVERS`
+- **Critical endpoints:** `POST /notifications`, `POST /notifications/send`, `GET /notifications/history`
+- **Migration script:** `docs/pgloader/notification.load`
+- **Special notes:** Event-driven; monitor outbox lag and message delivery success rate.
+
+#### admin-analytics
+- **Repository path:** `services/admin-analytics/`
+- **Run locally:** `./mvnw -pl admin-analytics -am spring-boot:run -Dspring-boot.run.profiles=dev`
+- **Dockerfile:** `services/admin-analytics/Dockerfile`
+- **K8s manifests:** `k8s/admin-analytics/`
+- **Terraform:** `infra/terraform/modules/admin-analytics/`
+- **Key env vars:** `ANALYTICS_DB_URL`, `READ_REPLICA_URL`, `KAFKA_BOOTSTRAP_SERVERS`
+- **Critical endpoints:** `GET /admin/analytics/orders`, `GET /admin/analytics/restaurants`, `GET /admin/analytics/riders`
+- **Migration script:** None (read-only views on monolith DB)
+- **Special notes:** Read-only service with its own read replica; no data migration required.
+
+### 19.3 Escalation Contacts
+
+| Severity | Contact | Response Time |
+|----------|---------|---------------|
+| P0 — Service Down | Platform Team Lead (@platform-team) | 15 min |
+| P1 — Data Inconsistency | Service Owner + Platform Team | 30 min |
+| P2 — Performance Degradation | Service Owner + Platform Team | 1 hour |
+| P3 — Minor Bug / Enhancement | Service Owner | 1 business day |
+
+### 19.4 CI/CD Ownership
+
+All services use the same GitHub Actions workflow defined in `.github/workflows/ci.yml`. Each service team is responsible for:
+1. Monitoring their service's CI pipeline status
+2. Adding alerts for their service's build failures
+3. Maintaining deployment automation in `k8s/scripts/deploy.sh`
+4. Reviewing DB migration scripts in `docs/pgloader/` during code review
+
+---
+
+## 20. Sign-Off & Approval
+
+### 20.1 Checklist for Final Approval
+
+Before marking a service as fully migrated, confirm all of the following:
+
+| Item | Owner | Status |
+|------|-------|--------|
+| All pre-flight checklist items pass | Platform Team | ✅ / ❌ |
+| All SLOs monitored and alertable | Service Owner | ✅ / ❌ |
+| Rollback verification tested in staging | Platform Team | ✅ / ❌ |
+| CI/CD pipeline green for 72 hours | Service Owner | ✅ / ❌ |
+| Runbook and escalation contacts published | Service Owner | ✅ / ❌ |
+| Security review completed (Vault, secret rotation) | Security Team | ✅ / ❌ |
+| Cost analysis approved (DB, Kafka, infrastructure) | Finance Team | ✅ / ❌ |
+| Stakeholder sign-off | Product Lead | ✅ / ❌ |
+
+### 20.2 Approval Record
+
+| Service | Migration Date | Approved By | Notes |
+|---------|----------------|-------------|-------|
+| identity | — | — | Pending |
+| restaurant | — | — | Pending |
+| order | — | — | Pending |
+| payment | — | — | Pending |
+| delivery | — | — | Pending |
+| notification | — | — | Pending |
+| admin-analytics | — | — | Pending |
+
+### 20.3 Post-Migration Retrospective
+
+Schedule a 60-minute retro within 1 week of each service's production migration. Cover:
+
+1. **What went well:** Capture successful patterns for reuse
+2. **Pain points:** Identify friction in the process for the next service
+3. **Metrics:** Review SLO compliance and alert noise
+4. **Action items:** Convert to issues in the migration tracker repo
+
+**Template:** `docs/templates/migration-retro.md`

@@ -54,4 +54,53 @@ class KafkaPlatformEventPublisherTest {
         // Must not throw — the outbox retry path handles failures.
         publisher.publish(PlatformEventMessage.of("OrderCreated", "42", "{}"));
     }
+
+    @Test
+    void publishForResult_disabled_returnsTrue() {
+        KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
+                kafkaTemplate, new KafkaProperties(false, "bhukkad.", "test-group"));
+
+        boolean result = publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}"));
+
+        assertThat(result).isTrue();
+        verifyNoInteractions(kafkaTemplate);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void publishForResult_ackedByBroker_returnsTrue() {
+        // kafka-clients 3.6.x: RecordMetadata(TopicPartition, offset, batchLength(int),
+        // lastRecordValue, keySize, valueSize) — partition/key come from the TopicPartition.
+        org.apache.kafka.clients.producer.RecordMetadata meta =
+                new org.apache.kafka.clients.producer.RecordMetadata(
+                        new org.apache.kafka.common.TopicPartition("bhukkad.ordercreated", 0),
+                        0L, 0, 0L, 0, 0);
+        org.springframework.kafka.support.SendResult<String, String> sendResult =
+                new org.springframework.kafka.support.SendResult<>(null, meta);
+        org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(sendResult));
+
+        KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
+                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "test-group"),
+                java.time.Duration.ofSeconds(10));
+
+        assertThat(publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}")))
+                .isTrue();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void publishForResult_brokerException_returnsFalse() {
+        org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new IllegalStateException("broker down"));
+
+        KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
+                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "test-group"),
+                java.time.Duration.ofSeconds(10));
+
+        boolean result = publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}"));
+        assertThat(result).isFalse();
+    }
 }

@@ -5,6 +5,7 @@ import com.bhukkad.dto.response.RestaurantSettlementResponse;
 import com.bhukkad.entity.RestaurantSettlement;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.repository.RestaurantSettlementRepository;
+import com.bhukkad.util.CursorUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 /**
@@ -46,7 +46,7 @@ class RestaurantSettlementServiceCursorTest {
         RestaurantSettlement older = settlement(10L, LocalDateTime.now().minusDays(2));
         RestaurantSettlement newer = settlement(11L, LocalDateTime.now().minusDays(1));
         when(settlementRepository.findByRestaurantIdAfterCursor(
-                eq(7L), isNull(), isNull(), any(Pageable.class)))
+                eq(7L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class)))
                 .thenReturn(List.of(newer, older));
 
         CursorPagedResponse<RestaurantSettlementResponse> page =
@@ -61,7 +61,7 @@ class RestaurantSettlementServiceCursorTest {
     void lastPage_noSentinel_yieldsNoCursor() {
         RestaurantSettlement only = settlement(10L, LocalDateTime.now());
         when(settlementRepository.findByRestaurantIdAfterCursor(
-                eq(7L), isNull(), isNull(), any(Pageable.class)))
+                eq(7L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class)))
                 .thenReturn(List.of(only));
 
         CursorPagedResponse<RestaurantSettlementResponse> page =

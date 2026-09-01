@@ -9,6 +9,13 @@ public final class CursorUtils {
 
     private static final String SEPARATOR = "|";
 
+    /** Sentinel values used on the first page (no cursor) so that keyset
+     *  predicates resolve to "match everything older" without requiring a
+     *  nullable bind parameter — PostgreSQL cannot infer the type of a bare
+     *  null in an {@code IS NULL} check. */
+    public static final LocalDateTime END_OF_TIME = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    public static final Long END_OF_ID = Long.MAX_VALUE;
+
     private CursorUtils() {}
 
     public record OrderCursor(LocalDateTime createdAt, Long id) {}

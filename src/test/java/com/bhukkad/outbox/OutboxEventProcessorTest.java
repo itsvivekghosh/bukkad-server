@@ -123,7 +123,7 @@ class OutboxEventProcessorTest {
                 .thenReturn(List.of(outboxEvent));
         when(outboxEventRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
         when(outboxEventRepository.findById(10L)).thenReturn(Optional.of(outboxEvent));
-        doThrow(new RuntimeException("broker down")).when(externalEventBridge).forward(outboxEvent);
+        doThrow(new RuntimeException("broker down")).when(externalEventBridge).forwardForResult(outboxEvent);
 
         outboxEventProcessor.processPendingEvents();
 
@@ -142,7 +142,7 @@ class OutboxEventProcessorTest {
                 .thenReturn(List.of(outboxEvent));
         when(outboxEventRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
         when(outboxEventRepository.findById(10L)).thenReturn(Optional.of(outboxEvent));
-        doThrow(new RuntimeException("transient")).when(externalEventBridge).forward(outboxEvent);
+        doThrow(new RuntimeException("transient")).when(externalEventBridge).forwardForResult(outboxEvent);
 
         outboxEventProcessor.processPendingEvents();
 

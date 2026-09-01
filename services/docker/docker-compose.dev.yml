@@ -64,7 +64,7 @@ services:
       IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/bhukkad_identity
       IDENTITY_DB_USERNAME: bhukkad
       IDENTITY_DB_PASSWORD: bhukkad_dev
-      JWT_SECRET: dev-secret-change-me-0123456789abcdef0123456789abcdef
+      JWT_SECRET: "/D5nTgEW+vb+YDLtyy5Z1nic629HP0M6ZAFzcSINdmKQKP2+/GzmNenL11uj3n+Ou37u+0jwbCF48hF2T0HfyQ=="
     depends_on: [postgres]
 
   restaurant:

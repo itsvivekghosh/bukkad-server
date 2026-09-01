@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -15,7 +16,10 @@ import java.io.IOException;
 /**
  * Seeds the MDC with trace/request ids for every HTTP request and logs the
  * request summary (port of {@code com.bhukkad.logging.RequestLoggingFilter}).
+ * Auto-registered via {@link Component} for all Servlet-based services that
+ * scan package {@code com.bhukkad.common}.
  */
+@Component
 public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
@@ -24,6 +28,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String traceId = TraceIdResolver.seedFrom(request);
+        TraceContext.putSpanId(TraceContext.newSpanId());
         long start = System.currentTimeMillis();
         try {
             filterChain.doFilter(request, response);
@@ -34,6 +39,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                     duration, traceId);
             MDC.remove(TraceContext.TRACE_ID);
             MDC.remove(TraceContext.REQUEST_ID);
+            MDC.remove(TraceContext.SPAN_ID);
         }
     }
 }

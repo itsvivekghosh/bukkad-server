@@ -1,27 +1,30 @@
 -- pgloader command file: payment service database
+-- Source is the monolith PostgreSQL DB (post MySQL->PostgreSQL migration).
 -- Owned tables: payments + wallet + disputes (ownership matrix §5).
+--
+-- Usage:
+--   pgloader -v -L pgloader.log \
+--     --set "MONOLITH_PG_USER=bhukkad" --set "MONOLITH_PG_PASSWORD=..." \
+--     --set "MONOLITH_PG_HOST=localhost" \
+--     --set "PG_USER=bhukkad" --set "PG_PASSWORD=..." --set "PG_HOST=pg" \
+--     docs/pgloader/payments.load
 
 LOAD DATABASE
-     FROM mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}:3306/bhukkad
+     FROM postgresql://${MONOLITH_PG_USER}:${MONOLITH_PG_PASSWORD}@${MONOLITH_PG_HOST}:5432/bhukkad
      INTO postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:5432/bhukkad_payments
 
  WITH include drop, create tables, create indexes, reset sequences,
-      disable triggers,
+      data only,
       batch rows = 10000, batch concurrency = 1,
       prefetch rows = 5000
 
  SET PostgreSQL PARAMETERS
-     maintenance_work_mem = '1GB', work_mem = '128MB', synchronous_commit = 'off'
+     maintenance_work_mem = '1GB',
+     work_mem = '128MB',
+     synchronous_commit = 'off'
 
- CAST type datetime to timestamp drop default drop not null,
-      type timestamp drop default drop not null,
-      type tinyint to boolean,
-      type bit to boolean,
-      type decimal to numeric,
-      type float to double precision,
-      type year to integer
+ INCLUDING ONLY TABLE NAMES MATCHING
+     ~/^payments$/, ~/^wallet_/, ~/^disputes$/
 
- INCLUDING ONLY TABLE NAMES MATCHING ~/^payments$/, ~/^wallet_/, ~/^disputes$/
-
- AFTER LOAD DO
+ AFTER LOADING DO
      $$ ANALYZE; $$;

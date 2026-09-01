@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: pgbouncer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: pgbouncer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:1.22.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6432
+              name: pgbouncer
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: DB_USERNAME
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: DB_PASSWORD
+            - name: DB_HOST
+              value: bhukkad-postgresql
+            - name: DB_PORT
+              value: "5432"
+            - name: POOL_MODE
+              value: transaction
+            - name: MAX_CLIENT_CONN
+              value: "2000"
+            - name: DEFAULT_POOL_SIZE
+              value: "40"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 30
+            periodSeconds: 10

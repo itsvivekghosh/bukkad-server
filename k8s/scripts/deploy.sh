@@ -104,7 +104,7 @@ log "Applying manifests from ${KUSTOMIZE_DIR}..."
 apply_manifests
 
 log "Waiting for data stores..."
-kubectl rollout status deployment/bhukkad-mysql -n bhukkad --timeout=600s
+kubectl rollout status deployment/bhukkad-postgresql -n bhukkad --timeout=600s
 kubectl rollout status deployment/bhukkad-redis -n bhukkad --timeout=300s
 if [[ "$USE_MINIKUBE_PROFILE" != "true" ]]; then
   kubectl rollout status deployment/bhukkad-rabbitmq -n bhukkad --timeout=300s || true

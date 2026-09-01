@@ -33,6 +33,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -156,11 +157,13 @@ public class OrderServiceImpl implements OrderService {
     public CursorPagedResponse<OrderSummaryResponse> getCustomerScheduledOrdersByCursor(String cursor, int size) {
         Long customerId = securityUtils.getCurrentUserId();
         CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = orderCursor != null ? orderCursor.createdAt() : CursorUtils.END_OF_TIME;
+        Long cursorId = orderCursor != null ? orderCursor.id() : CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
         List<OrderSummaryResponse> batch = orderRepository.findCustomerScheduledOrderSummariesAfterCursor(
                 customerId,
-                orderCursor != null ? orderCursor.createdAt() : null,
-                orderCursor != null ? orderCursor.id() : null,
+                cursorCreatedAt,
+                cursorId,
                 PageRequest.of(0, safeSize + 1));
         return toCursorPage(batch, safeSize);
     }
@@ -170,11 +173,13 @@ public class OrderServiceImpl implements OrderService {
     public CursorPagedResponse<OrderSummaryResponse> getCustomerOrdersByCursor(String cursor, int size) {
         Long customerId = securityUtils.getCurrentUserId();
         CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = orderCursor != null ? orderCursor.createdAt() : CursorUtils.END_OF_TIME;
+        Long cursorId = orderCursor != null ? orderCursor.id() : CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
         List<OrderSummaryResponse> batch = orderRepository.findCustomerOrderSummariesAfterCursor(
                 customerId,
-                orderCursor != null ? orderCursor.createdAt() : null,
-                orderCursor != null ? orderCursor.id() : null,
+                cursorCreatedAt,
+                cursorId,
                 PageRequest.of(0, safeSize + 1));
         return toCursorPage(batch, safeSize);
     }
@@ -195,11 +200,13 @@ public class OrderServiceImpl implements OrderService {
             Long restaurantId, String cursor, int size) {
         verifyRestaurantOwnership(restaurantId);
         CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = orderCursor != null ? orderCursor.createdAt() : CursorUtils.END_OF_TIME;
+        Long cursorId = orderCursor != null ? orderCursor.id() : CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
         List<OrderSummaryResponse> batch = orderRepository.findRestaurantOrderSummariesAfterCursor(
                 restaurantId,
-                orderCursor != null ? orderCursor.createdAt() : null,
-                orderCursor != null ? orderCursor.id() : null,
+                cursorCreatedAt,
+                cursorId,
                 PageRequest.of(0, safeSize + 1));
         return toCursorPage(batch, safeSize);
     }
@@ -228,11 +235,13 @@ public class OrderServiceImpl implements OrderService {
             throw new UnauthorizedException("Cannot access another agent's deliveries");
         }
         CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = orderCursor != null ? orderCursor.createdAt() : CursorUtils.END_OF_TIME;
+        Long cursorId = orderCursor != null ? orderCursor.id() : CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
         List<OrderSummaryResponse> batch = orderRepository.findDeliveryAgentOrderSummariesAfterCursor(
                 deliveryAgentId,
-                orderCursor != null ? orderCursor.createdAt() : null,
-                orderCursor != null ? orderCursor.id() : null,
+                cursorCreatedAt,
+                cursorId,
                 PageRequest.of(0, safeSize + 1));
         return toCursorPage(batch, safeSize);
     }

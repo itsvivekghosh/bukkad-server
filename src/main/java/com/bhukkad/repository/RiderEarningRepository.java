@@ -26,7 +26,7 @@ public interface RiderEarningRepository extends JpaRepository<RiderEarning, Long
     @Query("""
             SELECT e FROM RiderEarning e
             WHERE e.agent.id = :agentId
-            AND (:cursorCreatedAt IS NULL OR e.createdAt < :cursorCreatedAt
+            AND (e.createdAt < :cursorCreatedAt
                  OR (e.createdAt = :cursorCreatedAt AND e.id < :cursorId))
             ORDER BY e.createdAt DESC, e.id DESC
             """)

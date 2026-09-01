@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -58,11 +59,13 @@ public class WalletQueryService {
             throw new ResourceNotFoundException("Customer not found");
         }
         CursorUtils.OrderCursor c = CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = c != null ? c.createdAt() : CursorUtils.END_OF_TIME;
+        Long cursorId = c != null ? c.id() : CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
         List<WalletTransaction> batch = walletTransactionRepository.findByCustomerIdAfterCursor(
                 customerId,
-                c != null ? c.createdAt() : null,
-                c != null ? c.id() : null,
+                cursorCreatedAt,
+                cursorId,
                 PageRequest.of(0, safeSize + 1));
         return toCursorPage(batch, safeSize);
     }

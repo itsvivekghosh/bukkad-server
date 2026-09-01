@@ -1,6 +1,7 @@
 package com.bhukkad.identity.api;
 
 import com.bhukkad.identity.domain.Address;
+import com.bhukkad.identity.security.JwtService;
 import com.bhukkad.identity.service.AddressService;
 import com.bhukkad.identity.service.IdentityService;
 import jakarta.validation.Valid;
@@ -27,6 +28,7 @@ public class IdentityController {
 
     private final IdentityService identityService;
     private final AddressService addressService;
+    private final JwtService jwtService;
 
     public record RegisterRequest(
             @NotBlank @Email String email,
@@ -39,6 +41,12 @@ public class IdentityController {
     }
 
     public record AuthResponse(String token, Long customerId, String fullName) {
+    }
+
+    public record TokenRequest(@NotBlank String token) {
+    }
+
+    public record VerifyResponse(boolean valid, Long customerId, String email, String scope, String expiresAt) {
     }
 
     public record AddressRequest(
@@ -62,6 +70,33 @@ public class IdentityController {
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         var login = identityService.login(request.email(), request.password());
         return new AuthResponse(login.token(), login.customerId(), login.fullName());
+    }
+
+    /**
+     * Rotates a still-valid access token into a fresh one (see
+     * {@link com.bhukkad.identity.service.IdentityService#refresh(String)}).
+     */
+    @PostMapping("/auth/refresh")
+    public AuthResponse refresh(@Valid @RequestBody TokenRequest request) {
+        var login = identityService.refresh(request.token());
+        return new AuthResponse(login.token(), login.customerId(), login.fullName());
+    }
+
+    /**
+     * Token introspection (RFC 7662 style) for server-to-server verification.
+     * Returns 200 with {@code valid: false} for malformed/expired tokens — never
+     * 4xx — so downstream services can cheaply confirm a token without carrying
+     * the shared secret (though most validate locally via platform-lib).
+     */
+    @PostMapping("/internal/verify")
+    public VerifyResponse verify(@Valid @RequestBody TokenRequest request) {
+        var result = jwtService.introspect(request.token());
+        return new VerifyResponse(
+                result.valid(),
+                result.customerId(),
+                result.email(),
+                result.scope(),
+                result.expiresAt() == null ? null : result.expiresAt().toString());
     }
 
     @PostMapping("/customers/{customerId}/addresses")

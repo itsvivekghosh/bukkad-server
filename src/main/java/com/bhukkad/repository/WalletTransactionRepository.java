@@ -29,7 +29,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
     @Query("""
             SELECT w FROM WalletTransaction w
             WHERE w.customerId = :customerId
-            AND (:cursorCreatedAt IS NULL OR w.createdAt < :cursorCreatedAt
+            AND (w.createdAt < :cursorCreatedAt
                  OR (w.createdAt = :cursorCreatedAt AND w.id < :cursorId))
             ORDER BY w.createdAt DESC, w.id DESC
             """)

@@ -68,11 +68,13 @@ public class RestaurantSettlementService {
     public CursorPagedResponse<RestaurantSettlementResponse> getRestaurantSettlementsByCursor(
             Long restaurantId, String cursor, int size) {
         CursorUtils.OrderCursor c = CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = c != null ? c.createdAt() : CursorUtils.END_OF_TIME;
+        Long cursorId = c != null ? c.id() : CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), PaginationUtils.MAX_PAGE_SIZE);
         List<RestaurantSettlement> batch = settlementRepository.findByRestaurantIdAfterCursor(
                 restaurantId,
-                c != null ? c.createdAt() : null,
-                c != null ? c.id() : null,
+                cursorCreatedAt,
+                cursorId,
                 PageRequest.of(0, safeSize + 1));
         boolean hasNext = batch.size() > safeSize;
         List<RestaurantSettlement> page = hasNext ? batch.subList(0, safeSize) : batch;

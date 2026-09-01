@@ -13,8 +13,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import org.mockito.ArgumentCaptor;
+
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -234,10 +237,44 @@ class SagaCoordinatorTest {
     }
 
     @Test
-    void executeSaga_noSteps_throws() {
+    void executeSaga_stepFailure_marksFailedStepFailedWithErrorMessage() {
         when(sagaEventRepository.findBySagaId(SAGA_ID)).thenReturn(null);
+        SagaAction failingStep = new SagaAction() {
+            @Override
+            public String execute(String stepName, String payload) {
+                throw new IllegalStateException("step execution exploded");
+            }
 
-        assertThrows(BusinessException.class,
-                () -> coordinator.executeSaga("ORDER_CREATION", SAGA_ID, "{}", List.of()));
+            @Override
+            public void compensate(String stepName, String payload, String compensationPayload) {
+            }
+        };
+
+        SagaEvent result = coordinator.executeSaga(
+                "ORDER_CREATION", SAGA_ID, "{}",
+                steps(action("reserve"), failingStep));
+
+        // The saga instance should be COMPENSATED (failed step is not compensated,
+        // but prior steps are).
+        assertEquals(SagaCoordinator.STATUS_COMPENSATED, result.getStatus());
+
+        // The FAILED step (index 1) should be marked FAILED with the error message,
+        // not left PENDING as a step that "completed".
+        ArgumentCaptor<SagaStep> stepCaptor = ArgumentCaptor.forClass(SagaStep.class);
+        verify(sagaStepRepository, atLeastOnce()).save(stepCaptor.capture());
+        List<SagaStep> savedSteps = stepCaptor.getAllValues();
+        SagaStep failedStep = savedSteps.stream()
+                .filter(s -> s.getStepOrder() == 1)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("FAILED", failedStep.getStatus());
+        assertTrue(failedStep.getErrorMessage().contains("step execution exploded"));
+
+        // The saga instance should NOT have been saved as STEP_COMPLETED for the
+        // failing step.
+        ArgumentCaptor<SagaEvent> eventCaptor = ArgumentCaptor.forClass(SagaEvent.class);
+        verify(sagaEventRepository, atLeastOnce()).save(eventCaptor.capture());
+        SagaEvent lastEvent = eventCaptor.getAllValues().get(eventCaptor.getAllValues().size() - 1);
+        assertEquals(SagaCoordinator.STATUS_COMPENSATED, lastEvent.getStatus());
     }
 }

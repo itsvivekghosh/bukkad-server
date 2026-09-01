@@ -80,6 +80,14 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
+		<!-- Consumer-driven contract tests (Pact). Generates pact files in
+		     target/pacts/ — runnable in-JVM, no broker required. -->
+		<dependency>
+			<groupId>au.com.dius.pact.consumer</groupId>
+			<artifactId>junit5</artifactId>
+			<version>${pact.version}</version>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>

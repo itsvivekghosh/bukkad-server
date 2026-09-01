@@ -7,6 +7,7 @@ import com.bhukkad.entity.WalletTransaction;
 import com.bhukkad.exception.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.WalletTransactionRepository;
+import com.bhukkad.util.CursorUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -25,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,12 +49,12 @@ class WalletQueryServiceCursorTest {
     @InjectMocks private WalletQueryService service;
 
     @Test
-    void firstPage_passesNullCursorAndReturnsHasNextTrue() {
+    void firstPage_passesSentinelCursorAndReturnsHasNextTrue() {
         when(customerRepository.existsById(1L)).thenReturn(true);
         WalletTransaction older = tx(10L, LocalDateTime.now().minusDays(1));
         WalletTransaction newer = tx(11L, LocalDateTime.now());
         when(walletTransactionRepository.findByCustomerIdAfterCursor(
-                eq(1L), isNull(), isNull(), any(Pageable.class)))
+                eq(1L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class)))
                 .thenReturn(List.of(newer, older));
 
         CursorPagedResponse<WalletTransactionResponse> page =
@@ -64,7 +64,7 @@ class WalletQueryServiceCursorTest {
         assertEquals(1, page.getItems().size());
         assertNotNull(page.getNextCursor(), "hasNext implies a non-null cursor");
         verify(walletTransactionRepository)
-                .findByCustomerIdAfterCursor(eq(1L), isNull(), isNull(), any(Pageable.class));
+                .findByCustomerIdAfterCursor(eq(1L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class));
     }
 
     @Test
@@ -72,7 +72,7 @@ class WalletQueryServiceCursorTest {
         when(customerRepository.existsById(1L)).thenReturn(true);
         WalletTransaction only = tx(10L, LocalDateTime.now());
         when(walletTransactionRepository.findByCustomerIdAfterCursor(
-                eq(1L), isNull(), isNull(), any(Pageable.class)))
+                eq(1L), eq(CursorUtils.END_OF_TIME), eq(CursorUtils.END_OF_ID), any(Pageable.class)))
                 .thenReturn(List.of(only));
 
         CursorPagedResponse<WalletTransactionResponse> page =

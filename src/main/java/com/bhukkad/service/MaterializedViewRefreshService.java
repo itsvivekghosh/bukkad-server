@@ -90,8 +90,8 @@ public class MaterializedViewRefreshService {
             entityManager.createNativeQuery(
                     "INSERT INTO restaurant_ratings_summary (restaurant_id, average_rating, total_reviews, positive_reviews, last_calculated_at) " +
                     "VALUES (?, ?, ?, ?, NOW()) " +
-                    "ON DUPLICATE KEY UPDATE average_rating = VALUES(average_rating), total_reviews = VALUES(total_reviews), " +
-                    "positive_reviews = VALUES(positive_reviews), last_calculated_at = NOW()")
+                    "ON CONFLICT (restaurant_id) DO UPDATE SET average_rating = EXCLUDED.average_rating, total_reviews = EXCLUDED.total_reviews, " +
+                    "positive_reviews = EXCLUDED.positive_reviews, last_calculated_at = NOW()")
                     .setParameter(1, restaurantId)
                     .setParameter(2, avg != null ? avg : 0.0)
                     .setParameter(3, total != null ? total.longValue() : 0L)
@@ -145,8 +145,8 @@ public class MaterializedViewRefreshService {
             entityManager.createNativeQuery(
                     "INSERT INTO restaurant_order_stats (restaurant_id, total_orders, delivered_orders, cancelled_orders, total_revenue, avg_order_value, last_calculated_at) " +
                     "VALUES (?, ?, ?, ?, ?, ?, NOW()) " +
-                    "ON DUPLICATE KEY UPDATE total_orders = VALUES(total_orders), delivered_orders = VALUES(delivered_orders), " +
-                    "cancelled_orders = VALUES(cancelled_orders), total_revenue = VALUES(total_revenue), avg_order_value = VALUES(avg_order_value), last_calculated_at = NOW()")
+                    "ON CONFLICT (restaurant_id) DO UPDATE SET total_orders = EXCLUDED.total_orders, delivered_orders = EXCLUDED.delivered_orders, " +
+                    "cancelled_orders = EXCLUDED.cancelled_orders, total_revenue = EXCLUDED.total_revenue, avg_order_value = EXCLUDED.avg_order_value, last_calculated_at = NOW()")
                     .setParameter(1, restaurantId)
                     .setParameter(2, (long) totalD)
                     .setParameter(3, delivered != null ? delivered.longValue() : 0L)

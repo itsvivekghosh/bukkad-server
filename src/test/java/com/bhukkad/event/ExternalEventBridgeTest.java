@@ -92,6 +92,56 @@ class ExternalEventBridgeTest {
         verifyNoInteractions(kafkaPublisherProvider);
     }
 
+    @Test
+    void forwardForResult_whenKafkaEnabledAndPublisherAvailable_publishesAndReturnsResult() throws Exception {
+        properties.setEnabled(true);
+        properties.setType("kafka");
+        doAnswer(invocation -> {
+            Consumer<KafkaPlatformEventPublisher> consumer = invocation.getArgument(0);
+            consumer.accept(kafkaPublisher);
+            return null;
+        }).when(kafkaPublisherProvider).ifAvailable(any());
+
+        OutboxEvent event = outboxEvent();
+        assertDoesNotThrow(() -> bridge.forwardForResult(event));
+
+        verify(kafkaPublisher).publishForResult(event);
+        verify(kafkaPublisherProvider).ifAvailable(any());
+    }
+
+    @Test
+    void forwardForResult_whenKafkaEnabledButNoPublisherAvailable_doesNotThrow() {
+        properties.setEnabled(true);
+        properties.setType("kafka");
+        // Unstubbed mock provider resolves no bean: ifAvailable is a silent no-op.
+
+        assertDoesNotThrow(() -> bridge.forwardForResult(outboxEvent()));
+
+        verifyNoInteractions(kafkaPublisher);
+    }
+
+    @Test
+    void forwardForResult_whenLogFallbackEnabled_delegatesToForward() {
+        properties.setEnabled(true);
+        properties.setType("log");
+
+        OutboxEvent event = outboxEvent();
+        assertDoesNotThrow(() -> bridge.forwardForResult(event));
+
+        verifyNoInteractions(kafkaPublisher);
+    }
+
+    @Test
+    void forwardForResult_whenDisabled_returnsWithoutPublishing() {
+        properties.setEnabled(false);
+        properties.setType("kafka");
+
+        assertDoesNotThrow(() -> bridge.forwardForResult(outboxEvent()));
+
+        verifyNoInteractions(kafkaPublisherProvider);
+        verifyNoInteractions(kafkaPublisher);
+    }
+
     private OutboxEvent outboxEvent() {
         OutboxEvent event = new OutboxEvent();
         event.setEventType("ORDER_PLACED");

@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import sys
 import time
 import uuid
@@ -168,11 +169,12 @@ def resolve_value(value: Any, state: RunState, key: str | None = None) -> Any:
         if key in STRING_JSON_KEYS:
             return resolved
         if key in NUMERIC_JSON_KEYS:
-            if resolved.isdigit():
-                return int(resolved)
             try:
-                if "." in resolved and resolved.replace(".", "", 1).isdigit():
-                    return float(resolved)
+                return int(resolved)
+            except ValueError:
+                pass
+            try:
+                return float(resolved)
             except ValueError:
                 pass
         return resolved
@@ -1303,6 +1305,166 @@ def write_json_report(results: list[TestResult], path: Path, base_url: str) -> N
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def reset_database(db_url: str | None = None) -> bool:
+    """Truncate all user tables and re-apply the V6 seed data for a clean E2E run.
+
+    Uses psql (PostgreSQL) to drop all rows from every user table with CASCADE,
+    then re-inserts the baseline reference data from the V6 Flyway migration.
+    This ensures each test run starts from a known-good state.
+
+    Args:
+        db_url: Optional PostgreSQL connection URL. If not provided, uses
+                environment variables DB_HOST, DB_PORT, DB_NAME, DB_USERNAME,
+                DB_PASSWORD (or defaults from run-local.sh defaults).
+
+    Returns:
+        True if the reset succeeded, False otherwise.
+    """
+    # Build connection params from env (matching run-local.sh defaults)
+    host = os.getenv("DB_HOST", "localhost")
+    port = os.getenv("DB_PORT", "5432")
+    dbname = os.getenv("DB_NAME", "bhukkad")
+    user = os.getenv("DB_USERNAME", "bhukkad")
+    password = os.getenv("DB_PASSWORD", "")
+
+    # Try to extract params from db_url if provided
+    if db_url:
+        # Parse postgres://user:pass@host:port/dbname
+        m = re.match(r"postgres://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
+        if m:
+            user, password, host, port, dbname = m.groups()
+
+    os.environ["PGPASSWORD"] = password
+
+    # Step 1: Get all user table names (exclude Flyway schema history).
+    # We truncate everything including users/admins, then re-seed the dev admin
+    # via SQL (DevAdminBootstrap only runs on app startup, not on each test run).
+    try:
+        result = subprocess.run(
+            ["psql", "-h", host, "-p", port, "-U", user, "-d", dbname, "-t",
+             "-c", "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                   "AND tablename NOT LIKE 'flyway%' AND tablename NOT LIKE 'database%' "
+                   "ORDER BY tablename;"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except FileNotFoundError:
+        print(f"  {RED}❌ psql not found — cannot reset database{RESET}")
+        return False
+    except subprocess.TimeoutExpired:
+        print(f"  {RED}❌ psql timed out while listing tables{RESET}")
+        return False
+
+    if result.returncode != 0:
+        print(f"  {RED}❌ Failed to list tables: {result.stderr.strip()}{RESET}")
+        return False
+
+    tables = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
+    if not tables:
+        print(f"  {YELLOW}⚠  No user tables found to truncate{RESET}")
+        return True
+
+    # Step 2: Truncate all tables with CASCADE (handles FK constraints)
+    truncate_sql = "TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE;"
+    trunc_result = subprocess.run(
+        ["psql", "-h", host, "-p", port, "-U", user, "-d", dbname, "-c", truncate_sql],
+        capture_output=True, text=True, timeout=60,
+    )
+    if trunc_result.returncode != 0:
+        print(f"  {RED}❌ Truncate failed: {trunc_result.stderr.strip()}{RESET}")
+        return False
+
+    print(f"  {GREEN}✓ Truncated {len(tables)} tables (CASCADE){RESET}")
+
+    # Step 3: Re-seed the dev admin user (DevAdminBootstrap only runs on app
+    # startup; after truncation we must re-insert it manually for admin tests).
+    admin_email = os.getenv("APP_BOOTSTRAP_ADMIN_EMAIL", "admin@bhukkad.dev")
+    # bcrypt hash of "Admin@123456" (compatible with Spring BCryptPasswordEncoder).
+    # This is a dev-only default; override via APP_BOOTSTRAP_ADMIN_BCRYPT env var.
+    admin_bcrypt = os.getenv(
+        "APP_BOOTSTRAP_ADMIN_BCRYPT",
+        "$2b$10$pR1oqzVQuKqrVj9ZME9C9ugYVDc3gCxaRmJd/8iPdeGFF7h361h1W"
+    )
+    admin_sql = (
+        "WITH new_user AS (\n"
+        "  INSERT INTO users (role, active, email_verified, phone_verified, "
+        "profile_completed, totp_enabled, created_at, updated_at)\n"
+        "  VALUES ('ADMIN', TRUE, TRUE, FALSE, FALSE, FALSE, NOW(), NOW())\n"
+        "  RETURNING id\n"
+        ") "
+        "INSERT INTO admins (id, email, password, full_name, phone_number, "
+        "profile_image_url, totp_secret) "
+        f"SELECT id, '{admin_email}', '{admin_bcrypt}', 'Bhukkad Admin', "
+        f"'9000000001', NULL, NULL FROM new_user;"
+    )
+    admin_result = subprocess.run(
+        ["psql", "-h", host, "-p", port, "-U", user, "-d", dbname, "-c", admin_sql],
+        capture_output=True, text=True, timeout=30,
+    )
+    if admin_result.returncode != 0:
+        print(f"  {YELLOW}⚠  Admin re-seed failed (non-fatal): {admin_result.stderr.strip()[:200]}{RESET}")
+    else:
+        print(f"  {GREEN}✓ Re-seeded dev admin user{RESET}")
+
+    # Step 4: Re-apply V6 seed data
+    seed_path = Path(__file__).resolve().parent.parent / \
+                "src/main/resources/db/migration-pg/V6__baseline_seed_data.sql"
+    if not seed_path.exists():
+        print(f"  {YELLOW}⚠  Seed SQL not found at {seed_path} — skipping seed{RESET}")
+        return True
+
+    seed_result = subprocess.run(
+        ["psql", "-h", host, "-p", port, "-U", user, "-d", dbname, "-f", str(seed_path)],
+        capture_output=True, text=True, timeout=60,
+    )
+    if seed_result.returncode != 0:
+        print(f"  {YELLOW}⚠  Seed re-apply had warnings: {seed_result.stderr.strip()[:200]}{RESET}")
+        # Seed uses ON CONFLICT DO NOTHING, so re-applying is safe even if some data exists
+        return True
+
+    print(f"  {GREEN}✓ Re-applied V6 seed data{RESET}")
+
+    # Step 5: Fix sequences after explicit-ID seed inserts.
+    # TRUNCATE ... RESTART IDENTITY resets sequences to 1, but V6 seed inserts
+    # use explicit IDs (e.g. delivery_zones id=1), which do NOT advance the
+    # sequence. The next auto-generated ID would collide with seed data,
+    # causing "duplicate key value violates unique constraint" (HTTP 500).
+    # Fix: for each table with an auto-incrementing id, setval to MAX(id)+1.
+    fix_seq_sql = (
+        "DO $$\n"
+        "DECLARE\n"
+        "  r RECORD;\n"
+        "BEGIN\n"
+        "  FOR r IN\n"
+        "    SELECT t.tablename\n"
+        "    FROM pg_tables t\n"
+        "    WHERE t.schemaname = 'public'\n"
+        "      AND EXISTS (\n"
+        "        SELECT 1 FROM pg_attribute a\n"
+        "        JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum\n"
+        "        WHERE a.attrelid = t.tablename::regclass\n"
+        "          AND a.attname = 'id'\n"
+        "          AND a.attnum = 1\n"
+        "          AND pg_get_expr(ad.adbin, ad.adrelid) LIKE 'nextval%')\n"
+        "  LOOP\n"
+        "    EXECUTE format('SELECT setval(pg_get_serial_sequence(%L, ''id''), '\n"
+        "                  'COALESCE((SELECT MAX(id) FROM %I), 1) + 1, false)',\n"
+        "                  r.tablename, r.tablename);\n"
+        "  END LOOP;\n"
+        "END $$;"
+    )
+    seq_result = subprocess.run(
+        ["psql", "-h", host, "-p", port, "-U", user, "-d", dbname, "-v", "ON_ERROR_STOP=1",
+         "-c", fix_seq_sql],
+        capture_output=True, text=True, timeout=60,
+    )
+    if seq_result.returncode != 0:
+        print(f"  {YELLOW}⚠  Sequence fix had a warning: {seq_result.stderr.strip()[:200]}{RESET}")
+    else:
+        print(f"  {GREEN}✓ Reset sequences to MAX(id)+1{RESET}")
+
+    return True
+
+
 def check_server_available(base_url: str, timeout: int) -> bool:
     """Ping the server health endpoint; return False if unreachable."""
     for endpoint in ("/api/v1/health/ping", "/api/v1/health", "/actuator/health"):
@@ -1331,6 +1493,8 @@ def main() -> int:
     parser.add_argument("--admin-email", default="admin@bhukkad.dev", help="Admin email for admin API tests")
     parser.add_argument("--admin-password", default="Admin@123456", help="Password for --admin-email")
     parser.add_argument("--skip-bootstrap", action="store_true", help="Skip account bootstrap (use catalog auth only)")
+    parser.add_argument("--reset-data", action="store_true",
+                        help="Truncate all user tables and re-seed V6 data before running tests")
     parser.add_argument("--no-report", action="store_true", help="Skip writing report files")
     args = parser.parse_args()
 
@@ -1355,6 +1519,11 @@ def main() -> int:
     # catalog into a wall of connection errors.
     if not check_server_available(args.base_url, args.timeout):
         return 1
+
+    if args.reset_data:
+        print_section("Database Reset")
+        if not reset_database(os.getenv("DATABASE_URL")):
+            print(f"  {YELLOW}⚠  Database reset failed — continuing with existing data{RESET}")
 
     if not args.skip_bootstrap:
         bootstrap_accounts(
