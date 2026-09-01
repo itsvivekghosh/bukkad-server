@@ -1,0 +1,46 @@
+# Reference Kubernetes manifests for admin-analytics (plan §11/P8).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-analytics
+  labels: {app: admin-analytics}
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: admin-analytics}
+  template:
+    metadata:
+      labels: {app: admin-analytics}
+    spec:
+      containers:
+        - name: admin-analytics
+          image: ghcr.io/bhukkad/admin-analytics:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: ADMIN_ANALYTICS_DB_URL, value: jdbc:postgresql://postgres:5432/bhukkad_admin}
+            - {name: ADMIN_ANALYTICS_DB_USERNAME, valueFrom: {secretKeyRef: {name: db-secrets, key: username}}}
+            - {name: ADMIN_ANALYTICS_DB_PASSWORD, valueFrom: {secretKeyRef: {name: db-secrets, key: password}}}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: 1, memory: 1Gi}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-analytics
+spec:
+  selector: {app: admin-analytics}
+  ports:
+    - {port: 8080, targetPort: 8080}

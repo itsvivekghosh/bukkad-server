@@ -16,6 +16,7 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+    baseline-on-migrate: true
     # V1 (platform-lib baseline) + V2+ (this service) all live under the same
     # classpath location; Flyway merges them from the common jar and this jar.
     locations: classpath:db/migration-pg
