@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-gateway
+  namespace: bhukkad
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: gateway

@@ -64,6 +64,10 @@ resources:
   - admin-analytics/service.yaml
   - admin-analytics/pdb.yaml
   - admin-analytics/hpa.yaml
+  - gateway/deployment.yaml
+  - gateway/service.yaml
+  - gateway/pdb.yaml
+  - gateway/hpa.yaml
   - logging/fluent-bit-configmap.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
