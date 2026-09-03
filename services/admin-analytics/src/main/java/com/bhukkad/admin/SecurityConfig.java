@@ -28,7 +28,8 @@ import java.nio.charset.StandardCharsets;
 @EnableConfigurationProperties({
         PlatformJwtProperties.class,
         ServiceAuthProperties.class,
-        com.bhukkad.admin.service.FeatureFlagProperties.class
+        com.bhukkad.admin.service.FeatureFlagProperties.class,
+        com.bhukkad.admin.compliance.ComplianceProperties.class
 })
 public class SecurityConfig {
 

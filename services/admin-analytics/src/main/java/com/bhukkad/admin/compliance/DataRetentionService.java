@@ -27,7 +27,7 @@ import java.time.LocalDateTime;
 public class DataRetentionService {
 
     private final ComplianceProperties complianceProperties;
-    private final DataExportRequestRepository dataExportRequestRepository;
+    private final com.bhukkad.admin.domain.DataExportRequestRepository dataExportRequestRepository;
     private final FraudEventRepository fraudEventRepository;
     private final TransactionTemplate transactionTemplate;
 
@@ -44,7 +44,7 @@ public class DataRetentionService {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(complianceProperties.getRetentionDays());
 
         int exportRequests = purgeQuietly("data_export_requests", () ->
-                (int) dataExportRequestRepository.deleteByRequestedAtBefore(cutoff));
+                (int) dataExportRequestRepository.deleteByCreatedAtBefore(cutoff));
         int fraudEvents = purgeQuietly("fraud_events", () ->
                 (int) fraudEventRepository.deleteByCreatedAtBefore(cutoff));
 
