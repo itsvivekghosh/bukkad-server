@@ -1,4 +1,4 @@
-package com.bhukkad.compliance;
+package com.bhukkad.admin.compliance;
 
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;

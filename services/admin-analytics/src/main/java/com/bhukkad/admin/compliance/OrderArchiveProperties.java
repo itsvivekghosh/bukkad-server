@@ -1,4 +1,4 @@
-package com.bhukkad.compliance;
+package com.bhukkad.admin.compliance;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

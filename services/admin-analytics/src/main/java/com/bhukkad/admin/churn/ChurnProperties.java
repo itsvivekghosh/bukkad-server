@@ -1,4 +1,4 @@
-package com.bhukkad.churn;
+package com.bhukkad.admin.churn;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

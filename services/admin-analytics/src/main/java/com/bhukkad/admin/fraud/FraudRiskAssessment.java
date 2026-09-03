@@ -1,4 +1,4 @@
-package com.bhukkad.fraud;
+package com.bhukkad.admin.fraud;
 
 import java.util.List;
 
