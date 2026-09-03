@@ -1,16 +1,19 @@
 package com.bhukkad.identity.api;
 
-import com.bhukkad.identity.domain.AffiliateCode;
-import com.bhukkad.identity.domain.AffiliateReferral;
+import com.bhukkad.identity.dto.request.AffiliateCodeRequest;
+import com.bhukkad.identity.dto.response.AffiliateCodeResponse;
+import com.bhukkad.identity.dto.response.AffiliateStatsResponse;
 import com.bhukkad.identity.service.AffiliateService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
+import java.util.List;
 
 /**
- * Affiliate + referral endpoints (port of monolith {@code AffiliateController}
- * + {@code ReferralController}).
+ * Affiliate admin surface (port of the monolith
+ * {@code AffiliateController} admin endpoints, WAVE 2) plus the public
+ * click-tracking endpoint from the slim WAVE 1 controller.
  */
 @RestController
 @RequestMapping("/api/v1/affiliate")
@@ -19,14 +22,33 @@ public class AffiliateController {
 
     private final AffiliateService affiliateService;
 
+    @GetMapping("/codes")
+    public List<AffiliateCodeResponse> listAll() {
+        return affiliateService.listAll();
+    }
+
     @PostMapping("/codes")
-    public AffiliateCode createCode(@RequestParam Long restaurantId, @RequestParam String code,
-                                    @RequestParam(required = false) BigDecimal commissionPct) {
-        return affiliateService.createCode(restaurantId, code, commissionPct);
+    public AffiliateCodeResponse create(@Valid @RequestBody AffiliateCodeRequest request) {
+        return affiliateService.create(request);
+    }
+
+    @PutMapping("/codes/{id}")
+    public AffiliateCodeResponse update(@PathVariable Long id, @Valid @RequestBody AffiliateCodeRequest request) {
+        return affiliateService.update(id, request);
+    }
+
+    @DeleteMapping("/codes/{id}")
+    public void deactivate(@PathVariable Long id) {
+        affiliateService.deactivate(id);
+    }
+
+    @GetMapping("/codes/{id}/stats")
+    public AffiliateStatsResponse stats(@PathVariable Long id) {
+        return affiliateService.getStats(id);
     }
 
     @PostMapping("/track")
-    public AffiliateReferral track(@RequestParam String code, @RequestParam Long referredBy) {
-        return affiliateService.trackClick(code, referredBy);
+    public void track(@RequestParam String code, @RequestParam Long customerId) {
+        affiliateService.recordSignup(code, customerId);
     }
 }
