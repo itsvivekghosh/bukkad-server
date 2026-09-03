@@ -49,6 +49,14 @@ public class Restaurant {
     @Column(nullable = false)
     private Double avgRating = 0.0;
 
+    @Column(nullable = false)
+    private Boolean busyMode = false;
+
+    private LocalDateTime busyUntil;
+
+    @Column(nullable = false)
+    private Integer extraPrepMinutes = 0;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

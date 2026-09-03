@@ -14,39 +14,46 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * White-label tenant (Batch 4 migration). Belongs in the restaurant service
+ * because the gateway exposes tenants via {@code /api/v1/restaurants/**} for
+ * the storefront. The monolith keeps a richer working copy (DTOs + full
+ * business surface) until the gateway route flips.
+ */
 @Entity
-@Table(name = "menu_items", indexes = {
-        @Index(name = "idx_menu_restaurant", columnList = "restaurantId, isAvailable"),
-        @Index(name = "idx_menu_restaurant_name", columnList = "restaurantId, name")
+@Table(name = "tenants", indexes = {
+        @Index(name = "idx_tenant_domain", columnList = "domain", unique = true)
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
-public class MenuItem {
+public class Tenant {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private Long restaurantId;
-
-    @Column(nullable = false, length = 200)
+    @Column(nullable = false, length = 120)
     private String name;
 
-    private String description;
+    @Column(nullable = false, length = 200)
+    private String domain;
 
-    @Column(name = "category_id")
-    private Long categoryId;
+    private String brandName;
 
-    @Column(nullable = false, precision = 10, scale = 2)
-    private BigDecimal price;
+    @Column(length = 500)
+    private String logoUrl;
+
+    @Column(length = 20)
+    private String themeColor;
+
+    @Column(nullable = false, length = 3)
+    private String currency = "INR";
 
     @Column(nullable = false)
-    private Boolean isAvailable = true;
+    private Boolean isActive = true;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)
