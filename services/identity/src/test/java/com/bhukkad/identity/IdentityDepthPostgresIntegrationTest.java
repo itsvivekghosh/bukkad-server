@@ -8,9 +8,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,7 +28,9 @@ class IdentityDepthPostgresIntegrationTest extends AbstractIdentityPostgresTest 
     @Autowired private TenantRepository tenantRepository;
     @Autowired private MembershipPlanRepository planRepository;
     @Autowired private CustomerMembershipRepository membershipRepository;
+    @Autowired private CustomerRepository customerRepository;
     @Autowired private AffiliateCodeRepository affiliateCodeRepository;
+    @Autowired private AffiliateReferralRepository affiliateReferralRepository;
 
     @BeforeEach
     void clean() {
@@ -47,6 +47,7 @@ class IdentityDepthPostgresIntegrationTest extends AbstractIdentityPostgresTest 
         jdbcTemplate.update("DELETE FROM admins");
         jdbcTemplate.update("DELETE FROM users");
         jdbcTemplate.update("DELETE FROM tenants");
+        jdbcTemplate.update("DELETE FROM customers");
     }
 
     @Test
@@ -132,32 +133,42 @@ class IdentityDepthPostgresIntegrationTest extends AbstractIdentityPostgresTest 
 
     @Test
     void membershipAndAffiliatePersist() {
-        DeliveryAgent agent = new DeliveryAgent();
-        agent.setRole(User.UserRole.DELIVERY_AGENT);
-        DeliveryAgent saved = userRepository.saveAndFlush(agent);
+        Customer customer = new Customer();
+        customer.setEmail("member@b.com");
+        customer.setFullName("Member A");
+        customer.setPasswordHash("hash");
+        Customer savedCustomer = customerRepository.saveAndFlush(customer);
 
         MembershipPlan plan = new MembershipPlan();
         plan.setName("Gold");
-        plan.setTier("gold");
-        plan.setPrice(new BigDecimal("299.00"));
+        plan.setPricePerMonth(299.00);
+        plan.setIsActive(true);
         planRepository.saveAndFlush(plan);
 
         CustomerMembership membership = new CustomerMembership();
-        membership.setCustomerId(saved.getId());
-        membership.setPlanId(plan.getId());
-        membership.setStatus("ACTIVE");
-        membership.setStartedAt(LocalDateTime.now());
-        membership.setExpiresAt(LocalDateTime.now().plusDays(30));
+        membership.setCustomer(savedCustomer);
+        membership.setPlan(plan);
+        membership.setStatus(CustomerMembership.MembershipStatus.ACTIVE);
+        membership.setStartsAt(LocalDateTime.now());
+        membership.setEndsAt(LocalDateTime.now().plusDays(30));
         membershipRepository.saveAndFlush(membership);
 
         AffiliateCode affiliateCode = new AffiliateCode();
-        affiliateCode.setRestaurantId(5L);
         affiliateCode.setCode("ACME10");
+        affiliateCode.setName("Acme");
+        affiliateCode.setRewardAmount(40.0);
         affiliateCodeRepository.saveAndFlush(affiliateCode);
 
-        assertThat(planRepository.findByActiveTrue()).hasSize(1);
-        assertThat(membershipRepository.findFirstByCustomerIdAndStatusOrderByExpiresAtDesc(
-                saved.getId(), "ACTIVE")).isPresent();
-        assertThat(affiliateCodeRepository.findByCode("ACME10")).isPresent();
+        AffiliateReferral referral = new AffiliateReferral();
+        referral.setAffiliateCode(affiliateCode);
+        referral.setCustomer(savedCustomer);
+        referral.setRewardAmount(40.0);
+        affiliateReferralRepository.saveAndFlush(referral);
+
+        assertThat(planRepository.findByIsActiveTrue()).hasSize(1);
+        assertThat(membershipRepository.findActiveMembership(
+                savedCustomer.getId(), LocalDateTime.now())).isPresent();
+        assertThat(affiliateCodeRepository.findByCodeIgnoreCase("acme10")).isPresent();
+        assertThat(affiliateReferralRepository.countByAffiliateCodeId(affiliateCode.getId())).isEqualTo(1);
     }
 }
