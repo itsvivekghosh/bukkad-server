@@ -39,6 +39,9 @@ public class MenuItem {
 
     private String description;
 
+    @Column(name = "category_id")
+    private Long categoryId;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
 

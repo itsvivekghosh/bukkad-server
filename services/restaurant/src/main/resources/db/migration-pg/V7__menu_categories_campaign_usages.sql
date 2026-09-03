@@ -20,6 +20,12 @@ CREATE INDEX idx_category_active ON menu_categories (active);
 CREATE INDEX idx_category_restaurant_active ON menu_categories (restaurant_id, active);
 CREATE INDEX idx_category_restaurant_order ON menu_categories (restaurant_id, display_order);
 
+-- menu items gain their category link (plain column; category is owned here).
+ALTER TABLE menu_items
+    ADD COLUMN category_id BIGINT REFERENCES menu_categories (id);
+
+CREATE INDEX idx_menu_item_category ON menu_items (category_id);
+
 CREATE TABLE campaign_usages (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     campaign_id BIGINT       NOT NULL REFERENCES promotion_campaigns (id),

@@ -9,6 +9,8 @@ import java.util.List;
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     List<MenuItem> findByRestaurantIdAndIsAvailableTrue(Long restaurantId);
     List<MenuItem> findByRestaurantId(Long restaurantId);
+    List<MenuItem> findByCategoryId(Long categoryId);
+    int countByCategoryId(Long categoryId);
 
     /** PG port of the MySQL FULLTEXT search: tsvector + plainto_tsquery. */
     @Query(value = """
