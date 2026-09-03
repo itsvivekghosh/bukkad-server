@@ -55,4 +55,12 @@ public class Customer {
     @LastModifiedDate
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    @Column(length = 32)
+    private String referralCode;
+
+    private Long referredById;
+
+    @Column(nullable = false)
+    private Double walletBalance = 0.0;
 }
