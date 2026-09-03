@@ -1,6 +1,9 @@
 package com.bhukkad.identity.referral;
 
 import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.ratelimit.RateLimitDecision;
+import com.bhukkad.common.ratelimit.RateLimitExceededException;
+import com.bhukkad.common.ratelimit.RateLimitService;
 import com.bhukkad.identity.api.WalletCreditPort;
 import com.bhukkad.identity.domain.Customer;
 import com.bhukkad.identity.domain.CustomerRepository;
@@ -38,6 +41,8 @@ class ReferralServiceTest {
     private WalletCreditPort walletCreditPort;
     @Mock
     private ReferralProperties referralProperties;
+    @Mock
+    private RateLimitService rateLimitService;
 
     @InjectMocks
     private ReferralService service;
@@ -178,9 +183,28 @@ class ReferralServiceTest {
     }
 
     @Test
-    void assertNotRateLimited_passesWhenAllowed() {
+    void isValidReferralCode_trueWhenPresent() {
         when(customerRepository.findByReferralCode("BKABC123")).thenReturn(Optional.of(referrer));
 
         assertEquals(true, service.isValidReferralCode("BKABC123"));
+    }
+
+    @Test
+    void assertNotRateLimited_passesWhenAllowed() {
+        when(rateLimitService.check("referral", "referral:generate:1", 10L, 60))
+                .thenReturn(RateLimitDecision.allowed(1L, 10L, 60L));
+
+        service.assertNotRateLimited("referral:generate:1");
+    }
+
+    @Test
+    void assertNotRateLimited_throwsWhenDenied() {
+        when(rateLimitService.check("referral", "referral:generate:1", 10L, 60))
+                .thenReturn(RateLimitDecision.denied(11L, 10L, 42L));
+
+        RateLimitExceededException ex = assertThrows(RateLimitExceededException.class,
+                () -> service.assertNotRateLimited("referral:generate:1"));
+
+        assertEquals(42L, ex.getRetryAfterSeconds());
     }
 }
