@@ -1,6 +1,6 @@
-package com.bhukkad.repository;
+package com.bhukkad.order.domain;
 
-import com.bhukkad.entity.SubscriptionDelivery;
+import com.bhukkad.order.domain.SubscriptionDelivery;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

@@ -1,4 +1,4 @@
-package com.bhukkad.entity;
+package com.bhukkad.order.domain;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

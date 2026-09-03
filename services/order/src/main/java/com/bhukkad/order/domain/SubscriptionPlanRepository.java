@@ -1,6 +1,6 @@
-package com.bhukkad.repository;
+package com.bhukkad.order.domain;
 
-import com.bhukkad.entity.SubscriptionPlan;
+import com.bhukkad.order.domain.SubscriptionPlan;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
