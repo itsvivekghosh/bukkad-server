@@ -69,10 +69,8 @@ class AdminOperationsControllerTest {
 
     @Test
     void setFlag_delegates() {
-        when(featureFlagService.set("dark-mode", true)).thenReturn(null);
-
         controller.setFlag("dark-mode", true);
-        verify(featureFlagService).set("dark-mode", true);
+        verify(featureFlagService).setFlag("dark-mode", true);
     }
 
     @Test

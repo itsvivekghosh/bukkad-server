@@ -16,7 +16,7 @@ public interface PhoneVerificationService {
      *
      * @param phone   the recipient phone number (10 digits, Indian format)
      * @param channel "sms" or "whatsapp"
-     * @throws com.bhukkad.exception.BusinessException if the phone is blank or
+     * @throws com.bhukkad.common.error.BusinessException if the phone is blank or
      *         the channel is unsupported
      */
     void sendOtp(String phone, String channel);
@@ -26,7 +26,7 @@ public interface PhoneVerificationService {
      * On success the OTP is consumed (deleted from Redis) so it cannot be reused.
      *
      * @return {@code true} if the OTP was valid and consumed
-     * @throws com.bhukkad.exception.BusinessException if the OTP is missing,
+     * @throws com.bhukkad.common.error.BusinessException if the OTP is missing,
      *         expired, or does not match
      */
     boolean verifyOtp(String phone, String code);

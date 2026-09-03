@@ -18,8 +18,20 @@ spring:
     enabled: true
     locations: classpath:db/migration-pg
     baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
 
 management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
   endpoints:
     web:
       exposure:
@@ -35,6 +47,9 @@ logging:
 
 app:
   environment: production
+  services:
+    restaurant:
+      url: ${RESTAURANT_SERVICE_URL:http://localhost:8082}
   auth:
     jwt:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty

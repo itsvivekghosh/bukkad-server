@@ -1,6 +1,6 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.config.InventoryProperties;
 import com.bhukkad.inventory.StockReservationService;
 import com.bhukkad.mapper.MenuItemMapper;

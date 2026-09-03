@@ -3,7 +3,7 @@ package com.bhukkad.restaurant;
 import com.bhukkad.dto.response.RestaurantAnalyticsResponse;
 import com.bhukkad.dto.response.RestaurantDashboardResponse;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.service.RestaurantAnalyticsService;
 import com.bhukkad.settlement.RestaurantSettlementService;

@@ -1,7 +1,7 @@
 package com.bhukkad.grpc;
 
 import com.bhukkad.dto.response.OrderResponse;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.grpc.proto.GetOrderStatusRequest;
 import com.bhukkad.grpc.proto.OrderStatusSnapshot;
 import com.bhukkad.service.OrderService;

@@ -6,6 +6,7 @@ package com.bhukkad.common.cache;
 public final class CacheConstants {
 
     public static final String KEY_PREFIX = "bhukkad:";
+    public static final String KEY_SEPARATOR = ":";
 
     public static final String RESTAURANT_MENU = "restaurant:menu";
     public static final String ORDER = "order";

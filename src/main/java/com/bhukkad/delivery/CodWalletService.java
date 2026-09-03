@@ -1,7 +1,7 @@
 package com.bhukkad.delivery;
 
 import com.bhukkad.entity.AgentCodWallet;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.AgentCodWalletRepository;
 import com.bhukkad.util.PriceCalculator;
 import lombok.RequiredArgsConstructor;

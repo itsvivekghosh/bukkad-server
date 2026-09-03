@@ -1,10 +1,10 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.config.InventoryProperties;
 import com.bhukkad.inventory.StockReservationService;
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
@@ -14,9 +14,9 @@ import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.mapper.MenuItemMapper;
 import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
@@ -406,7 +406,7 @@ public class MenuServiceImpl implements MenuService {
             menuItem.setImageUrl(request.getImageKey());
         } else if (request.getImageUrl() != null) {
             if (imageStorageProperties.isEnabled()) {
-                throw new com.bhukkad.exception.BusinessException(
+                throw new com.bhukkad.common.error.BusinessException(
                         "Use image upload-url flow instead of raw image URLs when S3 is enabled");
             }
             menuItem.setImageUrl(request.getImageUrl());

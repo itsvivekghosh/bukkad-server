@@ -370,7 +370,7 @@ public class RestaurantControllerTest {
     void getAllRestaurants_tooManyIds_throwsBusinessException() {
         java.util.List<Long> many = java.util.stream.LongStream.rangeClosed(1, 101)
                 .boxed().collect(java.util.stream.Collectors.toList());
-        assertThrows(com.bhukkad.exception.BusinessException.class,
+        assertThrows(com.bhukkad.common.error.BusinessException.class,
                 () -> restaurantController.getAllRestaurants(many, null, null, null, null, null, null));
         verify(restaurantService, never()).getRestaurantsByIds(any());
     }

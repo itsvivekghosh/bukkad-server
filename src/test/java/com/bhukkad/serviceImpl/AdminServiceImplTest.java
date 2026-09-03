@@ -1,6 +1,6 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
@@ -8,7 +8,7 @@ import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.Admin;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.AdminRepository;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;

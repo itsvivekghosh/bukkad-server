@@ -2,7 +2,7 @@ package com.bhukkad.search;
 
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;

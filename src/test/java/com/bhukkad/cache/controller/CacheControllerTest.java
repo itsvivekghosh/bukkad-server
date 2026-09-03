@@ -1,6 +1,6 @@
 package com.bhukkad.cache.controller;
 
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.dto.response.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

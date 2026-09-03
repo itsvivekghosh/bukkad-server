@@ -1,6 +1,6 @@
 package com.bhukkad.delivery;
 
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.storage.ImageStorageProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

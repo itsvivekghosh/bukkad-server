@@ -6,7 +6,7 @@ import com.bhukkad.ratelimit.RateLimitService;
 import com.bhukkad.dto.response.ReferralInfoResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.WalletTransaction;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.WalletTransactionRepository;
 import com.bhukkad.wallet.WalletService;
@@ -73,7 +73,7 @@ public class ReferralService {
     public void assertNotRateLimited(String key) {
         RateLimitDecision decision = rateLimitService.check("referral", key);
         if (!decision.allowed()) {
-            throw new com.bhukkad.exception.RateLimitExceededException(
+            throw new com.bhukkad.common.ratelimit.RateLimitExceededException(
                     "Too many requests. Try again later.", decision.retryAfterSeconds());
         }
     }

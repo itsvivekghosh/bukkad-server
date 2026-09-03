@@ -1,6 +1,6 @@
 package com.bhukkad.storage;
 
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -236,7 +236,7 @@ class MenuImageServiceTest {
         // Batch B: presign URLs are cached in Redis (TTL = expiry - 100s) to avoid
         // 100k presign ops/s at high QPS. The supplier runs on cache miss and the
         // presigned URL is stored under menu-image:url:<key>.
-        com.bhukkad.cache.RedisCacheService redis = org.mockito.Mockito.mock(com.bhukkad.cache.RedisCacheService.class);
+        com.bhukkad.common.cache.RedisCacheService redis = org.mockito.Mockito.mock(com.bhukkad.common.cache.RedisCacheService.class);
         MenuImageService cachedService = new MenuImageService(properties, s3Presigner, redis);
 
         URL url = new URL("https://s3.example.com/test-bucket/images/1/2/cached.jpg?sig=1");

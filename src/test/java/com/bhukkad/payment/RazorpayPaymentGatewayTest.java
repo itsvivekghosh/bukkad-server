@@ -1,6 +1,6 @@
 package com.bhukkad.payment;
 
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.exception.PaymentGatewayException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

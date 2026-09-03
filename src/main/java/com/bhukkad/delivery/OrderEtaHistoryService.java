@@ -3,7 +3,7 @@ package com.bhukkad.delivery;
 import com.bhukkad.dto.response.OrderEtaDetailResponse;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.OrderEtaSnapshot;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.OrderEtaSnapshotRepository;
 import com.bhukkad.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;

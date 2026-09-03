@@ -1,6 +1,6 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.response.AddressResponse;
 import com.bhukkad.dto.response.CustomerOrderStatsResponse;
@@ -10,9 +10,9 @@ import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.repository.AddressRepository;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.OrderRepository;

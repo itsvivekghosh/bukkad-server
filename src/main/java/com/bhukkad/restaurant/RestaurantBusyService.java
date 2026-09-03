@@ -2,7 +2,7 @@ package com.bhukkad.restaurant;
 
 import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -52,7 +52,7 @@ public class RestaurantBusyService {
             clearBusyMode(restaurantId);
             return;
         }
-        throw new com.bhukkad.exception.BusinessException(
+        throw new com.bhukkad.common.error.BusinessException(
                 "Restaurant is in busy mode and not accepting new orders right now");
     }
 

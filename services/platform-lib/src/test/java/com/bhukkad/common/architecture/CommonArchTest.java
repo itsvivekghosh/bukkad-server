@@ -48,6 +48,7 @@ class CommonArchTest {
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "org.springframework.web..",
                         "org.springframework.web.bind.annotation..",
+                        "org.springframework.web.socket..",
                         "jakarta.servlet..");
         rule.check(COMMON_CLASSES);
     }

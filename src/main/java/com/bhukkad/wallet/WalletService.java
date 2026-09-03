@@ -1,7 +1,7 @@
 package com.bhukkad.wallet;
 
 import com.bhukkad.entity.WalletTransaction;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.identity.api.CustomerWalletSyncPort;
 import com.bhukkad.repository.WalletTransactionRepository;
 import com.bhukkad.util.PriceCalculator;

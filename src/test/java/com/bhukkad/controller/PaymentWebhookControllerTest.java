@@ -4,7 +4,7 @@ import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.BlankResponse;
 import com.bhukkad.idempotency.WebhookIdempotencyService;
 import com.bhukkad.logging.alert.AlertService;
-import com.bhukkad.outbox.OutboxEventService;
+import com.bhukkad.common.outbox.OutboxEventService;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.ratelimit.RateLimitDecision;
 import com.bhukkad.ratelimit.RateLimitService;
@@ -203,7 +203,7 @@ class PaymentWebhookControllerTest {
         when(paymentGateway.verifyWebhookSignature(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
         when(webhookIdempotencyService.markProcessed("pay_nf")).thenReturn(true);
-        org.mockito.Mockito.doThrow(new com.bhukkad.exception.ResourceNotFoundException("Payment not found"))
+        org.mockito.Mockito.doThrow(new com.bhukkad.common.error.ResourceNotFoundException("Payment not found"))
                 .when(paymentService).completeWebhookPayment("order_nf", "pay_nf");
 
         ResponseEntity<ApiResponse<BlankResponse>> response =

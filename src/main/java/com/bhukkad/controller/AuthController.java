@@ -26,7 +26,7 @@ import com.bhukkad.security.JwePasswordCrypto;
 import com.bhukkad.security.ReplayNonceValidator;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.AuthService;
-import com.bhukkad.util.RequestUtils;
+import com.bhukkad.common.web.RequestUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

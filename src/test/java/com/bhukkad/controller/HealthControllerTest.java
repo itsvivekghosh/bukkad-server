@@ -1,8 +1,8 @@
 package com.bhukkad.controller;
 
-import com.bhukkad.cache.RedisCacheService;
-import com.bhukkad.cluster.InstanceMetadata;
-import com.bhukkad.datasource.ReadReplicaProperties;
+import com.bhukkad.common.cache.RedisCacheService;
+import com.bhukkad.common.cluster.InstanceMetadata;
+import com.bhukkad.common.datasource.ReadReplicaProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;

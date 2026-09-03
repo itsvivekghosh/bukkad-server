@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Marker {@code @JsonFilter} makes this DTO projectable via {@code ?fields=}
- * on the order-detail endpoints — see {@link com.bhukkad.web.FieldProjection}.
+ * on the order-detail endpoints — see {@link com.bhukkad.common.web.FieldProjection}.
  * The filter is a no-op unless a controller wraps the response with
  * {@code FieldProjection.project(order, fields)}.
  */

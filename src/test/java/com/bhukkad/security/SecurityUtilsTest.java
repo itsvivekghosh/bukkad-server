@@ -1,7 +1,7 @@
 package com.bhukkad.security;
 
 import com.bhukkad.entity.Customer;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.UnauthorizedException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

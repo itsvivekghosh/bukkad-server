@@ -5,7 +5,7 @@ import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Payment;
 import com.bhukkad.entity.WalletTransaction;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.payment.PaymentGateway;
 import com.bhukkad.payment.PaymentProperties;
 import com.bhukkad.repository.CustomerRepository;

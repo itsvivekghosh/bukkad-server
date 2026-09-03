@@ -95,7 +95,7 @@ public class OrderLiveStreamController {
             @RequestParam String token,
             @RequestHeader(value = LAST_EVENT_ID_HEADER, required = false) String lastEventId) {
         if (!riderLocationTrackingService.isValidTrackingToken(orderId, token)) {
-            throw new com.bhukkad.exception.UnauthorizedException("Invalid or expired tracking token");
+            throw new com.bhukkad.common.error.UnauthorizedException("Invalid or expired tracking token");
         }
         OrderResponse snapshot = orderService.getOrderById(orderId);
         return sseStreamService.subscribeCustomer(orderId, lastEventId, snapshot);

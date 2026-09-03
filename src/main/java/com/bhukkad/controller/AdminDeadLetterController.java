@@ -4,7 +4,7 @@ import com.bhukkad.config.ApiPaths;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.DeadLetterEventResponse;
 import com.bhukkad.outbox.DeadLetterEventResponseMapper;
-import com.bhukkad.outbox.DeadLetterEventService;
+import com.bhukkad.common.outbox.DeadLetterEventService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;

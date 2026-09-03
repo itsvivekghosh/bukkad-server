@@ -4,7 +4,7 @@ import com.bhukkad.entity.Order;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
-import com.bhukkad.event.kafka.PlatformEventMessage;
+import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.service.NotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -39,7 +39,7 @@ class NotificationDispatchServiceTest {
     }
 
     private PlatformEventMessage message(String type, String payload) {
-        return new PlatformEventMessage(type, 42L, payload, Instant.now());
+        return PlatformEventMessage.of(type, "42", payload);
     }
 
     @Test
@@ -85,9 +85,9 @@ class NotificationDispatchServiceTest {
     }
 
     @Test
-    void dispatch_nullEventType_noop() {
-        PlatformEventMessage nullType = new PlatformEventMessage(null, 42L, "{}", Instant.now());
-        dispatchService.dispatch(nullType);
+    void dispatch_unknownEventType_noop() {
+        PlatformEventMessage unknownType = PlatformEventMessage.of("UNKNOWN_TYPE", "42", "{}");
+        dispatchService.dispatch(unknownType);
         verifyNoInteractions(notificationService);
     }
 

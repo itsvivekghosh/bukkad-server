@@ -4,7 +4,7 @@ import com.bhukkad.config.DeliveryTruthProperties;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.util.Constants;
+import com.bhukkad.common.util.Constants;
 import com.bhukkad.util.DistanceCalculator;
 import com.bhukkad.zone.DeliveryZoneService;
 import com.bhukkad.zone.ZoneSurgeService;

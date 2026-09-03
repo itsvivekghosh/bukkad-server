@@ -1,4 +1,5 @@
 package com.bhukkad.ratelimit;
+import com.bhukkad.common.ratelimit.RateLimitProperties;
 
 import com.bhukkad.cache.CacheConstants;
 import lombok.RequiredArgsConstructor;

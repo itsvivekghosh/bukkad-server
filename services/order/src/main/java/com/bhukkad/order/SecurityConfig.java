@@ -2,6 +2,9 @@ package com.bhukkad.order;
 
 import com.bhukkad.common.security.PlatformJwtAuthFilter;
 import com.bhukkad.common.security.PlatformJwtProperties;
+import com.bhukkad.common.security.ServiceAuthProperties;
+import com.bhukkad.common.security.ServiceJwtAuthFilter;
+import com.bhukkad.common.web.SecurityHeadersFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -22,11 +25,13 @@ import java.nio.charset.StandardCharsets;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(PlatformJwtProperties.class)
+@EnableConfigurationProperties({PlatformJwtProperties.class, ServiceAuthProperties.class})
 public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   SecurityHeadersFilter securityHeadersFilter,
+                                                   ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter,
                                                    ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter)
             throws Exception {
         http
@@ -38,6 +43,15 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health/**", "/actuator/**").permitAll()
                         .anyRequest().authenticated());
+
+        // Security headers must run first
+        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+
+        // Service-to-service JWT filter (must run before user JWT filter)
+        ServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
+        if (serviceFilter != null) {
+            http.addFilterBefore(serviceFilter, UsernamePasswordAuthenticationFilter.class);
+        }
 
         PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
         if (filter != null) {

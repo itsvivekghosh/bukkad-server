@@ -1,0 +1,59 @@
+package com.bhukkad.order.api;
+
+import com.bhukkad.order.service.CouponService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * Coupon API ({@code /api/v1/coupons}). Extracted from the monolith's
+ * CouponController — customers browse/validate, admins CRUD.
+ */
+@RestController
+@RequestMapping("/api/v1/coupons")
+@RequiredArgsConstructor
+public class CouponController {
+
+    private final CouponService couponService;
+
+    @GetMapping("/active")
+    public List<CouponResponse> getActiveCoupons(@RequestParam(required = false) Long restaurantId) {
+        return couponService.getActiveCouponResponses(restaurantId);
+    }
+
+    @GetMapping("/validate")
+    public CouponResponse validateCoupon(
+            @RequestParam String code,
+            @RequestParam BigDecimal orderAmount,
+            @RequestParam(required = false) Long restaurantId,
+            @RequestParam(required = false) Long customerId) {
+        return couponService.validateAndGetResponse(code, orderAmount, restaurantId, customerId);
+    }
+
+    @PostMapping
+    public CouponResponse createCoupon(@Valid @RequestBody CouponRequest request) {
+        return couponService.createCoupon(request);
+    }
+
+    @PutMapping("/{couponId}")
+    public CouponResponse updateCoupon(@PathVariable Long couponId,
+                                       @Valid @RequestBody CouponRequest request) {
+        return couponService.updateCoupon(couponId, request);
+    }
+
+    @DeleteMapping("/{couponId}")
+    public void deactivateCoupon(@PathVariable Long couponId) {
+        couponService.deactivateCoupon(couponId);
+    }
+}

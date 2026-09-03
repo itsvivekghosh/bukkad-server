@@ -12,7 +12,7 @@ import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.RestaurantOwner;
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.util.TOTPGenerator;
 import com.bhukkad.logging.SecurityEventLogger;
 import com.bhukkad.repository.CustomerRepository;
@@ -392,7 +392,7 @@ class AuthServiceImplTest {
     void verifyEmail_tokenMismatch_throwsUnauthorized() {
         when(jwtTokenProvider.extractUsername("token")).thenReturn("other@example.com");
 
-        assertThrows(com.bhukkad.exception.UnauthorizedException.class,
+        assertThrows(com.bhukkad.common.error.UnauthorizedException.class,
                 () -> authService.verifyEmail("user@example.com", "token"));
     }
 
@@ -401,7 +401,7 @@ class AuthServiceImplTest {
         when(jwtTokenProvider.extractUsername("bad-token")).thenReturn("user@example.com");
         when(jwtTokenProvider.validateToken("bad-token")).thenReturn(false);
 
-        assertThrows(com.bhukkad.exception.UnauthorizedException.class,
+        assertThrows(com.bhukkad.common.error.UnauthorizedException.class,
                 () -> authService.verifyEmail("user@example.com", "bad-token"));
     }
 
@@ -778,7 +778,7 @@ class AuthServiceImplTest {
     void verifyMfaLogin_expiredToken_throws() {
         when(jwtTokenProvider.validateMfaToken("expired")).thenReturn(false);
 
-        assertThrows(com.bhukkad.exception.UnauthorizedException.class,
+        assertThrows(com.bhukkad.common.error.UnauthorizedException.class,
                 () -> authService.verifyMfaLogin("expired", "123456"));
     }
 
@@ -788,7 +788,7 @@ class AuthServiceImplTest {
         // (extractUserId would otherwise throw a JWT parse exception -> 500).
         when(jwtTokenProvider.validateMfaToken("garbage")).thenReturn(false);
 
-        assertThrows(com.bhukkad.exception.UnauthorizedException.class,
+        assertThrows(com.bhukkad.common.error.UnauthorizedException.class,
                 () -> authService.verifyMfaLogin("garbage", "123456"));
         verify(jwtTokenProvider, never()).extractUserId(anyString());
         verify(jwtTokenProvider, never()).extractUsername(anyString());
@@ -960,7 +960,7 @@ class AuthServiceImplTest {
 
         PhoneRegisterResponse response = authService.registerPhone(request);
         assertEquals("9999999999", response.getPhoneNumber());
-        assertEquals(com.bhukkad.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
+        assertEquals(com.bhukkad.common.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
         verify(phoneVerificationService).sendOtp(eq("9999999999"), eq("whatsapp"));
     }
 
@@ -980,7 +980,7 @@ class AuthServiceImplTest {
 
         assertEquals("7777777777", response.getPhoneNumber());
         assertTrue(response.isNewUser());
-        assertEquals(com.bhukkad.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
+        assertEquals(com.bhukkad.common.util.Constants.OTP_EXPIRY_MINUTES, response.getOtpExpiryMinutes());
         verify(phoneVerificationService).sendOtp(eq("7777777777"), eq("whatsapp"));
         verify(customerRepository, never()).save(any());
     }

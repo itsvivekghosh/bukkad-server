@@ -7,7 +7,7 @@ Files:
 - `scripts/provision-vault.sh` — seeds
   `secret/bhukkad/prod/{database,redis,auth,rabbitmq,payments}`
 - `k8s/secret-store.yaml` — SecretStore → Vault (Kubernetes auth,
-  role `bhukkad-api`, SA `bhukkad-app` in namespace `bhukkad`)
+  role `bhukkad-api`, shared SA `bhukkad-app` in namespace `bhukkad`)
 - `k8s/external-secret.yaml` — ExternalSecret → target Secret `bhukkad-secrets`
 
 ## 1. Install and start Vault

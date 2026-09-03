@@ -71,6 +71,9 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: JWT_SECRET
+            # Service-to-service: restaurant service endpoint (k8s Service DNS).
+            - name: RESTAURANT_SERVICE_URL
+              value: http://bhukkad-restaurant.bhukkad.svc.cluster.local
             - name: JAVA_OPTS
               value: >-
                 -XX:+UseContainerSupport

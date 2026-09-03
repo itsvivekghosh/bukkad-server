@@ -1,7 +1,7 @@
 package com.bhukkad.idempotency;
 
 import com.bhukkad.entity.Payment;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

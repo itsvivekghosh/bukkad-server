@@ -1,6 +1,6 @@
 package com.bhukkad.cart;
 
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.entity.Cart;
 import com.bhukkad.entity.CartItem;
 import com.bhukkad.entity.Coupon;

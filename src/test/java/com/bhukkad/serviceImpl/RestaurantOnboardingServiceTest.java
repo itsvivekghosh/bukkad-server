@@ -1,12 +1,12 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.mapper.AddressMapper;
 import com.bhukkad.repository.CuisineRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;

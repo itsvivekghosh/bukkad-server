@@ -31,8 +31,8 @@ spec:
         runAsGroup: 1001
         fsGroup: 1001
       containers:
-        - name: gateway
-          image: bhukkad-gateway:latest
+        - name: bhukkad-gateway
+          image: ghcr.io/bhukkad/gateway:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

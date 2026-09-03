@@ -17,7 +17,7 @@ import com.bhukkad.dto.response.OrderResponse;
 import com.bhukkad.dto.response.OrderSummaryResponse;
 import com.bhukkad.dto.response.PagedResponse;
 import com.bhukkad.entity.Order;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.fraud.FraudDetectionService;
 import com.bhukkad.fraud.FraudEventTypes;
 import com.bhukkad.ratelimit.RateLimited;
@@ -27,8 +27,8 @@ import com.bhukkad.order.OrderCreateJobService;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.CartService;
 import com.bhukkad.service.OrderService;
-import com.bhukkad.util.PaginationUtils;
-import com.bhukkad.web.FieldProjection;
+import com.bhukkad.common.util.PaginationUtils;
+import com.bhukkad.common.web.FieldProjection;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -460,7 +460,7 @@ public class OrderController {
     /**
      * Batch read — returns a map keyed by order id for any subset of the
      * caller's own orders in a single round-trip. Caps at
-     * {@link com.bhukkad.util.PaginationUtils#MAX_PAGE_SIZE} ids per request to
+     * {@link com.bhukkad.common.util.PaginationUtils#MAX_PAGE_SIZE} ids per request to
      * bound server memory and DB pressure; callers that need more should page
      * via the cursor endpoints instead.
      *
@@ -477,10 +477,10 @@ public class OrderController {
         }
         // Bound the request — capped at MAX_PAGE_SIZE so a malicious caller
         // can't issue ?ids=1,2,3,...,100000 and force a 100k-row IN-list.
-        if (ids.size() > com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE) {
-            throw new com.bhukkad.exception.BusinessException(
+        if (ids.size() > com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE) {
+            throw new com.bhukkad.common.error.BusinessException(
                     "Too many ids in batch request; max "
-                            + com.bhukkad.util.PaginationUtils.MAX_PAGE_SIZE);
+                            + com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE);
         }
         return ResponseEntity.ok(ApiResponse.success(orderService.getOrdersByIds(ids)));
     }

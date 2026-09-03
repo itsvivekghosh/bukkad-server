@@ -2,8 +2,8 @@ package com.bhukkad.idempotency;
 
 import com.bhukkad.dto.response.BatchOrderResponse;
 import com.bhukkad.dto.response.OrderResponse;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.DuplicateRequestException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.DuplicateRequestException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

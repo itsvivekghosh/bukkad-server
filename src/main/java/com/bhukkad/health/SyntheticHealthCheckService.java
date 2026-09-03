@@ -1,9 +1,9 @@
 package com.bhukkad.health;
 
 import com.bhukkad.config.SyntheticHealthCheckProperties;
-import com.bhukkad.logging.alert.AlertCategory;
+import com.bhukkad.common.logging.alert.AlertCategory;
 import com.bhukkad.logging.alert.AlertService;
-import com.bhukkad.logging.alert.AlertSeverity;
+import com.bhukkad.common.logging.alert.AlertSeverity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

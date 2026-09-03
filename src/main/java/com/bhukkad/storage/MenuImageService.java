@@ -1,7 +1,7 @@
 package com.bhukkad.storage;
 
-import com.bhukkad.cache.RedisCacheService;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.cache.RedisCacheService;
+import com.bhukkad.common.error.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;

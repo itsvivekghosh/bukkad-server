@@ -50,7 +50,8 @@ public class AdminOperationsController {
 
     @PutMapping("/flags/{name}")
     public Object setFlag(@PathVariable String name, @RequestParam boolean enabled) {
-        return featureFlagService.set(name, enabled);
+        featureFlagService.setFlag(name, enabled);
+        return java.util.Map.of("flag", name, "enabled", enabled);
     }
 
     @GetMapping("/flags/{name}")

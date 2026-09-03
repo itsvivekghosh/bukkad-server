@@ -1,7 +1,7 @@
 package com.bhukkad.order;
 
 import com.bhukkad.config.ScheduledOrderProperties;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

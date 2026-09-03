@@ -3,7 +3,7 @@ package com.bhukkad.compliance;
 import com.bhukkad.audit.AuditService;
 import com.bhukkad.entity.Address;
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.AddressRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.UserRepository;

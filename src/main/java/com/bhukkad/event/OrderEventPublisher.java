@@ -1,7 +1,7 @@
 package com.bhukkad.event;
 
 import com.bhukkad.entity.Order;
-import com.bhukkad.outbox.OutboxEventService;
+import com.bhukkad.common.outbox.OutboxEventService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

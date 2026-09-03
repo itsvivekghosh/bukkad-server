@@ -1,6 +1,6 @@
 package com.bhukkad.live;
 
-import com.bhukkad.cluster.ClusterProperties;
+import com.bhukkad.common.cluster.ClusterProperties;
 import com.bhukkad.dto.response.OrderLiveUpdate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;

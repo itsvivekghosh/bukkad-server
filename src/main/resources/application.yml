@@ -673,7 +673,7 @@ resilience4j:
           - java.util.concurrent.TimeoutException
           - io.github.resilience4j.circuitbreaker.CallNotPermittedException
         ignore-exceptions:
-          - com.bhukkad.exception.BusinessException
+          - com.bhukkad.common.error.BusinessException
       osrm:
         max-attempts: 2
         wait-duration: 200ms
@@ -686,7 +686,7 @@ resilience4j:
           - java.io.IOException
           - java.util.concurrent.TimeoutException
         ignore-exceptions:
-          - com.bhukkad.exception.BusinessException
+          - com.bhukkad.common.error.BusinessException
   timelimiter:
     configs:
       paymentGateway:

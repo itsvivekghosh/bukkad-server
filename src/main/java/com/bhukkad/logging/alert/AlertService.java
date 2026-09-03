@@ -1,4 +1,6 @@
 package com.bhukkad.logging.alert;
+import com.bhukkad.common.logging.alert.AlertCategory;
+import com.bhukkad.common.logging.alert.AlertSeverity;
 
 import com.bhukkad.config.AlertingProperties;
 import com.bhukkad.logging.LoggingConstants;

@@ -1,7 +1,7 @@
 package com.bhukkad.ratelimit;
 
 import com.bhukkad.dto.request.LoginRequest;
-import com.bhukkad.exception.RateLimitExceededException;
+import com.bhukkad.common.ratelimit.RateLimitExceededException;
 import com.bhukkad.security.SecurityUtils;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -151,7 +151,7 @@ class RateLimitAspectTest {
         when(joinPoint.getSignature()).thenReturn(signature);
         when(signature.getMethod()).thenReturn(SampleController.class.getMethod("search", String.class, int.class));
         when(joinPoint.getArgs()).thenReturn(new Object[]{"Biryani", 10});
-        when(securityUtils.getCurrentUserId()).thenThrow(new com.bhukkad.exception.UnauthorizedException("no auth"));
+        when(securityUtils.getCurrentUserId()).thenThrow(new com.bhukkad.common.error.UnauthorizedException("no auth"));
         when(userTierResolver.resolveCurrentTier()).thenReturn("free");
         // Anonymous search now scopes by IP to avoid global bucket starvation (see RateLimitAspect)
         when(rateLimitService.check(eq("search"), eq("search:biryani:user:anon:ip:unknown"), eq("free")))

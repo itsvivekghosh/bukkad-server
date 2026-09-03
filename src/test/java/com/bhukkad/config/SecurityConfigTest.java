@@ -47,9 +47,6 @@ class SecurityConfigTest {
     private PrometheusAuthFilter prometheusAuthFilter;
 
     @Mock
-    private com.bhukkad.apikey.ApiKeyFilter apiKeyFilter;
-
-    @Mock
     private com.bhukkad.security.WafFilter wafFilter;
 
     @Mock
@@ -163,7 +160,7 @@ class SecurityConfigTest {
         SecurityFilterChain result = securityConfig.securityFilterChain(http);
         assertSame(filterChain, result);
         verify(http).authenticationProvider(any());
-        verify(http, times(5)).addFilterBefore(any(), any());
+        verify(http, times(4)).addFilterBefore(any(), any());
         return result;
     }
 }

@@ -95,7 +95,7 @@ public class MenuController {
             return ResponseEntity.ok(ApiResponse.success(List.of()));
         }
         if (ids.size() > 100) {
-            throw new com.bhukkad.exception.BusinessException("Maximum 100 IDs allowed per request");
+            throw new com.bhukkad.common.error.BusinessException("Maximum 100 IDs allowed per request");
         }
         return ResponseEntity.ok(ApiResponse.success(menuService.getMenuItemsByIds(ids)));
     }

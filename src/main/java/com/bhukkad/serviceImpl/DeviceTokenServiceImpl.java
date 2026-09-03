@@ -4,7 +4,7 @@ import com.bhukkad.dto.request.DeviceTokenRequest;
 import com.bhukkad.dto.response.DeviceTokenResponse;
 import com.bhukkad.entity.DeviceToken;
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.DeviceTokenRepository;
 import com.bhukkad.security.SecurityUtils;
 import com.bhukkad.service.DeviceTokenService;

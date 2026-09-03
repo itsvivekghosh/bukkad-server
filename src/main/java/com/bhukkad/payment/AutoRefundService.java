@@ -4,7 +4,7 @@ import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Payment;
 import com.bhukkad.entity.WalletTransaction;
 import com.bhukkad.repository.OrderRepository;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.PaymentRepository;
 import com.bhukkad.service.PaymentService;
 import com.bhukkad.util.PriceCalculator;

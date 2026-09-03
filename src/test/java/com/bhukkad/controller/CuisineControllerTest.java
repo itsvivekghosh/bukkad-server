@@ -2,7 +2,7 @@ package com.bhukkad.controller;
 
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.entity.Cuisine;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.CuisineRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

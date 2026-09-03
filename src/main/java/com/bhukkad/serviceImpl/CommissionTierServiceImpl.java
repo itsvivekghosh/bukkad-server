@@ -3,7 +3,7 @@ package com.bhukkad.serviceImpl;
 import com.bhukkad.config.CommissionTierProperties;
 import com.bhukkad.dto.response.CommissionTierResponse;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.security.SecurityUtils;

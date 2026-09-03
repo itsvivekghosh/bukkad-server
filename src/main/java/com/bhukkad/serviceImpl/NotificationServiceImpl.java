@@ -2,8 +2,8 @@ package com.bhukkad.serviceImpl;
 
 import com.bhukkad.config.NotificationProperties;
 import com.bhukkad.entity.Order;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.notification.push.PushNotificationSender;
 import com.bhukkad.notification.sms.SmsSender;
 import com.bhukkad.notification.ResilientEmailSender;

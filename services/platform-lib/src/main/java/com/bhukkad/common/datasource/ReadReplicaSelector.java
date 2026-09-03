@@ -22,7 +22,10 @@ public class ReadReplicaSelector {
 
     public Object next() {
         if (replicas.isEmpty()) {
-            return ReadReplicaType.PRIMARY;
+            // Legacy single-replica behaviour: no explicit replica list means a
+            // read-only transaction routes to the REPLICA target key (which the
+            // routing datasource resolves to the configured read datasource).
+            return ReadReplicaType.REPLICA;
         }
         long now = System.currentTimeMillis();
         for (int i = 0; i < replicas.size(); i++) {
@@ -32,7 +35,7 @@ public class ReadReplicaSelector {
                 return candidate;
             }
         }
-        return ReadReplicaType.PRIMARY;
+        return ReadReplicaType.REPLICA;
     }
 
     public void markUnavailable(String replicaKey) {

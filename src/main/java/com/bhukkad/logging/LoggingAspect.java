@@ -237,10 +237,10 @@ public class LoggingAspect {
 
     /** Returns true for domain exceptions translated to 4xx by GlobalExceptionHandler. */
     private boolean isHandledDomainException(Exception ex) {
-        return ex instanceof com.bhukkad.exception.BusinessException
-                || ex instanceof com.bhukkad.exception.ResourceNotFoundException
-                || ex instanceof com.bhukkad.exception.UnauthorizedException
-                || ex instanceof com.bhukkad.exception.RateLimitExceededException
+        return ex instanceof com.bhukkad.common.error.BusinessException
+                || ex instanceof com.bhukkad.common.error.ResourceNotFoundException
+                || ex instanceof com.bhukkad.common.error.UnauthorizedException
+                || ex instanceof com.bhukkad.common.ratelimit.RateLimitExceededException
                 || ex instanceof com.bhukkad.exception.FraudBlockedException
                 || ex instanceof org.springframework.security.authentication.BadCredentialsException
                 || ex instanceof org.springframework.security.access.AccessDeniedException;

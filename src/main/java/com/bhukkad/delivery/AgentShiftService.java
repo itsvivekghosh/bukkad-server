@@ -2,8 +2,8 @@ package com.bhukkad.delivery;
 
 import com.bhukkad.entity.AgentShift;
 import com.bhukkad.entity.DeliveryAgent;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.AgentShiftRepository;
 import com.bhukkad.repository.DeliveryAgentRepository;
 import lombok.RequiredArgsConstructor;

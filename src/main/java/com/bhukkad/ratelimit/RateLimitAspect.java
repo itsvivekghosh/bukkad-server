@@ -1,8 +1,8 @@
 package com.bhukkad.ratelimit;
 
 import com.bhukkad.dto.request.LoginRequest;
-import com.bhukkad.exception.RateLimitExceededException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.ratelimit.RateLimitExceededException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.security.SecurityUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;

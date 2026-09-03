@@ -1,7 +1,7 @@
 package com.bhukkad.integration;
 
-import com.bhukkad.outbox.OutboxEvent;
-import com.bhukkad.outbox.OutboxEventRepository;
+import com.bhukkad.common.outbox.OutboxEvent;
+import com.bhukkad.common.outbox.OutboxEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

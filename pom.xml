@@ -51,6 +51,14 @@
 	</dependencyManagement>
 
 	<dependencies>
+		<!-- Shared platform library (strangler phase: infra extracted from the
+		     monolith into services/platform-lib now resolves here too). -->
+		<dependency>
+			<groupId>com.bhukkad</groupId>
+			<artifactId>platform-lib</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+
 		<!-- Spring Boot Starters -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

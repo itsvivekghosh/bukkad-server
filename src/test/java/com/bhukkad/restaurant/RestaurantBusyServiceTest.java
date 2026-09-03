@@ -2,8 +2,8 @@ package com.bhukkad.restaurant;
 
 import com.bhukkad.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.RestaurantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

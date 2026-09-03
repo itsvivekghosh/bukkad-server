@@ -1,7 +1,7 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.dto.request.AddressRequest;
 import com.bhukkad.dto.request.RestaurantRequest;
 import com.bhukkad.dto.response.AddressResponse;
@@ -10,8 +10,8 @@ import com.bhukkad.entity.Address;
 import com.bhukkad.entity.Cuisine;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.mapper.AddressMapper;
 import com.bhukkad.repository.CuisineRepository;
 import com.bhukkad.repository.RestaurantOwnerRepository;

@@ -1,6 +1,6 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -270,7 +270,7 @@ class PhoneVerificationServiceImplTest {
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationService).sendTestNotification(eq("sms"), eq("9876543210"),
                 messageCaptor.capture());
-        assertTrue(messageCaptor.getValue().contains(String.valueOf(com.bhukkad.util.Constants.OTP_EXPIRY_MINUTES)));
+        assertTrue(messageCaptor.getValue().contains(String.valueOf(com.bhukkad.common.util.Constants.OTP_EXPIRY_MINUTES)));
     }
 
     @Test

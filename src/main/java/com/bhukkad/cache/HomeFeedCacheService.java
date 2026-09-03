@@ -1,6 +1,7 @@
 package com.bhukkad.cache;
+import com.bhukkad.common.cache.RedisCacheService;
 
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.dto.response.MembershipPlanResponse;
 import com.bhukkad.dto.response.PromoBannerResponse;
 import com.bhukkad.dto.response.PromotionCampaignResponse;

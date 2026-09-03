@@ -4,7 +4,7 @@ import com.bhukkad.dto.request.PromotionCampaignRequest;
 import com.bhukkad.dto.response.PromotionCampaignResponse;
 import com.bhukkad.entity.PromotionCampaign;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.PromotionCampaignRepository;
 import com.bhukkad.repository.RestaurantRepository;
@@ -79,7 +79,7 @@ public class PromotionAdminService {
                 campaign.setTargetSegment(PromotionCampaign.CampaignSegment.valueOf(
                         request.getTargetSegment().trim().toUpperCase()));
             } catch (IllegalArgumentException e) {
-                throw new com.bhukkad.exception.BusinessException(
+                throw new com.bhukkad.common.error.BusinessException(
                         "Invalid target segment: " + request.getTargetSegment());
             }
         }

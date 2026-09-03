@@ -3,7 +3,7 @@ package com.bhukkad.audit;
 import com.bhukkad.entity.User;
 import com.bhukkad.logging.TraceContext;
 import com.bhukkad.security.SecurityUtils;
-import com.bhukkad.util.RequestUtils;
+import com.bhukkad.common.web.RequestUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

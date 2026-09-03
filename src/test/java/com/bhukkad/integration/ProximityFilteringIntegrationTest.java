@@ -74,7 +74,7 @@ class ProximityFilteringIntegrationTest extends AbstractJpaIntegrationTest {
         double[] deltas = com.bhukkad.util.DistanceCalculator.boundingBoxDeltas(radiusKm);
         return restaurantRepository.findNearbyRestaurantIds(
                 CENTER_LAT, CENTER_LON, deltas[0], deltas[1], radiusKm,
-                com.bhukkad.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
+                com.bhukkad.common.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
     }
 
     @BeforeEach
@@ -139,7 +139,7 @@ class ProximityFilteringIntegrationTest extends AbstractJpaIntegrationTest {
         double[] deltas = com.bhukkad.util.DistanceCalculator.boundingBoxDeltas(distanceTo503);
         List<Long> boundaryIds = restaurantRepository.findNearbyRestaurantIds(
                 CENTER_LAT, CENTER_LON, deltas[0], deltas[1], distanceTo503,
-                com.bhukkad.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
+                com.bhukkad.common.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
         assertThat(boundaryIds).contains(503L);
     }
 
@@ -151,7 +151,7 @@ class ProximityFilteringIntegrationTest extends AbstractJpaIntegrationTest {
         double[] deltas = com.bhukkad.util.DistanceCalculator.boundingBoxDeltas(1.0);
         List<Long> ids = restaurantRepository.findNearbyRestaurantIds(
                 0.0, 0.0, deltas[0], deltas[1], 1.0,
-                com.bhukkad.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
+                com.bhukkad.common.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
         assertThat(ids).isEmpty();
     }
 
@@ -206,7 +206,7 @@ class ProximityFilteringIntegrationTest extends AbstractJpaIntegrationTest {
         double[] deltas = com.bhukkad.util.DistanceCalculator.boundingBoxDeltas(radiusKm);
         List<Long> ids = restaurantRepository.findNearbyRestaurantIds(
                 queryLat, queryLon, deltas[0], deltas[1], radiusKm,
-                com.bhukkad.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
+                com.bhukkad.common.util.Constants.PROXIMITY_RADIUS_EPSILON_KM, 50);
 
         // Both sides of the dateline should be found
         assertThat(ids).contains(506L, 507L);

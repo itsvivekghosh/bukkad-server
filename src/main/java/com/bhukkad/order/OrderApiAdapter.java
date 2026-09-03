@@ -1,6 +1,6 @@
 package com.bhukkad.order;
 
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.order.api.OrderOwnershipPort;
 import com.bhukkad.order.api.OrderQueryPort;
 import com.bhukkad.order.api.OrderSummary;

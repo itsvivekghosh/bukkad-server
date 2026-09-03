@@ -91,59 +91,6 @@ services:
       retries: 10
       start_period: 30s
 
-  app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: bhukkad-app-dev
-    restart: on-failure
-    init: true
-    environment:
-      SPRING_PROFILES_ACTIVE: dev
-      WAIT_FOR_SERVICES: "false"
-      HEALTH_PATH: /api/v1/health/ping
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: bhukkad
-      DB_USERNAME: bhukkad
-      DB_PASSWORD: bhukkad_pass
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: ""
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
-      APP_EVENTS_EXTERNAL_ENABLED: "true"
-      APP_EVENTS_EXTERNAL_TYPE: kafka
-      SERVER_PORT: "8080"
-      JWT_SECRET: "SYWYJMIn1nll7QKTf7jHdW+93p7xJ1RfXGtK35mgeV8w9I5oFshm9OhEJJoLn2T0ZpYPlY8auXHyxjLbofSIOA"
-      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication"
-    ports:
-      - "8080:8080"
-    volumes:
-      - app_logs_dev:/tmp/logs/bhukkad
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-    networks:
-      - bhukkad-network
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/ping"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 90s
-    deploy:
-      resources:
-        limits:
-          cpus: "1.5"
-          memory: 1G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
-
   redis-commander:
     profiles: ["tools"]
     image: ghcr.io/joeferner/redis-commander:latest
@@ -183,8 +130,6 @@ volumes:
     name: bhukkad_postgres_dev
   redis_data_dev:
     name: bhukkad_redis_dev
-  app_logs_dev:
-    name: bhukkad_logs_dev
 
 networks:
   bhukkad-network:

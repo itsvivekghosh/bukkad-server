@@ -6,7 +6,7 @@ import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.MenuVersion;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.MenuCategoryRepository;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.MenuVersionRepository;

@@ -5,7 +5,7 @@ import com.bhukkad.entity.FraudEvent;
 import com.bhukkad.exception.FraudBlockedException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.FraudEventRepository;
-import com.bhukkad.util.RequestUtils;
+import com.bhukkad.common.web.RequestUtils;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

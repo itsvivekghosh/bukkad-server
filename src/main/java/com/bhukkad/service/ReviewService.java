@@ -49,14 +49,14 @@ public interface ReviewService {
      * Sets a review's moderation status (admin action) and recalculates the restaurant's
      * aggregate rating, since only approved reviews count towards it.
      *
-     * @throws com.bhukkad.exception.ResourceNotFoundException if the review does not exist
+     * @throws com.bhukkad.common.error.ResourceNotFoundException if the review does not exist
      */
     Review moderateReview(Long reviewId, Review.ModerationStatus status);
 
     /**
      * Attaches or replaces the restaurant owner's public reply to a review.
      *
-     * @throws com.bhukkad.exception.BusinessException if the caller does not own the
+     * @throws com.bhukkad.common.error.BusinessException if the caller does not own the
      *         restaurant the review belongs to
      */
     Review respondToReview(Long reviewId, String response);

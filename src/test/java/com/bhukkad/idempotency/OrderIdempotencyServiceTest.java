@@ -2,7 +2,7 @@ package com.bhukkad.idempotency;
 
 import com.bhukkad.dto.response.BatchOrderResponse;
 import com.bhukkad.dto.response.OrderResponse;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -313,8 +313,8 @@ class OrderIdempotencyServiceTest {
                 IdempotencyRecord.IdempotencyScope.BATCH_ORDER_CREATE, "batch-key"))
                 .thenReturn(Optional.of(record));
 
-        com.bhukkad.exception.DuplicateRequestException ex = assertThrows(
-                com.bhukkad.exception.DuplicateRequestException.class,
+        com.bhukkad.common.error.DuplicateRequestException ex = assertThrows(
+                com.bhukkad.common.error.DuplicateRequestException.class,
                 () -> orderIdempotencyService.beginBatchOrderCreate("batch-key", 7L));
         assertTrue(ex.getMessage().contains("Duplicate order request"));
     }

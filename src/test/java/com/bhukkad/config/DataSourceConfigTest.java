@@ -1,8 +1,8 @@
 package com.bhukkad.config;
 
-import com.bhukkad.datasource.ReadReplicaProperties;
-import com.bhukkad.datasource.ReadReplicaRoutingDataSource;
-import com.bhukkad.datasource.ReadReplicaType;
+import com.bhukkad.common.datasource.ReadReplicaProperties;
+import com.bhukkad.common.datasource.ReadReplicaRoutingDataSource;
+import com.bhukkad.common.datasource.ReadReplicaType;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

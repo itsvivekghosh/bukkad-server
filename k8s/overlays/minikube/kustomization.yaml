@@ -19,24 +19,13 @@ resources:
   - ../../redis/pvc.yaml
   - ../../redis/deployment.yaml
   - ../../redis/service.yaml
-  # RabbitMQ omitted — STOMP_BROKER_TYPE=simple; saves ~512Mi RAM.
   - ../../app/serviceaccount.yaml
-  - ../../app/deployment.yaml
-  - ../../app/service.yaml
-  - ../../app/pdb.yaml
-  - ../../app/hpa.yaml
   - ../../logging/fluent-bit-configmap.yaml
-  - ../../nginx/configmap.yaml
-  - ../../nginx/deployment.yaml
-  - ../../nginx/service.yaml
   - ../../ingress.yaml
 
 patches:
-  - path: patches/app-deployment.yaml
   - path: patches/postgres-deployment.yaml
   - path: patches/redis-deployment.yaml
-  - path: patches/nginx-deployment.yaml
-  - path: patches/hpa.yaml
   - path: patches/postgres-config.yaml
 
 labels:

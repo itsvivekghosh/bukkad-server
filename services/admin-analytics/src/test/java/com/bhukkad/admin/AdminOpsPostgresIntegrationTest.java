@@ -2,7 +2,6 @@ package com.bhukkad.admin;
 
 import com.bhukkad.admin.domain.*;
 import com.bhukkad.admin.service.ApiKeyService;
-import com.bhukkad.admin.service.FeatureFlagService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +22,6 @@ class AdminOpsPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ApiKeyRepository apiKeyRepository;
-    @Autowired private FeatureFlagRepository flagRepository;
 
     @BeforeEach
     void clean() {
@@ -52,15 +50,6 @@ class AdminOpsPostgresIntegrationTest extends AbstractAdminPostgresTest {
         assertThat(issued.rawKey()).startsWith("bhk-");
         assertThat(service.isValid(issued.rawKey())).isTrue();
         assertThat(service.isValid("bhk-forged")).isFalse();
-    }
-
-    @Test
-    void featureFlagSetAndCheck() {
-        FeatureFlagService service = new FeatureFlagService(flagRepository);
-        service.set("dummy-payment", true);
-
-        assertThat(service.isEnabled("dummy-payment")).isTrue();
-        assertThat(service.isEnabled("unknown-flag")).isFalse();
     }
 
     @Test

@@ -54,6 +54,15 @@ public class Order {
     @Column(nullable = false, length = 3)
     private String currency = "INR";
 
+    @Column(length = 30)
+    private String orderNumber;
+
+    @Column
+    private LocalDateTime deliveredAt;
+
+    @Column
+    private LocalDateTime estimatedDeliveryAt;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

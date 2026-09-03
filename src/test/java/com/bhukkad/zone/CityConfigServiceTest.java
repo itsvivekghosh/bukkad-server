@@ -2,8 +2,8 @@ package com.bhukkad.zone;
 
 import com.bhukkad.dto.request.CityConfigRequest;
 import com.bhukkad.entity.CityConfig;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.CityConfigRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

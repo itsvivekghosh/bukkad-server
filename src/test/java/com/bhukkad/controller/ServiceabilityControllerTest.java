@@ -4,7 +4,7 @@ import com.bhukkad.cache.ServiceabilityCacheService;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.dto.response.ServiceabilityResponse;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.zone.DeliveryZoneService;
 import org.junit.jupiter.api.Test;

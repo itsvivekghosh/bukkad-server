@@ -45,6 +45,21 @@
 			<optional>true</optional>
 		</dependency>
 
+		<!-- WebFlux for service-to-service communication (WebClient). Optional:
+		     services that call other services bring this in. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- Spring Cloud LoadBalancer for service-to-service calls (no Eureka needed). -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-loadbalancer</artifactId>
+			<optional>true</optional>
+		</dependency>
+
 		<!-- AOP for the platform aspects (RateLimitAspect, MetricsAspect, cache
 		     invalidation). Optional; services opt in with starter-aop. -->
 		<dependency>
@@ -75,6 +90,25 @@
 			<artifactId>spring-security-oauth2-jose</artifactId>
 		</dependency>
 
+		<!-- JJWT for service-to-service JWT tokens. -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>${jwt.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>${jwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>${jwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+
 		<!-- Caffeine L1 cache for the two-tier platform cache. -->
 		<dependency>
 			<groupId>com.github.ben-manes.caffeine</groupId>
@@ -85,6 +119,22 @@
 		<dependency>
 			<groupId>io.micrometer</groupId>
 			<artifactId>micrometer-core</artifactId>
+		</dependency>
+
+		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger). -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+
+		<!-- Resilience4j for circuit breaker and retry in service-to-service calls. -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot3</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-micrometer</artifactId>
 		</dependency>
 
 		<!-- Kafka publisher/consumer support. Optional: only services that own a
@@ -99,6 +149,31 @@
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
+		</dependency>
+
+		<!-- Redis for distributed rate limiting, caching, and pub/sub. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<!-- WebSocket support for real-time features (order tracking, live updates).
+		     Optional: only services that own WebSocket endpoints declare this. Keeping
+		     it optional prevents spring-webmvc (transitive of WebSocket) from leaking
+		     into reactive consumers (the gateway), where it would trigger
+		     GatewayClassPathWarningAutoConfiguration$SpringMvcFoundOnClasspathException. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- OpenAPI / Swagger UI for service API docs. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>2.2.0</version>
+			<optional>true</optional>
 		</dependency>
 
 		<dependency>

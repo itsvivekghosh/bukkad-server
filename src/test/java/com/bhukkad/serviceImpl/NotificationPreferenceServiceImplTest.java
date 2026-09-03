@@ -4,7 +4,7 @@ import com.bhukkad.dto.request.NotificationPreferenceRequest;
 import com.bhukkad.dto.response.NotificationPreferenceResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.CustomerNotificationPreference;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.CustomerNotificationPreferenceRepository;
 import com.bhukkad.repository.CustomerRepository;
 import org.junit.jupiter.api.Test;

@@ -17,11 +17,10 @@ import java.net.InetSocketAddress;
  * End-to-end routing proof for the strangler gateway (P0).
  *
  * <p>Spins a JDK {@link HttpServer} on an ephemeral loopback port to stand in
- * for the {@code restaurant} service and points the {@code monolith-uri} at a
- * refused port. Then asserts path predicates select the correct backend:
- * restaurant-slice paths reach the backend (200 + marker body), monolith paths
- * reach the refused backend (503 — i.e. the route matched, not 404), and the
- * gateway's own health probe is UP. No Docker/WireMock required.</p>
+ * for each service backend and asserts path predicates select the correct
+ * backend: restaurant-slice paths reach the backend (200 + marker body),
+ * identity/auth paths reach identity, order/cart/coupon/dispute paths reach
+ * order, and the gateway's own health probe is UP. No Docker/WireMock required.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -98,8 +97,10 @@ class GatewayRoutingTest {
         registry.add("app.routes.identity-uri", () -> identityBase);
         // Order service path → live embedded backend.
         registry.add("app.routes.order-uri", () -> orderBase);
-        // Monolith (fallback + everything else) → intentionally refused port.
-        registry.add("app.routes.monolith-uri", () -> "http://127.0.0.1:1");
+        // Payment service path → refused port (not under test).
+        registry.add("app.routes.payment-uri", () -> "http://127.0.0.1:1");
+        // Delivery service path → refused port (not under test).
+        registry.add("app.routes.delivery-uri", () -> "http://127.0.0.1:1");
     }
 
     @Autowired
@@ -107,23 +108,24 @@ class GatewayRoutingTest {
 
     @Test
     void restaurantSliceIsServedByRestaurantBackend() {
-        client.get().uri("/restaurants/123").exchange()
+        client.get().uri("/api/v1/restaurants/public/123").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("RESTAURANT-BACKEND");
     }
 
     @Test
     void cuisinesSliceIsServedByRestaurantBackend() {
-        client.get().uri("/cuisines/all").exchange()
+        client.get().uri("/api/v1/cuisines/all").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("RESTAURANT-BACKEND");
     }
 
     @Test
-    void apiPathForUnmappedDomainFallsToMonolith() {
-        // /api/v1/notifications (not mapped to any service) → monolith (refused → 503).
+    void apiPathForUnmappedDomainReturns404() {
+        // /api/v1/notifications (not mapped to any service) → 404 because
+        // the monolith has been decommissioned and there is no fallback route.
         client.get().uri("/api/v1/notifications").exchange()
-                .expectStatus().is5xxServerError();
+                .expectStatus().isNotFound();
     }
 
     @Test
@@ -154,11 +156,35 @@ class GatewayRoutingTest {
     }
 
     @Test
-    void unmatchedPathHitsMonolithCatchAll() {
-        // Anything not matched by a specific predicate still routes to the
-        // monolith via the catch-all (never a 404) — safe strangler default.
+    void unmatchedPathReturns404() {
+        // Anything not matched by a specific predicate returns 404 because
+        // the monolith fallback has been removed (P8 teardown complete).
         client.get().uri("/legacy/health-check").exchange()
-                .expectStatus().is5xxServerError();
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void couponPathIsServedByOrderBackend() {
+        // /api/v1/coupons/** must hit the order service backend (P2 extraction).
+        client.get().uri("/api/v1/coupons/active").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("ORDER-BACKEND");
+    }
+
+    @Test
+    void disputeCustomerPathIsServedByOrderBackend() {
+        // /api/v1/customers/orders/{id}/disputes + /customers/disputes → order backend.
+        client.get().uri("/api/v1/customers/disputes?customerId=1").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("ORDER-BACKEND");
+    }
+
+    @Test
+    void disputeAdminPathIsServedByOrderBackend() {
+        // /api/v1/admin/disputes/** → order backend.
+        client.get().uri("/api/v1/admin/disputes").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("ORDER-BACKEND");
     }
 
     @Test

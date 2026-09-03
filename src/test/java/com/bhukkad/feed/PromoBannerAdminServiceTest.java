@@ -3,7 +3,7 @@ package com.bhukkad.feed;
 import com.bhukkad.dto.request.PromoBannerRequest;
 import com.bhukkad.dto.response.PromoBannerResponse;
 import com.bhukkad.entity.PromoBanner;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.PromoBannerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

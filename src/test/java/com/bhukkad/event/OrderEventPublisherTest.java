@@ -6,7 +6,7 @@ import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.OrderItem;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.outbox.OutboxEventService;
+import com.bhukkad.common.outbox.OutboxEventService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

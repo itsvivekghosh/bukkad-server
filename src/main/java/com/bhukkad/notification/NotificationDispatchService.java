@@ -3,7 +3,7 @@ package com.bhukkad.notification;
 import com.bhukkad.event.OrderAgentAssignedEvent;
 import com.bhukkad.event.OrderCreatedEvent;
 import com.bhukkad.event.OrderStatusChangedEvent;
-import com.bhukkad.event.kafka.PlatformEventMessage;
+import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.service.NotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

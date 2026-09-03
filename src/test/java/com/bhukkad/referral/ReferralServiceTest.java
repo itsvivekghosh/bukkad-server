@@ -4,7 +4,7 @@ import com.bhukkad.config.ReferralProperties;
 import com.bhukkad.dto.response.ReferralInfoResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.WalletTransaction;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.WalletTransactionRepository;
 import com.bhukkad.wallet.WalletService;

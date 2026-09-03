@@ -3,7 +3,7 @@ package com.bhukkad.timeline;
 import com.bhukkad.dto.response.OrderTimelineEventResponse;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.OrderTimelineEvent;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.OrderTimelineEventRepository;
 import lombok.RequiredArgsConstructor;

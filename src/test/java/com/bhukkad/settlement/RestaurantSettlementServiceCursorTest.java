@@ -5,7 +5,7 @@ import com.bhukkad.dto.response.RestaurantSettlementResponse;
 import com.bhukkad.entity.RestaurantSettlement;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.repository.RestaurantSettlementRepository;
-import com.bhukkad.util.CursorUtils;
+import com.bhukkad.common.util.CursorUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

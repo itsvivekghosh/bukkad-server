@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator
 import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter;
 import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.bhukkad.cache.invalidation.CacheInvalidationSubscriber;
+import com.bhukkad.common.cache.CacheInvalidationSubscriber;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
 import org.springframework.beans.factory.annotation.Value;
@@ -147,7 +147,7 @@ public class RedisConfig {
      * This is used by Spring MVC for REST responses.
      *
      * <p>The {@code bhukkadFieldSelection} filter is registered as a no-op so
-     * any DTO can be wrapped with {@link com.bhukkad.web.FieldProjection#project}
+     * any DTO can be wrapped with {@link com.bhukkad.common.web.FieldProjection#project}
      * without first being annotated with {@code @JsonFilter}. DTOs that want
      * to be projectable via {@code ?fields=} still need
      * {@code @JsonFilter("bhukkadFieldSelection")} on their class declaration.
@@ -161,7 +161,7 @@ public class RedisConfig {
         mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         // NO DefaultTyping - clean JSON output
         SimpleFilterProvider filters = new SimpleFilterProvider()
-                .addFilter(com.bhukkad.web.FieldProjection.FILTER_ID,
+                .addFilter(com.bhukkad.common.web.FieldProjection.FILTER_ID,
                         SimpleBeanPropertyFilter.serializeAll());
         mapper.setFilterProvider(filters);
         return mapper;

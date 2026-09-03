@@ -1,8 +1,8 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.ratelimit.RateLimitProperties;
+import com.bhukkad.common.ratelimit.RateLimitProperties;
 import com.bhukkad.config.SyntheticHealthCheckProperties;
-import com.bhukkad.config.VersionProperties;
+import com.bhukkad.common.web.VersionProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

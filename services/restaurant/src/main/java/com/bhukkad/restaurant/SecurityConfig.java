@@ -2,6 +2,9 @@ package com.bhukkad.restaurant;
 
 import com.bhukkad.common.security.PlatformJwtAuthFilter;
 import com.bhukkad.common.security.PlatformJwtProperties;
+import com.bhukkad.common.security.ServiceAuthProperties;
+import com.bhukkad.common.security.ServiceJwtAuthFilter;
+import com.bhukkad.common.web.SecurityHeadersFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,12 +26,14 @@ import java.nio.charset.StandardCharsets;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(PlatformJwtProperties.class)
+@EnableConfigurationProperties({PlatformJwtProperties.class, ServiceAuthProperties.class})
 public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter)
+                                                   SecurityHeadersFilter securityHeadersFilter,
+                                                   ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
+                                                   ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter)
             throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -45,6 +50,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/cuisines").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/feed/**").permitAll()
                         .anyRequest().authenticated());
+
+        // Security headers must run first
+        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+
+        // Service-to-service JWT filter (must run before user JWT filter)
+        ServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
+        if (serviceFilter != null) {
+            http.addFilterBefore(serviceFilter, UsernamePasswordAuthenticationFilter.class);
+        }
 
         PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
         if (filter != null) {

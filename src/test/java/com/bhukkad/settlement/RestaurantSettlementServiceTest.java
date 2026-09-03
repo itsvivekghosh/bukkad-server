@@ -6,7 +6,7 @@ import com.bhukkad.dto.response.RestaurantSettlementResponse;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantSettlement;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.RestaurantRepository;
 import com.bhukkad.repository.RestaurantSettlementRepository;
 import org.junit.jupiter.api.BeforeEach;

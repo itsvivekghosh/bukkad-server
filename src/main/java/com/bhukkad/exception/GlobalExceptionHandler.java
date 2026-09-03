@@ -1,6 +1,12 @@
 package com.bhukkad.exception;
 
 import com.bhukkad.dto.response.ApiResponse;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.DuplicateRequestException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.SseCapacityExceededException;
+import com.bhukkad.common.error.UnauthorizedException;
+import com.bhukkad.common.ratelimit.RateLimitExceededException;
 import com.bhukkad.logging.TraceContext;
 import com.bhukkad.logging.alert.AlertService;
 import lombok.RequiredArgsConstructor;

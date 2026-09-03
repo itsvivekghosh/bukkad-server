@@ -1,6 +1,11 @@
 package com.bhukkad.cache;
+import com.bhukkad.common.cache.LocalCacheProperties;
+import com.bhukkad.common.cache.LocalCacheService;
+import com.bhukkad.common.cache.StampedeProperties;
+import com.bhukkad.common.cache.RedisCacheService;
+import com.bhukkad.common.cache.LocalCacheService;
 
-import com.bhukkad.config.LocalCacheProperties;
+import com.bhukkad.common.cache.LocalCacheProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

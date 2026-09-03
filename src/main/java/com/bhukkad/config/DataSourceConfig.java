@@ -1,9 +1,9 @@
 package com.bhukkad.config;
 
-import com.bhukkad.datasource.ReadReplicaProperties;
-import com.bhukkad.datasource.ReadReplicaRoutingDataSource;
-import com.bhukkad.datasource.ReadReplicaSelector;
-import com.bhukkad.datasource.ReadReplicaType;
+import com.bhukkad.common.datasource.ReadReplicaProperties;
+import com.bhukkad.common.datasource.ReadReplicaRoutingDataSource;
+import com.bhukkad.common.datasource.ReadReplicaSelector;
+import com.bhukkad.common.datasource.ReadReplicaType;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
@@ -80,10 +80,10 @@ public class DataSourceConfig {
 
         if (replicaProperties.isConfigured()) {
             if (replicaProperties.hasMultipleReplicas()) {
-                List<Object> keys = new ArrayList<>();
+                List<String> keys = new ArrayList<>();
                 List<ReadReplicaProperties.Replica> replicas = replicaProperties.getReplicas();
                 for (int i = 0; i < replicas.size(); i++) {
-                    Object key = replicaKey(i);
+                    String key = replicaKey(i);
                     targets.put(key, buildReplicaPool(replicas.get(i), i, replicaProperties, primaryProperties));
                     keys.add(key);
                 }
@@ -150,7 +150,7 @@ public class DataSourceConfig {
         return replicaPassword != null ? replicaPassword : primaryProperties.getPassword();
     }
 
-    private Object replicaKey(int index) {
+    private String replicaKey(int index) {
         return "REPLICA_" + index;
     }
 }

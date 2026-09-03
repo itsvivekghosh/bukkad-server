@@ -5,7 +5,7 @@ import com.bhukkad.entity.FraudEvent;
 import com.bhukkad.exception.FraudBlockedException;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.FraudEventRepository;
-import com.bhukkad.util.RequestUtils;
+import com.bhukkad.common.web.RequestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

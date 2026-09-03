@@ -1,7 +1,7 @@
 package com.bhukkad.payment.strategy;
 
 import com.bhukkad.entity.Payment;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

@@ -3,7 +3,7 @@ package com.bhukkad.inventory;
 import com.bhukkad.config.StockReservationProperties;
 import com.bhukkad.entity.CartItem;
 import com.bhukkad.entity.MenuItem;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

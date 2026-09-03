@@ -1,5 +1,7 @@
 package com.bhukkad.outbox;
 
+import com.bhukkad.common.outbox.DeadLetterEvent;
+
 import com.bhukkad.dto.response.DeadLetterEventResponse;
 
 /**

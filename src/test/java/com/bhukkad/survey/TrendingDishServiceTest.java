@@ -1,6 +1,6 @@
 package com.bhukkad.survey;
 
-import com.bhukkad.cache.LocalCacheService;
+import com.bhukkad.common.cache.LocalCacheService;
 import com.bhukkad.dto.response.TrendingDishResponse;
 import com.bhukkad.entity.TrendingDish;
 import com.bhukkad.repository.TrendingDishRepository;

@@ -4,7 +4,7 @@ This document provides an overview of the Bhukkad Food Delivery System architect
 
 ## System Overview
 
-Bhukkad is built as a Spring Boot 3.2 monolith with clear module boundaries, designed for high traffic (5k+ RPS) with horizontal scaling in mind. The architecture follows clean separation of concerns with controller → service → repository layers.
+Bhukkad is built as a distributed Spring Boot 3.2 microservices system. Each domain (identity, restaurant, order, payment, delivery, notification, admin-analytics) runs as an independently deployable service with its own PostgreSQL database. An API Gateway (Spring Cloud Gateway) routes traffic by path to the appropriate service. The architecture follows clean separation of concerns with controller → service → repository layers within each service.
 
 ## Technology Stack
 
@@ -12,44 +12,41 @@ Bhukkad is built as a Spring Boot 3.2 monolith with clear module boundaries, des
 |-----------|-----------|---------|
 | Language | Java | 17 |
 | Framework | Spring Boot | 3.2.0 |
-| Database | MySQL | 8.0 |
+| API Gateway | Spring Cloud Gateway | latest |
+| Database | PostgreSQL | 16 (per-service) |
 | Cache | Redis | 7 |
+| Messaging | Redpanda / Kafka | latest |
 | Security | Spring Security + JWT | 6.2.0 |
 | API Docs | SpringDoc OpenAPI | 2.2.0 |
 | Build | Maven | 3.9.x |
 | Container | Docker | Latest |
 | Monitoring | Micrometer + Prometheus | 1.12.0 |
+| Tracing | OpenTelemetry + Zipkin | latest |
 
-## Module Organization
+## Service Organization
 
 ```
-backend-server/
-├── src/main/java/com/bhukkad/
-│   ├── controller/          # REST controllers (API layer)
-│   ├── service/             # Business logic interfaces
-│   ├── serviceImpl/         # Business logic implementations
-│   ├── repository/          # Data access layer
-│   ├── entity/              # JPA entities
-│   ├── dto/                 # Data Transfer Objects
-│   │   ├── request/         # Request DTOs
-│   │   └── response/        # Response DTOs
-│   ├── config/              # Configuration classes
-│   ├── security/            # Authentication & authorization
-│   ├── exception/           # Custom exceptions & handlers
-│   ├── cache/               # Caching strategies
-│   ├── logging/             # Request logging & alerting
-│   └── ...
-├── src/main/resources/
-│   ├── db/migration/        # Flyway SQL migrations
-│   ├── application.yml      # Base configuration
-│   ├── application-dev.yml  # Development profile
-│   └── application-prod.yml # Production profile
-├── docker/                  # Docker configuration
-├── scripts/                 # Utility scripts
-└── docs/                    # Documentation
+services/
+├── pom.xml                  # aggregator (parent: spring-boot-starter-parent BOM)
+├── platform-lib/            # shared infrastructure (no web, no datasource)
+│   ├── event/               # PlatformEventMessage envelope
+│   ├── tracing/             # TraceContext + W3C traceparent
+│   ├── error/               # ApiError + BusinessException hierarchy
+│   ├── outbox/              # OutboxEvent entity/repo + OutboxClient
+│   ├── idempotency/         # IdempotencyRecord entity/repo
+│   ├── saga/                # SagaInstance/SagaStep + SagaCoordinator
+│   └── src/main/resources/db/migration-pg/   # canonical platform PG baseline
+├── gateway/                 # Spring Cloud Gateway (edge routing)
+├── identity/                # auth, users, JWT validation
+├── restaurant/              # restaurants, menu, cuisines, reviews
+├── order/                   # orders, cart, coupons, disputes
+├── payment/                 # payments, wallet
+├── delivery/                # delivery tracking, serviceability
+├── notification/            # async notifications (event consumer)
+└── admin-analytics/         # read-only analytics projections
 ```
 
-## Architecture Layers
+## Architecture Layers (per service)
 
 ### 1. Controller Layer
 - Handles HTTP requests/responses
@@ -77,22 +74,13 @@ backend-server/
 ## Key Design Patterns
 
 ### DTO Pattern
-All API requests and responses use dedicated DTOs, never exposing JPA entities directly. This prevents:
-- Over-fetching/under-fetching data
-- Accidental data exposure
-- Circular serialization issues
+All API requests and responses use dedicated DTOs, never exposing JPA entities directly.
 
 ### Service Pattern
-Business logic is organized by domain:
-- `AuthService` / `AuthServiceImpl` — Authentication
-- `OrderService` / `OrderServiceImpl` — Order management
-- `CartService` / `CartServiceImpl` — Cart operations
+Business logic is organized by domain within each service.
 
 ### Repository Pattern
-Data access is abstracted behind repository interfaces:
-- `JpaRepository` for basic CRUD
-- Custom query methods for complex queries
-- `@Query` annotations for native/HQL queries
+Data access is abstracted behind repository interfaces.
 
 ### Cache-Aside Pattern
 - Read: Check cache first, fall back to DB, update cache
@@ -103,67 +91,57 @@ Data access is abstracted behind repository interfaces:
 
 ### Authentication
 - JWT-based stateless authentication
-- Access tokens (24h) + Refresh tokens (7 days)
-- Bcrypt password hashing (strength 12)
+- Access tokens + Refresh tokens
+- Bcrypt password hashing
 
 ### Authorization
 - Role-based access control (RBAC)
-- `@PreAuthorize` annotations on endpoints
 - Four roles: CUSTOMER, RESTAURANT_OWNER, DELIVERY_AGENT, ADMIN
 
 ### API Security
-- Rate limiting per endpoint
-- WAF (Web Application Firewall) for common attacks
+- Rate limiting per endpoint at the gateway
 - CORS configuration
 - Security headers (CSP, HSTS, X-Frame-Options)
 
 ## Data Architecture
 
 ### Database
-- Primary: MySQL 8.0 (single schema `bhukkad`)
-- Connection pooling: HikariCP (30 connections per pod)
-- Migrations: Flyway (versioned SQL scripts)
+- Per-service PostgreSQL databases (e.g. `bhukkad_orders`, `bhukkad_restaurants`)
+- Connection pooling: HikariCP
+- Migrations: Flyway (versioned SQL scripts per service)
 
 ### Caching Strategy
 - Redis for session, rate limit, and data caching
 - Cache keys prefixed with `bhukkad:`
-- TTL varies by data type (5min - 24hrs)
-- Distributed cache invalidation via Redis pub/sub
+- TTL varies by data type
 
-### Read/Write Separation
-- Read replicas for read-heavy endpoints
-- Write-through to primary for mutations
-- Connection routing based on operation type
+### Event-Driven Integration
+- Outbox pattern for reliable event publishing
+- Redpanda/Kafka for async inter-service communication
+- Saga orchestration for distributed transactions
 
 ## Scalability Considerations
 
 ### Horizontal Scaling
 - Stateless application servers (no session affinity)
 - Shared Redis for session and cache
-- Database connection pool sized per pod
+- Per-service HPA in Kubernetes
 
 ### Performance Optimizations
 - Batch operations for bulk inserts/updates
 - Query optimization (fetch joins, pagination)
-- Connection pooling with leak detection
 - Async processing for non-critical operations
-
-### Caching Layers
-- L1: In-memory (Caffeine) for hot data
-- L2: Redis for shared cache across pods
-- CDN for static assets (images, etc.)
 
 ## Monitoring & Observability
 
 ### Metrics
 - Micrometer + Prometheus for metrics
-- Custom business metrics (order rate, revenue)
+- Custom business metrics
 - JVM metrics (GC, memory, threads)
 
 ### Logging
 - Structured JSON logging via Logstash encoder
 - Request/response logging with trace IDs
-- Performance metrics for slow requests
 
 ### Tracing
 - OpenTelemetry distributed tracing
@@ -172,24 +150,26 @@ Data access is abstracted behind repository interfaces:
 
 ## Deployment Architecture
 
-### Docker
-- Multi-stage Dockerfile for optimized image size
-- Non-root user for security
-- Health checks for readiness probes
+### Kubernetes
+- One Deployment per service
+- Per-service HPA + PDB
+- Gateway + ingress for external traffic
+- Blue-green rollout support via k8s/ overlays
 
 ### Production
-- 10 pods recommended for 5k RPS
+- 3+ gateway pods, 2-3 pods per service
 - Load balancer with health checks
-- Auto-scaling based on CPU/memory
-- Blue-green deployment strategy
+- Auto-scaling based on CPU + custom metrics
+- Rolling update strategy
 
 ---
 
 ## Getting Started
 
-1. **Prerequisites**: Java 17, MySQL 8.0, Redis 7
-2. **Build**: `./mvnw clean package`
-3. **Run**: `java -jar target/bhukkad-delivery-system-1.0.0.jar`
-4. **Test**: `python scripts/test-all-apis.py`
+1. **Prerequisites**: Java 17, Docker, kubectl, minikube (for local)
+2. **Build all services**: `./mvnw -f services/pom.xml verify`
+3. **Run locally**: `docker compose -f docker/docker-compose.dev.yml up`
+4. **Deploy to k8s**: `bash k8s/scripts/deploy.sh`
+5. **Test**: `./mvnw -f services/pom.xml test`
 
 For detailed setup instructions, see [operations documentation](OPERATIONS.md).

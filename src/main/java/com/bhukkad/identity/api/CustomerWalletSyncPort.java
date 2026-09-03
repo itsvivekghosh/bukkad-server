@@ -14,7 +14,7 @@ public interface CustomerWalletSyncPort {
     /**
      * @param customerId identity-owned customer id
      * @param newBalance the wallet domain's authoritative new balance
-     * @throws com.bhukkad.exception.ResourceNotFoundException when missing
+     * @throws com.bhukkad.common.error.ResourceNotFoundException when missing
      */
     void syncWalletBalance(Long customerId, double newBalance);
 }

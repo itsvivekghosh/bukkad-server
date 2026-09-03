@@ -175,7 +175,7 @@ class HighTrafficFixVerificationTest {
             when(joinPoint.getSignature()).thenReturn(signature);
             when(signature.getMethod()).thenReturn(SampleController.class.getMethod("search", String.class, int.class));
             when(joinPoint.getArgs()).thenReturn(new Object[]{"Biryani", 10});
-            when(securityUtils.getCurrentUserId()).thenThrow(new com.bhukkad.exception.UnauthorizedException("no auth"));
+            when(securityUtils.getCurrentUserId()).thenThrow(new com.bhukkad.common.error.UnauthorizedException("no auth"));
             when(userTierResolver.resolveCurrentTier()).thenReturn("free");
             when(rateLimitService.check(eq("search"), eq("search:biryani:user:anon:ip:192.0.2.1"), eq("free")))
                     .thenReturn(RateLimitDecision.allowed(1, 30, 60));

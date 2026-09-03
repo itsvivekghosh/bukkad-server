@@ -1,7 +1,8 @@
 package com.bhukkad.metrics;
 
-import com.bhukkad.logging.alert.AlertCategory;
-import com.bhukkad.logging.alert.AlertSeverity;
+import com.bhukkad.common.logging.alert.AlertCategory;
+import com.bhukkad.common.logging.alert.AlertSeverity;
+import com.bhukkad.common.metrics.SloProperties;
 import com.bhukkad.logging.alert.AlertService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;

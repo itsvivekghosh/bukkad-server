@@ -1,7 +1,7 @@
 package com.bhukkad.live;
 
 import com.bhukkad.dto.response.OrderLiveUpdate;
-import com.bhukkad.exception.SseCapacityExceededException;
+import com.bhukkad.common.error.SseCapacityExceededException;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

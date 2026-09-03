@@ -13,6 +13,6 @@ public interface OrderQueryPort {
     Optional<OrderSummary> findSummary(Long orderId);
 
     /** @return the order summary
-     * @throws com.bhukkad.exception.ResourceNotFoundException when missing */
+     * @throws com.bhukkad.common.error.ResourceNotFoundException when missing */
     OrderSummary requireSummary(Long orderId);
 }

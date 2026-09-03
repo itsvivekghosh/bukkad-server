@@ -1,7 +1,7 @@
 package com.bhukkad.live;
 
 import com.bhukkad.dto.response.OrderLiveUpdate;
-import com.bhukkad.exception.SseCapacityExceededException;
+import com.bhukkad.common.error.SseCapacityExceededException;
 import com.bhukkad.live.OrderLiveReplayStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

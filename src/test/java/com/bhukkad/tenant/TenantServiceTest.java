@@ -2,8 +2,8 @@ package com.bhukkad.tenant;
 
 import com.bhukkad.dto.request.TenantRequest;
 import com.bhukkad.entity.Tenant;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.TenantRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

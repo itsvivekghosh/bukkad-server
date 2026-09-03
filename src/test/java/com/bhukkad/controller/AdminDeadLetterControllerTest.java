@@ -1,8 +1,8 @@
 package com.bhukkad.controller;
 
 import com.bhukkad.dto.response.DeadLetterEventResponse;
-import com.bhukkad.outbox.DeadLetterEvent;
-import com.bhukkad.outbox.DeadLetterEventService;
+import com.bhukkad.common.outbox.DeadLetterEvent;
+import com.bhukkad.common.outbox.DeadLetterEventService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

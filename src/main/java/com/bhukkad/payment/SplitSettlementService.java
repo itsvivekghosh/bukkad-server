@@ -3,7 +3,7 @@ package com.bhukkad.payment;
 import com.bhukkad.config.SettlementProperties;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.RestaurantSettlement;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.RestaurantSettlementRepository;
 import com.bhukkad.util.PriceCalculator;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +23,7 @@ public class SplitSettlementService {
 
     private final RestaurantSettlementRepository restaurantSettlementRepository;
     private final SettlementProperties settlementProperties;
-    private final com.bhukkad.outbox.OutboxEventService outboxEventService;
+    private final com.bhukkad.common.outbox.OutboxEventService outboxEventService;
 
     @Transactional
     public void settle(Order order) {

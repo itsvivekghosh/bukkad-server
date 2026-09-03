@@ -2,8 +2,8 @@ package com.bhukkad.live;
 
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.order.api.OrderOwnershipPort;
 import com.bhukkad.order.api.OrderQueryPort;
 import com.bhukkad.repository.RestaurantRepository;

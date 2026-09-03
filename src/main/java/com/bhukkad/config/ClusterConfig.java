@@ -1,6 +1,6 @@
 package com.bhukkad.config;
 
-import com.bhukkad.cluster.ClusterProperties;
+import com.bhukkad.common.cluster.ClusterProperties;
 import com.bhukkad.live.OrderLiveRedisSubscriber;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

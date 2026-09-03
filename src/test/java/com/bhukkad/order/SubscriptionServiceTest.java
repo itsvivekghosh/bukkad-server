@@ -4,8 +4,8 @@ import com.bhukkad.config.SubscriptionProperties;
 import com.bhukkad.dto.request.SubscriptionPlanRequest;
 import com.bhukkad.dto.response.SubscriptionPlanResponse;
 import com.bhukkad.entity.*;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -707,7 +707,7 @@ class SubscriptionServiceTest {
         var captor = ArgumentCaptor.forClass(Order.class);
         verify(orderRepository).save(captor.capture());
         assertEquals(0.0, captor.getValue().getDeliveryFee());
-        assertEquals(com.bhukkad.util.Constants.DEFAULT_DELIVERY_TIME,
+        assertEquals(com.bhukkad.common.util.Constants.DEFAULT_DELIVERY_TIME,
                 captor.getValue().getEstimatedDeliveryTime());
     }
 

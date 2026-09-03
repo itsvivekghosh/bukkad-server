@@ -2,7 +2,7 @@ package com.bhukkad.controller;
 
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.entity.Review;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.service.ReviewService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

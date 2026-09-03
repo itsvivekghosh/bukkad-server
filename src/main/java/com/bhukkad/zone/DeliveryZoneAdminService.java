@@ -3,7 +3,7 @@ package com.bhukkad.zone;
 import com.bhukkad.dto.request.DeliveryZoneRequest;
 import com.bhukkad.dto.response.DeliveryZoneResponse;
 import com.bhukkad.entity.DeliveryZone;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.DeliveryZoneRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

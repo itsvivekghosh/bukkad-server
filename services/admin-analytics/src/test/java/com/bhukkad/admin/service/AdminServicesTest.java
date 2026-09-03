@@ -1,7 +1,6 @@
 package com.bhukkad.admin.service;
 
 import com.bhukkad.admin.domain.ApiKeyRepository;
-import com.bhukkad.admin.domain.FeatureFlagRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -13,7 +12,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AdminServicesTest {
 
     @Mock private ApiKeyRepository apiKeyRepository;
-    @Mock private FeatureFlagRepository flagRepository;
 
     @Test
     void apiKeyService_validatesOnlyIssuedKeys() {
@@ -25,7 +23,8 @@ class AdminServicesTest {
 
     @Test
     void featureFlagService_defaultsDisabled() {
-        FeatureFlagService service = new FeatureFlagService(flagRepository);
+        FeatureFlagService service = new FeatureFlagService(
+                new FeatureFlagProperties(), null);
         assertThat(service.isEnabled("anything")).isFalse();
     }
 }

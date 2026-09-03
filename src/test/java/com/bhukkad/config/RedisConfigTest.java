@@ -89,8 +89,8 @@ class RedisConfigTest {
     void cacheInvalidationListenerContainer_subscribesToChannel() {
         org.springframework.data.redis.connection.RedisConnectionFactory cf =
                 mock(org.springframework.data.redis.connection.RedisConnectionFactory.class);
-        com.bhukkad.cache.invalidation.CacheInvalidationSubscriber subscriber =
-                mock(com.bhukkad.cache.invalidation.CacheInvalidationSubscriber.class);
+        com.bhukkad.common.cache.CacheInvalidationSubscriber subscriber =
+                mock(com.bhukkad.common.cache.CacheInvalidationSubscriber.class);
         when(subscriber.getChannel()).thenReturn("bhukkad:cache:invalidate");
 
         org.springframework.data.redis.listener.RedisMessageListenerContainer container =

@@ -3,7 +3,7 @@ package com.bhukkad.controller;
 import com.bhukkad.config.ApiPaths;
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.entity.Review;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

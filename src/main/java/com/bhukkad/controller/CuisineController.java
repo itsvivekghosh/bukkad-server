@@ -4,7 +4,7 @@ import com.bhukkad.config.ApiPaths;
 
 import com.bhukkad.dto.response.ApiResponse;
 import com.bhukkad.entity.Cuisine;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.CuisineRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

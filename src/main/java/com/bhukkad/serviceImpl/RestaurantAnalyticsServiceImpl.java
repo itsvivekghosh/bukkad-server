@@ -1,11 +1,11 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.dto.response.RestaurantAnalyticsResponse;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.repository.OrderItemRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.repository.RestaurantRepository;

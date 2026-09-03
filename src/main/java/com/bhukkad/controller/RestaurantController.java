@@ -57,7 +57,7 @@ public class RestaurantController {
             @RequestHeader(value = "X-Tenant-Id", required = false) Long tenantId) {
         if (ids != null && !ids.isEmpty()) {
             if (ids.size() > 100) {
-                throw new com.bhukkad.exception.BusinessException("Maximum 100 IDs allowed per request");
+                throw new com.bhukkad.common.error.BusinessException("Maximum 100 IDs allowed per request");
             }
             return ResponseEntity.ok(ApiResponse.success(restaurantService.getRestaurantsByIds(ids)));
         }

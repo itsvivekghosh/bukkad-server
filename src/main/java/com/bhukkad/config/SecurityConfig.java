@@ -1,6 +1,5 @@
 package com.bhukkad.config;
 
-import com.bhukkad.apikey.ApiKeyFilter;
 import com.bhukkad.logging.RequestLoggingFilter;
 import com.bhukkad.security.CustomUserDetailsService;
 import com.bhukkad.security.JwtAuthenticationFilter;
@@ -36,7 +35,6 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RequestLoggingFilter requestLoggingFilter;
     private final PrometheusAuthFilter prometheusAuthFilter;
-    private final ApiKeyFilter apiKeyFilter;
     private final WafFilter wafFilter;
     private final PasswordEncoder passwordEncoder;
 
@@ -203,7 +201,6 @@ public class SecurityConfig {
                 .addFilterBefore(prometheusAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(requestLoggingFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(wafFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(apiKeyFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

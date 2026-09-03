@@ -1,11 +1,11 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
-import com.bhukkad.cache.RedisCacheService;
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.cache.RedisCacheService;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.entity.*;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.*;
 import com.bhukkad.service.AdminService;
 import lombok.RequiredArgsConstructor;

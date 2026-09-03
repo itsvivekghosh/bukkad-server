@@ -20,8 +20,20 @@ spring:
     # V1 (platform-lib baseline) + V2+ (this service) all live under the same
     # classpath location; Flyway merges them from the common jar and this jar.
     locations: classpath:db/migration-pg
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
 
 management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
   endpoints:
     web:
       exposure:

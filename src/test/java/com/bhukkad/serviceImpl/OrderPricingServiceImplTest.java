@@ -7,7 +7,7 @@ import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Payment;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.dto.response.MembershipStatusResponse;
 import com.bhukkad.membership.MembershipService;
 import com.bhukkad.promotion.PromotionEngineService;
@@ -224,7 +224,7 @@ class OrderPricingServiceImplTest {
 
         var result = orderPricingService.calculate(restaurant, List.of(item), null, customer(), null, "UPI", null, null, null, null);
 
-        assertEquals(com.bhukkad.util.Constants.DEFAULT_DELIVERY_FEE, result.deliveryFee());
+        assertEquals(com.bhukkad.common.util.Constants.DEFAULT_DELIVERY_FEE, result.deliveryFee());
     }
 
     @Test

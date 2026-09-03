@@ -4,7 +4,7 @@ import com.bhukkad.dto.response.InventoryAlertResponse;
 import com.bhukkad.entity.InventoryAlert;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.repository.InventoryAlertRepository;
 import com.bhukkad.repository.MenuItemRepository;
 import com.bhukkad.repository.RestaurantRepository;

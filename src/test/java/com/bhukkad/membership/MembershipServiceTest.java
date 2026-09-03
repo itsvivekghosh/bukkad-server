@@ -6,7 +6,7 @@ import com.bhukkad.dto.response.MembershipStatusResponse;
 import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.CustomerMembership;
 import com.bhukkad.entity.MembershipPlan;
-import com.bhukkad.exception.BusinessException;
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.repository.CustomerMembershipRepository;
 import com.bhukkad.repository.CustomerRepository;
 import com.bhukkad.repository.MembershipPlanRepository;

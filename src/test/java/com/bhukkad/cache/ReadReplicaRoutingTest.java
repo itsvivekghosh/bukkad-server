@@ -1,8 +1,8 @@
 package com.bhukkad.cache;
 
-import com.bhukkad.datasource.ReadReplicaContext;
-import com.bhukkad.datasource.ReadReplicaRoutingDataSource;
-import com.bhukkad.datasource.ReadReplicaType;
+import com.bhukkad.common.datasource.ReadReplicaContext;
+import com.bhukkad.common.datasource.ReadReplicaRoutingDataSource;
+import com.bhukkad.common.datasource.ReadReplicaType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronizationManager;

@@ -1,7 +1,7 @@
 package com.bhukkad.logging;
 
 import com.bhukkad.logging.alert.AlertService;
-import com.bhukkad.metrics.EndpointSloMetrics;
+import com.bhukkad.common.metrics.EndpointSloMetrics;
 import com.bhukkad.security.AccountLookupService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;

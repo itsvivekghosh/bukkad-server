@@ -2,7 +2,7 @@ package com.bhukkad.order;
 
 import com.bhukkad.dto.response.OrderCreateJobResponse;
 import com.bhukkad.dto.response.OrderResponse;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
 import org.junit.jupiter.api.BeforeEach;

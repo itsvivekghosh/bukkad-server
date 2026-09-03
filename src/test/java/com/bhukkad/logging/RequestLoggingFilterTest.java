@@ -3,7 +3,7 @@ package com.bhukkad.logging;
 import com.bhukkad.entity.User;
 import com.bhukkad.security.AccountLookupService;
 import com.bhukkad.logging.alert.AlertService;
-import com.bhukkad.metrics.EndpointSloMetrics;
+import com.bhukkad.common.metrics.EndpointSloMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.FilterChain;

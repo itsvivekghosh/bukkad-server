@@ -58,80 +58,6 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: bhukkad-app-prod
-    restart: always
-    init: true
-    environment:
-      SPRING_PROFILES_ACTIVE: prod
-      WAIT_FOR_SERVICES: "false"
-      HEALTH_PATH: /api/v1/health/ping
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_USERNAME: ${POSTGRES_USER:bhukkad}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      SERVER_PORT: "8080"
-      JWT_SECRET: ${JWT_SECRET}
-      APP_PAYMENT_RAZORPAY_ENABLED: "true"
-      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
-      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
-      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
-      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+MaxGCPauseMillis=200"
-    expose:
-      - "8080"
-    volumes:
-      - app_logs_prod:/tmp/logs/bhukkad
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - bhukkad-prod-network
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health/ping"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 120s
-    stop_grace_period: 45s
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 2G
-        reservations:
-          cpus: "0.75"
-          memory: 1G
-
-  nginx:
-    image: nginx:1.25-alpine
-    container_name: bhukkad-nginx-prod
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/conf.d/bhukkad.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - bhukkad-prod-network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-
   # Daily automated backups (PostgreSQL dump + Redis snapshot) into a named volume.
   # Off-site copy can be added by setting S3_BUCKET + AWS_* env vars.
   backup:
@@ -188,8 +114,6 @@ volumes:
     name: bhukkad_postgres_prod
   redis_data_prod:
     name: bhukkad_redis_prod
-  app_logs_prod:
-    name: bhukkad_logs_prod
   backup_data_prod:
     name: bhukkad_backups_prod
 

@@ -5,7 +5,7 @@ import com.bhukkad.entity.Customer;
 import com.bhukkad.entity.DeliveryAgent;
 import com.bhukkad.entity.Order;
 import com.bhukkad.entity.Restaurant;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.order.api.OrderQueryPort;
 import com.bhukkad.order.api.OrderSummary;
 import com.bhukkad.repository.OrderRepository;

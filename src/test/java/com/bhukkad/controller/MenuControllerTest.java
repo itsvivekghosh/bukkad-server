@@ -210,7 +210,7 @@ public class MenuControllerTest {
     void getMenuItemsByIds_tooManyIds_throwsBusinessException() {
         java.util.List<Long> many = java.util.stream.LongStream.rangeClosed(1, 101)
                 .boxed().collect(java.util.stream.Collectors.toList());
-        assertThrows(com.bhukkad.exception.BusinessException.class,
+        assertThrows(com.bhukkad.common.error.BusinessException.class,
                 () -> menuController.getMenuItemsByIds(many));
         verify(menuService, never()).getMenuItemsByIds(any());
     }

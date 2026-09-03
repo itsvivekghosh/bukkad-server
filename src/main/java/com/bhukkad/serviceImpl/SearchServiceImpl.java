@@ -1,10 +1,10 @@
 package com.bhukkad.serviceImpl;
 
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.dto.response.MenuItemResponse;
 import com.bhukkad.dto.response.RestaurantResponse;
 import com.bhukkad.dto.response.UnifiedSearchResponse;
-import com.bhukkad.metrics.BusinessMetrics;
+import com.bhukkad.common.metrics.BusinessMetrics;
 import com.bhukkad.service.MenuService;
 import com.bhukkad.service.RestaurantService;
 import com.bhukkad.service.SearchService;

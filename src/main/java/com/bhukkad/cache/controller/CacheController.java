@@ -2,7 +2,7 @@ package com.bhukkad.cache.controller;
 
 import com.bhukkad.config.ApiPaths;
 
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.dto.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

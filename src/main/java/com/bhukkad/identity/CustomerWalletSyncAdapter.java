@@ -1,7 +1,7 @@
 package com.bhukkad.identity;
 
 import com.bhukkad.entity.Customer;
-import com.bhukkad.exception.ResourceNotFoundException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.identity.api.CustomerWalletSyncPort;
 import com.bhukkad.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;

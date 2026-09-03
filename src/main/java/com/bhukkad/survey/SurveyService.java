@@ -1,12 +1,12 @@
 package com.bhukkad.survey;
 
-import com.bhukkad.datasource.UseReadReplica;
+import com.bhukkad.common.datasource.UseReadReplica;
 import com.bhukkad.dto.response.SurveyRatingsResponse;
 import com.bhukkad.entity.DeliverySurvey;
 import com.bhukkad.entity.Order;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.repository.DeliverySurveyRepository;
 import com.bhukkad.repository.OrderRepository;
 import com.bhukkad.util.PriceCalculator;

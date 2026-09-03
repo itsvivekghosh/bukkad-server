@@ -4,10 +4,6 @@ server:
 spring:
   application:
     name: bhukkad-gateway
-  # The gateway is a stateless edge router: no datasource, no JPA, and no
-  # local token validation (auth passthrough). platform-lib is non-optional and
-  # pulls in data-jpa + spring-security-oauth2-jose for every consumer, so we
-  # exclude those auto-configurations here rather than fighting them.
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
@@ -20,18 +16,13 @@ spring:
       - org.springframework.boot.autoconfigure.security.oauth2.client.reactive.ReactiveOAuth2ClientAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration
 
-# Strangler route targets. Backend URIs are k8s Service DNS names
-# (no service-discovery stack — see architecture §1.3). Override per env/test.
 app:
   routes:
-    # Restaurant read slice (strangler first slice, P4).
     restaurant-uri: http://bhukkad-restaurant.bhukkad.svc.cluster.local
-    # Identity auth endpoints (P3 cut-over). Routes /api/v1/auth/**.
     identity-uri: http://bhukkad-identity.bhukkad.svc.cluster.local
-    # Order service (P5 cut-over). Routes /api/v1/orders/**, /api/v1/cart/**.
     order-uri: http://bhukkad-order.bhukkad.svc.cluster.local
-    # Monolith fallback for everything else (k8s Service "bhukkad-app").
-    monolith-uri: http://bhukkad-app.bhukkad.svc.cluster.local
+    payment-uri: http://bhukkad-payment.bhukkad.svc.cluster.local
+    delivery-uri: http://bhukkad-delivery.bhukkad.svc.cluster.local
 
 management:
   endpoints:
@@ -47,3 +38,9 @@ management:
     export:
       prometheus:
         enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}

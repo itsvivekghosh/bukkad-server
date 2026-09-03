@@ -1,7 +1,7 @@
 package com.bhukkad.security;
 
 import com.bhukkad.entity.User;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.UnauthorizedException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

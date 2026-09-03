@@ -1,6 +1,6 @@
 package com.bhukkad.controller;
 
-import com.bhukkad.cache.LocalCacheService;
+import com.bhukkad.common.cache.LocalCacheService;
 import com.bhukkad.config.ExternalEventsProperties;
 import com.bhukkad.config.GeoIndexProperties;
 import com.bhukkad.config.NotificationProperties;

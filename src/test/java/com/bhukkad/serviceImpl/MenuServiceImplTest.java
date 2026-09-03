@@ -1,7 +1,7 @@
 package com.bhukkad.serviceImpl;
 
 import com.bhukkad.cache.CacheKeyGenerator;
-import com.bhukkad.cache.RedisCacheService;
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.dto.request.MenuCategoryRequest;
 import com.bhukkad.dto.request.MenuImageUploadRequest;
 import com.bhukkad.dto.request.MenuItemRequest;
@@ -12,9 +12,9 @@ import com.bhukkad.entity.MenuCategory;
 import com.bhukkad.entity.MenuItem;
 import com.bhukkad.entity.Restaurant;
 import com.bhukkad.entity.RestaurantOwner;
-import com.bhukkad.exception.BusinessException;
-import com.bhukkad.exception.ResourceNotFoundException;
-import com.bhukkad.exception.UnauthorizedException;
+import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.mapper.MenuItemMapper;
 import com.bhukkad.storage.ImageStorageProperties;
 import com.bhukkad.storage.MenuImageService;

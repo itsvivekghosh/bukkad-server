@@ -30,9 +30,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: bhukkad-nginx
+                name: bhukkad-gateway
                 port:
-                  number: 80
+                  number: 8080
     - host: localhost
       http:
         paths:
@@ -40,6 +40,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: bhukkad-nginx
+                name: bhukkad-gateway
                 port:
-                  number: 80
+                  number: 8080
