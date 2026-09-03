@@ -20,7 +20,15 @@ public class MenuVersion {
     private Long restaurantId;
     @Column(nullable = false)
     private Integer version;
+    private String label;
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private MenuVersionStatus status;
     private String snapshotJson;
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
     @CreatedDate @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    public enum MenuVersionStatus { DRAFT, PUBLISHED }
 }
