@@ -2,27 +2,63 @@ package com.bhukkad.identity.domain;
 
 import jakarta.persistence.*;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
-import java.math.BigDecimal;
+
 import java.time.LocalDateTime;
 
+/**
+ * Port of the monolith {@code com.bhukkad.entity.MembershipPlan} (WAVE 2).
+ * Name and {@code @Table} are unchanged; the slim WAVE 1 columns (tier/price)
+ * are superseded by the monolith shape in
+ * {@code V7__membership_plan_and_affiliate_depth.sql}.
+ */
 @Entity
 @Table(name = "membership_plans")
 @EntityListeners(AuditingEntityListener.class)
-@Getter @Setter
+@Getter
+@Setter
+@NoArgsConstructor
 public class MembershipPlan {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
     @Column(nullable = false, length = 100)
     private String name;
-    @Column(nullable = false, length = 20)
-    private String tier;
-    @Column(nullable = false, precision = 10, scale = 2)
-    private BigDecimal price;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "price_per_month", nullable = false)
+    private Double pricePerMonth;
+
     @Column(nullable = false)
-    private Boolean active = true;
-    @CreatedDate @Column(nullable = false, updatable = false)
+    private Boolean freeDelivery = true;
+
+    @Column(nullable = false)
+    private Double discountPercent = 0.0;
+
+    @Column(name = "is_active", nullable = false)
+    private Boolean isActive = true;
+
+    /** 0=Basic, 1=Silver, 2=Gold, 3=Platinum */
+    @Column(name = "tier_level")
+    private Integer tierLevel = 0;
+
+    @Column(name = "max_discount_percent")
+    private Double maxDiscountPercent = 0.0;
+
+    @Column(name = "referral_bonus_percent")
+    private Double referralBonusPercent = 0.0;
+
+    @Column(name = "referral_max_per_month")
+    private Integer referralMaxPerMonth = 0;
+
+    @CreatedDate
+    @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 }
