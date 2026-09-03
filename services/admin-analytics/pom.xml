@@ -10,6 +10,8 @@
 	<description>Owns bhukkad_admin: audit, fraud, churn, read models (P7).</description>
 	<dependencies>
 		<dependency><groupId>com.bhukkad</groupId><artifactId>platform-lib</artifactId></dependency>
+		<!-- Scheduler lock for compliance retention sweep (ported with DataRetentionService) -->
+		<dependency><groupId>net.javacrumbs.shedlock</groupId><artifactId>shedlock-spring</artifactId><version>5.16.0</version></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
