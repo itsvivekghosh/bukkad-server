@@ -16,46 +16,44 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
+/**
+ * White-label tenant (Batch 4 migration). Belongs in the restaurant service
+ * because the gateway exposes tenants via {@code /api/v1/restaurants/**} for
+ * the storefront. The monolith keeps a richer working copy (DTOs + full
+ * business surface) until the gateway route flips.
+ */
 @Entity
-@Table(name = "restaurants", indexes = {
-        @Index(name = "idx_restaurant_cuisine_active", columnList = "cuisineId, isActive"),
-        @Index(name = "idx_restaurant_name", columnList = "name")
+@Table(name = "tenants", indexes = {
+        @Index(name = "idx_tenant_domain", columnList = "domain", unique = true)
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
-public class Restaurant {
+public class Tenant {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 200)
+    @Column(nullable = false, length = 120)
     private String name;
 
-    private String description;
+    @Column(nullable = false, length = 200)
+    private String domain;
 
-    @Column(nullable = false)
-    private Long cuisineId;
+    private String brandName;
 
-    private String address;
+    @Column(length = 500)
+    private String logoUrl;
 
     @Column(length = 20)
-    private String phone;
+    private String themeColor;
+
+    @Column(nullable = false, length = 3)
+    private String currency = "INR";
 
     @Column(nullable = false)
     private Boolean isActive = true;
-
-    @Column(nullable = false)
-    private Double avgRating = 0.0;
-
-    @Column(nullable = false)
-    private Boolean busyMode = false;
-
-    private LocalDateTime busyUntil;
-
-    @Column(nullable = false)
-    private Integer extraPrepMinutes = 0;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)

@@ -11,13 +11,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * Versioned menu snapshots: create snapshot with next version, history.
+ * Versioned menu snapshots: snapshot, history, preview, publish, latestVersion.
  */
 @ExtendWith(MockitoExtension.class)
 class MenuVersionServiceTest {
@@ -27,8 +29,8 @@ class MenuVersionServiceTest {
 
     @BeforeEach
     void setUp() {
-        // Constructed manually: the real ObjectMapper is not a mock, so
-        // @InjectMocks would leave it null.
+        // Constructed manually: ObjectMapper is not a mock, so @InjectMocks
+        // would leave it null.
         service = new MenuVersionService(versionRepository, new ObjectMapper());
     }
 
@@ -42,6 +44,7 @@ class MenuVersionServiceTest {
         assertThat(v.getRestaurantId()).isEqualTo(1L);
         assertThat(v.getVersion()).isEqualTo(1);
         assertThat(v.getSnapshotJson()).contains("categories");
+        assertThat(v.getStatus()).isEqualTo(MenuVersion.MenuVersionStatus.DRAFT);
     }
 
     @Test
@@ -58,9 +61,44 @@ class MenuVersionServiceTest {
     }
 
     @Test
-    void history_retunsVersionsDescending() {
+    void history_returnsVersionsDescending() {
         when(versionRepository.findByRestaurantIdOrderByVersionDesc(1L)).thenReturn(List.of(new MenuVersion()));
 
         assertThat(service.history(1L)).hasSize(1);
+    }
+
+    @Test
+    void preview_returnsParsedSnapshot() {
+        MenuVersion stored = new MenuVersion();
+        stored.setId(7L);
+        stored.setRestaurantId(1L);
+        stored.setSnapshotJson("{\"name\":\"Spring Menu\"}");
+        when(versionRepository.findById(7L)).thenReturn(Optional.of(stored));
+
+        Map<String, Object> snapshot = service.preview(7L);
+
+        assertThat(snapshot).containsEntry("name", "Spring Menu");
+    }
+
+    @Test
+    void preview_throws_whenMissing() {
+        when(versionRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.preview(99L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void publish_flipsStatusToPublished() {
+        MenuVersion stored = new MenuVersion();
+        stored.setId(8L);
+        stored.setRestaurantId(1L);
+        stored.setStatus(MenuVersion.MenuVersionStatus.DRAFT);
+        when(versionRepository.findById(8L)).thenReturn(Optional.of(stored));
+        when(versionRepository.save(any(MenuVersion.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        MenuVersion published = service.publish(8L);
+
+        assertThat(published.getStatus()).isEqualTo(MenuVersion.MenuVersionStatus.PUBLISHED);
+        assertThat(published.getPublishedAt()).isNotNull();
     }
 }
