@@ -9,7 +9,6 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,7 +21,7 @@ class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ChurnScoreRepository churnRepository;
-    @Autowired private ExperimentExposureRepository experimentRepository;
+    @Autowired private com.bhukkad.admin.experiment.domain.ExperimentExposureRepository experimentRepository;
     @Autowired private DataExportRequestRepository exportRepository;
 
     @BeforeEach
@@ -54,15 +53,46 @@ class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
     }
 
     @Test
-    void experimentExposureAssignOnce() {
-        ExperimentExposure e = new ExperimentExposure();
-        e.setCustomerId(7L);
-        e.setExperiment("checkout-v2");
-        e.setVariant("B");
-        experimentRepository.saveAndFlush(e);
+    void experimentExposureMonolithSchemaPersists() {
+        com.bhukkad.admin.experiment.domain.ExperimentExposure exposure =
+                new com.bhukkad.admin.experiment.domain.ExperimentExposure();
+        exposure.setExperimentKey("checkout-cta-copy");
+        exposure.setUserId(7L);
+        exposure.setVariant("treatment");
+        exposure.setBucket(8628);
+        experimentRepository.saveAndFlush(exposure);
 
-        assertThat(experimentRepository.findByCustomerIdAndExperiment(7L, "checkout-v2")).isPresent();
-        assertThat(experimentRepository.findByCustomerId(7L)).hasSize(1);
+        assertThat(experimentRepository.findByExperimentKeyAndUserId("checkout-cta-copy", 7L)).isPresent();
+        assertThat(exposure.getExposedAt()).isNotNull();
+        assertThat(experimentRepository.countByVariant("checkout-cta-copy"))
+                .hasSize(1)
+                .satisfies(rows -> {
+                    Object[] top = rows.get(0);
+                    assertThat(top[0]).isEqualTo("treatment");
+                    assertThat(top[1]).isEqualTo(1L);
+                });
+    }
+
+    @Test
+    void experimentExposure_uniquePerExperimentAndUser() {
+        com.bhukkad.admin.experiment.domain.ExperimentExposure first =
+                new com.bhukkad.admin.experiment.domain.ExperimentExposure();
+        first.setExperimentKey("checkout-cta-copy");
+        first.setUserId(9L);
+        first.setVariant("control");
+        first.setBucket(4193);
+        experimentRepository.saveAndFlush(first);
+
+        com.bhukkad.admin.experiment.domain.ExperimentExposure duplicate =
+                new com.bhukkad.admin.experiment.domain.ExperimentExposure();
+        duplicate.setExperimentKey("checkout-cta-copy");
+        duplicate.setUserId(9L);
+        duplicate.setVariant("treatment");
+        duplicate.setBucket(8628);
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.dao.DataIntegrityViolationException.class,
+                () -> experimentRepository.saveAndFlush(duplicate));
     }
 
     @Test
@@ -80,14 +110,5 @@ class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
         assertThat(exportRepository.findByCustomerId(3L)).hasSize(1);
         assertThat(exportRepository.findByCustomerId(3L).get(0).getStatus())
                 .isEqualTo(DataExportRequest.STATUS_COMPLETED);
-    }
-
-    @Test
-    void experimentService_assignmentDeterministic() {
-        com.bhukkad.admin.service.ExperimentService service =
-                new com.bhukkad.admin.service.ExperimentService(experimentRepository);
-        var first = service.assign(10L, "exp-1", List.of("A", "B"));
-        var second = service.assign(10L, "exp-1", List.of("A", "B"));
-        assertThat(first.getId()).isEqualTo(second.getId());
     }
 }

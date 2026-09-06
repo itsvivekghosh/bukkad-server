@@ -76,4 +76,42 @@ public class WalletService {
         tx.setReference(reference);
         transactionRepository.save(tx);
     }
+
+    /**
+     * Offset-paginated transactions, newest first (small histories).
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<WalletTransaction> transactionsPage(Long customerId, int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE);
+        return transactionRepository.pageNewestFirst(customerId,
+                org.springframework.data.domain.PageRequest.of(safePage, safeSize));
+    }
+
+    /**
+     * Cursor page of transactions, newest first (unbounded histories).
+     */
+    @Transactional(readOnly = true)
+    public CursorPage transactionsByCursor(Long customerId, String cursor, int size) {
+        com.bhukkad.common.util.CursorUtils.OrderCursor c =
+                com.bhukkad.common.util.CursorUtils.decode(cursor).orElse(null);
+        LocalDateTime cursorCreatedAt = c != null ? c.createdAt() : com.bhukkad.common.util.CursorUtils.END_OF_TIME;
+        Long cursorId = c != null ? c.id() : com.bhukkad.common.util.CursorUtils.END_OF_ID;
+        int safeSize = Math.min(Math.max(size, 1), com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE);
+        java.util.List<WalletTransaction> batch = transactionRepository.afterCursor(
+                customerId, cursorCreatedAt, cursorId,
+                org.springframework.data.domain.PageRequest.of(0, safeSize + 1));
+        boolean hasNext = batch.size() > safeSize;
+        java.util.List<WalletTransaction> pageItems = hasNext ? batch.subList(0, safeSize) : batch;
+        String nextCursor = null;
+        if (hasNext && !pageItems.isEmpty()) {
+            WalletTransaction last = pageItems.get(pageItems.size() - 1);
+            nextCursor = com.bhukkad.common.util.CursorUtils.encode(last.getCreatedAt(), last.getId());
+        }
+        return new CursorPage(pageItems, nextCursor, hasNext);
+    }
+
+    /** One cursor page of wallet transactions. */
+    public record CursorPage(java.util.List<WalletTransaction> items, String nextCursor, boolean hasNext) {
+    }
 }

@@ -5,11 +5,11 @@ spring:
   application:
     name: identity
   datasource:
-    url: ${IDENTITY_DB_URL:jdbc:postgresql://localhost:5432/bhukkad_identity}
-    username: ${IDENTITY_DB_USERNAME:bhukkad}
-    password: ${IDENTITY_DB_PASSWORD:bhukkad_dev}
+    url: ${IDENTITY_DB_URL:jdbc:postgresql://localhost:5432/identity}
+    username: ${IDENTITY_DB_USERNAME:app}
+    password: ${IDENTITY_DB_PASSWORD:app_pass}
     hikari:
-      maximum-pool-size: ${IDENTITY_DB_POOL_SIZE:20}
+      maximum-pool-size: ${IDENTITY_DB_POOL_SIZE:5}
   jpa:
     hibernate:
       ddl-auto: none

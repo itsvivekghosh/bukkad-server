@@ -33,6 +33,8 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties({
         ChaosProperties.class,
         ClusterProperties.class,
+        ExternalEventsProperties.class,
+        com.bhukkad.common.storage.ImageStorageProperties.class,
         KafkaPlatformProperties.class,
         LocalCacheProperties.class,
         OutboxProperties.class,

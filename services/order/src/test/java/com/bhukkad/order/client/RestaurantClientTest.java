@@ -83,11 +83,16 @@ class RestaurantClientTest {
 
     @Test
     void searchRestaurants_returnsList_whenServiceResponds() {
-        server.createContext("/api/v1/restaurants/public/search", exchange -> {
-            String body = "[{\"id\":1,\"name\":\"Pizza Place\",\"cuisineType\":\"ITALIAN\","
-                    + "\"averageRating\":4.2,\"isActive\":true},"
-                    + "{\"id\":2,\"name\":\"Taco Stand\",\"cuisineType\":\"MEXICAN\","
-                    + "\"averageRating\":4.0,\"isActive\":true}]";
+        // Mirrors the restaurant service's real contract post-extraction:
+        // GET /api/v1/restaurants?name= returns a bare RestaurantSummary[]
+        // (fields "active"/"avgRating"), which the client maps via aliases.
+        server.createContext("/api/v1/restaurants", exchange -> {
+            String body = "[{\"id\":1,\"name\":\"Pizza Place\",\"description\":\"Wood-fired pizza\","
+                    + "\"cuisineId\":3,\"address\":\"12 MG Road\",\"phone\":\"9999900001\","
+                    + "\"active\":true,\"avgRating\":4.2},"
+                    + "{\"id\":2,\"name\":\"Taco Stand\",\"description\":\"Street tacos\","
+                    + "\"cuisineId\":7,\"address\":\"45 Residency Road\",\"phone\":\"9999900002\","
+                    + "\"active\":true,\"avgRating\":4.0}]";
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, bytes.length);
@@ -101,5 +106,7 @@ class RestaurantClientTest {
         assertThat(results).isNotNull().hasSize(2);
         assertThat(results.get(0).getName()).isEqualTo("Pizza Place");
         assertThat(results.get(1).getName()).isEqualTo("Taco Stand");
+        assertThat(results.get(0).getIsActive()).isTrue();
+        assertThat(results.get(0).getAverageRating()).isEqualTo(4.2);
     }
 }

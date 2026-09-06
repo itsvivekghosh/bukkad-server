@@ -22,7 +22,6 @@ class RiderOpsPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private RiderLocationUpdateRepository locationRepository;
-    @Autowired private AgentCodWalletRepository codWalletRepository;
     @Autowired private RiderDeliveryBatchRepository batchRepository;
     @Autowired private RiderDeliveryBatchOrderRepository batchOrderRepository;
     @Autowired private DeliveryAgentRepository agentRepository;
@@ -73,14 +72,23 @@ class RiderOpsPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
     }
 
     @Test
-    void codWalletUniquePerAgent() {
+    void codWalletTableRejectsDuplicateAgent() {
+        // AgentCodWallet is owned by the payment service (DeliveryPaymentController).
+        // The delivery schema keeps a reconciliation copy; assert its agent uniqueness.
         DeliveryAgent saved = agent();
-        AgentCodWallet wallet = new AgentCodWallet();
-        wallet.setAgentId(saved.getId());
-        wallet.setBalance(new java.math.BigDecimal("100.00"));
-        codWalletRepository.saveAndFlush(wallet);
+        jdbcTemplate.update(
+                "INSERT INTO agent_cod_wallets (agent_id, balance, updated_at) VALUES (?, 100.00, now() at time zone 'utc')",
+                saved.getId());
 
-        assertThat(codWalletRepository.findByAgentId(saved.getId())).isPresent();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM agent_cod_wallets WHERE agent_id = ?", Integer.class, saved.getId()))
+                .isEqualTo(1);
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.dao.DataIntegrityViolationException.class,
+                () -> jdbcTemplate.update(
+                        "INSERT INTO agent_cod_wallets (agent_id, balance, updated_at) VALUES (?, 50.00, now() at time zone 'utc')",
+                        saved.getId()));
     }
 
     @Test

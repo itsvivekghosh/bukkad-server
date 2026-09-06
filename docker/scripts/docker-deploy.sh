@@ -26,7 +26,7 @@ echo "════════════════════════�
 # Empty values from deploy-env.txt must not override Spring defaults
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
-DB_NAME="${DB_NAME:-bhukkad}"
+DB_NAME="${DB_NAME:-core}"
 JDBC_PARAMS="currentSchema=public&ssl=false"
 DB_URL="${DB_URL:-jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}?${JDBC_PARAMS}}"
 REDIS_HOST="${REDIS_HOST:-localhost}"

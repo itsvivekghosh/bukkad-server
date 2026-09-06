@@ -19,11 +19,24 @@
 		No web layer, no datasource configuration, no business logic — business
 		code is never shared across services (contract/event boundaries).</description>
 
+	<!-- 1.18.38 fixes the javac TypeTag crash on JDK 21+ (parent still pins
+	     1.18.36 for the monolith). -->
+	<properties>
+		<lombok.version>1.18.38</lombok.version>
+	</properties>
+
 	<dependencies>
 		<!-- JPA entities + repositories for the per-service platform tables. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!-- AWS S3 for shared image/blob storage (menu presigned URLs). -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.25.27</version>
 		</dependency>
 
 		<!-- JSON (de)serialization of event payloads and envelopes. -->

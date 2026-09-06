@@ -13,7 +13,7 @@
 
 	<artifactId>identity</artifactId>
 	<name>Bhukkad Identity Service</name>
-	<description>Owns bhukkad_identity: authN (JWT), customers, addresses
+	<description>Owns identity: authN (JWT), customers, addresses
 		(architecture-microservices-postgresql.md §3/P3).</description>
 
 	<dependencies>

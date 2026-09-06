@@ -1397,30 +1397,23 @@ class TestResetDatabase(unittest.TestCase):
     def _admin_ok(self):
         return MagicMock(returncode=0, stdout="INSERT 0 1", stderr="")
 
-    def _seed_ok(self):
-        return MagicMock(returncode=0, stdout="INSERT 0 10", stderr="")
-
-    def _seq_fix_ok(self):
-        return MagicMock(returncode=0, stdout="DO", stderr="")
-
     def _seq_fix_ok(self):
         return MagicMock(returncode=0, stdout="DO", stderr="")
 
     @patch("test_all_apis.subprocess.run")
     def test_successful_reset(self, mock_run):
-        """Full reset flow: list → truncate → reseed admin → seed V6 → fix sequences."""
+        """Full reset flow: list → truncate → reseed admin → fix sequences."""
         mock_run.side_effect = [
             self._list_tables_mock(),
             self._truncate_ok(),
             self._admin_ok(),
-            self._seed_ok(),
             self._seq_fix_ok(),
         ]
         with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
             result = reset_database()
         self.assertTrue(result)
-        # Should have 5 calls: list, truncate, admin reseed, seed, seq fix
-        self.assertEqual(mock_run.call_count, 5)
+        # Should have 4 calls: list, truncate, admin reseed, seq fix
+        self.assertEqual(mock_run.call_count, 4)
 
     @patch("test_all_apis.subprocess.run")
     def test_no_tables_returns_true(self, mock_run):
@@ -1449,14 +1442,13 @@ class TestResetDatabase(unittest.TestCase):
         self.assertFalse(result)
 
     @patch("test_all_apis.subprocess.run")
-    def test_seed_warning_does_not_fail(self, mock_run):
-        """If seed re-apply has warnings (e.g. ON CONFLICT skips), still return True."""
+    def test_seq_fix_warning_does_not_fail(self, mock_run):
+        """If the sequence fix reports a warning, reset still returns True."""
         mock_run.side_effect = [
             self._list_tables_mock(),
             self._truncate_ok(),
             self._admin_ok(),
-            MagicMock(returncode=1, stdout="", stderr="conflicting key value"),
-            self._seq_fix_ok(),
+            MagicMock(returncode=1, stdout="", stderr="sequence warning"),
         ]
         with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
             result = reset_database()
@@ -1469,20 +1461,19 @@ class TestResetDatabase(unittest.TestCase):
         self.assertFalse(result)
 
     @patch("test_all_apis.subprocess.run")
-    def test_seed_sql_not_found_returns_true(self, mock_run):
-        """If V6 seed SQL doesn't exist, reset still succeeds (data tables were truncated).
-        Since seed file is missing, the function returns early before seq fix."""
+    def test_admin_reseed_failure_still_runs_seq_fix(self, mock_run):
+        """Admin reseed failure is non-fatal and must not skip the seq fix."""
         mock_run.side_effect = [
             self._list_tables_mock(tables="orders\n"),
             self._truncate_ok(),
-            self._admin_ok(),
+            MagicMock(returncode=1, stdout="", stderr="admin reseed failed"),
+            self._seq_fix_ok(),
         ]
         with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
-            with patch.object(test_all_apis.Path, "exists", return_value=False):
-                result = reset_database()
+            result = reset_database()
         self.assertTrue(result)
-        # 3 calls: list + truncate + admin reseed (returns early, no seq fix)
-        self.assertEqual(mock_run.call_count, 3)
+        # 4 calls: list + truncate + admin reseed (failed, non-fatal) + seq fix
+        self.assertEqual(mock_run.call_count, 4)
 
     @patch("test_all_apis.subprocess.run")
     def test_db_url_parsing(self, mock_run):
@@ -1491,7 +1482,6 @@ class TestResetDatabase(unittest.TestCase):
             MagicMock(returncode=0, stdout="orders\n", stderr=""),
             self._truncate_ok(),
             self._admin_ok(),
-            self._seed_ok(),
             self._seq_fix_ok(),
         ]
         reset_database("postgres://testuser:testpass@localhost:5432/testdb")
@@ -1508,7 +1498,6 @@ class TestResetDatabase(unittest.TestCase):
             self._list_tables_mock(),
             self._truncate_ok(),
             self._admin_ok(),
-            self._seed_ok(),
             self._seq_fix_ok(),
         ]
         with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
@@ -1526,7 +1515,6 @@ class TestResetDatabase(unittest.TestCase):
             self._list_tables_mock(tables="orders\ncustomers\nrestaurants\nmenus\n"),
             self._truncate_ok(),
             self._admin_ok(),
-            self._seed_ok(),
             self._seq_fix_ok(),
         ]
         with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
@@ -1545,7 +1533,6 @@ class TestResetDatabase(unittest.TestCase):
             self._list_tables_mock(),
             self._truncate_ok(),
             MagicMock(returncode=1, stdout="", stderr="admin reseed failed"),
-            self._seed_ok(),
             self._seq_fix_ok(),
         ]
         with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
@@ -1662,6 +1649,292 @@ class TestCheckServerAvailableExtended(unittest.TestCase):
         check_server_available("http://localhost:8080", 5)
         # Should have only tried the first endpoint (/api/v1/health/ping)
         self.assertEqual(mock_urlopen.call_count, 1)
+
+
+class TestEdgeBattery(unittest.TestCase):
+    """Unit tests for the comprehensive edge-case battery added to the runner."""
+
+    def _make_state(self) -> RunState:
+        state = RunState()
+        state.init_defaults("Test@123456")
+        return state
+
+    def _wire_battery(self, state: RunState) -> None:
+        test_all_apis._EDGE_STATE["base_url"] = "http://test"
+        test_all_apis._EDGE_STATE["timeout"] = 2
+        test_all_apis._register_edge_battery(state)
+
+    # ---------- battery_auth_edges ----------
+
+    @patch.object(test_all_apis, "_probe")
+    def test_auth_battery_duplicate_registration(self, mock_probe):
+        """Duplicate registration probe: second register must be rejected
+        (400/409) for the battery to pass."""
+        # probe sequence: dup#1(200), dup#2(409), wrong-type(400), injection(400),
+        # oversized(413), unicode(200), role(400), register(200), login(401)
+        mock_probe.side_effect = [
+            (200, '{"data":{"token":"t"}}'), (409, "duplicate"),
+            (400, "bad"), (400, "bad"), (413, "too large"),
+            (200, '{"data":{"token":"t"}}'), (400, "bad"),
+            (200, '{"data":{"token":"t"}}'), (401, "invalid credentials"),
+        ]
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        dup = next(r for r in state.results if "duplicate registration" in r.name)
+        self.assertTrue(dup.passed)
+        self.assertEqual(dup.status_code, 409)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_auth_battery_unknown_role_rejected(self, mock_probe):
+        """Unknown role must be rejected with 400."""
+        mock_probe.return_value = (400, "bad request")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        role = next(r for r in state.results if "unknown role" in r.name)
+        self.assertTrue(role.passed)
+        self.assertEqual(role.status_code, 400)
+
+    @patch.object(test_all_apis, "http_request")
+    def test_auth_battery_malformed_json_400(self, mock_http):
+        """Malformed JSON body must yield 400 for a pass."""
+        mock_http.return_value = (400, "bad json", {})
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        mal = next(r for r in state.results if "malformed JSON" in r.name)
+        self.assertTrue(mal.passed)
+
+    @patch.object(test_all_apis, "http_request")
+    def test_auth_battery_malformed_json_500_fails(self, mock_http):
+        """A 500 on malformed JSON is the bug the battery hunts — must fail."""
+        mock_http.return_value = (500, "Internal error", {})
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        mal = next(r for r in state.results if "malformed JSON" in r.name)
+        self.assertFalse(mal.passed)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_auth_battery_unicode_accepted(self, mock_probe):
+        """Unicode/emoji name should register (200)."""
+        mock_probe.return_value = (200, '{"data":{"token":"t"}}')
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        uni = next(r for r in state.results if "unicode/emoji" in r.name)
+        self.assertTrue(uni.passed)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_auth_battery_wrong_password_401_no_stack_leak(self, mock_probe):
+        """Wrong password → 401 and response must not leak stack frames."""
+        mock_probe.return_value = (401, '{"code":"INVALID_CREDENTIALS"}')
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        wp = next(r for r in state.results if "wrong password" in r.name)
+        self.assertTrue(wp.passed)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_auth_battery_wrong_password_stack_leak_fails(self, mock_probe):
+        """A 401 whose body contains stack frames must fail the battery."""
+        mock_probe.return_value = (401, "java.lang.NullPointerException\n\tat com.bhukkad.x")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_auth_edges("http://test", state, 2)
+        wp = next(r for r in state.results if "wrong password" in r.name)
+        self.assertFalse(wp.passed)
+
+    # ---------- battery_authz_edges ----------
+
+    @patch.object(test_all_apis, "_probe")
+    def test_authz_battery_no_token_rejected(self, mock_probe):
+        mock_probe.return_value = (401, "unauthorized")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_authz_edges("http://test", state, 2)
+        res = next(r for r in state.results if "without token" in r.name)
+        self.assertTrue(res.passed)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_authz_battery_tampered_jwt_rejected(self, mock_probe):
+        mock_probe.return_value = (401, "invalid signature")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_authz_edges("http://test", state, 2)
+        res = next(r for r in state.results if "tampered JWT" in r.name)
+        self.assertTrue(res.passed)
+
+    @patch.object(test_all_apis, "_fresh_customer", return_value=("tok", "e@x.test"))
+    @patch.object(test_all_apis, "_probe")
+    def test_authz_battery_customer_blocked_from_admin(self, mock_probe, _mock_fresh):
+        mock_probe.return_value = (403, "forbidden")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_authz_edges("http://test", state, 2)
+        blocked = [r for r in state.results if "customer blocked from" in r.name]
+        self.assertEqual(len(blocked), 2)
+        self.assertTrue(all(r.passed for r in blocked))
+
+    @patch.object(test_all_apis, "_fresh_customer", return_value=(None, "e@x.test"))
+    @patch.object(test_all_apis, "_probe")
+    def test_authz_battery_unknown_path_structured_404(self, mock_probe, _mock_fresh):
+        mock_probe.return_value = (404, '{"code":"ROUTE_NOT_FOUND"}')
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_authz_edges("http://test", state, 2)
+        res = next(r for r in state.results if "unknown path" in r.name)
+        self.assertTrue(res.passed)
+
+    # ---------- battery_pagination_edges ----------
+
+    @patch.object(test_all_apis, "_fresh_customer", return_value=("tok", "e@x.test"))
+    @patch.object(test_all_apis, "_probe")
+    def test_pagination_battery_negative_page_clamps(self, mock_probe, _mock_fresh):
+        """Negative page clamped to 200 (or rejected with 400) — both pass."""
+        mock_probe.return_value = (200, '{"data":{"items":[]}}')
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_pagination_edges("http://test", state, 2)
+        neg = next(r for r in state.results if "page" in r.name and "-5" in r.response_body)
+        self.assertTrue(neg.passed)
+
+    @patch.object(test_all_apis, "_fresh_customer", return_value=("tok", "e@x.test"))
+    @patch.object(test_all_apis, "_probe")
+    def test_pagination_battery_all_six_cases_recorded(self, mock_probe, _mock_fresh):
+        mock_probe.return_value = (200, '{"data":{"items":[]}}')
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_pagination_edges("http://test", state, 2)
+        pag = [r for r in state.results if "Pagination —" in r.name]
+        self.assertEqual(len(pag), 6)
+        self.assertTrue(all(r.passed for r in pag))
+
+    @patch.object(test_all_apis, "_fresh_customer", return_value=(None, "e@x.test"))
+    @patch.object(test_all_apis, "_probe")
+    def test_pagination_battery_skips_without_token(self, mock_probe, _mock_fresh):
+        """No token anywhere → battery records nothing (graceful skip)."""
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_pagination_edges("http://test", state, 2)
+        self.assertFalse(any("Pagination —" in r.name for r in state.results))
+        mock_probe.assert_not_called()
+
+    # ---------- battery_resource_edges ----------
+
+    @patch.object(test_all_apis, "_probe")
+    def test_resource_battery_unknown_id_404(self, mock_probe):
+        mock_probe.return_value = (404, "not found")
+        state = self._make_state()
+        state.tokens["customer_token"] = "tok"
+        self._wire_battery(state)
+        test_all_apis.battery_resource_edges("http://test", state, 2)
+        res = [r for r in state.results if "unknown id" in r.name]
+        self.assertEqual(len(res), 4)
+        self.assertTrue(all(r.passed for r in res))
+
+    @patch.object(test_all_apis, "_probe")
+    def test_resource_battery_fabricated_wallet_is_failure(self, mock_probe):
+        """A 200 with a balance for a nonexistent wallet id is the V-class bug
+        the battery must flag."""
+        mock_probe.side_effect = [
+            (200, '{"data":{"customerId":99999999,"balance":100}}'),
+        ] + [(404, "nf")] * 4
+        state = self._make_state()
+        state.tokens["customer_token"] = "tok"
+        self._wire_battery(state)
+        test_all_apis.battery_resource_edges("http://test", state, 2)
+        wallet = next(r for r in state.results if "99999999" in r.name and "wallet" in r.url)
+        self.assertFalse(wallet.passed)
+        self.assertIn("fabricated_data=True", wallet.response_body)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_resource_battery_negative_id(self, mock_probe):
+        mock_probe.return_value = (400, "bad id")
+        state = self._make_state()
+        state.tokens["customer_token"] = "tok"
+        self._wire_battery(state)
+        test_all_apis.battery_resource_edges("http://test", state, 2)
+        neg = next(r for r in state.results if "negative id" in r.name)
+        self.assertTrue(neg.passed)
+
+    # ---------- battery_money_edges ----------
+
+    @patch.object(test_all_apis, "_probe")
+    def test_money_battery_negative_amount_rejected(self, mock_probe):
+        mock_probe.return_value = (400, "amount must be positive")
+        state = self._make_state()
+        state.tokens["admin_token"] = "adm"
+        self._wire_battery(state)
+        test_all_apis.battery_money_edges("http://test", state, 2)
+        money = [r for r in state.results if "COD credit" in r.name]
+        self.assertEqual(len(money), 5)
+        self.assertTrue(all(r.passed for r in money))
+
+    @patch.object(test_all_apis, "_probe")
+    def test_money_battery_negative_amount_accepted_is_bug(self, mock_probe):
+        """200 on a negative COD credit = V-02 regression — must fail."""
+        mock_probe.return_value = (200, '{"balance":-500}')
+        state = self._make_state()
+        state.tokens["admin_token"] = "adm"
+        self._wire_battery(state)
+        test_all_apis.battery_money_edges("http://test", state, 2)
+        neg = next(r for r in state.results if "negative amount" in r.name)
+        self.assertFalse(neg.passed)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_money_battery_unauthenticated_rejection_ok(self, mock_probe):
+        """401/403 on the internal endpoint also counts as rejected."""
+        mock_probe.return_value = (401, "unauthorized")
+        state = self._make_state()
+        state.tokens["admin_token"] = "adm"
+        self._wire_battery(state)
+        test_all_apis.battery_money_edges("http://test", state, 2)
+        money = [r for r in state.results if "COD credit" in r.name]
+        self.assertTrue(all(r.passed for r in money))
+
+    # ---------- battery_webhook_edges ----------
+
+    @patch.object(test_all_apis, "_probe")
+    def test_webhook_battery_forged_signature_rejected(self, mock_probe):
+        mock_probe.return_value = (401, "invalid signature")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_webhook_edges("http://test", state, 2)
+        wh = next(r for r in state.results if "invalid signature body" in r.name)
+        self.assertTrue(wh.passed)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_webhook_battery_500_on_forged_signature_is_bug(self, mock_probe):
+        mock_probe.return_value = (500, "NPE")
+        state = self._make_state()
+        self._wire_battery(state)
+        test_all_apis.battery_webhook_edges("http://test", state, 2)
+        wh = next(r for r in state.results if "invalid signature body" in r.name)
+        self.assertFalse(wh.passed)
+
+    # ---------- run_edge_battery isolation ----------
+
+    @patch.object(test_all_apis, "battery_webhook_edges", side_effect=RuntimeError("boom"))
+    @patch.object(test_all_apis, "battery_money_edges")
+    @patch.object(test_all_apis, "battery_resource_edges")
+    @patch.object(test_all_apis, "battery_pagination_edges")
+    @patch.object(test_all_apis, "battery_authz_edges")
+    @patch.object(test_all_apis, "battery_auth_edges")
+    def test_run_edge_battery_isolates_crashes(self, m_auth, m_authz, m_pag,
+                                               m_res, m_money, m_webhook):
+        """One crashing battery must not prevent the others from running."""
+        state = self._make_state()
+        test_all_apis.run_edge_battery("http://test", state, 2)
+        crashed = next(r for r in state.results if "crashed" in r.name)
+        self.assertFalse(crashed.passed)
+        self.assertIn("boom", crashed.response_body)
+        m_auth.assert_called_once()
+        m_authz.assert_called_once()
+        m_pag.assert_called_once()
+        m_res.assert_called_once()
+        m_money.assert_called_once()
 
 
 if __name__ == "__main__":

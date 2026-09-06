@@ -1,11 +1,15 @@
 package com.bhukkad.restaurant.api;
 
 import com.bhukkad.restaurant.domain.Restaurant;
+import com.bhukkad.restaurant.dto.request.RestaurantBusyModeRequest;
 import com.bhukkad.restaurant.service.RestaurantAdminService;
+import com.bhukkad.restaurant.service.RestaurantBusyService;
+import com.bhukkad.restaurant.service.RestaurantDashboardService;
 import com.bhukkad.restaurant.service.RestaurantQueryService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,6 +24,8 @@ public class RestaurantController {
 
     private final RestaurantQueryService queryService;
     private final RestaurantAdminService adminService;
+    private final RestaurantBusyService busyService;
+    private final RestaurantDashboardService dashboardService;
 
     public record CreateRestaurantRequest(
             @NotBlank String name,
@@ -49,5 +55,28 @@ public class RestaurantController {
     @GetMapping("/{restaurantId}/menu")
     public MenuSnapshot menu(@PathVariable Long restaurantId) {
         return queryService.menuSnapshot(restaurantId);
+    }
+
+    // Owner endpoints for busy mode and dashboard
+    @PutMapping("/owner/{id}/busy-mode")
+    public ResponseEntity<Void> enableBusyMode(
+            @PathVariable Long id,
+            @RequestBody RestaurantBusyModeRequest request) {
+        java.time.LocalDateTime busyUntil = request.getBusyUntil();
+        Integer extraPrepMinutes = request.getExtraPrepMinutes();
+        busyService.setBusyMode(id, busyUntil, extraPrepMinutes);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/owner/{id}/busy-mode")
+    public ResponseEntity<Void> disableBusyMode(@PathVariable Long id) {
+        busyService.clearBusyMode(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/owner/{id}/dashboard")
+    public ResponseEntity<RestaurantDashboardService.RestaurantDashboardView> getDashboard(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(dashboardService.getDashboard(id));
     }
 }

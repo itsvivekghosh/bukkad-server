@@ -45,18 +45,18 @@ create_pg_databases() {
     fi
 
     export PGPASSWORD="${PGPASSWORD:-bhukkad_dev}"
-    local db_user="${PGUSER:-bhukkad}"
+    local db_user="${PGUSER:-app}"
     local db_host="${PGHOST:-localhost}"
     local db_port="${PGPORT:-5432}"
 
     local dbs=(
-        bhukkad_restaurants
-        bhukkad_identity
-        bhukkad_orders
-        bhukkad_payments
-        bhukkad_delivery
-        bhukkad_notification
-        bhukkad_admin
+        restaurants
+        identity
+        orders
+        payments
+        delivery
+        notification
+        admin
     )
 
     for db in "${dbs[@]}"; do
@@ -79,36 +79,36 @@ run_microservice() {
     echo "=== Starting ${module} on port ${port} ==="
     local svc_name=""
     case "$module" in
-        identity)       svc_name="bhukkad_identity" ;;
-        restaurant)     svc_name="bhukkad_restaurants" ;;
-        order)          svc_name="bhukkad_orders" ;;
-        payment)        svc_name="bhukkad_payments" ;;
-        delivery)       svc_name="bhukkad_delivery" ;;
-        notification)   svc_name="bhukkad_notification" ;;
-        admin-analytics) svc_name="bhukkad_admin" ;;
+        identity)       svc_name="identity" ;;
+        restaurant)     svc_name="restaurants" ;;
+        order)          svc_name="orders" ;;
+        payment)        svc_name="payments" ;;
+        delivery)       svc_name="delivery" ;;
+        notification)   svc_name="notification" ;;
+        admin-analytics) svc_name="admin" ;;
     esac
     echo "  Database: ${svc_name} (PostgreSQL)"
 
-    IDENTITY_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_identity" \
-    IDENTITY_DB_USERNAME="bhukkad" \
+    IDENTITY_DB_URL="jdbc:postgresql://localhost:5432/identity" \
+    IDENTITY_DB_USERNAME="app" \
     IDENTITY_DB_PASSWORD="bhukkad_dev" \
-    RESTAURANT_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_restaurants" \
-    RESTAURANT_DB_USERNAME="bhukkad" \
+    RESTAURANT_DB_URL="jdbc:postgresql://localhost:5432/restaurants" \
+    RESTAURANT_DB_USERNAME="app" \
     RESTAURANT_DB_PASSWORD="bhukkad_dev" \
-    ORDER_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_orders" \
-    ORDER_DB_USERNAME="bhukkad" \
+    ORDER_DB_URL="jdbc:postgresql://localhost:5432/orders" \
+    ORDER_DB_USERNAME="app" \
     ORDER_DB_PASSWORD="bhukkad_dev" \
-    PAYMENT_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_payments" \
-    PAYMENT_DB_USERNAME="bhukkad" \
+    PAYMENT_DB_URL="jdbc:postgresql://localhost:5432/payments" \
+    PAYMENT_DB_USERNAME="app" \
     PAYMENT_DB_PASSWORD="bhukkad_dev" \
-    DELIVERY_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_delivery" \
-    DELIVERY_DB_USERNAME="bhukkad" \
+    DELIVERY_DB_URL="jdbc:postgresql://localhost:5432/delivery" \
+    DELIVERY_DB_USERNAME="app" \
     DELIVERY_DB_PASSWORD="bhukkad_dev" \
-    NOTIFICATION_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_notification" \
-    NOTIFICATION_DB_USERNAME="bhukkad" \
+    NOTIFICATION_DB_URL="jdbc:postgresql://localhost:5432/notification" \
+    NOTIFICATION_DB_USERNAME="app" \
     NOTIFICATION_DB_PASSWORD="bhukkad_dev" \
-    ADMIN_DB_URL="jdbc:postgresql://localhost:5432/bhukkad_admin" \
-    ADMIN_DB_USERNAME="bhukkad" \
+    ADMIN_DB_URL="jdbc:postgresql://localhost:5432/admin" \
+    ADMIN_DB_USERNAME="app" \
     ADMIN_DB_PASSWORD="bhukkad_dev" \
     JWT_SECRET="dev-secret-change-me-0123456789abcdef0123456789abcdef" \
     SERVER_PORT="$port" \
@@ -176,8 +176,8 @@ else
     export SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}"
     export DB_HOST="${DB_HOST:-localhost}"
     export DB_PORT="${DB_PORT:-5432}"
-    export DB_NAME="${DB_NAME:-bhukkad}"
-    export DB_USERNAME="${DB_USERNAME:-bhukkad}"
+    export DB_NAME="${DB_NAME:-core}"
+    export DB_USERNAME="${DB_USERNAME:-app}"
     export DB_PASSWORD="${DB_PASSWORD:-bhukkad_dev}"
     export REDIS_HOST="${REDIS_HOST:-localhost}"
     export REDIS_PORT="${REDIS_PORT:-6379}"

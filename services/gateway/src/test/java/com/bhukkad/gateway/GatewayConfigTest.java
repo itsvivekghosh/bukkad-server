@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.gateway.route.Route;
 import org.springframework.cloud.gateway.route.RouteLocator;
+import org.springframework.test.context.TestPropertySource;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,6 +20,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  * URIs.</p>
  */
 @SpringBootTest(classes = {GatewayApplication.class})
+@TestPropertySource(properties = {
+        "app.routes.restaurant-uri=http://bhukkad-restaurant.bhukkad.svc.cluster.local",
+        "app.routes.identity-uri=http://bhukkad-identity.bhukkad.svc.cluster.local",
+        "app.routes.order-uri=http://bhukkad-order.bhukkad.svc.cluster.local",
+        "app.routes.payment-uri=http://bhukkad-payment.bhukkad.svc.cluster.local",
+        "app.routes.delivery-uri=http://bhukkad-delivery.bhukkad.svc.cluster.local",
+        "app.routes.search-uri=http://bhukkad-search.bhukkad.svc.cluster.local",
+        "app.routes.survey-uri=http://bhukkad-survey.bhukkad.svc.cluster.local",
+        "app.routes.referral-uri=http://bhukkad-referral.bhukkad.svc.cluster.local",
+        "app.routes.support-uri=http://bhukkad-support.bhukkad.svc.cluster.local",
+        "app.routes.notification-uri=http://bhukkad-notification.bhukkad.svc.cluster.local",
+        "app.routes.admin-analytics-uri=http://bhukkad-admin-analytics.bhukkad.svc.cluster.local",
+        "app.routes.realtime-uri=http://bhukkad-realtime.bhukkad.svc.cluster.local"
+})
 class GatewayConfigTest {
 
     @Autowired
@@ -31,8 +46,15 @@ class GatewayConfigTest {
                 .block();
 
         assertThat(byId).containsKeys(
-                "restaurant", "identity", "order", "payment", "delivery");
-        assertThat(routes.getRoutes().collectList().block()).hasSize(5);
+                "survey", "customer-cart", "customer-wallet",
+                "customer-group-orders", "customer-subscriptions",
+                "home-feed", "home-campaigns", "home-membership",
+                "cache", "platform",
+                "search", "referral", "support",
+                "notification", "live", "inventory",
+                "restaurant", "identity", "order", "payment", "delivery",
+                "admin-analytics");
+        assertThat(routes.getRoutes().collectList().block()).hasSize(23);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");
@@ -54,5 +76,13 @@ class GatewayConfigTest {
         Route delivery = byId.get("delivery");
         assertThat(delivery.getUri().getHost())
                 .isEqualTo("bhukkad-delivery.bhukkad.svc.cluster.local");
+
+        Route notification = byId.get("notification");
+        assertThat(notification.getUri().getHost())
+                .isEqualTo("bhukkad-notification.bhukkad.svc.cluster.local");
+
+        Route adminAnalytics = byId.get("admin-analytics");
+        assertThat(adminAnalytics.getUri().getHost())
+                .isEqualTo("bhukkad-admin-analytics.bhukkad.svc.cluster.local");
     }
 }

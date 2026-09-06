@@ -15,7 +15,7 @@ public abstract class AbstractIdentityPostgresTest {
             DockerImageName.parse("postgres:16-alpine").asCompatibleSubstituteFor("postgres");
 
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withDatabaseName("bhukkad_identity")
+            .withDatabaseName("identity")
             .withUsername("bhukkad")
             .withPassword("bhukkad_test_pw");
 

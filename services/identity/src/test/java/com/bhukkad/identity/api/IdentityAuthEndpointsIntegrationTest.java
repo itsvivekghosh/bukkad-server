@@ -62,8 +62,9 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
 
     @Test
     void refresh_rejectsInvalidToken() {
-        // IdentityService.refresh throws ResourceNotFoundException → 404. In
-        // Spring 6.1+ RestClient throws on 4xx, so assert the exception status.
+        // IdentityService.refresh throws UnauthorizedException → 401 (generic
+        // rejection, no user enumeration). In Spring 6.1+ RestClient throws on
+        // 4xx, so assert the exception status.
         org.springframework.web.client.HttpClientErrorException ex = null;
         try {
             client().post().uri("/api/v1/auth/refresh")
@@ -75,7 +76,7 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
             ex = e;
         }
         assertThat(ex).isNotNull();
-        assertThat(ex.getStatusCode().value()).isEqualTo(404);
+        assertThat(ex.getStatusCode().value()).isEqualTo(401);
     }
 
     @Test

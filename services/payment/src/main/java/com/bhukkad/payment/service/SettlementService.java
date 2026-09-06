@@ -12,10 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/**
- * Restaurant settlement batch processing (Batch D depth). Runs on a schedule,
- * computing commission (default 20%) and net amounts per restaurant.
- */
 @Service
 @RequiredArgsConstructor
 public class SettlementService {
@@ -26,8 +22,8 @@ public class SettlementService {
     private final RestaurantSettlementRepository settlementRepository;
 
     @Transactional
-    public SettlementRun run(LocalDate runDate, Long restaurantId,
-                             int orderCount, BigDecimal grossAmount) {
+    public SettlementResult run(LocalDate runDate, Long restaurantId,
+                                int orderCount, BigDecimal grossAmount) {
         if (orderCount < 0 || grossAmount.signum() < 0) {
             throw new BusinessException("Invalid settlement inputs");
         }
@@ -45,10 +41,15 @@ public class SettlementService {
         settlement.setCommission(commission);
         settlement.setNetAmount(grossAmount.subtract(commission));
         settlement.setStatus("PENDING");
-        settlementRepository.save(settlement);
+        settlement = settlementRepository.save(settlement);
 
         run.setTotalAmount(settlement.getNetAmount());
         run.setStatus("COMPLETED");
-        return runRepository.save(run);
+        runRepository.save(run);
+
+        return new SettlementResult(run, settlement);
+    }
+
+    public record SettlementResult(SettlementRun run, RestaurantSettlement settlement) {
     }
 }

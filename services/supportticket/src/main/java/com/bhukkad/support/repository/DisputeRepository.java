@@ -1,0 +1,22 @@
+package com.bhukkad.support.repository;
+
+import com.bhukkad.support.entity.Dispute;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface DisputeRepository
+extends JpaRepository<Dispute, Long> {
+    public Optional<Dispute> findByOrderId(Long var1);
+
+    public boolean existsByOrderId(Long var1);
+
+    public List<Dispute> findByCustomerIdOrderByCreatedAtDesc(Long var1);
+
+    public List<Dispute> findByStatusOrderByCreatedAtDesc(Dispute.DisputeStatus var1);
+
+    public List<Dispute> findByStatusInOrderByCreatedAtAsc(List<Dispute.DisputeStatus> var1);
+}
+

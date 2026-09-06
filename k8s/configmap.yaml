@@ -27,7 +27,7 @@ data:
   DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&ssl=false"
   DB_HOST: "bhukkad-postgresql"
   DB_PORT: "5432"
-  DB_NAME: "bhukkad"
+  DB_NAME: "core"
 
   # Read replica is ENABLED: the replica StatefulSet is a fully configured
   # PostgreSQL instance with persistent volume and streaming replication.

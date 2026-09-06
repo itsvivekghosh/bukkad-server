@@ -1,11 +1,11 @@
-server: {port: 8085}
+server: {port: 8094}
 spring:
   application: {name: delivery}
   datasource:
-    url: ${DELIVERY_DB_URL:jdbc:postgresql://localhost:5432/bhukkad_delivery}
-    username: ${DELIVERY_DB_USERNAME:bhukkad}
-    password: ${DELIVERY_DB_PASSWORD:bhukkad_dev}
-    hikari: {maximum-pool-size: 20}
+    url: ${DELIVERY_DB_URL:jdbc:postgresql://localhost:5432/delivery}
+    username: ${DELIVERY_DB_USERNAME:app}
+    password: ${DELIVERY_DB_PASSWORD:app_pass}
+    hikari: {maximum-pool-size: 5}
   jpa: {hibernate: {ddl-auto: none}, open-in-view: false}
   flyway: {enabled: true, locations: classpath:db/migration-pg, baseline-on-migrate: true}
   data:
@@ -29,7 +29,7 @@ app:
   environment: production
   auth:
     jwt:
-      secret: ${JWT_SECRET:}
+      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
       jwks-url: ${JWKS_URL:}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}

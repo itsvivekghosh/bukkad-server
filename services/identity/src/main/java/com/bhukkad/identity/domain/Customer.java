@@ -42,6 +42,12 @@ public class Customer {
     @Column(nullable = false, length = 255)
     private String passwordHash;
 
+    @Column(name = "profile_image_url", length = 500)
+    private String profileImageUrl;
+
+    @Column(name = "totp_secret")
+    private String totpSecret;
+
     @Column(nullable = false)
     private Boolean isActive = true;
 
@@ -60,6 +66,9 @@ public class Customer {
     private String referralCode;
 
     private Long referredById;
+
+    @Column(nullable = false)
+    private Integer loyaltyPoints = 0;
 
     @Column(nullable = false)
     private Double walletBalance = 0.0;

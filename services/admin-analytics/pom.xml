@@ -7,7 +7,7 @@
 	<parent><groupId>com.bhukkad</groupId><artifactId>bhukkad-microservices</artifactId><version>1.0.0</version></parent>
 	<artifactId>admin-analytics</artifactId>
 	<name>Bhukkad Admin Analytics Service</name>
-	<description>Owns bhukkad_admin: audit, fraud, churn, read models (P7).</description>
+	<description>Owns admin: audit, fraud, churn, read models (P7).</description>
 	<dependencies>
 		<dependency><groupId>com.bhukkad</groupId><artifactId>platform-lib</artifactId></dependency>
 		<!-- Scheduler lock for compliance retention sweep (ported with DataRetentionService) -->

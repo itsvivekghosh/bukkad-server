@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
  * One step of a saga ({@code saga_steps}). Compensation payloads are plain
  * TEXT (see {@link SagaInstance} note on jsonb).
  */
-@Entity
+@Entity(name = "CommonSagaStep")
 @Table(name = "saga_steps", indexes = {
         @Index(name = "idx_saga_instance_status", columnList = "saga_instance_id, status"),
         @Index(name = "idx_saga_steps_pending", columnList = "status, step_order")

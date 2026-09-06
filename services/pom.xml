@@ -32,12 +32,23 @@
 		<module>payment</module>
 		<module>delivery</module>
 		<module>notification</module>
+		<module>search</module>
 		<module>admin-analytics</module>
+		<!-- W0/G12: complete the reactor — these three services existed on disk but
+		     were never aggregated; DECOMMISSION Gate parity and feature-ci require it. -->
+		<module>survey</module>
+		<module>referral</module>
+		<module>supportticket</module>
+		<!-- W3: realtime (SSE/WebSocket order tracking), personalization (recommendations), growth (campaigns/loyalty) -->
+		<module>realtime</module>
+		<module>personalization</module>
+		<module>growth</module>
 	</modules>
 
  	<properties>
  		<java.version>17</java.version>
- 		<lombok.version>1.18.26</lombok.version>
+ 		<lombok.version>1.18.38</lombok.version>
+ 		<mapstruct.version>1.5.5.Final</mapstruct.version>
  		<testcontainers.version>1.20.4</testcontainers.version>
  		<archunit.version>1.3.0</archunit.version>
  		<byte-buddy.version>1.17.6</byte-buddy.version>
@@ -268,7 +279,7 @@
 				<plugin>
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-compiler-plugin</artifactId>
-					<version>3.11.0</version>
+					<version>3.12.0</version>
 					<configuration>
 						<source>17</source>
 						<target>17</target>

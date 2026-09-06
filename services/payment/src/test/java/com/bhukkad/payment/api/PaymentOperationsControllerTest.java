@@ -2,6 +2,7 @@ package com.bhukkad.payment.api;
 
 import com.bhukkad.payment.domain.DunningRun;
 import com.bhukkad.payment.domain.Payment;
+import com.bhukkad.payment.domain.RestaurantSettlement;
 import com.bhukkad.payment.service.AutoRefundService;
 import com.bhukkad.payment.service.CommissionTierService;
 import com.bhukkad.payment.service.DisputeService;
@@ -30,13 +31,18 @@ class PaymentOperationsControllerTest {
     @Mock private CommissionTierService commissionTierService;
     @Mock private DisputeService disputeService;
     @Mock private SettlementService settlementService;
+    @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
     @InjectMocks private PaymentOperationsController controller;
 
     @Test
     void refund_delegatesToRefundService() {
         Payment payment = new Payment();
+        payment.setId(1L);
         payment.setStatus(Payment.STATUS_REFUNDED);
         when(refundService.refund(1L, "customer request")).thenReturn(payment);
+        PaymentResponse response = PaymentResponse.builder()
+                .id(1L).status(Payment.STATUS_REFUNDED).build();
+        when(paymentMapper.toPaymentResponse(payment)).thenReturn(response);
 
         assertThat(controller.refund(1L, "customer request").getStatus())
                 .isEqualTo(Payment.STATUS_REFUNDED);
@@ -97,14 +103,20 @@ class PaymentOperationsControllerTest {
 
     @Test
     void settle_delegatesToSettlementService() {
-        SettlementRun run = new SettlementRun();
-        run.setStatus("COMPLETED");
+        RestaurantSettlement settlement = new RestaurantSettlement();
+        settlement.setId(1L);
+        settlement.setRestaurantId(42L);
+        SettlementService.SettlementResult result = new SettlementService.SettlementResult(
+                new SettlementRun(), settlement);
         when(settlementService.run(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.eq(42L),
                 org.mockito.ArgumentMatchers.eq(3),
-                org.mockito.ArgumentMatchers.eq(new BigDecimal("300.00")))).thenReturn(run);
+                org.mockito.ArgumentMatchers.eq(new BigDecimal("300.00")))).thenReturn(result);
+        RestaurantSettlementResponse response = RestaurantSettlementResponse.builder()
+                .id(1L).restaurantId(42L).build();
+        when(paymentMapper.toRestaurantSettlementResponse(settlement)).thenReturn(response);
 
-        assertThat(controller.settle(42L, 3, new BigDecimal("300.00"))).isSameAs(run);
+        assertThat(controller.settle(42L, 3, new BigDecimal("300.00"))).isSameAs(response);
     }
 
     @Test

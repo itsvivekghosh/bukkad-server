@@ -1,9 +1,11 @@
 package com.bhukkad.identity.domain;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "delivery_agents", indexes = {
@@ -22,6 +24,15 @@ public class DeliveryAgent extends User {
 
     @Column(name = "phone_number", length = 15)
     private String phoneNumber;
+
+    @Column(length = 50)
+    private String vehicleType;
+
+    @Column(length = 50)
+    private String vehicleNumber;
+
+    @Column(length = 50)
+    private String licenseNumber;
 
     @Column(nullable = false)
     private Boolean available = false;

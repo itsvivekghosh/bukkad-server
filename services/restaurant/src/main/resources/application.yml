@@ -1,15 +1,15 @@
 server:
-  port: 8082
+  port: 8091
 
 spring:
   application:
     name: restaurant
   datasource:
-    url: ${RESTAURANT_DB_URL:jdbc:postgresql://localhost:5432/bhukkad_restaurants}
-    username: ${RESTAURANT_DB_USERNAME:bhukkad}
-    password: ${RESTAURANT_DB_PASSWORD:bhukkad_dev}
+    url: ${RESTAURANT_DB_URL:jdbc:postgresql://localhost:5432/restaurants}
+    username: ${RESTAURANT_DB_USERNAME:app}
+    password: ${RESTAURANT_DB_PASSWORD:app_pass}
     hikari:
-      maximum-pool-size: ${RESTAURANT_DB_POOL_SIZE:20}
+      maximum-pool-size: ${RESTAURANT_DB_POOL_SIZE:5}
   jpa:
     hibernate:
       ddl-auto: none
@@ -55,7 +55,7 @@ app:
       # secret = auth filter inactive in dev (protected endpoints then 401);
       # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
       # to enable.
-      secret: ${JWT_SECRET:}
+      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
       jwks-url: ${JWKS_URL:}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}

@@ -4,6 +4,7 @@ import com.bhukkad.common.error.ApiError;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.DuplicateRequestException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.ratelimit.RateLimitExceededException;
 import com.bhukkad.common.tracing.TraceContext;
 import org.slf4j.Logger;
@@ -52,6 +53,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex) {
         log.warn("ResourceNotFound | {} | traceId={}", ex.getMessage(), TraceContext.currentTraceId());
         return json(HttpStatus.NOT_FOUND, 404, ex.getCode(), ex.getMessage());
+    }
+
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException ex) {
+        log.warn("Unauthorized | {} | traceId={}", ex.getMessage(), TraceContext.currentTraceId());
+        return json(HttpStatus.UNAUTHORIZED, 401, "UNAUTHORIZED", ex.getMessage());
     }
 
     @ExceptionHandler(DuplicateRequestException.class)

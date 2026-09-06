@@ -103,7 +103,7 @@ public class LocalCacheService {
     }
 
     /** Stores a value with an explicit TTL and jitter for stampede protection. */
-    public void put(String key, String value, long ttlSeconds) {
+    public void put(String key, Object value, long ttlSeconds) {
         if (!isEnabled() || value == null) {
             return;
         }
@@ -145,7 +145,7 @@ public class LocalCacheService {
                 }
                 T value = loader.get();
                 if (value != null) {
-                    put(key, (String) value, ttlSeconds);
+                    put(key, value, ttlSeconds);
                 }
                 return value;
             } finally {
@@ -175,6 +175,14 @@ public class LocalCacheService {
      * wholesale on a rare pattern invalidation is cheaper than maintaining a
      * per-key index.
      */
+    /** Invalidates every entry whose key starts with the given prefix. */
+    public void invalidatePrefix(String prefix) {
+        cache.asMap().keySet().stream()
+                .filter(k -> k.startsWith(prefix))
+                .toList()
+                .forEach(cache::invalidate);
+    }
+
     public void clearAll() {
         if (isEnabled()) {
             cache.invalidateAll();

@@ -3,7 +3,6 @@ package com.bhukkad.common.outbox;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -21,15 +20,8 @@ import org.springframework.context.annotation.Configuration;
  * even in contexts that do not start the poller.</p>
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(OutboxProperties.class)
 @ConditionalOnProperty(name = "app.events.external.enabled", havingValue = "true")
 public class OutboxPlatformConfig {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public OutboxProperties outboxProperties() {
-        return OutboxProperties.defaults();
-    }
 
     @Bean
     @ConditionalOnMissingBean

@@ -4,6 +4,15 @@ This document provides an overview of the Bhukkad Food Delivery System architect
 
 ## System Overview
 
+> **Status (2026-09): strangler-fig hybrid, ~80% decomposed.** The core commerce domains
+> (identity, restaurant, order, payment, delivery, notification, search, admin-analytics,
+> plus survey/referral/supportticket) run as independently deployable Spring Boot 3.2
+> microservices with their own PostgreSQL databases behind the API Gateway. The legacy
+> monolith (`bhukkad-delivery-system`, `src/main/java`) still fronts holdout domains
+> (settlement, live/SSE, growth, promotion, recommendation, feed). Remaining decomposition
+> is tracked in [MICROSERVICES-MIGRATION-EXECUTION-PLAN.md](MICROSERVICES-MIGRATION-EXECUTION-PLAN.md)
+> and gated by [services/k8s/DECOMMISSION-CHECKLIST.md](../services/k8s/DECOMMISSION-CHECKLIST.md).
+
 Bhukkad is built as a distributed Spring Boot 3.2 microservices system. Each domain (identity, restaurant, order, payment, delivery, notification, admin-analytics) runs as an independently deployable service with its own PostgreSQL database. An API Gateway (Spring Cloud Gateway) routes traffic by path to the appropriate service. The architecture follows clean separation of concerns with controller → service → repository layers within each service.
 
 ## Technology Stack
@@ -43,8 +52,20 @@ services/
 ├── payment/                 # payments, wallet
 ├── delivery/                # delivery tracking, serviceability
 ├── notification/            # async notifications (event consumer)
-└── admin-analytics/         # read-only analytics projections
+├── admin-analytics/         # read-only analytics projections
+├── search/                  # ES-backed search, chat, storage metadata
+├── survey/                  # survey submission/ratings, trending dishes
+├── referral/                # affiliate & referral programs
+└── supportticket/           # support tickets & customer-service sagas
 ```
+
+### Gateway route table (authoritative view of `GatewayConfig`)
+
+> Routes are declared narrow→wide; each service route supports the W0 edge kill
+> switch via route metadata `edge-flag` (see [docs/adr/](adr/README.md) A10).
+> `/api/v1/orders/stream/**` (SSE kitchen/rider/customer live streams) routes to
+> the **order** service — it is NOT the monolith `live` package (that package
+> ports to the `realtime` service in plan W3).
 
 ## Architecture Layers (per service)
 
@@ -106,7 +127,7 @@ Data access is abstracted behind repository interfaces.
 ## Data Architecture
 
 ### Database
-- Per-service PostgreSQL databases (e.g. `bhukkad_orders`, `bhukkad_restaurants`)
+- Per-service PostgreSQL databases (e.g. `orders`, `restaurants`)
 - Connection pooling: HikariCP
 - Migrations: Flyway (versioned SQL scripts per service)
 

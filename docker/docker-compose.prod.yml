@@ -5,7 +5,7 @@ services:
     restart: always
     init: true
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:bhukkad}
+      POSTGRES_DB: ${POSTGRES_DB:core}
       POSTGRES_USER: ${POSTGRES_USER:bhukkad}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
@@ -16,7 +16,7 @@ services:
     networks:
       - bhukkad-prod-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:bhukkad} -d ${POSTGRES_DB:bhukkad}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:bhukkad} -d ${POSTGRES_DB:core}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -80,7 +80,7 @@ services:
       DB_PORT: "5432"
       DB_USERNAME: ${POSTGRES_USER:bhukkad}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: ${POSTGRES_DB:bhukkad}
+      DB_NAME: ${POSTGRES_DB:core}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}

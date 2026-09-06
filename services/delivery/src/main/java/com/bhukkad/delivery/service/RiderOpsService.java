@@ -1,7 +1,13 @@
 package com.bhukkad.delivery.service;
 
+import com.bhukkad.delivery.client.PaymentServiceClient;
+import com.bhukkad.delivery.domain.RiderDeliveryBatch;
+import com.bhukkad.delivery.domain.RiderDeliveryBatchOrder;
+import com.bhukkad.delivery.domain.RiderDeliveryBatchOrderRepository;
+import com.bhukkad.delivery.domain.RiderDeliveryBatchRepository;
+import com.bhukkad.delivery.domain.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.domain.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,18 +15,20 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Rider real-time ops (Priority 5): location pings, COD wallet, batch dispatch.
+ * COD wallet and rider earnings are delegated to the payment service.
  */
 @Service
 @RequiredArgsConstructor
 public class RiderOpsService {
 
     private final RiderLocationUpdateRepository locationRepository;
-    private final AgentCodWalletRepository codWalletRepository;
     private final RiderDeliveryBatchRepository batchRepository;
     private final RiderDeliveryBatchOrderRepository batchOrderRepository;
+    private final PaymentServiceClient paymentClient;
 
     @Transactional
     public RiderLocationUpdate reportLocation(Long agentId, double lat, double lng) {
@@ -37,23 +45,21 @@ public class RiderOpsService {
         return locationRepository.findByAgentId(agentId);
     }
 
-    @Transactional
-    public AgentCodWallet creditCod(Long agentId, BigDecimal amount) {
+    /**
+     * Credits COD wallet via payment service.
+     */
+    public Map<String, Object> creditCod(Long agentId, BigDecimal amount) {
         if (amount.signum() <= 0) {
             throw new BusinessException("COD credit must be positive");
         }
-        return codWalletRepository.findByAgentId(agentId)
-                .map(wallet -> {
-                    wallet.setBalance(wallet.getBalance().add(amount));
-                    wallet.setUpdatedAt(LocalDateTime.now());
-                    return codWalletRepository.save(wallet);
-                })
-                .orElseGet(() -> {
-                    AgentCodWallet wallet = new AgentCodWallet();
-                    wallet.setAgentId(agentId);
-                    wallet.setBalance(amount);
-                    return codWalletRepository.save(wallet);
-                });
+        return paymentClient.creditCodWallet(agentId, amount);
+    }
+
+    /**
+     * Gets COD wallet balance via payment service.
+     */
+    public Map<String, Object> getCodWallet(Long agentId) {
+        return paymentClient.getCodWallet(agentId);
     }
 
     @Transactional

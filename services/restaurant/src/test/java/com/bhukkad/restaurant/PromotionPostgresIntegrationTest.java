@@ -10,19 +10,24 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates Priority 2 promotion depth (coupons, campaigns, banners) on PG.
+ * Validates Priority 2 promotion depth (campaigns + banners) on PG.
+ *
+ * <p>Coupon persistence moved to the order service's ownership boundary
+ * (coupons/coupon_usages are written by order), so restaurant-side coverage
+ * here focuses on promotion_campaigns + promo_banners. The tables still exist
+ * in the restaurant DB from V4; the coupon write path itself is exercised in
+ * {@code services/order}.</p>
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class PromotionPostgresIntegrationTest extends AbstractRestaurantPostgresTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
-    @Autowired private CouponRepository couponRepository;
-    @Autowired private CouponUsageRepository usageRepository;
     @Autowired private PromotionCampaignRepository campaignRepository;
     @Autowired private PromoBannerRepository bannerRepository;
 
@@ -41,19 +46,6 @@ class PromotionPostgresIntegrationTest extends AbstractRestaurantPostgresTest {
                         "AND table_name IN ('coupons','coupon_usages','promotion_campaigns','promo_banners')",
                 Integer.class);
         assertThat(tables).isEqualTo(4);
-    }
-
-    @Test
-    void couponUniqueByCode() {
-        Coupon c = new Coupon();
-        c.setCode("FLAT50");
-        c.setDiscountType(Coupon.DISCOUNT_FIXED);
-        c.setDiscountValue(new BigDecimal("50.00"));
-        c.setActive(true);
-        c.setCreatedAt(LocalDateTime.now());
-        couponRepository.saveAndFlush(c);
-
-        assertThat(couponRepository.findByCodeAndActiveTrue("FLAT50")).isPresent();
     }
 
     @Test
@@ -76,23 +68,24 @@ class PromotionPostgresIntegrationTest extends AbstractRestaurantPostgresTest {
     }
 
     @Test
-    void couponUsageUniquePerOrder() {
-        Coupon c = new Coupon();
-        c.setCode("FLAT50");
-        c.setDiscountType(Coupon.DISCOUNT_FIXED);
-        c.setDiscountValue(new BigDecimal("50.00"));
-        c.setActive(true);
-        c.setCreatedAt(LocalDateTime.now());
-        Coupon saved = couponRepository.saveAndFlush(c);
+    void findActiveCampaignsExcludesEndedAndFuture() {
+        PromotionCampaign active = new PromotionCampaign();
+        active.setName("Active");
+        active.setDiscountPct(new BigDecimal("10.00"));
+        active.setDiscountPercent(10.0);
+        active.setStartsAt(LocalDateTime.now().minusDays(1));
+        active.setEndsAt(LocalDateTime.now().plusDays(7));
+        campaignRepository.saveAndFlush(active);
 
-        CouponUsage u1 = new CouponUsage();
-        u1.setCouponId(saved.getId());
-        u1.setCustomerId(1L);
-        u1.setOrderId(10L);
-        u1.setDiscount(BigDecimal.TEN);
-        usageRepository.saveAndFlush(u1);
+        PromotionCampaign ended = new PromotionCampaign();
+        ended.setName("Ended");
+        ended.setDiscountPct(new BigDecimal("20.00"));
+        ended.setDiscountPercent(20.0);
+        ended.setStartsAt(LocalDateTime.now().minusDays(30));
+        ended.setEndsAt(LocalDateTime.now().minusDays(1));
+        campaignRepository.saveAndFlush(ended);
 
-        assertThat(usageRepository.findByCouponIdAndCustomerIdAndOrderId(saved.getId(), 1L, 10L)).isPresent();
-        assertThat(usageRepository.countByCouponIdAndCustomerId(saved.getId(), 1L)).isEqualTo(1);
+        List<PromotionCampaign> acts = campaignRepository.findActiveCampaigns(LocalDateTime.now());
+        assertThat(acts).extracting(PromotionCampaign::getName).containsExactly("Active");
     }
 }

@@ -1,6 +1,10 @@
 package com.bhukkad.delivery.service;
 
-import com.bhukkad.delivery.domain.*;
+import com.bhukkad.delivery.client.PaymentServiceClient;
+import com.bhukkad.delivery.domain.OrderDeliveryProof;
+import com.bhukkad.delivery.domain.OrderDeliveryProofRepository;
+import com.bhukkad.delivery.domain.ZoneSurgeRule;
+import com.bhukkad.delivery.domain.ZoneSurgeRuleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,26 +12,25 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Delivery ops depth (Batch D): rider earnings, delivery proofs, zone surge.
+ * Rider earnings are delegated to the payment service.
  */
 @Service
 @RequiredArgsConstructor
 public class DeliveryOpsService {
 
-    private final RiderEarningRepository earningRepository;
     private final OrderDeliveryProofRepository proofRepository;
     private final ZoneSurgeRuleRepository surgeRepository;
+    private final PaymentServiceClient paymentClient;
 
-    @Transactional
-    public RiderEarning recordEarning(Long agentId, Long orderId, BigDecimal amount) {
-        RiderEarning earning = new RiderEarning();
-        earning.setAgentId(agentId);
-        earning.setOrderId(orderId);
-        earning.setAmount(amount);
-        earning.setStatus("PENDING");
-        return earningRepository.save(earning);
+    /**
+     * Records rider earning via payment service.
+     */
+    public Map<String, Object> recordEarning(Long agentId, Long orderId, BigDecimal amount) {
+        return paymentClient.recordEarning(agentId, orderId, amount);
     }
 
     @Transactional
@@ -41,9 +44,11 @@ public class DeliveryOpsService {
         return proofRepository.save(proof);
     }
 
-    @Transactional(readOnly = true)
-    public List<RiderEarning> earnings(Long agentId) {
-        return earningRepository.findByAgentId(agentId);
+    /**
+     * Gets rider earnings via payment service.
+     */
+    public List<Map<String, Object>> earnings(Long agentId) {
+        return paymentClient.getEarnings(agentId);
     }
 
     @Transactional(readOnly = true)

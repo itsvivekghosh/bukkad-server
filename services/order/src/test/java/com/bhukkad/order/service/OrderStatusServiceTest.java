@@ -66,13 +66,13 @@ class OrderStatusServiceTest {
     }
 
     @Test
-    void transition_pickedUpToOutForDelivery_allowed() {
-        Order picked = order(Order.STATUS_PICKED_UP);
-        when(orderRepository.findById(5L)).thenReturn(Optional.of(picked));
+    void transition_preparingToReadyForPickup_allowed() {
+        Order preparing = order(Order.STATUS_PREPARING);
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(preparing));
 
-        Order result = service.transition(5L, Order.STATUS_OUT_FOR_DELIVERY);
+        Order result = service.transition(5L, Order.STATUS_READY_FOR_PICKUP);
 
-        assertThat(result.getStatus()).isEqualTo(Order.STATUS_OUT_FOR_DELIVERY);
+        assertThat(result.getStatus()).isEqualTo(Order.STATUS_READY_FOR_PICKUP);
     }
 
     @Test

@@ -3,6 +3,8 @@ package com.bhukkad.identity.domain;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -38,6 +40,9 @@ public class Address {
     @Column(nullable = false, length = 255)
     private String line1;
 
+    @Column(length = 255)
+    private String line2;
+
     @Column(nullable = false, length = 100)
     private String city;
 
@@ -46,6 +51,19 @@ public class Address {
 
     @Column(length = 10)
     private String zipCode;
+
+    @Column(length = 200)
+    private String landmark;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private AddressType type;
+
+    @Column(nullable = false)
+    private Double latitude;
+
+    @Column(nullable = false)
+    private Double longitude;
 
     @Column(nullable = false)
     private Boolean isDefault = false;
@@ -57,4 +75,8 @@ public class Address {
     @LastModifiedDate
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    public enum AddressType {
+        HOME, WORK, OTHER
+    }
 }

@@ -26,7 +26,7 @@ public class SocialOrderService {
     @Transactional
     public GroupOrder createGroupOrder(Long hostId, Long restaurantId) {
         GroupOrder group = new GroupOrder();
-        group.setHostId(hostId);
+        group.setHostUserId(hostId);
         group.setRestaurantId(restaurantId);
         group.setStatus(GroupOrder.STATUS_OPEN);
         GroupOrder saved = groupRepository.save(group);

@@ -30,12 +30,17 @@ public class JwtService {
     }
 
     public String issue(Long customerId, String email) {
+        return issue(customerId, email, "customer");
+    }
+
+    /** Issues a token carrying the caller's explicit scope claim. */
+    public String issue(Long customerId, String email, String scope) {
         try {
             Instant now = Instant.now();
             JWTClaimsSet claims = new JWTClaimsSet.Builder()
                     .subject(String.valueOf(customerId))
                     .claim("email", email)
-                    .claim("scope", "customer")
+                    .claim("scope", scope != null ? scope : "customer")
                     .issueTime(Date.from(now))
                     .expirationTime(Date.from(now.plusSeconds(properties.ttlMinutes() * 60)))
                     .build();

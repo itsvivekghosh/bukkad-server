@@ -13,7 +13,7 @@
 
 	<artifactId>order</artifactId>
 	<name>Bhukkad Order Service</name>
-	<description>Owns bhukkad_orders: carts, orders, order items, timeline
+	<description>Owns orders: carts, orders, order items, timeline
 		(architecture-microservices-postgresql.md §3/P4).</description>
 
 	<dependencies>
@@ -60,6 +60,19 @@
 			<artifactId>spring-boot-starter-aop</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>5.16.0</version>
+		</dependency>
+
+		<!-- SpringDoc OpenAPI. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>2.2.0</version>
+		</dependency>
+
+		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
 		</dependency>
@@ -71,6 +84,18 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<dependency>
+			<groupId>org.mapstruct</groupId>
+			<artifactId>mapstruct</artifactId>
+			<version>${mapstruct.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.mapstruct</groupId>
+			<artifactId>mapstruct-processor</artifactId>
+			<version>${mapstruct.version}</version>
 			<optional>true</optional>
 		</dependency>
 
@@ -104,6 +129,14 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<!-- Processors (Lombok + MapStruct) are discovered from the compile
+					     classpath — same working pattern as the restaurant module. -->
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

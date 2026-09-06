@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * {@link Component} rather than being listed in an
  * {@code @EnableConfigurationProperties} block, matching the convention used
  * by the other domain properties classes such as
- * {@code com.bhukkad.churn.ChurnProperties}.</p>
+ * {@code com.bhukkad.admin.service.ChurnService} (admin-analytics).</p>
  */
 @Data
 @Component

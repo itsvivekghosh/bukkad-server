@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: realtime-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:realtime}
+    username: ${POSTGRES_USER:app}
+    password: ${POSTGRES_PASSWORD:app_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration-pg
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: 8077
+
+app:
+  auth:
+    jwt:
+      # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty
+      # secret = auth filter inactive in dev (protected endpoints then 401);
+      # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
+      # to enable.
+      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
+      jwks-url: ${JWKS_URL:}
+      issuer: ${JWT_ISSUER:}
+      audience: ${JWT_AUDIENCE:}
+  events:
+    external:
+      # Master switch for the Kafka pipeline (P6.2). When enabled and
+      # type=kafka, platform-lib KafkaPlatformConfig activates @EnableKafka and
+      # the @KafkaListener on OrderLiveEventConsumer consumes order.events.v1.
+      enabled: false
+      type: log
+      kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        consumer-group: ${KAFKA_CONSUMER_GROUP:realtime-platform-consumer}
+        platform-topic: order.events.v1
+        dlq-topic: order.events.v1.dlt
+  live:
+    max-emitters-per-stream: 50
+    max-total-emitters: 2000
+    replay:
+      ttl-seconds: 3600
+      max-events-per-stream: 100
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

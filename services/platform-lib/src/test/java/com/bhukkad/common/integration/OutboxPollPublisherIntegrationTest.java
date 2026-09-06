@@ -59,17 +59,11 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
         }
         REDPANDA = new RedpandaContainer("docker.redpanda.com/redpandadata/redpanda:v23.3.14");
         REDPANDA.start();
-        createTopic(TOPIC);
-    }
-
-    private static void createTopic(String topic) {
-        try (var admin = org.apache.kafka.clients.admin.AdminClient.create(
-                Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, REDPANDA.getBootstrapServers()))) {
-            admin.createTopics(List.of(new org.apache.kafka.clients.admin.NewTopic(topic, 1, (short) 1)))
-                    .all().get(10, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        // No eager topic creation: the Redpanda testcontainer module starts with
+        // auto_create_topics_enabled=true, so the first publish creates the topic
+        // lazily. An eager AdminClient round-trip in a static initializer made the
+        // whole class unbootable whenever the broker was slow electing a
+        // controller (flaky ExceptionInInitializerError for every test here).
     }
 
     @Autowired

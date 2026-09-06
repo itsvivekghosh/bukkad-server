@@ -29,9 +29,17 @@ import java.nio.charset.StandardCharsets;
         PlatformJwtProperties.class,
         ServiceAuthProperties.class,
         com.bhukkad.admin.service.FeatureFlagProperties.class,
-        com.bhukkad.admin.compliance.ComplianceProperties.class
+        com.bhukkad.admin.compliance.ComplianceProperties.class,
+        com.bhukkad.admin.experiment.service.ExperimentProperties.class
 })
 public class SecurityConfig {
+
+    /**
+     * Dev-only basic-auth service account so the monolith's compliance clients
+     * can call the customer compliance surface; replaced by service JWTs at
+     * the identity cutover (same lifecycle as survey/referral/support).
+     */
+
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -41,12 +49,13 @@ public class SecurityConfig {
             throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
-                .httpBasic(AbstractHttpConfigurer::disable)
+                .httpBasic(basic -> {})
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/cache/health", "/api/v1/cache/stats").permitAll()
                         .anyRequest().authenticated());
 
         // Security headers must run first

@@ -40,12 +40,13 @@ class SettlementServiceTest {
         when(settlementRepository.save(any(RestaurantSettlement.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        SettlementRun result = service.run(LocalDate.of(2025, 1, 15), 42L, 10, new BigDecimal("1000.00"));
+        SettlementService.SettlementResult result = service.run(
+                LocalDate.of(2025, 1, 15), 42L, 10, new BigDecimal("1000.00"));
 
-        assertThat(result.getStatus()).isEqualTo("COMPLETED");
-        assertThat(result.getRunDate()).isEqualTo(LocalDate.of(2025, 1, 15));
-        // commission = 20% of 1000 = 200, net = 800
-        assertThat(result.getTotalAmount()).isEqualByComparingTo("800.00");
+        assertThat(result.run().getStatus()).isEqualTo("COMPLETED");
+        assertThat(result.run().getRunDate()).isEqualTo(LocalDate.of(2025, 1, 15));
+        assertThat(result.run().getTotalAmount()).isEqualByComparingTo("800.00");
+        assertThat(result.settlement().getNetAmount()).isEqualByComparingTo("800.00");
     }
 
     @Test

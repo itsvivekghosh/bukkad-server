@@ -4,9 +4,9 @@ services:
     container_name: bhukkad-postgres-test
     restart: unless-stopped
     environment:
-      POSTGRES_DB: bhukkad
+      POSTGRES_DB: core
       POSTGRES_USER: bhukkad
-      POSTGRES_PASSWORD: bhukkad_pass
+      POSTGRES_PASSWORD: app_pass
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
@@ -14,7 +14,7 @@ services:
     networks:
       - bhukkad-test-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bhukkad -d bhukkad"]
+      test: ["CMD-SHELL", "pg_isready -U bhukkad -d core"]
       interval: 5s
       timeout: 3s
       retries: 10

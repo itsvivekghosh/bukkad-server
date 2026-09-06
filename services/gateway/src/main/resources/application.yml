@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: bhukkad-gateway
+  # Shared Redis holding runtime feature-flag overrides (edge kill switch).
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
@@ -18,11 +23,26 @@ spring:
 
 app:
   routes:
-    restaurant-uri: http://bhukkad-restaurant.bhukkad.svc.cluster.local
-    identity-uri: http://bhukkad-identity.bhukkad.svc.cluster.local
-    order-uri: http://bhukkad-order.bhukkad.svc.cluster.local
-    payment-uri: http://bhukkad-payment.bhukkad.svc.cluster.local
-    delivery-uri: http://bhukkad-delivery.bhukkad.svc.cluster.local
+    restaurant-uri: ${RESTAURANT_SERVICE_URL:http://localhost:8091}
+    identity-uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+    order-uri: ${ORDER_SERVICE_URL:http://localhost:8092}
+    payment-uri: ${PAYMENT_SERVICE_URL:http://localhost:8093}
+    delivery-uri: ${DELIVERY_SERVICE_URL:http://localhost:8094}
+    search-uri: ${SEARCH_SERVICE_URL:http://localhost:8082}
+    survey-uri: ${SURVEY_SERVICE_URL:http://localhost:8083}
+    referral-uri: ${REFERRAL_SERVICE_URL:http://localhost:8084}
+    support-uri: ${SUPPORT_SERVICE_URL:http://localhost:8086}
+    notification-uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8085}
+    admin-analytics-uri: ${ADMIN_ANALYTICS_SERVICE_URL:http://localhost:8087}
+    realtime-uri: ${REALTIME_SERVICE_URL:http://localhost:8077}
+    growth-uri: ${GROWTH_SERVICE_URL:http://localhost:8089}
+  # Edge kill-switch defaults (W0 / gap A10). Same keys as every service's
+  # app.feature-flags block; runtime overrides come from the shared Redis
+  # hash bhukkad:feature-flag:overrides written by admin-analytics.
+  # A route is disabled only when its flag resolves false (fail-open).
+  feature-flags:
+    flags: {}
+    rollout: {}
 
 management:
   endpoints:

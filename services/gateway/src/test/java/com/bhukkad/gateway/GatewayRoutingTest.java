@@ -20,7 +20,8 @@ import java.net.InetSocketAddress;
  * for each service backend and asserts path predicates select the correct
  * backend: restaurant-slice paths reach the backend (200 + marker body),
  * identity/auth paths reach identity, order/cart/coupon/dispute paths reach
- * order, and the gateway's own health probe is UP. No Docker/WireMock required.</p>
+ * order, notification paths reach notification, and the gateway's own health
+ * probe is UP. No Docker/WireMock required.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -39,6 +40,12 @@ class GatewayRoutingTest {
 
     private static HttpServer orderBackend;
     private static String orderBase;
+
+    private static HttpServer notificationBackend;
+    private static String notificationBase;
+
+    private static HttpServer realtimeBackend;
+    private static String realtimeBase;
 
     @BeforeAll
     static void startBackends() throws Exception {
@@ -74,6 +81,28 @@ class GatewayRoutingTest {
         });
         orderBackend.start();
         orderBase = "http://127.0.0.1:" + orderBackend.getAddress().getPort();
+
+        notificationBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        notificationBackend.createContext("/", ex -> {
+            byte[] body = "NOTIFICATION-BACKEND".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            try (var os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        notificationBackend.start();
+        notificationBase = "http://127.0.0.1:" + notificationBackend.getAddress().getPort();
+
+        realtimeBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        realtimeBackend.createContext("/", ex -> {
+            byte[] body = "REALTIME-BACKEND".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            try (var os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        realtimeBackend.start();
+        realtimeBase = "http://127.0.0.1:" + realtimeBackend.getAddress().getPort();
     }
 
     @AfterAll
@@ -87,6 +116,12 @@ class GatewayRoutingTest {
         if (orderBackend != null) {
             orderBackend.stop(0);
         }
+        if (notificationBackend != null) {
+            notificationBackend.stop(0);
+        }
+        if (realtimeBackend != null) {
+            realtimeBackend.stop(0);
+        }
     }
 
     @DynamicPropertySource
@@ -97,10 +132,16 @@ class GatewayRoutingTest {
         registry.add("app.routes.identity-uri", () -> identityBase);
         // Order service path → live embedded backend.
         registry.add("app.routes.order-uri", () -> orderBase);
+        // Notification service path → live embedded backend.
+        registry.add("app.routes.notification-uri", () -> notificationBase);
         // Payment service path → refused port (not under test).
         registry.add("app.routes.payment-uri", () -> "http://127.0.0.1:1");
         // Delivery service path → refused port (not under test).
         registry.add("app.routes.delivery-uri", () -> "http://127.0.0.1:1");
+        // Admin-analytics service path → refused port (not under test).
+        registry.add("app.routes.admin-analytics-uri", () -> "http://127.0.0.1:1");
+        // Realtime service path → live embedded backend (live SSE stream).
+        registry.add("app.routes.realtime-uri", () -> realtimeBase);
     }
 
     @Autowired
@@ -121,11 +162,28 @@ class GatewayRoutingTest {
     }
 
     @Test
+    void notificationPathIsServedByNotificationBackend() {
+        // /api/v1/notifications/** must hit the notification service backend.
+        client.get().uri("/api/v1/notifications?recipient=user@test.com&channel=email")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("NOTIFICATION-BACKEND");
+    }
+
+    @Test
     void apiPathForUnmappedDomainReturns404() {
-        // /api/v1/notifications (not mapped to any service) → 404 because
-        // the monolith has been decommissioned and there is no fallback route.
-        client.get().uri("/api/v1/notifications").exchange()
+        // /api/v1/inventory-system (not mapped to any service) → 404 because
+        // there is no fallback route to the decommissioned monolith.
+        client.get().uri("/api/v1/inventory-system").exchange()
                 .expectStatus().isNotFound();
+    }
+
+    @Test
+    void giftCardsPathIsServedByOrderBackend() {
+        // /api/v1/gift-cards/** is routed to the order service.
+        client.get().uri("/api/v1/gift-cards").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("ORDER-BACKEND");
     }
 
     @Test
@@ -149,8 +207,8 @@ class GatewayRoutingTest {
 
     @Test
     void cartPathIsServedByOrderBackend() {
-        // /api/v1/cart/** must hit the order service backend.
-        client.get().uri("/api/v1/cart/items").exchange()
+        // /api/v1/customers/{id}/cart/** must hit the order service backend.
+        client.get().uri("/api/v1/customers/1/cart/items").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("ORDER-BACKEND");
     }
@@ -172,9 +230,28 @@ class GatewayRoutingTest {
     }
 
     @Test
-    void disputeCustomerPathIsServedByOrderBackend() {
-        // /api/v1/customers/orders/{id}/disputes + /customers/disputes → order backend.
-        client.get().uri("/api/v1/customers/disputes?customerId=1").exchange()
+    void liveStreamPathIsServedByRealtimeBackend() {
+        // /api/v1/orders/stream/** (narrower than /api/v1/orders/**) routes to
+        // the realtime service for SSE live tracking (strangler of the monolith
+        // live slice), not the order service.
+        client.get().uri("/api/v1/orders/stream/customer/123").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("REALTIME-BACKEND");
+    }
+
+    @Test
+    void inventoryAlertPathIsServedByRestaurantBackend() {
+        // /api/v1/inventory/alerts/** is narrower than /api/v1/restaurants/**
+        // and must route to the restaurant service.
+        client.get().uri("/api/v1/inventory/alerts/restaurants/1").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("RESTAURANT-BACKEND");
+    }
+
+    @Test
+    void customerOrderPathIsServedByOrderBackend() {
+        // /api/v1/orders/** → order backend.
+        client.get().uri("/api/v1/orders/1").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("ORDER-BACKEND");
     }

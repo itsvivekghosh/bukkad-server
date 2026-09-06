@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: personalization-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:personalization}
+    username: ${POSTGRES_USER:app}
+    password: ${POSTGRES_PASSWORD:app_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration-pg
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: 8088
+
+app:
+  recommendations:
+    max-items: 10
+    co-ordered-item-limit: 50
+    customer-affinity-limit: 25
+    top-restaurants-limit: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

@@ -2,10 +2,10 @@ server: {port: 8087}
 spring:
   application: {name: admin-analytics}
   datasource:
-    url: ${ADMIN_DB_URL:jdbc:postgresql://localhost:5432/bhukkad_admin}
-    username: ${ADMIN_DB_USERNAME:bhukkad}
-    password: ${ADMIN_DB_PASSWORD:bhukkad_dev}
-    hikari: {maximum-pool-size: 20}
+    url: ${ADMIN_DB_URL:jdbc:postgresql://localhost:5432/admin}
+    username: ${ADMIN_DB_USERNAME:app}
+    password: ${ADMIN_DB_PASSWORD:app_pass}
+    hikari: {maximum-pool-size: 5}
   jpa: {hibernate: {ddl-auto: none}, open-in-view: false}
   flyway: {enabled: true, locations: classpath:db/migration-pg, baseline-on-migrate: true}
   data:
@@ -27,6 +27,20 @@ logging: {level: {com.bhukkad: INFO}}
 
 app:
   environment: production
+  # A/B experiments (feature #7). Weights are percentages and may sum to less
+  # than 100 — the remainder is excluded from the experiment. Assignments are
+  # deterministic per (experiment, user) via consistent hashing.
+  experiments:
+    enabled: ${EXPERIMENTS_ENABLED:true}
+    experiments:
+      checkout-cta-copy:
+        enabled: false
+        description: "Example: new checkout CTA wording"
+        variants:
+          - name: control
+            weight: 50
+          - name: treatment
+            weight: 50
   auth:
     jwt:
       secret: ${JWT_SECRET:}

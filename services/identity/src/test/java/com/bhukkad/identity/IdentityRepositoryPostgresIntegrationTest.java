@@ -98,6 +98,8 @@ class IdentityRepositoryPostgresIntegrationTest extends AbstractIdentityPostgres
         a.setCustomerId(saved.getId());
         a.setLine1("123 Main");
         a.setCity("C");
+        a.setLatitude(0.0);
+        a.setLongitude(0.0);
         addressRepository.saveAndFlush(a);
 
         jdbcTemplate.update("DELETE FROM customers WHERE id = ?", saved.getId());

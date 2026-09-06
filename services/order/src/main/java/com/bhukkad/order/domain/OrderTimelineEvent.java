@@ -20,8 +20,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_timeline_order", columnList = "orderId, createdAt")
 })
 @EntityListeners(AuditingEntityListener.class)
-@Getter
-@Setter
+@Getter @Setter
 public class OrderTimelineEvent {
 
     @Id
@@ -33,6 +32,18 @@ public class OrderTimelineEvent {
 
     @Column(nullable = false, length = 50)
     private String eventType;
+
+    @Column(length = 30)
+    private String status;
+
+    @Column(length = 500)
+    private String message;
+
+    @Column
+    private Long actorId;
+
+    @Column(length = 30)
+    private String actorRole;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)

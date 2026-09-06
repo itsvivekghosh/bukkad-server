@@ -21,8 +21,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_order_items_order", columnList = "orderId")
 })
 @EntityListeners(AuditingEntityListener.class)
-@Getter
-@Setter
+@Getter @Setter
 public class OrderItem {
 
     @Id
@@ -43,6 +42,9 @@ public class OrderItem {
 
     @Column(nullable = false)
     private Integer quantity;
+
+    @Column(length = 500)
+    private String specialInstructions;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)

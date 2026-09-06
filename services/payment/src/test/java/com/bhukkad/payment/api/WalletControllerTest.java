@@ -1,5 +1,6 @@
 package com.bhukkad.payment.api;
 
+import com.bhukkad.payment.domain.Payment;
 import com.bhukkad.payment.domain.WalletBalance;
 import com.bhukkad.payment.service.PaymentService;
 import com.bhukkad.payment.service.WalletService;
@@ -10,6 +11,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -20,6 +23,7 @@ class WalletControllerTest {
 
     @Mock private WalletService walletService;
     @Mock private PaymentService paymentService;
+    @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
     @InjectMocks private WalletController controller;
 
     @Test
@@ -28,6 +32,9 @@ class WalletControllerTest {
         balance.setCustomerId(2L);
         balance.setBalance(new BigDecimal("99.00"));
         when(walletService.balance(2L)).thenReturn(balance);
+        WalletResponse response = WalletResponse.builder()
+                .customerId(2L).balance(new BigDecimal("99.00")).build();
+        when(paymentMapper.toWalletResponse(balance)).thenReturn(response);
 
         assertThat(controller.balance(2L).getBalance()).isEqualByComparingTo("99.00");
     }
@@ -38,15 +45,30 @@ class WalletControllerTest {
         balance.setCustomerId(2L);
         balance.setBalance(new BigDecimal("200.00"));
         when(walletService.balance(2L)).thenReturn(balance);
+        WalletResponse response = WalletResponse.builder()
+                .customerId(2L).balance(new BigDecimal("200.00")).build();
+        when(paymentMapper.toWalletResponse(balance)).thenReturn(response);
 
-        WalletBalance result = controller.topUp(2L, new BigDecimal("200.00"), "idem-topup");
+        WalletTopUpRequest request = new WalletTopUpRequest();
+        request.setCustomerId(2L);
+        request.setAmount(new BigDecimal("200.00"));
 
-        verify(paymentService).processPayment(0L, 2L, new BigDecimal("200.00"), "idem-topup");
+        WalletResponse result = controller.topUp(2L, request, "idem-topup");
+
+        verify(paymentService).processPayment(0L, 2L, new BigDecimal("200.00"),
+                Payment.METHOD_WALLET, "idem-topup");
         assertThat(result.getBalance()).isEqualByComparingTo("200.00");
     }
 
     @Test
-    void payments_returnsEmptyList() {
-        assertThat((java.util.List<?>) controller.payments(2L)).isEmpty();
+    void transactions_returnsEmptyList() {
+        when(walletService.transactionsPage(2L, 0, 10)).thenReturn(List.of());
+
+        var response = controller.transactions(2L, 0, 10);
+
+        assertThat((List<?>) response.get("items")).isEmpty();
+        assertThat(response.get("page")).isEqualTo(0);
+        assertThat(response.get("size")).isEqualTo(10);
+        assertThat(response.get("hasNext")).isEqualTo(false);
     }
 }

@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /**
- * Identity service (P3). Owns {@code bhukkad_identity}: customers, addresses;
+ * Identity service (P3). Owns {@code identity}: customers, addresses;
  * issues JWTs (plan §8 — identity is the authN source of truth).
  */
 @SpringBootApplication(scanBasePackages = {"com.bhukkad.identity", "com.bhukkad.common"})

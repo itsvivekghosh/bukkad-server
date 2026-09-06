@@ -85,7 +85,12 @@ class OrderDepthPostgresIntegrationTest extends AbstractOrderPostgresTest {
         OrderInvoice invoice = new OrderInvoice();
         invoice.setOrderId(saved.getId());
         invoice.setInvoiceNumber("INV-" + saved.getId());
-        invoice.setTotal(new BigDecimal("118.00"));
+        invoice.setSubtotal(new BigDecimal("100.00"));
+        invoice.setTaxAmount(new BigDecimal("18.00"));
+        invoice.setCgstAmount(new BigDecimal("9.00"));
+        invoice.setSgstAmount(new BigDecimal("9.00"));
+        invoice.setTotalAmount(new BigDecimal("118.00"));
+        invoice.setIssuedAt(java.time.LocalDateTime.now());
         invoiceRepository.saveAndFlush(invoice);
 
         assertThat(invoiceRepository.findByOrderId(saved.getId())).isPresent();

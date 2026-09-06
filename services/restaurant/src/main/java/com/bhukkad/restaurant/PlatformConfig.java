@@ -2,14 +2,14 @@ package com.bhukkad.restaurant;
 
 import com.bhukkad.common.outbox.OutboxClient;
 import com.bhukkad.common.outbox.OutboxEventRepository;
+import com.bhukkad.restaurant.experiment.ExperimentProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Wires the platform beans the service consumes (platform-lib is a library;
- * it does not auto-register beans).
- */
 @Configuration
+@EnableConfigurationProperties({ExperimentProperties.class,
+        com.bhukkad.restaurant.service.inventory.StockReservationProperties.class})
 public class PlatformConfig {
 
     @Bean

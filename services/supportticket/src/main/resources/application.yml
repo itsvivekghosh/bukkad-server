@@ -1,0 +1,17 @@
+server: {port: 8086}
+spring:
+  application: {name: supportticket}
+  datasource:
+    url: ${SUPPORT_DB_URL:jdbc:postgresql://localhost:5432/support}
+    username: ${SUPPORT_DB_USERNAME:app}
+    password: ${SUPPORT_DB_PASSWORD:app_pass}
+    hikari: {maximum-pool-size: 10}
+  jpa: {hibernate: {ddl-auto: none}, open-in-view: false}
+  flyway: {enabled: true, locations: classpath:db/migration-pg, baseline-on-migrate: true}
+management:
+  endpoints: {web: {exposure: {include: health,info,metrics,prometheus}}}
+  endpoint: {health: {probes: {enabled: true}}}
+  auth:
+    jwt:
+      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
+logging: {level: {com.bhukkad: INFO}}

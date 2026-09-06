@@ -1,6 +1,9 @@
 package com.bhukkad.payment.api;
 
+import com.bhukkad.payment.domain.Payment;
+import com.bhukkad.payment.mapper.PaymentMapper;
 import com.bhukkad.payment.service.PaymentService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -14,33 +17,29 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 
-/**
- * Payment service API — {@code /api/v1/payments}. The {@code Idempotency-Key}
- * header is the authoritative guard (plan §7: "idempotency-key required").
- */
 @RestController
 @RequestMapping("/api/v1/payments")
 @RequiredArgsConstructor
 public class PaymentController {
 
     private final PaymentService paymentService;
-
-    public record PaymentRequest(
-            @Positive Long orderId,
-            @Positive Long customerId,
-            @Positive BigDecimal amount,
-            @NotBlank String currency
-    ) {}
+    private final PaymentMapper paymentMapper;
 
     @PostMapping
-    public com.bhukkad.payment.domain.Payment pay(@RequestBody PaymentRequest request,
-                                                   @RequestHeader("Idempotency-Key") String idempotencyKey) {
-        return paymentService.processPayment(request.orderId(), request.customerId(),
-                request.amount(), idempotencyKey);
+    public PaymentResponse pay(@Valid @RequestBody PaymentRequest request,
+                               @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        Payment payment = paymentService.processPayment(
+                request.getOrderId(),
+                request.getCustomerId(),
+                request.getAmount(),
+                request.getPaymentMethod(),
+                idempotencyKey);
+        return paymentMapper.toPaymentResponse(payment);
     }
 
     @GetMapping("/{paymentId}")
-    public com.bhukkad.payment.domain.Payment get(@PathVariable Long paymentId) {
-        return paymentService.getPayment(paymentId);
+    public PaymentResponse get(@PathVariable Long paymentId) {
+        Payment payment = paymentService.getPayment(paymentId);
+        return paymentMapper.toPaymentResponse(payment);
     }
 }

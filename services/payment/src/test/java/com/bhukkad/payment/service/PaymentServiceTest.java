@@ -50,7 +50,7 @@ class PaymentServiceTest {
         when(walletTransactionRepository.save(any()))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "key-1");
+        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", "key-1");
 
         assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
         assertThat(payment.getProviderRef()).startsWith("PROV-");
@@ -69,7 +69,7 @@ class PaymentServiceTest {
         existing.setId(5L);
         when(paymentRepository.findByOrderId(20L)).thenReturn(Optional.of(existing));
 
-        Payment payment = service.processPayment(20L, 1L, new BigDecimal("100.00"), "key-dup");
+        Payment payment = service.processPayment(20L, 1L, new BigDecimal("100.00"), "UPI", "key-dup");
 
         assertThat(payment.getId()).isEqualTo(5L);
         // No double-credit: save on payment and wallet must not be called
@@ -85,7 +85,7 @@ class PaymentServiceTest {
                 IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, "key-dup")).thenReturn(Optional.of(completed));
         when(paymentRepository.findByOrderId(20L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.processPayment(20L, 1L, new BigDecimal("10.00"), "key-dup"))
+        assertThatThrownBy(() -> service.processPayment(20L, 1L, new BigDecimal("10.00"), "UPI", "key-dup"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already processed");
     }
@@ -105,7 +105,7 @@ class PaymentServiceTest {
         when(walletBalanceRepository.findByCustomerId(1L)).thenReturn(Optional.of(existing));
         when(walletTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.processPayment(10L, 1L, new BigDecimal("25.00"), "key-wallet");
+        service.processPayment(10L, 1L, new BigDecimal("25.00"), "UPI", "key-wallet");
 
         assertThat(existing.getBalance()).isEqualByComparingTo("75.00");
         verify(walletBalanceRepository).save(existing);
@@ -125,7 +125,7 @@ class PaymentServiceTest {
         when(walletBalanceRepository.findByCustomerId(1L)).thenReturn(Optional.empty());
         when(walletTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Payment payment = service.processPayment(10L, 1L, new BigDecimal("30.00"), "key-ip");
+        Payment payment = service.processPayment(10L, 1L, new BigDecimal("30.00"), Payment.METHOD_WALLET, "key-ip");
 
         assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
     }

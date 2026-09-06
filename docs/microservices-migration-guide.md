@@ -1,15 +1,15 @@
 # Bhukkad — Microservices Migration Guide
 
-**Status:** ✅ Complete — monolith decommissioned (P8)
+**Status:** ⚠️ Historical record (Phases 1–8 complete as of 2026-07) — **now superseded by the full-migration plan** for remaining scope: [MICROSERVICES-MIGRATION-EXECUTION-PLAN.md](MICROSERVICES-MIGRATION-EXECUTION-PLAN.md); gaps in this guide are tracked in [MIGRATION-GAP-ANALYSIS-AND-TECHNICAL-EXPANSION.md](MIGRATION-GAP-ANALYSIS-AND-TECHNICAL-EXPANSION.md).
 **Audience:** Engineers maintaining the distributed system
 
-This document chronicles the strangler-fig migration from the original Spring Boot monolith (`bhukkad-delivery-system`) to 7 independently deployable PostgreSQL microservices wired via Spring Cloud Gateway, gRPC sync, Redpanda/Kafka async, Saga for distributed transactions, and resilience4j for fault tolerance.
+This document chronicles the strangler-fig migration from the original Spring Boot monolith (`bhukkad-delivery-system`) to 7 independently deployable PostgreSQL microservices wired via Spring Cloud Gateway (path routing + edge headers), synchronous JWT-authenticated HTTP (gRPC is NOT used in this codebase — see MIGRATION-GAP-ANALYSIS §B4), Redpanda/Kafka async via the transactional outbox, Saga for distributed transactions, and resilience4j for fault tolerance.
 
 ---
 
 ## 1. What Was Migrated
 
-### 1.1 Source monolith (decommissioned)
+### 1.1 Source monolith (partially decommissioned — holdout domains remain, see [services/k8s/DECOMMISSION-CHECKLIST.md](../services/k8s/DECOMMISSION-CHECKLIST.md))
 - Single deployable: `src/main/java/com/bhukkad/BackendServerApplication.java`, packaged as `bhukkad-delivery-system-1.0.0.jar`.
 - One PostgreSQL database (`bhukkad`), migrated from MySQL (Flyway location `db/migration-pg`, V1–V5).
 - Flat package layout with ~66 entities, ~73 repos, ~45 controllers.
@@ -18,13 +18,13 @@ This document chronicles the strangler-fig migration from the original Spring Bo
 | Service | Database | Domain |
 |---------|----------|--------|
 | `gateway` | — | Spring Cloud Gateway edge routing |
-| `identity` | `bhukkad_identity` | auth, users, JWT validation |
-| `restaurant` | `bhukkad_restaurants` | restaurants, menu, cuisines, reviews |
-| `order` | `bhukkad_orders` | orders, cart, coupons, disputes |
-| `payment` | `bhukkad_payments` | payments, wallet |
-| `delivery` | `bhukkad_delivery` | delivery tracking, serviceability |
-| `notification` | `bhukkad_notification` | async notifications (event consumer) |
-| `admin-analytics` | `bhukkad_admin` | read-only analytics projections |
+| `identity` | `identity` | auth, users, JWT validation |
+| `restaurant` | `restaurants` | restaurants, menu, cuisines, reviews |
+| `order` | `orders` | orders, cart, coupons, disputes |
+| `payment` | `payments` | payments, wallet |
+| `delivery` | `delivery` | delivery tracking, serviceability |
+| `notification` | `notification` | async notifications (event consumer) |
+| `admin-analytics` | `admin` | read-only analytics projections |
 
 ---
 
@@ -58,13 +58,13 @@ Derived from `docs/pgloader/*.load`. Each service owns these tables and **only**
 
 | Service | Target DB | Owned table regex |
 |---|---|---|
-| `identity` | `bhukkad_identity` | `users`, `customers`, `restaurant_owners`, `delivery_agents`, `admins`, `addresses`, `device_tokens`, `consent*`, `user_referral` |
-| `restaurant` | `bhukkad_restaurants` | `restaurant*`, `menu_*`, `cuisine`, `inventory*`, `trending*`, `promo_*` |
-| `order` | `bhukkad_orders` | `orders*`, `order_*`, `cart*`, `subscription*`, `group_order*`, `gift*` |
-| `payment` | `bhukkad_payments` | `payments`, `wallet_*`, `disputes` |
-| `delivery` | `bhukkad_delivery` | `delivery_*`, `rider_*`, `agent_*`, `zone_*` |
-| `notification` | `bhukkad_notification` | `customer_notification_preferences` |
-| `admin-analytics` | `bhukkad_admin` | `audit_*`, `fraud_*`, `churn*`, `experiment*`, `api_keys`, `data_export*`, `support_tickets`, `settlement*` (read models) |
+| `identity` | `identity` | `users`, `customers`, `restaurant_owners`, `delivery_agents`, `admins`, `addresses`, `device_tokens`, `consent*`, `user_referral` |
+| `restaurant` | `restaurants` | `restaurant*`, `menu_*`, `cuisine`, `inventory*`, `trending*`, `promo_*` |
+| `order` | `orders` | `orders*`, `order_*`, `cart*`, `subscription*`, `group_order*`, `gift*` |
+| `payment` | `payments` | `payments`, `wallet_*`, `disputes` |
+| `delivery` | `delivery` | `delivery_*`, `rider_*`, `agent_*`, `zone_*` |
+| `notification` | `notification` | `customer_notification_preferences` |
+| `admin-analytics` | `admin` | `audit_*`, `fraud_*`, `churn*`, `experiment*`, `api_keys`, `data_export*`, `support_tickets`, `settlement*` (read models) |
 
 Cross-domain reads are satisfied by **projected read models** maintained from events.
 
@@ -78,7 +78,7 @@ Cross-domain reads are satisfied by **projected read models** maintained from ev
 | Shared infra jar | `platform-lib` (no web/datasource) | `com/bhukkad/common/{outbox,event,saga,idempotency,tracing,error,kafka,ratelimit,cache,security,web,metrics,logging,datasource}` |
 | Reliable events | Outbox → Kafka relay | `common/outbox` + `common/kafka`; topic `bhukkad.platform.events` |
 | Distributed txn | Saga orchestration | `common/saga` (`SagaCoordinator`) |
-| Sync IPC | gRPC | monolith `grpc` pkg (`OrderInternalServiceGrpc`) |
+| Sync IPC | HTTP (RestTemplate/RestClient) + Istio mTLS — ratified per A11 (docs/adr/); gRPC is legacy monolith code only | monolith `grpc` pkg is deletion-track (W4); services call each other via HTTP behind the gateway/service DNS |
 | Resilience | CB / retry / bulkhead / rate-limit | `resilience4j-spring-boot3` |
 | AuthN/Z | JWT HS512, RBAC | `security/` → replicated verifier per service |
 | Metrics | Micrometer / Prometheus | actuator + micrometer |
@@ -98,7 +98,7 @@ Cross-domain reads are satisfied by **projected read models** maintained from ev
 | P4 | Extract `restaurant` | ✅ |
 | P5 | Extract `order` + saga orchestrator | ✅ |
 | P6 | Extract `payment`, `delivery`, `notification` | ✅ |
-| P7 | `admin-analytics` + monolith teardown | ✅ |
+| P7 | `admin-analytics` + monolith teardown | 🚧 extraction done; **monolith partially decommissioned** — teardown gates tracked in `services/k8s/DECOMMISSION-CHECKLIST.md` |
 
 ---
 
@@ -415,7 +415,7 @@ psql -h $MONOLITH_PG_HOST -U postgres -d postgres -c \
 | `http_server_requests_seconds_count_identity{status=~"5.."}` / `http_server_requests_seconds_count_identity` | Error rate < 0.1% | > 0.2% for 5 min |
 | `http_server_requests_seconds_sum_identity` / `http_server_requests_seconds_count_identity` (99th pct) | Latency < 200ms | > 500ms for 2 min |
 | `jvm_memory_used_bytes_identity` / `jvm_memory_max_bytes_identity` | Memory < 85% | > 95% for 5 min |
-| `pg_database_size_bytes{dbname="bhukkad_identity"}` | Growth rate < 5%/day | > 20%/day |
+| `pg_database_size_bytes{dbname="identity"}` | Growth rate < 5%/day | > 20%/day |
 
 #### restaurant
 | Metric | SLO | Alert Threshold |

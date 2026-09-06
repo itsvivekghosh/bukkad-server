@@ -45,6 +45,9 @@ public class SecurityConfig {
                         // External payment-provider callback surface (monolith
                         // parity: /api/v1/payments/webhooks/** was public).
                         .requestMatchers("/api/v1/webhook/**").permitAll()
+                        // Razorpay webhook: authenticated by the HmacSHA256 signature
+                        // inside PaymentWebhookController, not by customer auth.
+                        .requestMatchers("/api/v1/payments/webhooks/**").permitAll()
                         .anyRequest().authenticated());
 
         // Security headers must run first

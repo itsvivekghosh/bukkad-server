@@ -21,12 +21,25 @@ import java.time.LocalDateTime;
 @Table(name = "payments", indexes = {
         @Index(name = "idx_payments_order", columnList = "orderId"),
         @Index(name = "idx_payments_customer", columnList = "customerId, createdAt"),
-        @Index(name = "idx_payments_status", columnList = "status")
+        @Index(name = "idx_payments_status", columnList = "status"),
+        @Index(name = "idx_payment_transaction", columnList = "transactionId", unique = true),
+        @Index(name = "idx_payment_purpose", columnList = "purpose")
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
 public class Payment {
+
+    public static final String PURPOSE_ORDER = "ORDER";
+    public static final String PURPOSE_WALLET_TOP_UP = "WALLET_TOP_UP";
+
+    public static final String METHOD_CASH_ON_DELIVERY = "CASH_ON_DELIVERY";
+    public static final String METHOD_CREDIT_CARD = "CREDIT_CARD";
+    public static final String METHOD_DEBIT_CARD = "DEBIT_CARD";
+    public static final String METHOD_UPI = "UPI";
+    public static final String METHOD_WALLET = "WALLET";
+    public static final String METHOD_NET_BANKING = "NET_BANKING";
+    public static final String METHOD_BNPL = "BNPL";
 
     public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_SETTLED = "SETTLED";
@@ -43,20 +56,44 @@ public class Payment {
     @Column(nullable = false)
     private Long customerId;
 
-    @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal amount;
+    @Column(nullable = false, length = 20)
+    private String purpose = PURPOSE_ORDER;
 
-    @Column(nullable = false, length = 3)
-    private String currency = "INR";
+    @Column(nullable = false, length = 30)
+    private String paymentMethod = METHOD_UPI;
 
     @Column(nullable = false, length = 20)
     private String status;
 
-    @Column(length = 50)
-    private String provider;
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal amount;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal walletAmount = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal gatewayAmount = BigDecimal.ZERO;
+
+    @Column(length = 100)
+    private String transactionId;
+
+    @Column(length = 100)
+    private String gatewayOrderId;
+
+    @Column(length = 100)
+    private String gatewayPaymentId;
 
     @Column(length = 100)
     private String providerRef;
+
+    @Column(length = 100)
+    private String idempotencyKey;
+
+    @Column(length = 50)
+    private String provider;
+
+    @Column(columnDefinition = "TEXT")
+    private String paymentGatewayResponse;
 
     @CreatedDate
     @Column(nullable = false, updatable = false)
@@ -65,4 +102,6 @@ public class Payment {
     @LastModifiedDate
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    private LocalDateTime completedAt;
 }

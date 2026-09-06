@@ -23,7 +23,7 @@ import java.time.LocalDateTime;
  * idempotent consumer/request path relies on. At-least-once delivery + these
  * records give exactly-once processing semantics per key.
  */
-@Entity
+@Entity(name = "CommonIdempotencyRecord")
 @Table(name = "idempotency_records", indexes = {
         @Index(name = "uk_idempotency_scope_key", columnList = "scope, idempotencyKey", unique = true),
         @Index(name = "idx_idempotency_expires", columnList = "expiresAt")

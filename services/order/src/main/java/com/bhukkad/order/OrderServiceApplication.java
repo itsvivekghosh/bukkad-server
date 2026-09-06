@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /**
- * Order service (P4). Owns {@code bhukkad_orders}: carts, orders, order items
+ * Order service (P4). Owns {@code orders}: carts, orders, order items
  * and timeline. Order creation is a saga (reserve stock → charge payment →
  * confirm) with the outbox emitting {@code order.events.v1}.
  */

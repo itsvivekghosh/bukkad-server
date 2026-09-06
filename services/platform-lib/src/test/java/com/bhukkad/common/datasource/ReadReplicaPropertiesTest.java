@@ -28,7 +28,7 @@ class ReadReplicaPropertiesTest {
         props.setEnabled(true);
         assertFalse(props.isConfigured(), "enabled without URL must not be configured");
 
-        props.setUrl("jdbc:postgresql://replica:5432/bhukkad");
+        props.setUrl("jdbc:postgresql://replica:5432/core");
         assertTrue(props.isConfigured());
         assertFalse(props.hasMultipleReplicas());
     }
@@ -38,7 +38,7 @@ class ReadReplicaPropertiesTest {
         ReadReplicaProperties props = new ReadReplicaProperties();
         props.setEnabled(true);
         ReadReplicaProperties.Replica r1 = new ReadReplicaProperties.Replica();
-        r1.setUrl("jdbc:postgresql://replica1:5432/bhukkad");
+        r1.setUrl("jdbc:postgresql://replica1:5432/core");
         props.getReplicas().add(r1);
 
         assertTrue(props.isConfigured());
@@ -49,7 +49,7 @@ class ReadReplicaPropertiesTest {
     @Test
     void disabledEvenWithUrl_ignored() {
         ReadReplicaProperties props = new ReadReplicaProperties();
-        props.setUrl("jdbc:postgresql://replica:5432/bhukkad");
+        props.setUrl("jdbc:postgresql://replica:5432/core");
         // enabled stays false → the routing datasource falls back to primary.
         assertFalse(props.isConfigured());
     }

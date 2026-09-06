@@ -46,7 +46,7 @@ class OrderSocialPostgresIntegrationTest extends AbstractOrderPostgresTest {
     @Test
     void groupOrderAndMembersPersist() {
         GroupOrder group = new GroupOrder();
-        group.setHostId(1L);
+        group.setHostUserId(1L);
         group.setRestaurantId(2L);
         group.setStatus(GroupOrder.STATUS_OPEN);
         GroupOrder saved = groupRepository.saveAndFlush(group);
@@ -64,6 +64,7 @@ class OrderSocialPostgresIntegrationTest extends AbstractOrderPostgresTest {
     void giftCardUniqueCodeAndRedemption() {
         GiftCard card = new GiftCard();
         card.setCode("GC-TEST1");
+        card.setAmount(new BigDecimal("500.00"));
         card.setBalance(new BigDecimal("500.00"));
         card.setStatus(GiftCard.STATUS_ACTIVE);
         giftCardRepository.saveAndFlush(card);

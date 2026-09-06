@@ -1,10 +1,18 @@
 package com.bhukkad.order.domain;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -25,6 +33,8 @@ public class CartItem {
     private BigDecimal unitPrice;
     @Column(nullable = false)
     private Integer quantity;
+    @Column(length = 500)
+    private String specialInstructions;
     @CreatedDate @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 }

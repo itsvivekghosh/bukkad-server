@@ -30,13 +30,10 @@ resources:
   # Vault SecretStore (see scripts/provision-vault.sh to seed the paths).
   - secret-store.yaml
   - external-secret.yaml
-  - rabbitmq/deployment.yaml
-  - app/serviceaccount.yaml
-  - app/deployment.yaml
-  - app/service.yaml
-  - app/pdb.yaml
-  - app/hpa.yaml
-  - restaurant/deployment.yaml
+   - rabbitmq/deployment.yaml
+   # Monolith retired (Gate 5, migration-batch-8): all routes served by
+   # services behind the gateway. Retain k8s/app/*.yaml archived for rollback.
+   - restaurant/deployment.yaml
   - restaurant/service.yaml
   - restaurant/pdb.yaml
   - restaurant/hpa.yaml
@@ -60,6 +57,10 @@ resources:
   - notification/service.yaml
   - notification/pdb.yaml
   - notification/hpa.yaml
+  - search/deployment.yaml
+  - search/service.yaml
+  - search/pdb.yaml
+  - search/hpa.yaml
   - admin-analytics/deployment.yaml
   - admin-analytics/service.yaml
   - admin-analytics/pdb.yaml

@@ -7,6 +7,7 @@ import com.bhukkad.identity.service.IdentityService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,16 +35,26 @@ public class IdentityController {
             @NotBlank @Email String email,
             String phoneNumber,
             @NotBlank @Size(max = 100) String fullName,
-            @NotBlank @Size(min = 8, max = 128) String password) {
+            @NotBlank @Size(min = 8, max = 128) String password,
+            @Pattern(regexp = "CUSTOMER|RESTAURANT_OWNER|DELIVERY_AGENT"
+                            + "|customer|restaurant_owner|delivery_agent",
+                    message = "Unsupported self-registration role") String role) {
     }
 
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
     }
 
-    public record AuthResponse(String token, Long customerId, String fullName) {
+    public record AuthResponse(String token, Long customerId, String fullName, String role) {
     }
 
     public record TokenRequest(@NotBlank String token) {
+    }
+
+    public record ChangePasswordRequest(@NotBlank String currentPassword,
+                                        @NotBlank @Size(min = 8, max = 128) String newPassword) {
+    }
+
+    public record ForgotPasswordRequest(@NotBlank @Email String email) {
     }
 
     public record VerifyResponse(boolean valid, Long customerId, String email, String scope, String expiresAt) {
@@ -60,26 +71,62 @@ public class IdentityController {
 
     @PostMapping("/auth/register")
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
-        var customer = identityService.register(
-                request.email(), request.phoneNumber(), request.fullName(), request.password());
+        identityService.register(
+                request.email(), request.phoneNumber(), request.fullName(), request.password(), request.role());
         var login = identityService.login(request.email(), request.password());
-        return new AuthResponse(login.token(), customer.getId(), login.fullName());
+        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
     }
 
     @PostMapping("/auth/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         var login = identityService.login(request.email(), request.password());
-        return new AuthResponse(login.token(), login.customerId(), login.fullName());
+        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
     }
 
     /**
      * Rotates a still-valid access token into a fresh one (see
      * {@link com.bhukkad.identity.service.IdentityService#refresh(String)}).
      */
-    @PostMapping("/auth/refresh")
+    @PostMapping({"/auth/refresh", "/auth/refresh-token"})
     public AuthResponse refresh(@Valid @RequestBody TokenRequest request) {
         var login = identityService.refresh(request.token());
-        return new AuthResponse(login.token(), login.customerId(), login.fullName());
+        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
+    }
+
+    /** Marks a customer's email verified (parity with the monolith flow). */
+    @PostMapping("/auth/verify-email")
+    public java.util.Map<String, String> verifyEmail(@org.springframework.web.bind.annotation.RequestParam String email) {
+        identityService.verifyEmail(email);
+        return java.util.Map.of("message", "Email verified");
+    }
+
+    /** Self-service password change for the authenticated principal. */
+    @PostMapping("/auth/change-password")
+    public java.util.Map<String, String> changePassword(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.bhukkad.common.security.TokenPrincipal principal,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        identityService.changePassword(principal.userId(),
+                request.currentPassword(), request.newPassword());
+        return java.util.Map.of("message", "Password changed");
+    }
+
+    /** Indifferent response; a reset token is issued only for active accounts. */
+    @PostMapping("/auth/forgot-password")
+    public java.util.Map<String, String> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        identityService.forgotPassword(request.email());
+        return java.util.Map.of("message",
+                "If an account exists for that email, a reset link has been sent");
+    }
+
+    /** Consumes a single-use reset token and sets a new password. */
+    @PostMapping("/auth/reset-password")
+    public java.util.Map<String, String> resetPassword(
+            @org.springframework.web.bind.annotation.RequestParam String token,
+            @org.springframework.web.bind.annotation.RequestParam
+            @Size(min = 8, max = 128) String newPassword) {
+        identityService.resetPassword(token, newPassword);
+        return java.util.Map.of("message", "Password reset successful");
     }
 
     /**

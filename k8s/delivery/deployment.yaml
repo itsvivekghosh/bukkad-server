@@ -25,7 +25,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/actuator/prometheus"
-        prometheus.io/port: "8085"
+        prometheus.io/port: "8094"
     spec:
       serviceAccountName: bhukkad-app
       terminationGracePeriodSeconds: 90
@@ -39,14 +39,14 @@ spec:
           image: ghcr.io/bhukkad/delivery:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8085
+            - containerPort: 8094
               name: http
           envFrom:
             - configMapRef:
                 name: bhukkad-config
           env:
             - name: SERVER_PORT
-              value: "8081"
+              value: "8094"
             - name: WAIT_FOR_SERVICES
               value: "false"
             - name: HEALTH_PATH

@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [identity, restaurant, order, payment, delivery, notification, admin-analytics, gateway]
+        service: [identity, restaurant, order, payment, delivery, notification, admin-analytics, gateway, search, survey, referral, supportticket]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

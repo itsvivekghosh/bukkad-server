@@ -47,7 +47,8 @@ public class SecurityConfig {
                         // listings, menus, search, cuisines and the home feed.
                         .requestMatchers(HttpMethod.GET, "/api/v1/restaurants/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/search/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/cuisines").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/cuisines/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/menu/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/feed/**").permitAll()
                         .anyRequest().authenticated());
 

@@ -30,4 +30,4 @@ data:
     log_disconnections = 1
     stats_period = 60
   userlist.txt: |
-    "bhukkad" "CHANGE_ME_DB_PASSWORD"
+    "app" "CHANGE_ME_DB_PASSWORD"

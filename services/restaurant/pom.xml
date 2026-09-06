@@ -13,7 +13,7 @@
 
 	<artifactId>restaurant</artifactId>
 	<name>Bhukkad Restaurant Service</name>
-	<description>Owns bhukkad_restaurants: restaurants, menu, cuisines,
+	<description>Owns restaurants: restaurants, menu, cuisines,
 		availability (architecture-microservices-postgresql.md §3/P2).</description>
 
 	<dependencies>
@@ -64,6 +64,25 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<!-- WIP mapper/RestaurantMapper (menu/feed response mapping) — processors are
+		     discovered from the classpath alongside Lombok, mirroring order module usage. -->
+		<dependency>
+			<groupId>org.mapstruct</groupId>
+			<artifactId>mapstruct</artifactId>
+			<version>${mapstruct.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.mapstruct</groupId>
+			<artifactId>mapstruct-processor</artifactId>
+			<version>${mapstruct.version}</version>
 			<optional>true</optional>
 		</dependency>
 

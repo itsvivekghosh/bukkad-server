@@ -1,8 +1,7 @@
 package com.bhukkad.delivery.service;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.domain.AgentCodWallet;
-import com.bhukkad.delivery.domain.AgentCodWalletRepository;
+import com.bhukkad.delivery.client.PaymentServiceClient;
 import com.bhukkad.delivery.domain.RiderDeliveryBatch;
 import com.bhukkad.delivery.domain.RiderDeliveryBatchOrderRepository;
 import com.bhukkad.delivery.domain.RiderDeliveryBatchRepository;
@@ -16,24 +15,26 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * Rider real-time ops: location pings, COD wallet, batch dispatch.
+ * COD wallet operations are delegated to payment service.
  */
 @ExtendWith(MockitoExtension.class)
 class RiderOpsServiceTest {
 
     @Mock private RiderLocationUpdateRepository locationRepository;
-    @Mock private AgentCodWalletRepository codWalletRepository;
     @Mock private RiderDeliveryBatchRepository batchRepository;
     @Mock private RiderDeliveryBatchOrderRepository batchOrderRepository;
+    @Mock private PaymentServiceClient paymentClient;
     @InjectMocks private RiderOpsService service;
 
     @Test
@@ -56,28 +57,33 @@ class RiderOpsServiceTest {
     }
 
     @Test
-    void creditCod_existingWallet_accumulates() {
-        AgentCodWallet wallet = new AgentCodWallet();
-        wallet.setAgentId(7L);
-        wallet.setBalance(new BigDecimal("100.00"));
-        when(codWalletRepository.findByAgentId(7L)).thenReturn(Optional.of(wallet));
-        when(codWalletRepository.save(any(AgentCodWallet.class))).thenAnswer(inv -> inv.getArgument(0));
+    void creditCod_delegatesToPaymentService() {
+        Map<String, Object> expectedResponse = Map.of(
+                "agentId", 7L,
+                "balance", new BigDecimal("150.00"),
+                "credited", new BigDecimal("50.00")
+        );
+        when(paymentClient.creditCodWallet(eq(7L), eq(new BigDecimal("50.00"))))
+                .thenReturn(expectedResponse);
 
-        AgentCodWallet result = service.creditCod(7L, new BigDecimal("50.00"));
+        Map<String, Object> result = service.creditCod(7L, new BigDecimal("50.00"));
 
-        assertThat(result.getBalance()).isEqualByComparingTo("150.00");
-        assertThat(result.getUpdatedAt()).isNotNull();
+        assertThat(result.get("balance")).isEqualTo(new BigDecimal("150.00"));
+        verify(paymentClient).creditCodWallet(7L, new BigDecimal("50.00"));
     }
 
     @Test
-    void creditCod_newWallet_createsWithAmount() {
-        when(codWalletRepository.findByAgentId(7L)).thenReturn(Optional.empty());
-        when(codWalletRepository.save(any(AgentCodWallet.class))).thenAnswer(inv -> inv.getArgument(0));
+    void getCodWallet_delegatesToPaymentService() {
+        Map<String, Object> expectedResponse = Map.of(
+                "agentId", 7L,
+                "balance", new BigDecimal("100.00")
+        );
+        when(paymentClient.getCodWallet(7L)).thenReturn(expectedResponse);
 
-        AgentCodWallet result = service.creditCod(7L, new BigDecimal("200.00"));
+        Map<String, Object> result = service.getCodWallet(7L);
 
-        assertThat(result.getAgentId()).isEqualTo(7L);
-        assertThat(result.getBalance()).isEqualByComparingTo("200.00");
+        assertThat(result.get("balance")).isEqualTo(new BigDecimal("100.00"));
+        verify(paymentClient).getCodWallet(7L);
     }
 
     @Test
@@ -92,8 +98,6 @@ class RiderOpsServiceTest {
 
     @Test
     void createBatch_savesBatchAndLinksOrders() {
-        RiderDeliveryBatch batch = new RiderDeliveryBatch();
-        batch.setId(3L);
         when(batchRepository.save(any(RiderDeliveryBatch.class))).thenAnswer(inv -> {
             RiderDeliveryBatch b = inv.getArgument(0);
             b.setId(3L);

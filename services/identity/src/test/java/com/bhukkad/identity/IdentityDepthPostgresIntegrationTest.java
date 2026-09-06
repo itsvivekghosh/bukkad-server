@@ -99,6 +99,8 @@ class IdentityDepthPostgresIntegrationTest extends AbstractIdentityPostgresTest 
         token.setUserId(saved.getId());
         token.setToken("fcm-abc");
         token.setDeviceType("ANDROID");
+        token.setPlatform(DeviceToken.Platform.ANDROID);
+        token.setActive(true);
         deviceTokenRepository.saveAndFlush(token);
 
         ConsentRecord consent = new ConsentRecord();

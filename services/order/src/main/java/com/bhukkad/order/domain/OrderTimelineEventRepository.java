@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface OrderTimelineEventRepository extends JpaRepository<OrderTimelineEvent, Long> {
     List<OrderTimelineEvent> findByOrderId(Long orderId);
+    List<OrderTimelineEvent> findByOrderIdOrderByCreatedAtAsc(Long orderId);
 }

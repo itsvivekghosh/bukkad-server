@@ -25,7 +25,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/actuator/prometheus"
-        prometheus.io/port: "8080"
+        prometheus.io/port: "8091"
     spec:
       serviceAccountName: bhukkad-app
       terminationGracePeriodSeconds: 90
@@ -39,7 +39,7 @@ spec:
           image: ghcr.io/bhukkad/restaurant:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
+            - containerPort: 8091
               name: http
           envFrom:
             - configMapRef:

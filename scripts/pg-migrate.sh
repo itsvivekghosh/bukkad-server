@@ -20,18 +20,18 @@ MYSQL_USER="${MYSQL_USER:-bhukkad_user}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:?set MYSQL_PASSWORD}"
 PG_HOST="${PG_HOST:-localhost}"
 PG_PORT="${PG_PORT:-5432}"
-PG_USER="${PG_USER:-bhukkad}"
+PG_USER="${PG_USER:-app}"
 PG_PASSWORD="${PG_PASSWORD:?set PG_PASSWORD}"
 
 # service -> PostgreSQL database name
 declare -A PG_DB=(
-    [identity]=bhukkad_identity
-    [restaurant]=bhukkad_restaurants
-    [orders]=bhukkad_orders
-    [payments]=bhukkad_payments
-    [delivery]=bhukkad_delivery
-    [notification]=bhukkad_notification
-    [admin]=bhukkad_admin
+    [identity]=identity
+    [restaurant]=restaurants
+    [orders]=orders
+    [payments]=payments
+    [delivery]=delivery
+    [notification]=notification
+    [admin]=admin
 )
 
 run_service() {

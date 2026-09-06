@@ -1,11 +1,11 @@
-server: {port: 8086}
+server: {port: 8085}
 spring:
   application: {name: notification}
   datasource:
-    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/bhukkad_notification}
-    username: ${NOTIFICATION_DB_USERNAME:bhukkad}
-    password: ${NOTIFICATION_DB_PASSWORD:bhukkad_dev}
-    hikari: {maximum-pool-size: 20}
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/notification}
+    username: ${NOTIFICATION_DB_USERNAME:app}
+    password: ${NOTIFICATION_DB_PASSWORD:app_pass}
+    hikari: {maximum-pool-size: 5}
   jpa: {hibernate: {ddl-auto: none}, open-in-view: false}
   flyway: {enabled: true, locations: classpath:db/migration-pg, baseline-on-migrate: true}
   data:

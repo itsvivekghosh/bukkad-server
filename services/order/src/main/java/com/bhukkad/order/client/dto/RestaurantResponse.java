@@ -1,14 +1,19 @@
 package com.bhukkad.order.client.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
 /**
  * Minimal restaurant profile response from the Restaurant service.
  * Used by the order service for service-to-service communication.
+ * Aliases cover the renamed fields on the RestaurantSummary read model.
  */
 public class RestaurantResponse {
     private Long id;
     private String name;
     private String cuisineType;
+    @JsonAlias("avgRating")
     private Double averageRating;
+    @JsonAlias("active")
     private Boolean isActive;
 
     public RestaurantResponse() {

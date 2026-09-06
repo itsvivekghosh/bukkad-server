@@ -13,7 +13,7 @@ public abstract class AbstractAdminPostgresTest {
     protected static final DockerImageName POSTGRES_IMAGE =
             DockerImageName.parse("postgres:16-alpine").asCompatibleSubstituteFor("postgres");
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withDatabaseName("bhukkad_admin").withUsername("bhukkad").withPassword("bhukkad_test_pw");
+            .withDatabaseName("admin").withUsername("bhukkad").withPassword("bhukkad_test_pw");
     static {
         if (!DockerClientFactory.instance().isDockerAvailable()) {
             throw new TestAbortedException("Docker not available; skipping Testcontainers integration tests");

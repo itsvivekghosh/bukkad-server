@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /**
- * Restaurant service (P2). Owns the {@code bhukkad_restaurants} database:
+ * Restaurant service (P2). Owns the {@code restaurants} database:
  * restaurants, menu, cuisines and availability.
  *
  * <p>Scans {@code com.bhukkad.common} too so the platform entities/repositories

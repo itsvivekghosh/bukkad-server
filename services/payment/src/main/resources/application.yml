@@ -1,15 +1,15 @@
 server:
-  port: 8084
+  port: 8093
 
 spring:
   application:
     name: payment
   datasource:
-    url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5432/bhukkad_payments}
-    username: ${PAYMENT_DB_USERNAME:bhukkad}
-    password: ${PAYMENT_DB_PASSWORD:bhukkad_dev}
+    url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5432/payments}
+    username: ${PAYMENT_DB_USERNAME:app}
+    password: ${PAYMENT_DB_PASSWORD:app_pass}
     hikari:
-      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:20}
+      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:5}
   jpa:
     hibernate:
       ddl-auto: none
@@ -47,13 +47,30 @@ logging:
 
 app:
   environment: production
+  # Automated settlement batch (W2/G1). Stays disabled until the cutover
+  # ladder reaches settlement; rollback = flag off + monolith scheduler
+  # restart (never a DB repair). Key names mirror the monolith block.
+  settlement:
+    auto-enabled: ${SETTLEMENT_AUTO_ENABLED:false}
+    auto-settle-cron: "${SETTLEMENT_AUTO_SETTLE_CRON:0 0 2 * * *}"
+    min-pending-amount: ${SETTLEMENT_MIN_PENDING_AMOUNT:100.00}
+    batch-limit: ${SETTLEMENT_BATCH_LIMIT:500}
+  payment:
+    provider: ${PAYMENT_PROVIDER:simulated}
+    razorpay:
+      enabled: ${RAZORPAY_ENABLED:false}
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+      # Test webhook secret; env-injected in any shared environment.
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:dev-webhook-secret}
+      currency: INR
   auth:
     jwt:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty
       # secret = auth filter inactive in dev (protected endpoints then 401);
       # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
       # to enable.
-      secret: ${JWT_SECRET:}
+      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
       jwks-url: ${JWKS_URL:}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}

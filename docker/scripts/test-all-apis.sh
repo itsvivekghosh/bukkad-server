@@ -244,9 +244,9 @@ check_server() {
 
 # Reset fraud counters from prior test runs (same IP triggers auth-register limits).
 if command -v psql >/dev/null 2>&1; then
-    PGPASSWORD="${DB_PASSWORD:-bhukkad_pass}" psql \
-        -h "${DB_HOST:-localhost}" -p "${DB_PORT:-5432}" -U "${DB_USERNAME:-bhukkad}" \
-        -d "${DB_NAME:-bhukkad}" \
+    PGPASSWORD="${DB_PASSWORD:-app_pass}" psql \
+        -h "${DB_HOST:-localhost}" -p "${DB_PORT:-5432}" -U "${DB_USERNAME:-app}" \
+        -d "${DB_NAME:-core}" \
         -c "DELETE FROM fraud_events;" 2>/dev/null || true
 fi
 

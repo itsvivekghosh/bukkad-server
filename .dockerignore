@@ -8,3 +8,10 @@
 .DS_Store
 docs
 loadtest
+
+# Fresh-start cleanup exclusions
+wallet-old.bak
+.trash-rootowned
+.jqwik-database
+dump.rdb
+**/wallet-old.bak

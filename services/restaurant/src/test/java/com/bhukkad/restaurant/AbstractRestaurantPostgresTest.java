@@ -15,7 +15,7 @@ public abstract class AbstractRestaurantPostgresTest {
             DockerImageName.parse("postgres:16-alpine").asCompatibleSubstituteFor("postgres");
 
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withDatabaseName("bhukkad_restaurants")
+            .withDatabaseName("restaurants")
             .withUsername("bhukkad")
             .withPassword("bhukkad_test_pw");
 

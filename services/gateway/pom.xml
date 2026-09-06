@@ -40,6 +40,20 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
+		<!-- Reactive Redis: edge kill switch reads the shared feature-flag
+		     override hash (see EdgeFeatureFlags). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+		</dependency>
+
+		<!-- SpringDoc OpenAPI (reactive). -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+			<version>2.2.0</version>
+		</dependency>
+
 		<!-- Test deps inherited via spring-boot-starter-test (JUnit 5, WebTestClient, AssertJ). -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -50,6 +64,16 @@
 
 	<build>
 		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<!-- This module has no Lombok/MapStruct usage; annotation
+					     processing is disabled so the parent's Lombok processor
+					     (incompatible with the build JDK) never loads. -->
+					<proc>none</proc>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

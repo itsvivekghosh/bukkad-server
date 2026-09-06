@@ -3,6 +3,7 @@ package com.bhukkad.payment.api;
 import com.bhukkad.payment.domain.CommissionTier;
 import com.bhukkad.payment.domain.DunningRun;
 import com.bhukkad.payment.domain.Payment;
+import com.bhukkad.payment.mapper.PaymentMapper;
 import com.bhukkad.payment.service.AutoRefundService;
 import com.bhukkad.payment.service.CommissionTierService;
 import com.bhukkad.payment.service.DunningService;
@@ -16,10 +17,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * Payment operations surface (port of monolith {@code PaymentOperationsController}
- * + {@code CommissionTierController} + {@code PaymentWebhookController}).
- */
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -30,10 +27,12 @@ public class PaymentOperationsController {
     private final CommissionTierService commissionTierService;
     private final DisputeService disputeService;
     private final SettlementService settlementService;
+    private final PaymentMapper paymentMapper;
 
     @PostMapping("/payments/{paymentId}/refund")
-    public Payment refund(@PathVariable Long paymentId, @RequestParam String reason) {
-        return refundService.refund(paymentId, reason);
+    public PaymentResponse refund(@PathVariable Long paymentId, @RequestParam String reason) {
+        Payment payment = refundService.refund(paymentId, reason);
+        return paymentMapper.toPaymentResponse(payment);
     }
 
     @PostMapping("/payments/{paymentId}/dunning")
@@ -62,14 +61,16 @@ public class PaymentOperationsController {
     }
 
     @PostMapping("/settlement")
-    public Object settle(@RequestParam Long restaurantId, @RequestParam int orderCount,
-                         @RequestParam BigDecimal grossAmount) {
-        return settlementService.run(LocalDate.now(), restaurantId, orderCount, grossAmount);
+    public RestaurantSettlementResponse settle(@RequestParam Long restaurantId,
+                                               @RequestParam int orderCount,
+                                               @RequestParam BigDecimal grossAmount) {
+        SettlementService.SettlementResult result = settlementService.run(
+                LocalDate.now(), restaurantId, orderCount, grossAmount);
+        return paymentMapper.toRestaurantSettlementResponse(result.settlement());
     }
 
     @PostMapping("/webhook/payment")
     public String webhook(@RequestParam Long paymentId, @RequestParam String event) {
-        // Idempotent webhook acknowledgement; real adapters map provider events.
         return "{\"received\":true,\"paymentId\":" + paymentId + ",\"event\":\"" + event + "\"}";
     }
 }

@@ -13,7 +13,7 @@
 
 	<artifactId>payment</artifactId>
 	<name>Bhukkad Payment Service</name>
-	<description>Owns bhukkad_payments: payments, wallet balances/transactions,
+	<description>Owns payments: payments, wallet balances/transactions,
 		idempotency records (single writer for the money path)
 		(architecture-microservices-postgresql.md §3/P5).</description>
 

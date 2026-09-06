@@ -13,7 +13,7 @@ import java.util.List;
  *
  * <p>Restaurant-service port of the monolith
  * {@code com.bhukkad.tenant.TenantService}. Operates against a service-local
- * {@link Tenant} entity that follows the bhukkad_restaurants schema. The
+ * {@link Tenant} entity that follows the restaurants schema. The
  * monolith keeps a working copy with the full DTO-based contract until the
  * gateway flips.
  */

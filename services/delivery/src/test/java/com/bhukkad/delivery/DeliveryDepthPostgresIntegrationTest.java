@@ -23,7 +23,6 @@ class DeliveryDepthPostgresIntegrationTest extends AbstractDeliveryPostgresTest 
     @Autowired private CityConfigRepository cityConfigRepository;
     @Autowired private ZoneSurgeRuleRepository surgeRepository;
     @Autowired private AgentShiftRepository shiftRepository;
-    @Autowired private RiderEarningRepository earningRepository;
     @Autowired private OrderDeliveryProofRepository proofRepository;
     @Autowired private DeliveryAgentRepository agentRepository;
 
@@ -78,7 +77,7 @@ class DeliveryDepthPostgresIntegrationTest extends AbstractDeliveryPostgresTest 
     }
 
     @Test
-    void agentShiftAndRiderEarning() {
+    void agentShiftPersists() {
         DeliveryAgent agent = new DeliveryAgent();
         agent.setName("Rider A");
         agent.setIsActive(true);
@@ -90,15 +89,10 @@ class DeliveryDepthPostgresIntegrationTest extends AbstractDeliveryPostgresTest 
         shift.setStatus("ACTIVE");
         shiftRepository.saveAndFlush(shift);
 
-        RiderEarning earning = new RiderEarning();
-        earning.setAgentId(agent.getId());
-        earning.setOrderId(1L);
-        earning.setAmount(new BigDecimal("50.00"));
-        earning.setStatus("PENDING");
-        earning.setCreatedAt(LocalDateTime.now());
-        earningRepository.saveAndFlush(earning);
-
-        assertThat(earningRepository.findByAgentId(agent.getId())).hasSize(1);
+        assertThat(shiftRepository.findAll()).hasSize(1);
+        // rider_earnings is now owned by the payment service
+        // (DeliveryPaymentController); the table stays in the delivery schema for
+        // reconciliation and its presence is asserted by migration_appliedV3Tables.
     }
 
     @Test

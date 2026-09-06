@@ -24,8 +24,9 @@ public class OrderStatusService {
 
     private static final Map<String, Set<String>> ALLOWED = Map.of(
             Order.STATUS_CREATED, Set.of(Order.STATUS_CONFIRMED, Order.STATUS_CANCELLED),
-            Order.STATUS_CONFIRMED, Set.of(Order.STATUS_PICKED_UP, Order.STATUS_CANCELLED),
-            Order.STATUS_PICKED_UP, Set.of(Order.STATUS_OUT_FOR_DELIVERY),
+            Order.STATUS_CONFIRMED, Set.of(Order.STATUS_PREPARING, Order.STATUS_CANCELLED),
+            Order.STATUS_PREPARING, Set.of(Order.STATUS_READY_FOR_PICKUP),
+            Order.STATUS_READY_FOR_PICKUP, Set.of(Order.STATUS_OUT_FOR_DELIVERY),
             Order.STATUS_OUT_FOR_DELIVERY, Set.of(Order.STATUS_DELIVERED),
             Order.STATUS_CANCELLED, Set.of(),
             Order.STATUS_DELIVERED, Set.of()

@@ -4,9 +4,9 @@ spring:
       on-profile: dev
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/bhukkad_${spring.application.name}
-    username: bhukkad
-    password: bhukkad_dev
+    url: jdbc:postgresql://localhost:5432/_db
+    username: app
+    password: app_pass
 
   data:
     redis:

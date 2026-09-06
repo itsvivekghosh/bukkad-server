@@ -20,6 +20,7 @@ public class PaymentEventPublisher {
     public static final String TOPIC = "payment.events.v1";
     public static final String TYPE_PAYMENT_SETTLED = "PaymentSettled";
     public static final String TYPE_WALLET_CREDITED = "WalletCredited";
+    public static final String TYPE_SETTLEMENT_RUN_COMPLETED = "PaymentSettlementRunCompleted";
 
     private final OutboxClient outboxClient;
 
@@ -27,6 +28,17 @@ public class PaymentEventPublisher {
         enqueue(TYPE_PAYMENT_SETTLED, paymentId,
                 "{\"paymentId\":%d,\"orderId\":%d,\"customerId\":%d,\"amount\":%s}"
                         .formatted(paymentId, orderId, customerId, amount));
+    }
+
+    /**
+     * Emitted by the automated settlement batch (W2 / G1). Consumers: revenue
+     * dashboards and the payout pipeline; registered in {@code docs/event-catalog.md}.
+     */
+    public void settlementRunCompleted(Long runId, java.time.LocalDate runDate,
+                                       int restaurantsSettled, int rowsSettled, BigDecimal totalNet) {
+        enqueue(TYPE_SETTLEMENT_RUN_COMPLETED, runId,
+                "{\"runId\":%d,\"runDate\":\"%s\",\"restaurantsSettled\":%d,\"rowsSettled\":%d,\"totalNet\":%s}"
+                        .formatted(runId, runDate, restaurantsSettled, rowsSettled, totalNet));
     }
 
     public void walletCredited(Long customerId, BigDecimal amount, Long transactionId) {

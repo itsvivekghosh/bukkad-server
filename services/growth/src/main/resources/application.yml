@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: growth-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:growth}
+    username: ${POSTGRES_USER:app}
+    password: ${POSTGRES_PASSWORD:app_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration-pg
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: 8089
+
+app:
+  growth:
+    loyalty:
+      points-per-rupee: 1
+      sign-up-bonus: 100
+      referral-bonus: 50
+      redemption-ratio: 100
+      min-redemption-points: 100
+    referral:
+      max-referrals-per-user: 10
+      referred-user-reward: 100
+      referrer-reward: 50
+    campaign:
+      max-discount-percent: 50
+      default-priority: 0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

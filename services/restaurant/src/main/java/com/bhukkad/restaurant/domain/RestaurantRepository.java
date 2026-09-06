@@ -1,5 +1,7 @@
 package com.bhukkad.restaurant.domain;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -7,6 +9,10 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
+    List<Restaurant> findByIsActiveTrue();
+
+    long countByIsActiveTrue();
+
     List<Restaurant> findByCuisineIdAndIsActiveTrue(Long cuisineId);
     List<Restaurant> findByNameContainingIgnoreCaseAndIsActiveTrue(String name);
 
@@ -18,4 +24,13 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
             LIMIT :limit
             """, nativeQuery = true)
     List<Restaurant> fullTextSearchByName(@Param("keyword") String keyword, @Param("limit") int limit);
+
+    @Query("SELECT r.id, r.name FROM Restaurant r WHERE r.isActive = true")
+    List<Object[]> findActiveRestaurantNames();
+
+    Page<Restaurant> findByIsActive(Boolean active, Pageable pageable);
+
+    @Query("SELECT r FROM Restaurant r WHERE r.isActive = true AND " +
+            "LOWER(r.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
+    List<Restaurant> searchByName(@Param("keyword") String keyword);
 }

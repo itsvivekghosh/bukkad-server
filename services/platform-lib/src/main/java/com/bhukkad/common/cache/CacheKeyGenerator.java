@@ -43,4 +43,14 @@ public final class CacheKeyGenerator {
     public static boolean allPresent(Object... parts) {
         return Arrays.stream(parts).allMatch(p -> p != null);
     }
+
+    /** Cache key for the full active restaurant list. */
+    public static String restaurantList() {
+        return of("restaurants", "all");
+    }
+
+    /** Cache key for a single restaurant detail. */
+    public static String restaurant(Long restaurantId) {
+        return of("restaurant", restaurantId);
+    }
 }

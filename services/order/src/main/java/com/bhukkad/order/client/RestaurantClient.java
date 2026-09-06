@@ -2,6 +2,8 @@ package com.bhukkad.order.client;
 
 import com.bhukkad.common.web.client.CircuitBreakerFilter;
 import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.order.client.dto.MenuItemDto;
+import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -49,14 +51,33 @@ public class RestaurantClient {
     }
 
     /**
+     * Fetch the full menu snapshot for a restaurant.
+     *
+     * @param restaurantId the restaurant ID
+     * @return Mono of MenuSnapshot, empty if not found
+     */
+    public Mono<MenuSnapshot> getMenu(Long restaurantId) {
+        return webClient.get()
+                .uri("/api/v1/restaurants/{restaurantId}/menu", restaurantId)
+                .retrieve()
+                .bodyToMono(MenuSnapshot.class)
+                .timeout(Duration.ofSeconds(3))
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    /**
      * Search restaurants by keyword.
+     *
+     * <p>Targets the restaurant service's real search surface (post-extraction):
+     * {@code GET /api/v1/restaurants?name=}, which returns a bare
+     * {@code RestaurantSummary[]} list.</p>
      *
      * @param keyword search term
      * @return Mono of list of RestaurantResponse
      */
     public Mono<List<RestaurantResponse>> searchRestaurants(String keyword) {
         return webClient.get()
-                .uri("/api/v1/restaurants/public/search?keyword={keyword}", keyword)
+                .uri("/api/v1/restaurants?name={keyword}", keyword)
                 .retrieve()
                 .bodyToFlux(RestaurantResponse.class)
                 .collectList()

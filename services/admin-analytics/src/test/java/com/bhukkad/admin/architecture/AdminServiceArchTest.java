@@ -24,7 +24,7 @@ class AdminServiceArchTest {
     @Test
     void controllersAreInApiLayer() {
         classes().that().haveSimpleNameEndingWith("Controller")
-                .should().resideInAPackage("com.bhukkad.admin.api..")
+                .should().resideInAnyPackage("com.bhukkad.admin.api..", "com.bhukkad.admin.experiment.api..")
                 .check(SERVICE_CLASSES);
     }
 

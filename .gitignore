@@ -65,3 +65,7 @@ mvnw.cmd
 
 scripts/reports/
 src/test/resources/archunit_store/
+
+# Sandbox-local Maven repo mirror and JVM temp dir (agent builds only)
+.m2repo/
+.tmp/

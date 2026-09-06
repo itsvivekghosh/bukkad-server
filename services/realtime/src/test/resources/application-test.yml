@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: realtime-service-test
+  datasource:
+    url: jdbc:postgresql://localhost:5432/realtime_test
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  live:
+    max-emitters-per-stream: 5
+    max-total-emitters: 10
+    replay:
+      ttl-seconds: 60
+      max-events-per-stream: 5

@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: personalization-service-test
+  datasource:
+    url: jdbc:postgresql://localhost:5432/personalization_test
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  recommendations:
+    max-items: 5
+    co-ordered-item-limit: 10
+    customer-affinity-limit: 5
+    top-restaurants-limit: 2
