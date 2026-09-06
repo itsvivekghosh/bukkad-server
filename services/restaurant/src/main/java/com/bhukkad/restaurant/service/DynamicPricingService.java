@@ -41,9 +41,16 @@ public class DynamicPricingService {
         return ruleRepository.findByRestaurantIdAndActiveTrue(restaurantId);
     }
 
+    @Transactional(readOnly = true)
+    public java.util.Optional<DynamicPricingRule> getRule(Long ruleId) {
+        return ruleRepository.findById(ruleId);
+    }
+
     @Transactional
     public void deactivate(Long ruleId) {
-        DynamicPricingRule rule = ruleRepository.findById(ruleId).orElseThrow();
+        DynamicPricingRule rule = ruleRepository.findById(ruleId)
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException(
+                        "Pricing rule not found: " + ruleId));
         rule.setActive(false);
         ruleRepository.save(rule);
     }

@@ -1,7 +1,6 @@
 package com.bhukkad.restaurant.api;
 
 import com.bhukkad.restaurant.domain.PromoBannerRepository;
-import com.bhukkad.restaurant.domain.Restaurant;
 import com.bhukkad.restaurant.domain.RestaurantRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -43,7 +42,9 @@ public class FeedController {
         if (etag.equals(normalize(ifNoneMatch))) {
             return ResponseEntity.status(304).eTag("\"" + etag + "\"").build();
         }
-        return ResponseEntity.ok().eTag("\"" + etag + "\"").body(feed);
+        return ResponseEntity.ok().eTag("\"" + etag + "\"")
+                .cacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofSeconds(30)))
+                .body(feed);
     }
 
     @GetMapping({"/api/v1/feed/banners", "/api/v1/home/banners"})
@@ -51,9 +52,17 @@ public class FeedController {
         return bannerRepository.findByActiveTrue();
     }
 
+    /**
+     * Loads active restaurants into public projections. The previous version
+     * serialized raw entities: the lazy {@code features}/{@code galleryImages}/
+     * {@code foodTypes} collections threw LazyInitializationException outside
+     * the transaction (500 on every feed request), and full entities also
+     * leaked ownerId/commission/FSSAI fields publicly.
+     */
     private Feed loadFeed() {
-        List<Restaurant> restaurants = restaurantRepository.findAll().stream()
+        List<FeedRestaurant> restaurants = restaurantRepository.findAll().stream()
                 .filter(r -> Boolean.TRUE.equals(r.getIsActive()))
+                .map(r -> new FeedRestaurant(r.getId(), r.getName(), r.getAddress(), r.getImageUrl()))
                 .toList();
         return new Feed(restaurants, bannerRepository.findByActiveTrue());
     }
@@ -78,6 +87,9 @@ public class FeedController {
         return Objects.equals(v, "") ? null : v;
     }
 
-    public record Feed(List<Restaurant> restaurants, List<?> banners) {
+    /** Public projection — no PII, no lazy associations. */
+    public record FeedRestaurant(Long id, String name, String address, String imageUrl) {}
+
+    public record Feed(List<FeedRestaurant> restaurants, List<?> banners) {
     }
 }

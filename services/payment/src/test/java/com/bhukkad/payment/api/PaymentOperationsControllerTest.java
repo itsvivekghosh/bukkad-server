@@ -12,6 +12,7 @@ import com.bhukkad.payment.domain.SettlementRun;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -32,6 +33,7 @@ class PaymentOperationsControllerTest {
     @Mock private DisputeService disputeService;
     @Mock private SettlementService settlementService;
     @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
+    @Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
     @InjectMocks private PaymentOperationsController controller;
 
     @Test
@@ -123,6 +125,15 @@ class PaymentOperationsControllerTest {
     void webhook_acknowledgesEvent() {
         String ack = controller.webhook(1L, "capture");
 
+        // Jackson serialization: no space after the colon.
         assertThat(ack).contains("\"received\":true", "\"paymentId\":1", "\"event\":\"capture\"");
+    }
+
+    @Test
+    void webhook_escapesAttackerControlledEvent() {
+        String ack = controller.webhook(1L, "x\",\"injected\":true");
+
+        // The event text must be JSON-escaped, never echoed raw.
+        assertThat(ack).doesNotContain("\"injected\":true");
     }
 }

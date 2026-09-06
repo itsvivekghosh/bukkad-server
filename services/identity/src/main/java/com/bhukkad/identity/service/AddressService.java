@@ -42,6 +42,9 @@ public class AddressService {
         address.setState(input.state());
         address.setZipCode(input.zipCode());
         address.setIsDefault(input.isDefault());
+        address.setType(Address.AddressType.OTHER);
+        address.setLatitude(0.0);
+        address.setLongitude(0.0);
         address = addressRepository.save(address);
 
         eventPublisher.addressChanged(customerId, address.getId());

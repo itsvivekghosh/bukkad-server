@@ -49,6 +49,9 @@ public class SurveySecurityConfig {
                         .requestMatchers("/api/v1/home/trending").permitAll()
                         .requestMatchers("/api/v1/restaurants/public/*/survey-ratings").permitAll()
                         // Everything else (survey submission) requires the customer JWT
+                        // Unauthenticated error forward (404s/401s to /error) must keep
+                        // their real status — otherwise MVC "no handler" 404s surface as 401.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);

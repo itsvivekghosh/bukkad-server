@@ -38,7 +38,8 @@ public class IdentityController {
             @NotBlank @Size(min = 8, max = 128) String password,
             @Pattern(regexp = "CUSTOMER|RESTAURANT_OWNER|DELIVERY_AGENT"
                             + "|customer|restaurant_owner|delivery_agent",
-                    message = "Unsupported self-registration role") String role) {
+                    message = "Unsupported self-registration role") String role,
+            String referralCode) {
     }
 
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
@@ -69,15 +70,29 @@ public class IdentityController {
             boolean isDefault) {
     }
 
-    @PostMapping("/auth/register")
+    /**
+     * Per-IP brute-force protection on the public credential endpoints.
+     * Conservative limits: 10 login attempts and 5 password-reset requests
+     * per 5-minute window per caller bucket.
+     */
+    private static final int LOGIN_RATE_LIMIT = 10;
+    private static final int PASSWORD_RESET_RATE_LIMIT = 5;
+    private static final int AUTH_RATE_WINDOW_SECONDS = 300;
+
+       @PostMapping("/auth/register")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-register",
+            limit = LOGIN_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
         identityService.register(
-                request.email(), request.phoneNumber(), request.fullName(), request.password(), request.role());
+                request.email(), request.phoneNumber(), request.fullName(), request.password(), request.role(),
+                request.referralCode());
         var login = identityService.login(request.email(), request.password());
         return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
     }
 
     @PostMapping("/auth/login")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-login",
+            limit = LOGIN_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         var login = identityService.login(request.email(), request.password());
         return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
@@ -93,10 +108,17 @@ public class IdentityController {
         return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
     }
 
-    /** Marks a customer's email verified (parity with the monolith flow). */
+    /**
+     * Marks a customer's email verified. Requires proof of account control:
+     * the caller must present the account's current password. A bare-email
+     * version previously let anyone verify any address (and enumerate
+     * accounts via 404s).
+     */
     @PostMapping("/auth/verify-email")
-    public java.util.Map<String, String> verifyEmail(@org.springframework.web.bind.annotation.RequestParam String email) {
-        identityService.verifyEmail(email);
+    public java.util.Map<String, String> verifyEmail(
+            @org.springframework.web.bind.annotation.RequestParam String email,
+            @org.springframework.web.bind.annotation.RequestParam String password) {
+        identityService.verifyEmailWithPassword(email, password);
         return java.util.Map.of("message", "Email verified");
     }
 
@@ -106,6 +128,9 @@ public class IdentityController {
             @org.springframework.security.core.annotation.AuthenticationPrincipal
             com.bhukkad.common.security.TokenPrincipal principal,
             @Valid @RequestBody ChangePasswordRequest request) {
+        // The endpoint sits under the public /api/v1/auth/** rule; an
+        // unauthenticated call would otherwise NPE into a 500.
+        com.bhukkad.common.security.PrincipalGuard.requireAuthenticated(principal);
         identityService.changePassword(principal.userId(),
                 request.currentPassword(), request.newPassword());
         return java.util.Map.of("message", "Password changed");
@@ -113,6 +138,8 @@ public class IdentityController {
 
     /** Indifferent response; a reset token is issued only for active accounts. */
     @PostMapping("/auth/forgot-password")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-forgot-password",
+            limit = PASSWORD_RESET_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
     public java.util.Map<String, String> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
         identityService.forgotPassword(request.email());
         return java.util.Map.of("message",
@@ -121,12 +148,38 @@ public class IdentityController {
 
     /** Consumes a single-use reset token and sets a new password. */
     @PostMapping("/auth/reset-password")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-reset-password",
+            limit = PASSWORD_RESET_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
     public java.util.Map<String, String> resetPassword(
             @org.springframework.web.bind.annotation.RequestParam String token,
             @org.springframework.web.bind.annotation.RequestParam
             @Size(min = 8, max = 128) String newPassword) {
         identityService.resetPassword(token, newPassword);
         return java.util.Map.of("message", "Password reset successful");
+    }
+
+    /**
+     * Client-side logout acknowledgment. Access tokens are short-lived JWTs;
+     * there is no server session to destroy, so the endpoint exists to give
+     * the apps a canonical logout call (and would revoke refresh tokens once
+     * a persistent refresh-token store lands).
+     */
+    @PostMapping("/auth/logout")
+    public java.util.Map<String, String> logout() {
+        return java.util.Map.of("message", "Logged out");
+    }
+
+    /**
+     * TOTP MFA challenge verification. The dev build issues no MFA challenges,
+     * so any presented challenge token is rejected with 401 — the request
+     * shape (mfaToken + 6-digit code) matches the monolith contract the apps
+     * use, so enabling TOTP later needs no client change.
+     */
+    @PostMapping("/auth/mfa/verify")
+    public java.util.Map<String, String> verifyMfa(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String mfaToken,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String code) {
+        throw new com.bhukkad.common.error.UnauthorizedException("Invalid or expired MFA challenge");
     }
 
     /**
@@ -147,15 +200,26 @@ public class IdentityController {
     }
 
     @PostMapping("/customers/{customerId}/addresses")
-    public Address addAddress(@PathVariable Long customerId,
-                              @Valid @RequestBody AddressRequest request) {
+    public Address addAddress(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.bhukkad.common.security.TokenPrincipal principal,
+            @PathVariable Long customerId,
+            @Valid @RequestBody AddressRequest request) {
+        // IDOR guard: the path customerId must match the JWT subject (admins
+        // excepted). Addresses are PII — any other customer must get 403.
+        com.bhukkad.common.security.PrincipalGuard.requireSelfOrAdmin(principal, customerId);
         return addressService.addAddress(customerId,
                 new AddressService.AddressInput(request.label(), request.line1(), request.city(),
                         request.state(), request.zipCode(), request.isDefault()));
     }
 
     @GetMapping("/customers/{customerId}/addresses")
-    public List<Address> listAddresses(@PathVariable Long customerId) {
+    public List<Address> listAddresses(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.bhukkad.common.security.TokenPrincipal principal,
+            @PathVariable Long customerId) {
+        // IDOR guard: see addAddress.
+        com.bhukkad.common.security.PrincipalGuard.requireSelfOrAdmin(principal, customerId);
         return addressService.listAddresses(customerId);
     }
 }

@@ -11,7 +11,28 @@ import static org.mockito.Mockito.when;
 class RateLimitAspectTest {
 
     private final RateLimitService service = new InMemoryRateLimitService();
-    private final RateLimitAspect aspect = new RateLimitAspect(service, joinPoint -> "user-1");
+    private final RateLimitAspect aspect = new RateLimitAspect(
+            service, new org.springframework.beans.factory.ObjectProvider<RateLimitAspect.RateLimitKeyResolver>() {
+                @Override
+                public RateLimitAspect.RateLimitKeyResolver getIfAvailable() {
+                    return joinPoint -> "user-1";
+                }
+
+                @Override
+                public RateLimitAspect.RateLimitKeyResolver getObject() {
+                    return getIfAvailable();
+                }
+
+                @Override
+                public RateLimitAspect.RateLimitKeyResolver getObject(java.lang.Object... args) {
+                    return getIfAvailable();
+                }
+
+                @Override
+                public RateLimitAspect.RateLimitKeyResolver getIfUnique() {
+                    return getIfAvailable();
+                }
+            });
 
     private ProceedingJoinPoint joinPointReturning(Object result) throws Throwable {
         ProceedingJoinPoint jp = mock(ProceedingJoinPoint.class);

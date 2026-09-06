@@ -44,13 +44,15 @@ public class AnalyticsExportService {
             """);
 
         java.util.List<Object> params = new java.util.ArrayList<>();
-        if (fromDate != null && !fromDate.isEmpty()) {
+        java.time.LocalDateTime from = parseDateFilter(fromDate, "fromDate");
+        java.time.LocalDateTime to = parseDateFilter(toDate, "toDate");
+        if (from != null) {
             sql.append(" AND o.created_at >= ?");
-            params.add(fromDate);
+            params.add(from);
         }
-        if (toDate != null && !toDate.isEmpty()) {
+        if (to != null) {
             sql.append(" AND o.created_at <= ?");
-            params.add(toDate);
+            params.add(to);
         }
         sql.append(" ORDER BY o.created_at DESC");
 
@@ -116,13 +118,15 @@ public class AnalyticsExportService {
             """);
 
         java.util.List<Object> params = new java.util.ArrayList<>();
-        if (fromDate != null && !fromDate.isEmpty()) {
+        java.time.LocalDateTime from = parseDateFilter(fromDate, "fromDate");
+        java.time.LocalDateTime to = parseDateFilter(toDate, "toDate");
+        if (from != null) {
             sql.append(" AND p.created_at >= ?");
-            params.add(fromDate);
+            params.add(from);
         }
-        if (toDate != null && !toDate.isEmpty()) {
+        if (to != null) {
             sql.append(" AND p.created_at <= ?");
-            params.add(toDate);
+            params.add(to);
         }
         if (status != null && !status.isEmpty()) {
             sql.append(" AND p.status = ?");
@@ -243,10 +247,37 @@ public class AnalyticsExportService {
             return "";
         }
         String escaped = value.replace("\"", "\"\"");
+        // Formula-injection guard: customer-controlled strings starting with
+        // =, +, -, or @ execute as spreadsheet formulas when the exported
+        // CSV is opened in Excel/Sheets.
+        if (escaped.matches("^[=+\\-@].*")) {
+            escaped = "'" + escaped;
+        }
         if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n") || escaped.contains("\r")) {
             return "\"" + escaped + "\"";
         }
         return escaped;
+    }
+
+    /**
+     * Validates and parses an optional date filter BEFORE any query runs —
+     * a malformed value previously threw mid-stream (after the CSV headers)
+     * and corrupted the download.
+     */
+    private java.time.LocalDateTime parseDateFilter(String value, String fieldName) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return java.time.LocalDateTime.parse(value);
+        } catch (Exception ignored) {
+            try {
+                return java.time.LocalDate.parse(value).atStartOfDay();
+            } catch (Exception ignoredToo) {
+                throw new com.bhukkad.common.error.BusinessException(
+                        "Invalid " + fieldName + " (expected ISO date or datetime)");
+            }
+        }
     }
 
     private String formatTimestamp(java.sql.Timestamp timestamp) {

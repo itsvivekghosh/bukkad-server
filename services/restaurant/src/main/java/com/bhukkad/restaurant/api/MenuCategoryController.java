@@ -1,28 +1,21 @@
 package com.bhukkad.restaurant.api;
 
+import com.bhukkad.common.security.PrincipalGuard;
+import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.restaurant.api.ApiResponse;
 import com.bhukkad.restaurant.domain.MenuCategory;
 import com.bhukkad.restaurant.service.MenuCategoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 /**
- * Menu category endpoints (Batch 4 wave 2 migration).
- *
- * <p>Restaurant-service port of the category surface of the monolith
- * {@code com.bhukkad.controller.MenuController}. Ownership checks live behind
- * the gateway in the monolith; here the surface is admin/service-facing. The
- * monolith keeps its working copy until the gateway flips.
+ * Menu category CRUD. Mutations are owner-or-admin on the addressed
+ * restaurant: without the guard any authenticated user could rename, hide,
+ * or delete any restaurant's categories.
  */
 @RestController
 @RequestMapping("/api/v1/restaurants/categories")
@@ -30,10 +23,14 @@ import java.util.List;
 public class MenuCategoryController {
 
     private final MenuCategoryService menuCategoryService;
+    private final RestaurantOwnerController ownerGuard;
 
     @PostMapping
     public ResponseEntity<ApiResponse<MenuCategory>> create(
-            @RequestParam Long restaurantId, @RequestBody MenuCategory category) {
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @RequestParam Long restaurantId,
+            @RequestBody MenuCategory category) {
+        ownerGuard.requireOwnerOrAdmin(principal, restaurantId);
         return ResponseEntity.ok(ApiResponse.success("Category created",
                 menuCategoryService.create(restaurantId, category)));
     }
@@ -45,13 +42,21 @@ public class MenuCategoryController {
 
     @PutMapping("/{categoryId}")
     public ResponseEntity<ApiResponse<MenuCategory>> update(
-            @PathVariable Long categoryId, @RequestBody MenuCategory patch) {
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @PathVariable Long categoryId,
+            @RequestBody MenuCategory patch) {
+        MenuCategory existing = menuCategoryService.get(categoryId);
+        ownerGuard.requireOwnerOrAdmin(principal, existing.getRestaurantId());
         return ResponseEntity.ok(ApiResponse.success("Category updated",
                 menuCategoryService.update(categoryId, patch)));
     }
 
     @DeleteMapping("/{categoryId}")
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long categoryId) {
+    public ResponseEntity<ApiResponse<Void>> delete(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @PathVariable Long categoryId) {
+        MenuCategory existing = menuCategoryService.get(categoryId);
+        ownerGuard.requireOwnerOrAdmin(principal, existing.getRestaurantId());
         menuCategoryService.delete(categoryId);
         return ResponseEntity.ok(ApiResponse.success("Category deleted", null));
     }

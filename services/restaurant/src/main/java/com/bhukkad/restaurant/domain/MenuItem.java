@@ -114,26 +114,26 @@ public class MenuItem {
     private Integer stockQuantity;
 
     @CreatedDate
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @BatchSize(size = 50)
     @CollectionTable(name = "menu_item_tags", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "tag", length = 50)
     private Set<String> tags = new HashSet<>();
 
     @BatchSize(size = 50)
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "menu_item_allergens", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "allergen", length = 50)
     private Set<String> allergens = new HashSet<>();
 
     @BatchSize(size = 50)
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "menu_item_ingredients", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "ingredient", length = 100)
     private Set<String> ingredients = new HashSet<>();
 
     @BatchSize(size = 50)
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "menu_item_images", joinColumns = @JoinColumn(name = "menu_item_id"))
     @Column(name = "image_url", length = 500)
     private List<String> additionalImages = new ArrayList<>();

@@ -6,5 +6,6 @@ import java.util.List;
 
 public interface InventoryAlertRepository extends JpaRepository<InventoryAlert, Long> {
     List<InventoryAlert> findByMenuItemId(Long menuItemId);
+    List<InventoryAlert> findByMenuItemIdIn(List<Long> menuItemIds);
     List<InventoryAlert> findByAlertType(String alertType);
 }

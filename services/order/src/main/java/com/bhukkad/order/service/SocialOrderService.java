@@ -18,6 +18,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SocialOrderService {
 
+    /** Per-card ceiling for the simulated issuance flow (no gateway charge yet). */
+    public static final BigDecimal MAX_GIFT_CARD_AMOUNT = new BigDecimal("10000.00");
+
     private final GroupOrderRepository groupRepository;
     private final GroupOrderMemberRepository memberRepository;
     private final GiftCardRepository giftCardRepository;
@@ -39,6 +42,12 @@ public class SocialOrderService {
         return saved;
     }
 
+    @Transactional(readOnly = true)
+    public GroupOrder groupOrder(Long groupOrderId) {
+        return groupRepository.findById(groupOrderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Group order not found"));
+    }
+
     @Transactional
     public GroupOrderMember join(Long groupOrderId, Long customerId) {
         if (memberRepository.findByGroupOrderIdAndCustomerId(groupOrderId, customerId).isPresent()) {
@@ -57,30 +66,46 @@ public class SocialOrderService {
     }
 
     @Transactional
-    public GiftCard issueGiftCard(BigDecimal amount) {
+    public GiftCard issueGiftCard(Long purchasedBy, BigDecimal amount) {
         if (amount.signum() <= 0) {
             throw new BusinessException("Gift card amount must be positive");
         }
+        if (amount.compareTo(MAX_GIFT_CARD_AMOUNT) > 0) {
+            throw new BusinessException("Gift card amount exceeds the per-card limit");
+        }
         GiftCard card = new GiftCard();
-        card.setCode("GC-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        // 128 bits of entropy: gift cards are bearer instruments; an 8-hex-char
+        // code was enumerable by brute force.
+        card.setCode("GC-" + UUID.randomUUID().toString().replace("-", ""));
         card.setBalance(amount);
+        card.setAmount(amount);
+        card.setPurchasedBy(purchasedBy);
         card.setStatus(GiftCard.STATUS_ACTIVE);
         return giftCardRepository.save(card);
     }
 
+    /**
+     * Atomic conditional redemption: the balance check and the decrement are
+     * one UPDATE, so concurrent redemptions cannot both pass the check and
+     * overdraw (lost-update / double-spend). The entity fields
+     * {@code redeemedBy}/{@code redeemedAt} are stamped on the loaded row.
+     */
     @Transactional
-    public BigDecimal redeemGiftCard(String code, BigDecimal amount) {
+    public BigDecimal redeemGiftCard(String code, Long redeemedBy, BigDecimal amount) {
+        if (amount.signum() <= 0) {
+            throw new BusinessException("Redemption amount must be positive");
+        }
         GiftCard card = giftCardRepository.findByCodeAndStatus(code, GiftCard.STATUS_ACTIVE)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or inactive gift card"));
-        if (amount.compareTo(card.getBalance()) > 0) {
+        int updated = giftCardRepository.redeem(code, amount, redeemedBy);
+        if (updated == 0) {
             throw new BusinessException("Insufficient gift card balance");
         }
-        card.setBalance(card.getBalance().subtract(amount));
-        if (card.getBalance().signum() == 0) {
-            card.setStatus(GiftCard.STATUS_EXHAUSTED);
+        BigDecimal remaining = card.getBalance().subtract(amount);
+        if (remaining.signum() == 0) {
+            giftCardRepository.updateStatus(code, GiftCard.STATUS_EXHAUSTED);
         }
-        giftCardRepository.save(card);
-        return card.getBalance();
+        return remaining;
     }
 
     @Transactional

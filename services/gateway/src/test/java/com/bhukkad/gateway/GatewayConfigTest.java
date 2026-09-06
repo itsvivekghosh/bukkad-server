@@ -32,7 +32,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "app.routes.support-uri=http://bhukkad-support.bhukkad.svc.cluster.local",
         "app.routes.notification-uri=http://bhukkad-notification.bhukkad.svc.cluster.local",
         "app.routes.admin-analytics-uri=http://bhukkad-admin-analytics.bhukkad.svc.cluster.local",
-        "app.routes.realtime-uri=http://bhukkad-realtime.bhukkad.svc.cluster.local"
+        "app.routes.realtime-uri=http://bhukkad-realtime.bhukkad.svc.cluster.local",
+        "app.routes.growth-uri=http://bhukkad-growth.bhukkad.svc.cluster.local",
+        "app.routes.personalization-uri=http://bhukkad-personalization.bhukkad.svc.cluster.local"
 })
 class GatewayConfigTest {
 
@@ -46,15 +48,20 @@ class GatewayConfigTest {
                 .block();
 
         assertThat(byId).containsKeys(
-                "survey", "customer-cart", "customer-wallet",
-                "customer-group-orders", "customer-subscriptions",
+                "notification", "survey",
+                "customer-cart", "customer-wallet", "customer-group-orders",
+                "customer-subscriptions", "customer-order-extras",
+                "customer-loyalty-self", "customer-support-self",
+                "customer-recommendations", "customer-surprise-me",
+                "customer-orders", "cart-legacy",
                 "home-feed", "home-campaigns", "home-membership",
-                "cache", "platform",
+                "cache", "platform", "compliance",
                 "search", "referral", "support",
-                "notification", "live", "inventory",
-                "restaurant", "identity", "order", "payment", "delivery",
-                "admin-analytics");
-        assertThat(routes.getRoutes().collectList().block()).hasSize(23);
+                "notification", "live", "live-realtime", "growth",
+                "inventory", "restaurant", "identity", "personalization",
+                "order", "payment", "delivery",
+                "admin-analytics", "not-found");
+        assertThat(routes.getRoutes().collectList().block()).hasSize(34);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");

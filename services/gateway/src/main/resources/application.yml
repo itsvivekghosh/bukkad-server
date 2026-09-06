@@ -36,6 +36,7 @@ app:
     admin-analytics-uri: ${ADMIN_ANALYTICS_SERVICE_URL:http://localhost:8087}
     realtime-uri: ${REALTIME_SERVICE_URL:http://localhost:8077}
     growth-uri: ${GROWTH_SERVICE_URL:http://localhost:8089}
+    personalization-uri: ${PERSONALIZATION_SERVICE_URL:http://localhost:8088}
   # Edge kill-switch defaults (W0 / gap A10). Same keys as every service's
   # app.feature-flags block; runtime overrides come from the shared Redis
   # hash bhukkad:feature-flag:overrides written by admin-analytics.

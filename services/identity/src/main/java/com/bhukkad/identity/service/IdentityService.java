@@ -8,12 +8,8 @@ import com.bhukkad.identity.domain.Admin;
 import com.bhukkad.identity.domain.AdminRepository;
 import com.bhukkad.identity.domain.Customer;
 import com.bhukkad.identity.domain.CustomerRepository;
-import com.bhukkad.identity.domain.DeliveryAgent;
-import com.bhukkad.identity.domain.DeliveryAgentRepository;
-import com.bhukkad.identity.domain.RestaurantOwner;
-import com.bhukkad.identity.domain.RestaurantOwnerRepository;
-import com.bhukkad.identity.domain.User;
 import com.bhukkad.identity.domain.UserRepository;
+import com.bhukkad.identity.referral.ReferralService;
 import com.bhukkad.identity.service.IdentityEventPublisher;
 import com.bhukkad.identity.security.JwtService;
 import com.bhukkad.identity.security.PasswordService;
@@ -48,15 +44,14 @@ public class IdentityService {
     private final JwtService jwtService;
     private final IdentityEventPublisher eventPublisher;
     private final UserRepository userRepository;
-    private final RestaurantOwnerRepository restaurantOwnerRepository;
-    private final DeliveryAgentRepository deliveryAgentRepository;
     private final AdminRepository adminRepository;
+    private final ReferralService referralService;
 
     @PersistenceContext
     private EntityManager em;
 
     @Transactional
-    public Customer register(String email, String phoneNumber, String fullName, String rawPassword, String requestedRole) {
+    public Customer register(String email, String phoneNumber, String fullName, String rawPassword, String requestedRole, String referralCode) {
         String role = normalizeRole(requestedRole);
         if (userRepositoryExists(email)) {
             throw new DuplicateRequestException("Email already registered: " + email);
@@ -67,7 +62,6 @@ public class IdentityService {
         customer.setPhoneNumber(phoneNumber);
         customer.setFullName(fullName);
         customer.setPasswordHash(passwordService.hash(rawPassword));
-        customer.setReferralCode(generateReferralCode());
         Customer saved = customerRepository.saveAndFlush(customer);
 
         em.createNativeQuery("INSERT INTO users (id, role, active, email_verified, phone_verified, "
@@ -78,25 +72,41 @@ public class IdentityService {
                 .setParameter("role", role)
                 .executeUpdate();
 
+        // Explicit-id inserts bypass users_id_seq, leaving it stale below
+        // max(users.id). Identity-generated writers (admin bootstrap) then
+        // collide with existing pkeys. Re-arm the sequence after each
+        // shared-id write so nextval is always beyond max(id).
+        em.createNativeQuery("SELECT setval('users_id_seq', "
+                         + "GREATEST((SELECT COALESCE(MAX(id), 0) FROM users), 1))")
+                .getSingleResult();
+
         if ("RESTAURANT_OWNER".equals(role)) {
-            RestaurantOwner owner = new RestaurantOwner();
-            owner.setId(saved.getId());
-            owner.setEmail(email);
-            owner.setFullName(fullName);
-            owner.setPhoneNumber(phoneNumber);
-            owner.setRole(User.UserRole.RESTAURANT_OWNER);
-            restaurantOwnerRepository.save(owner);
+            // Profile row only — the users registry row was already written
+            // above with the shared customer id. Saving the JOINED entity here
+            // would re-insert into users (users_pkey duplicate) and fail.
+            em.createNativeQuery("INSERT INTO restaurant_owners "
+                            + "(id, email, full_name, phone_number) "
+                            + "VALUES (:id, :email, :fullName, :phone)")
+                    .setParameter("id", saved.getId())
+                    .setParameter("email", email)
+                    .setParameter("fullName", fullName)
+                    .setParameter("phone", phoneNumber)
+                    .executeUpdate();
         } else if ("DELIVERY_AGENT".equals(role)) {
-            DeliveryAgent agent = new DeliveryAgent();
-            agent.setId(saved.getId());
-            agent.setEmail(email);
-            agent.setFullName(fullName);
-            agent.setPhoneNumber(phoneNumber);
-            agent.setRole(User.UserRole.DELIVERY_AGENT);
-            deliveryAgentRepository.save(agent);
+            // delivery_agents NOT NULL columns (available/verified/average_rating/
+            // total_deliveries) all carry column defaults, so they are omitted.
+            em.createNativeQuery("INSERT INTO delivery_agents "
+                            + "(id, email, full_name, phone_number) "
+                            + "VALUES (:id, :email, :fullName, :phone)")
+                    .setParameter("id", saved.getId())
+                    .setParameter("email", email)
+                    .setParameter("fullName", fullName)
+                    .setParameter("phone", phoneNumber)
+                    .executeUpdate();
         }
 
-        eventPublisher.customerRegistered(saved.getId(), email, fullName);
+         eventPublisher.customerRegistered(saved.getId(), email, fullName);
+        referralService.initializeNewCustomer(saved, referralCode);
         return saved;
     }
 
@@ -138,18 +148,34 @@ public class IdentityService {
         if (!result.valid() || result.customerId() == null) {
             throw new UnauthorizedException("Invalid or expired token");
         }
-        String scope = result.scope() != null ? result.scope() : resolveScope(result.customerId());
-        String fullName = customerRepository.findById(result.customerId())
-                .map(Customer::getFullName)
-                .orElse("user");
+        // Re-derive role state from the DB on every refresh: a deactivated
+        // account or a role downgrade must take effect immediately instead of
+        // living as long as the stolen token keeps being renewed.
+        var customer = customerRepository.findById(result.customerId())
+                .orElseThrow(() -> new UnauthorizedException("Invalid or expired token"));
+        if (!Boolean.TRUE.equals(customer.getIsActive())) {
+            throw new UnauthorizedException("Account is deactivated");
+        }
+        String scope = resolveScope(result.customerId());
+        String fullName = customer.getFullName() == null ? "user" : customer.getFullName();
         String freshToken = jwtService.issue(result.customerId(), emailOf(result.customerId()), scope);
         return new LoginResult(freshToken, result.customerId(), fullName, scope);
     }
 
+    /**
+     * Marks a customer's email verified. The endpoint is intentionally
+     * unauthenticated but never trusts a bare email: only callers presenting
+     * the account's current password can complete verification (proof of
+     * account control). Bulk probing is still prevented by the uniform
+     * exception text — no account enumeration.
+     */
     @Transactional
-    public void verifyEmail(String email) {
+    public void verifyEmailWithPassword(String email, String currentPassword) {
         Customer customer = customerRepository.findByEmailAndIsActiveTrue(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found: " + email));
+                .orElseThrow(() -> new UnauthorizedException("Invalid credentials"));
+        if (!passwordService.matches(currentPassword, customer.getPasswordHash())) {
+            throw new UnauthorizedException("Invalid credentials");
+        }
         customer.setEmailVerified(true);
         customerRepository.save(customer);
         em.createNativeQuery("UPDATE users SET email_verified = true, updated_at = now() WHERE id = :id")

@@ -84,14 +84,10 @@ class ExperimentAdminControllerTest {
     }
 
     @Test
-    void exposures_followsServiceAuthzConvention_noMethodLevelSecurity() throws Exception {
-        Method exposures = ExperimentAdminController.class.getMethod("exposures", String.class);
-
-        assertThat(exposures.getAnnotation(
-                org.springframework.security.access.prepost.PreAuthorize.class)).isNull();
-        assertThat(exposures.getAnnotation(
-                org.springframework.security.access.annotation.Secured.class)).isNull();
+    void exposures_carryClassLevelAdminGate() {
+        // Security convention (post-audit): the experiment admin surface is
+        // gated by a class-level @PreAuthorize("hasRole('ADMIN')").
         assertThat(ExperimentAdminController.class.getAnnotation(
-                org.springframework.security.access.prepost.PreAuthorize.class)).isNull();
+                org.springframework.security.access.prepost.PreAuthorize.class)).isNotNull();
     }
 }

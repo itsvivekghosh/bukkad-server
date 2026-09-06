@@ -3,6 +3,7 @@ package com.bhukkad.realtime.api;
 import com.bhukkad.realtime.dto.OrderLiveUpdate;
 import com.bhukkad.realtime.service.OrderSseStreamService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -51,9 +52,12 @@ public class LiveStreamController {
     }
 
     /**
-     * Broadcast an order live update to kitchen stream.
+     * Broadcast an order live update to kitchen stream. Service/ops-only:
+     * an open broadcast endpoint let any caller inject arbitrary updates
+     * (including forged rider GPS) to every connected client.
      */
     @PostMapping("/kitchen/{restaurantId}/broadcast")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SERVICE')")
     public ResponseEntity<Void> broadcastKitchen(
             @PathVariable Long restaurantId,
             @RequestBody OrderLiveUpdate update) {
@@ -62,9 +66,10 @@ public class LiveStreamController {
     }
 
     /**
-     * Broadcast an order live update to rider stream.
+     * Broadcast an order live update to rider stream. Service/ops-only.
      */
     @PostMapping("/rider/{agentId}/broadcast")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SERVICE')")
     public ResponseEntity<Void> broadcastRider(
             @PathVariable Long agentId,
             @RequestBody OrderLiveUpdate update) {
@@ -73,9 +78,10 @@ public class LiveStreamController {
     }
 
     /**
-     * Broadcast an order live update to customer stream.
+     * Broadcast an order live update to customer stream. Service/ops-only.
      */
     @PostMapping("/order/{orderId}/broadcast")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SERVICE')")
     public ResponseEntity<Void> broadcastCustomer(
             @PathVariable Long orderId,
             @RequestBody OrderLiveUpdate update) {

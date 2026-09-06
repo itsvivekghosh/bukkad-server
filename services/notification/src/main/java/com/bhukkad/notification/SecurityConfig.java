@@ -42,6 +42,9 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        // Unauthenticated error forward (404s/401s to /error) must keep
+                        // their real status — otherwise MVC "no handler" 404s surface as 401.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         // Security headers must run first

@@ -10,6 +10,7 @@ import lombok.Data;
 @Data
 public class RegisterRequest {
     @NotBlank(message = "Full name is required")
+    @Size(max = 120, message = "Full name must be at most 120 characters")
     private String fullName;
 
     @NotBlank(message = "Email is required")

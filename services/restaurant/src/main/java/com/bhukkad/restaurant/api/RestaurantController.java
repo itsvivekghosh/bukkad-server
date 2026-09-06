@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,6 +27,7 @@ public class RestaurantController {
     private final RestaurantAdminService adminService;
     private final RestaurantBusyService busyService;
     private final RestaurantDashboardService dashboardService;
+    private final RestaurantOwnerController ownerGuard;
 
     public record CreateRestaurantRequest(
             @NotBlank String name,
@@ -35,7 +37,9 @@ public class RestaurantController {
             String phone) {}
 
     @PostMapping
-    public Restaurant create(@RequestBody CreateRestaurantRequest request) {
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public Restaurant create(@org.springframework.validation.annotation.Validated @jakarta.validation.Valid
+                             @RequestBody CreateRestaurantRequest request) {
         return adminService.create(request.name(), request.description(), request.cuisineId(),
                 request.address(), request.phone());
     }
@@ -57,11 +61,15 @@ public class RestaurantController {
         return queryService.menuSnapshot(restaurantId);
     }
 
-    // Owner endpoints for busy mode and dashboard
+    // Owner endpoints for busy mode and dashboard. Ownership enforced here
+    // (defense in depth): the path id was previously trusted blindly, so any
+    // customer could flip any restaurant's busy mode.
     @PutMapping("/owner/{id}/busy-mode")
     public ResponseEntity<Void> enableBusyMode(
+            @AuthenticationPrincipal com.bhukkad.common.security.TokenPrincipal principal,
             @PathVariable Long id,
             @RequestBody RestaurantBusyModeRequest request) {
+        ownerGuard.requireOwnerOrAdmin(principal, id);
         java.time.LocalDateTime busyUntil = request.getBusyUntil();
         Integer extraPrepMinutes = request.getExtraPrepMinutes();
         busyService.setBusyMode(id, busyUntil, extraPrepMinutes);
@@ -69,14 +77,19 @@ public class RestaurantController {
     }
 
     @DeleteMapping("/owner/{id}/busy-mode")
-    public ResponseEntity<Void> disableBusyMode(@PathVariable Long id) {
+    public ResponseEntity<Void> disableBusyMode(
+            @AuthenticationPrincipal com.bhukkad.common.security.TokenPrincipal principal,
+            @PathVariable Long id) {
+        ownerGuard.requireOwnerOrAdmin(principal, id);
         busyService.clearBusyMode(id);
         return ResponseEntity.ok().build();
     }
 
     @GetMapping("/owner/{id}/dashboard")
     public ResponseEntity<RestaurantDashboardService.RestaurantDashboardView> getDashboard(
+            @AuthenticationPrincipal com.bhukkad.common.security.TokenPrincipal principal,
             @PathVariable Long id) {
+        ownerGuard.requireOwnerOrAdmin(principal, id);
         return ResponseEntity.ok(dashboardService.getDashboard(id));
     }
 }

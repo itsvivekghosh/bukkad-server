@@ -29,6 +29,7 @@ public class DeliveryAssignment {
     private String status;
     @Column(nullable = false)
     private LocalDateTime assignedAt;
+    private LocalDateTime acceptedAt;
     private LocalDateTime pickedUpAt;
     private LocalDateTime deliveredAt;
     @CreatedDate @Column(nullable = false, updatable = false)

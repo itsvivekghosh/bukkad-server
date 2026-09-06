@@ -25,7 +25,7 @@ public class WalletService {
     @Transactional
     public WalletBalance credit(Long customerId, BigDecimal amount, String reference) {
         if (amount.signum() <= 0) throw new BusinessException("Credit amount must be positive");
-        WalletBalance wb = balanceRepository.findByCustomerId(customerId)
+        WalletBalance wb = balanceRepository.findByCustomerIdForUpdate(customerId)
                 .orElseGet(() -> {
                     WalletBalance b = new WalletBalance();
                     b.setCustomerId(customerId);
@@ -44,7 +44,9 @@ public class WalletService {
     @Transactional
     public WalletBalance debit(Long customerId, BigDecimal amount, String reference) {
         if (amount.signum() <= 0) throw new BusinessException("Debit amount must be positive");
-        WalletBalance wb = balanceRepository.findByCustomerId(customerId)
+        // Row-level lock closes the check-then-act gap: concurrent debits can
+        // no longer both read the same balance and overdraw.
+        WalletBalance wb = balanceRepository.findByCustomerIdForUpdate(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("No wallet for customer " + customerId));
         if (wb.getBalance().compareTo(amount) < 0) {
             throw new BusinessException("Insufficient wallet balance");

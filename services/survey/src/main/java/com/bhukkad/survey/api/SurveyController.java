@@ -91,13 +91,16 @@ public class SurveyController {
         return ResponseEntity.ok(ApiResponse.success(dishes));
     }
 
+    /**
+     * Resolves the caller id from the validated platform JWT principal. The
+     * old implementation parsed {@code Authentication.getName()} — which is
+     * the {@code TokenPrincipal} record's {@code toString()} — so every
+     * submission failed with 401.
+     */
     private Long currentUserId(Principal principal) {
-        if (principal instanceof Authentication auth && auth.getName() != null) {
-            try {
-                return Long.parseLong(auth.getName());
-            } catch (NumberFormatException ignored) {
-                // fall through
-            }
+        if (principal instanceof Authentication auth
+                && auth.getPrincipal() instanceof com.bhukkad.common.security.TokenPrincipal tokenPrincipal) {
+            return tokenPrincipal.userId();
         }
         return null;
     }

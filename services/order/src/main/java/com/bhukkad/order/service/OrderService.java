@@ -6,6 +6,7 @@ import com.bhukkad.common.saga.SagaAction;
 import com.bhukkad.common.saga.SagaCoordinator;
 import com.bhukkad.common.saga.SagaStepDefinition;
 import com.bhukkad.order.api.CreateOrderRequest;
+import com.bhukkad.order.api.OrderDetailsResponse;
 import com.bhukkad.order.api.OrderItemDto;
 import com.bhukkad.order.api.OrderItemRequest;
 import com.bhukkad.order.api.OrderResponse;
@@ -110,10 +111,106 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersForCustomer(Long customerId) {
+        return orderRepository.findByCustomerId(customerId).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public OrderResponse getOrder(Long orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
         return toResponse(order);
+    }
+
+    /**
+     * Lifecycle transition shared by the owner/rider ops surfaces
+     * ({@code accept}, {@code ready}, {@code picked-up}, {@code delivered}).
+     * Persists the new status, records a timeline entry and emits the
+     * {@code OrderStatusChanged} event in the same transaction.
+     */
+    @Transactional
+    public OrderResponse transition(Long orderId, String newStatus, String timelineEvent) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+        if (Order.STATUS_CANCELLED.equals(order.getStatus())
+                || Order.STATUS_DELIVERED.equals(order.getStatus())) {
+            throw new BusinessException("Order is already " + order.getStatus());
+        }
+        if (Order.STATUS_DELIVERED.equals(newStatus)) {
+            order.setDeliveredAt(java.time.LocalDateTime.now());
+        }
+        order.setStatus(newStatus);
+        orderRepository.save(order);
+        recordTimeline(orderId, timelineEvent);
+        eventPublisher.orderStatusChanged(orderId, newStatus);
+        return toResponse(order);
+    }
+
+    /**
+     * Assigns a delivery agent to an order (merchant-app flow). The agent id
+     * is stamped on the order so the rider lifecycle endpoints can enforce
+     * that only the assigned agent picks up / completes the delivery.
+     */
+    @Transactional
+    public OrderResponse assignDeliveryAgent(Long orderId, Long agentId) {
+        if (agentId == null || agentId <= 0) {
+            throw new BusinessException("agentId is required");
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+        order.setDeliveryAgentId(agentId);
+        orderRepository.save(order);
+        recordTimeline(orderId, "DELIVERY_ASSIGNED");
+        return toResponse(order);
+    }
+
+    /** Entity projection for ops listings (avoids N+1 item loads). */
+    @Transactional(readOnly = true)
+    public OrderResponse toResponseCompat(Order order) {
+        return toResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<String> timelineEvents(Long orderId) {
+        return timelineRepository.findByOrderIdOrderByCreatedAtAsc(orderId).stream()
+                .map(OrderTimelineEvent::getEventType)
+                .toList();
+    }
+
+    /**
+     * Internal details view for cross-service consumers (e.g. supportticket dispute
+     * auto-resolution). Includes delivery timestamps needed for late-delivery
+     * refund calculations.
+     */
+    @Transactional(readOnly = true)
+    public OrderDetailsResponse getOrderDetails(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+        return toDetailsResponse(order);
+    }
+
+    /**
+     * Re-places a past order's items as a fresh order for {@code customerId}.
+     * Ownership is enforced by the caller; item snapshots come from the
+     * original order so pricing matches what was paid before.
+     */
+    @Transactional
+    public OrderResponse reorder(Long customerId, Long orderId) {
+        Order original = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+        if (!original.getCustomerId().equals(customerId)) {
+            throw new BusinessException("Cannot reorder another customer's order");
+        }
+        List<OrderItemRequest> items = orderItemRepository.findByOrderId(orderId).stream()
+                .map(i -> new OrderItemRequest(i.getMenuItemId(), i.getItemName(),
+                        i.getUnitPrice(), i.getQuantity()))
+                .toList();
+        if (items.isEmpty()) {
+            throw new BusinessException("Original order has no items to reorder");
+        }
+        return createOrder(new CreateOrderRequest(customerId, original.getRestaurantId(), items));
     }
 
     private void recordTimeline(Long orderId, String eventType) {
@@ -129,5 +226,16 @@ public class OrderService {
                 .toList();
         return new OrderResponse(order.getId(), order.getCustomerId(), order.getRestaurantId(),
                 order.getStatus(), order.getTotalAmount(), items);
+    }
+
+    private OrderDetailsResponse toDetailsResponse(Order order) {
+        return new OrderDetailsResponse(
+                order.getId(),
+                order.getCustomerId(),
+                order.getRestaurantId(),
+                order.getStatus(),
+                order.getTotalAmount(),
+                order.getDeliveredAt(),
+                order.getEstimatedDeliveryAt());
     }
 }

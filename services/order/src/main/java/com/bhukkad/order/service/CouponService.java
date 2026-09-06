@@ -32,13 +32,14 @@ public class CouponService {
 
     @Transactional
     public CouponResponse createCoupon(CouponRequest request) {
+        validateCouponValues(request);
         if (couponRepository.findByCode(request.code()).isPresent()) {
             throw new BusinessException("Coupon code already exists");
         }
         Coupon coupon = new Coupon();
         coupon.setCode(request.code().toUpperCase());
         coupon.setDescription(request.description());
-        coupon.setDiscountType(Coupon.DiscountType.valueOf(request.discountType()));
+        coupon.setDiscountType(parseDiscountType(request.discountType()));
         coupon.setDiscountValue(request.discountValue());
         coupon.setMinimumOrderAmount(request.minimumOrderAmount());
         coupon.setMaximumDiscountAmount(request.maximumDiscountAmount());
@@ -54,9 +55,10 @@ public class CouponService {
 
     @Transactional
     public CouponResponse updateCoupon(Long couponId, CouponRequest request) {
+        validateCouponValues(request);
         Coupon coupon = findOrThrow(couponId);
         coupon.setDescription(request.description());
-        coupon.setDiscountType(Coupon.DiscountType.valueOf(request.discountType()));
+        coupon.setDiscountType(parseDiscountType(request.discountType()));
         coupon.setDiscountValue(request.discountValue());
         coupon.setMinimumOrderAmount(request.minimumOrderAmount());
         coupon.setMaximumDiscountAmount(request.maximumDiscountAmount());
@@ -66,6 +68,30 @@ public class CouponService {
         coupon.setPerUserLimit(request.perUserLimit());
         coupon.setRestaurantId(request.restaurantId());
         return toResponse(couponRepository.save(coupon));
+    }
+
+    /**
+     * Client errors must be 400, not 500: an unknown discount type used to
+     * surface as IllegalArgumentException → INTERNAL_ERROR, and a PERCENTAGE
+     * coupon with a value above 100 turned every checkout into free money.
+     */
+    private Coupon.DiscountType parseDiscountType(String discountType) {
+        try {
+            return Coupon.DiscountType.valueOf(discountType);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new BusinessException("Unsupported discount type: " + discountType);
+        }
+    }
+
+    private void validateCouponValues(CouponRequest request) {
+        if (request.discountValue() == null || request.discountValue().signum() <= 0) {
+            throw new BusinessException("discountValue must be positive");
+        }
+        if (Coupon.DiscountType.PERCENTAGE.name().equalsIgnoreCase(
+                request.discountType() == null ? "" : request.discountType())
+                && request.discountValue().compareTo(new BigDecimal("100")) > 0) {
+            throw new BusinessException("Percentage discount cannot exceed 100");
+        }
     }
 
     @Transactional

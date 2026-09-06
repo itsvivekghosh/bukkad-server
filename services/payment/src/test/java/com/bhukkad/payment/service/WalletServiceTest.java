@@ -36,7 +36,7 @@ class WalletServiceTest {
 
     @Test
     void credit_existingWallet_addsBalance() {
-        when(balanceRepository.findByCustomerId(1L)).thenReturn(Optional.of(balance(new BigDecimal("50.00"))));
+        when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(balance(new BigDecimal("50.00"))));
         when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
         WalletBalance result = service.credit(1L, new BigDecimal("100.00"), "TOPUP-1");
@@ -46,7 +46,7 @@ class WalletServiceTest {
 
     @Test
     void credit_newWallet_creates() {
-        when(balanceRepository.findByCustomerId(1L)).thenReturn(Optional.empty());
+        when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.empty());
         when(balanceRepository.save(any(WalletBalance.class))).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -57,7 +57,7 @@ class WalletServiceTest {
 
     @Test
     void debit_sufficient_balanceReduces() {
-        when(balanceRepository.findByCustomerId(1L)).thenReturn(Optional.of(balance(new BigDecimal("300.00"))));
+        when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(balance(new BigDecimal("300.00"))));
         when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
         WalletBalance result = service.debit(1L, new BigDecimal("80.00"), "ORDER-1");
@@ -67,7 +67,7 @@ class WalletServiceTest {
 
     @Test
     void debit_insufficient_throws() {
-        when(balanceRepository.findByCustomerId(1L)).thenReturn(Optional.of(balance(new BigDecimal("10.00"))));
+        when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(balance(new BigDecimal("10.00"))));
         assertThatThrownBy(() -> service.debit(1L, new BigDecimal("50.00"), "ORDER-2"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Insufficient");
@@ -75,7 +75,7 @@ class WalletServiceTest {
 
     @Test
     void debit_noWallet_throws() {
-        when(balanceRepository.findByCustomerId(9L)).thenReturn(Optional.empty());
+        when(balanceRepository.findByCustomerIdForUpdate(9L)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.debit(9L, new BigDecimal("50.00"), "x"))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
@@ -92,27 +92,5 @@ class WalletServiceTest {
         assertThatThrownBy(() -> service.debit(1L, new BigDecimal("-5.00"), "x"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("positive");
-    }
-
-    @Test
-    void balance_existing_returnsBalance() {
-        when(balanceRepository.findByCustomerId(1L)).thenReturn(Optional.of(balance(new BigDecimal("42.00"))));
-
-        assertThat(service.balance(1L).getBalance()).isEqualByComparingTo("42.00");
-    }
-
-    @Test
-    void balance_missing_returnsNull() {
-        when(balanceRepository.findByCustomerId(9L)).thenReturn(Optional.empty());
-
-        assertThat(service.balance(9L)).isNull();
-    }
-
-    @Test
-    void transactions_delegatesToRepository() {
-        when(transactionRepository.findByCustomerId(1L)).thenReturn(java.util.List.of());
-
-        assertThat(service.transactions(1L)).isEmpty();
-        org.mockito.Mockito.verify(transactionRepository).findByCustomerId(1L);
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * Admin view over experiment assignments — the cohort census used to compute
@@ -22,6 +23,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin/experiments")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class ExperimentAdminController {
 
     private final ExperimentAssignmentService assignmentService;

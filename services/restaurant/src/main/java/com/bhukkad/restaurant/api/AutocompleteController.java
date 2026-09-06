@@ -23,6 +23,8 @@ public class AutocompleteController {
     @GetMapping
     public List<String> suggest(@RequestParam String q,
                                 @RequestParam(defaultValue = "8") int limit) {
-        return autocompleteService.suggest(q, limit);
+        // Clamp: a negative limit never terminated the trie walk (CPU DoS).
+        int safeLimit = Math.min(Math.max(limit, 1), 50);
+        return autocompleteService.suggest(q, safeLimit);
     }
 }

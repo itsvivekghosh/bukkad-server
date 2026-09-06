@@ -45,6 +45,8 @@ public class SupportSecurityConfig {
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(supportAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
+                        // Error dispatch (404/500 forwards) must keep its real status.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);

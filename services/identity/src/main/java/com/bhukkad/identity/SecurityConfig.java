@@ -44,10 +44,16 @@ public class SecurityConfig {
                         .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         // identity issues the tokens: register/login are public.
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        // Public platform endpoints (serve by identity)
+                        .requestMatchers("/api/v1/platform/**").permitAll()
+                        .requestMatchers("/api/v1/membership/**").permitAll()
                         // Token introspection (/internal/verify) must be callable
                         // WITHOUT a token — it reports whether a presented token is
                         // valid, which is the whole point of introspection.
                         .requestMatchers("/api/v1/internal/**").permitAll()
+                        // Unauthenticated error forward (404s/401s to /error) must keep
+                        // their real status — otherwise MVC "no handler" 404s surface as 401.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         // Security headers must run first

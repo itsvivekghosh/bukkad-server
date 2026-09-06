@@ -46,6 +46,12 @@ public class MenuCategoryService {
         return menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAsc(restaurantId);
     }
 
+    @Transactional(readOnly = true)
+    public MenuCategory get(Long categoryId) {
+        return menuCategoryRepository.findById(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+    }
+
     @Transactional
     public MenuCategory update(Long categoryId, MenuCategory patch) {
         MenuCategory category = menuCategoryRepository.findById(categoryId)

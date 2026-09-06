@@ -2,6 +2,7 @@ package com.bhukkad.delivery;
 
 import com.bhukkad.common.outbox.OutboxClient;
 import com.bhukkad.common.outbox.OutboxEventRepository;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -14,6 +15,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 @Configuration
 @EnableAsync
 @EnableScheduling
+@EnableConfigurationProperties(RiderEarningsProperties.class)
 public class PlatformConfig {
     @Bean
     public OutboxClient outboxClient(OutboxEventRepository outboxEventRepository) {

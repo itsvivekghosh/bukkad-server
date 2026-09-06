@@ -89,6 +89,10 @@ public class Order {
     @Column
     private Long deliveryAddressId;
 
+    /** Assigned rider (identity users.id) for the delivery lifecycle. */
+    @Column
+    private Long deliveryAgentId;
+
     @Column(length = 500)
     private String specialInstructions;
 

@@ -11,9 +11,12 @@ import java.util.List;
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     List<Restaurant> findByIsActiveTrue();
 
+    List<Restaurant> findByIsActiveTrueAndIsOpenTrue();
+
     long countByIsActiveTrue();
 
     List<Restaurant> findByCuisineIdAndIsActiveTrue(Long cuisineId);
+    List<Restaurant> findByOwnerId(Long ownerId);
     List<Restaurant> findByNameContainingIgnoreCaseAndIsActiveTrue(String name);
 
     /** PG port of the MySQL FULLTEXT restaurant-name search (tsvector). */

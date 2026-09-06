@@ -140,8 +140,20 @@ class GatewayRoutingTest {
         registry.add("app.routes.delivery-uri", () -> "http://127.0.0.1:1");
         // Admin-analytics service path → refused port (not under test).
         registry.add("app.routes.admin-analytics-uri", () -> "http://127.0.0.1:1");
+        // Search service path → refused port (not under test).
+        registry.add("app.routes.search-uri", () -> "http://127.0.0.1:1");
+        // Survey service path → refused port (not under test).
+        registry.add("app.routes.survey-uri", () -> "http://127.0.0.1:1");
+        // Referral service path → refused port (not under test).
+        registry.add("app.routes.referral-uri", () -> "http://127.0.0.1:1");
+        // Support service path → refused port (not under test).
+        registry.add("app.routes.support-uri", () -> "http://127.0.0.1:1");
+        // Growth service path → refused port (not under test).
+        registry.add("app.routes.growth-uri", () -> "http://127.0.0.1:1");
         // Realtime service path → live embedded backend (live SSE stream).
         registry.add("app.routes.realtime-uri", () -> realtimeBase);
+        // Personalization service path → refused port (not under test).
+        registry.add("app.routes.personalization-uri", () -> "http://127.0.0.1:1");
     }
 
     @Autowired
@@ -230,11 +242,18 @@ class GatewayRoutingTest {
     }
 
     @Test
-    void liveStreamPathIsServedByRealtimeBackend() {
-        // /api/v1/orders/stream/** (narrower than /api/v1/orders/**) routes to
-        // the realtime service for SSE live tracking (strangler of the monolith
-        // live slice), not the order service.
+    void liveStreamPathIsServedByOrderBackend() {
+        // /api/v1/orders/stream/** routes to the order service (order ownership
+        // enforced server-side); /api/v1/live/** is the realtime SSE surface.
         client.get().uri("/api/v1/orders/stream/customer/123").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("ORDER-BACKEND");
+    }
+
+    @Test
+    void liveRealtimePathIsServedByRealtimeBackend() {
+        // /api/v1/live/** routes to the realtime service for SSE tracking.
+        client.get().uri("/api/v1/live/tracking/123").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("REALTIME-BACKEND");
     }

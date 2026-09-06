@@ -1,5 +1,6 @@
 package com.bhukkad.notification.api;
 
+import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.notification.domain.Notification;
 import com.bhukkad.notification.service.NotificationDispatchService;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +21,10 @@ class NotificationControllerTest {
 
     @Mock private NotificationDispatchService dispatchService;
     @InjectMocks private NotificationController controller;
+
+    private TokenPrincipal admin() {
+        return new TokenPrincipal(1L, "admin@example.com", "ADMIN");
+    }
 
     @Test
     void dispatch_delegatesToDispatchService() {
@@ -31,7 +37,7 @@ class NotificationControllerTest {
         NotificationController.DispatchRequest request =
                 new NotificationController.DispatchRequest("EMAIL", "a@b.com", "CONFIRM", "Hello", "Body");
 
-        assertThat(controller.dispatch(request).getStatus()).isEqualTo(Notification.STATUS_SENT);
+        assertThat(controller.dispatch(request).getBody().getStatus()).isEqualTo(Notification.STATUS_SENT);
         verify(dispatchService).dispatch("EMAIL", "a@b.com", "CONFIRM", "Hello", "Body");
     }
 

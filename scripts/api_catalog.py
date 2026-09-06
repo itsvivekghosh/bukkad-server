@@ -241,12 +241,12 @@ API_CATALOG = [
     {
         "group": "Authentication",
         "name": "Login — Missing Fields (edge)",
-        "description": "Edge case: missing password must return 401 (no valid credentials).",
+        "description": "Edge case: missing password must be rejected with 400 (validation) — never 500.",
         "method": "POST",
         "path": "/api/v1/auth/login",
         "auth": None,
         "body_key": "login_missing_fields",
-        "expected": [401],
+        "expected": [400, 401],
     },
     {
         "group": "Security",
@@ -293,7 +293,7 @@ API_CATALOG = [
         "name": "Verify Email",
         "description": "Marks the customer email as verified (dev/test flow).",
         "method": "POST",
-        "path": "/api/v1/auth/verify-email?email={customer_email}",
+        "path": "/api/v1/auth/verify-email?email={customer_email}&password={password}",
         "auth": "customer",
         "expected": [200],
         "requires": ["customer_email"],
@@ -4975,7 +4975,7 @@ BODY_TEMPLATES = {
     "login_nonexistent_email": {"email": "no-such-user-{run_id}@bhukkad.test", "password": "{password}"},
     "login_missing_fields": {"email": "missing-fields-{run_id}@bhukkad.test"},
     "forgot_password": {"email": "{customer_email}"},
-    "change_password": {"oldPassword": "{password}", "newPassword": "{password}New"},
+    "change_password": {"currentPassword": "{password}", "newPassword": "{password}New"},
     "register_customer_with_referral": {
         "fullName": "Referred API Test Customer",
         "email": "{referred_customer_email}",
@@ -5045,6 +5045,8 @@ BODY_TEMPLATES = {
         "landmark": "Near Metro",
         "type": "HOME",
         "label": "Home",
+        "line1": "123 MG Road",
+        "zipCode": "560001",
         "latitude": 12.9716,
         "longitude": 77.5946,
         "isDefault": True,
@@ -5052,6 +5054,7 @@ BODY_TEMPLATES = {
     "restaurant": {
         "name": "Bhukkad Test Kitchen",
         "description": "API integration test restaurant",
+        "cuisineId": 1,
         "address": {
             "addressLine1": "100 Food Street",
             "city": "Bangalore",

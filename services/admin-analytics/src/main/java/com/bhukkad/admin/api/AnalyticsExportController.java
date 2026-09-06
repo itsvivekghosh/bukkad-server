@@ -13,6 +13,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * Controller for streaming large analytics exports.
@@ -21,6 +22,7 @@ import java.time.format.DateTimeFormatter;
 @RestController
 @RequestMapping("/api/v1/analytics")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class AnalyticsExportController {
 
     private static final String CSV_CONTENT_TYPE = "text/csv";

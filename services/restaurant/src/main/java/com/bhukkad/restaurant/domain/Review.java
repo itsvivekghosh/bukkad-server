@@ -68,7 +68,7 @@ public class Review {
     private Integer deliveryRating;
 
     @BatchSize(size = 20)
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "review_images", joinColumns = @JoinColumn(name = "review_id"))
     @Column(name = "image_url", length = 500)
     private List<String> images = new ArrayList<>();

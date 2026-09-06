@@ -113,15 +113,11 @@ class ChurnAdminControllerTest {
     }
 
     @Test
-    void endpoints_haveNoMethodLevelSecurityAnnotationsPerServiceConvention() {
-        // Authorization convention: SecurityConfig#securityFilterChain gates every
-        // route behind `anyRequest().authenticated()` (mirroring the monolith's
-        // URL-level hasRole("ADMIN") on /api/v1/admin/**), so no @PreAuthorize
-        // annotations exist on any admin-analytics controller — asserted here via
-        // reflection so the convention is pinned for this surface too.
-        for (Method method : ChurnAdminController.class.getDeclaredMethods()) {
-            assertThat(method.getAnnotation(PreAuthorize.class)).isNull();
-        }
-        assertThat(ChurnAdminController.class.getAnnotation(PreAuthorize.class)).isNull();
+    void endpoints_carryClassLevelAdminGate() {
+        // Security convention (post-audit): every admin-analytics admin
+        // controller must declare a class-level @PreAuthorize("hasRole('ADMIN')").
+        // Defense in depth — the gateway never routes /api/v1/admin/**, but the
+        // service must not trust that alone.
+        assertThat(ChurnAdminController.class.getAnnotation(PreAuthorize.class)).isNotNull();
     }
 }

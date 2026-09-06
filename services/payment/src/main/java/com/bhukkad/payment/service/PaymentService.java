@@ -30,6 +30,11 @@ public class PaymentService {
     @Transactional
     public Payment processPayment(Long orderId, Long customerId, BigDecimal amount,
                                   String paymentMethod, String idempotencyKey) {
+        if (amount == null || amount.signum() <= 0) {
+            // Rejects zero/negative "payments" that previously drained or
+            // fabricated wallet balances via the credit path below.
+            throw new BusinessException("Payment amount must be positive");
+        }
         var existing = idempotencyRepository.findByScopeAndIdempotencyKey(
                 IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS, idempotencyKey);
         if (existing.isPresent() && existing.get().getStatus() == IdempotencyRecord.IdempotencyStatus.COMPLETED) {
@@ -52,24 +57,29 @@ public class PaymentService {
         payment.setProviderRef("PROV-" + paymentId);
         payment = paymentRepository.save(payment);
 
-        walletBalanceRepository.findByCustomerId(customerId)
-                .ifPresentOrElse(wb -> {
-                    wb.setBalance(wb.getBalance().add(amount));
-                    walletBalanceRepository.save(wb);
-                }, () -> {
-                    WalletBalance wb = new WalletBalance();
-                    wb.setCustomerId(customerId);
-                    wb.setBalance(amount);
-                    walletBalanceRepository.save(wb);
-                });
+        // METHOD_WALLET semantics: a wallet payment spends existing credit —
+        // it must DEBIT the wallet, not credit it (crediting turned every
+        // "wallet payment" into free money).
+        if (Payment.METHOD_WALLET.equals(paymentMethod)) {
+            WalletBalance wb = walletBalanceRepository.findByCustomerIdForUpdate(customerId)
+                    .orElseThrow(() -> new BusinessException("No wallet for customer " + customerId));
+            if (wb.getBalance().compareTo(amount) < 0) {
+                throw new BusinessException("Insufficient wallet balance");
+            }
+            wb.setBalance(wb.getBalance().subtract(amount));
+            walletBalanceRepository.save(wb);
 
-        WalletTransaction tx = new WalletTransaction();
-        tx.setCustomerId(customerId);
-        tx.setType("CREDIT");
-        tx.setAmount(amount);
-        tx.setBalanceAfter(calculateBalanceAfter(customerId, amount));
-        tx.setReference("PAYMENT-" + paymentId);
-        walletTransactionRepository.save(tx);
+            WalletTransaction tx = new WalletTransaction();
+            tx.setCustomerId(customerId);
+            tx.setType("DEBIT");
+            tx.setAmount(amount);
+            // Ledger value captured from the post-debit entity (never
+            // recomputed — the old calculateBalanceAfter double-counted the
+            // movement and corrupted reconciliation).
+            tx.setBalanceAfter(wb.getBalance());
+            tx.setReference("PAYMENT-" + paymentId);
+            walletTransactionRepository.save(tx);
+        }
 
         IdempotencyRecord record = new IdempotencyRecord();
         record.setIdempotencyKey(idempotencyKey);
@@ -81,7 +91,6 @@ public class PaymentService {
         idempotencyRepository.save(record);
 
         eventPublisher.paymentSettled(paymentId, orderId, customerId, amount);
-        eventPublisher.walletCredited(customerId, amount, tx.getId());
 
         return payment;
     }
@@ -107,12 +116,6 @@ public class PaymentService {
         eventPublisher.paymentSettled(saved.getId(), saved.getOrderId(),
                 saved.getCustomerId(), saved.getAmount());
         return saved;
-    }
-
-    private BigDecimal calculateBalanceAfter(Long customerId, BigDecimal credit) {
-        return walletBalanceRepository.findByCustomerId(customerId)
-                .map(wb -> wb.getBalance().add(credit))
-                .orElse(credit);
     }
 
     @Transactional(readOnly = true)

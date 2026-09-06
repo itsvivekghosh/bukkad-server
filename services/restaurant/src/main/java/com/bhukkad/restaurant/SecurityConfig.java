@@ -50,6 +50,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/cuisines/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/menu/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/feed/**").permitAll()
+                        // Home/mobile BFF feed (composite, public in the monolith).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/home/feed",
+                                "/api/v1/home/banners", "/api/v1/mobile/feed").permitAll()
+                        // Public review listing (per-restaurant alias + canonical).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/reviews/restaurant/**").permitAll()
+                        // Unauthenticated error forward (404s/401s to /error) must keep
+                        // their real status — otherwise MVC "no handler" 404s surface as 401.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         // Security headers must run first

@@ -12,13 +12,16 @@ import org.springframework.context.annotation.Configuration;
  * Strangler route table (P0 + P4 first slice).
  *
  * <p>Routes are path-driven so cutting over a domain is a predicate edit only:
- * the restaurant slice is served by the {@code restaurant} service, everything
- * else falls through to the monolith ({@code bhukkad-app}) as the safe default.
- * Backend URIs are k8s Service DNS names — no service-discovery stack needed.</p>
+ * each domain slice is served by its owning microservice. Backend URIs are k8s
+ * Service DNS names — no service-discovery stack needed.</p>
  *
- * <p>Cutover order follows the ownership matrix (§3): identity (auth) →
- * restaurant (read slice) → order → payment → delivery → notification →
- * admin-analytics → monolith teardown.</p>
+ * <p>Path predicates are declared from most-specific to least-specific: narrow
+ * customer carve-outs, survey sub-paths, live order streams, etc. precede the
+ * broad identity / order / restaurant slices. The table is closed with a
+ * catch-all {@code http_status: 404} route so no request silently falls through
+ * to a legacy monolith (audit-guide V-20). Cutover order follows the ownership
+ * matrix (§3): identity (auth) → restaurant (read slice) → order → payment →
+ * delivery → notification → admin-analytics → monolith teardown.</p>
  */
 @Configuration
 public class GatewayConfig {
@@ -36,6 +39,7 @@ public class GatewayConfig {
     private final String adminAnalyticsUri;
     private final String realtimeUri;
     private final String growthUri;
+    private final String personalizationUri;
 
     public GatewayConfig(@Value("${app.routes.restaurant-uri}") String restaurantUri,
                          @Value("${app.routes.identity-uri}") String identityUri,
@@ -49,7 +53,8 @@ public class GatewayConfig {
                          @Value("${app.routes.notification-uri}") String notificationUri,
                          @Value("${app.routes.admin-analytics-uri}") String adminAnalyticsUri,
                              @Value("${app.routes.realtime-uri}") String realtimeUri,
-    @Value("${app.routes.growth-uri}") String growthUri) {
+     @Value("${app.routes.growth-uri}") String growthUri,
+     @Value("${app.routes.personalization-uri}") String personalizationUri) {
         this.restaurantUri = restaurantUri;
         this.identityUri = identityUri;
         this.orderUri = orderUri;
@@ -63,6 +68,7 @@ public class GatewayConfig {
         this.adminAnalyticsUri = adminAnalyticsUri;
         this.realtimeUri = realtimeUri;
         this.growthUri = growthUri;
+        this.personalizationUri = personalizationUri;
     }
 
     /**
@@ -87,17 +93,54 @@ public class GatewayConfig {
                         "/api/v1/home/trending").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.survey.enabled")
                         .uri(surveyUri))
                 // Customer sub-resource carve-outs — narrower than the generic
-                // /api/v1/customers/** slice that falls to the identity/monolith
-                // route, so they are declared before it.
+                // /api/v1/customers/** slice served by the identity route,
+                // so they are declared before it.
                 .route("customer-cart", r -> r.path(
                         "/api/v1/customers/*/cart/**",
                         "/api/v1/customers/*/reorder/**").uri(orderUri))
                 .route("customer-wallet", r -> r.path(
-                        "/api/v1/customers/*/wallet/**").uri(paymentUri))
+                        "/api/v1/customers/*/wallet/**",
+                        // Self-scoped wallet surface (token subject, no path id).
+                        "/api/v1/customers/wallet/**").uri(paymentUri))
                 .route("customer-group-orders", r -> r.path(
-                        "/api/v1/customers/*/group-orders/**").uri(orderUri))
+                        "/api/v1/customers/*/group-orders/**",
+                        // Self-scoped group orders (token subject, no path id).
+                        "/api/v1/customers/group-orders/**").uri(orderUri))
                 .route("customer-subscriptions", r -> r.path(
-                        "/api/v1/customers/*/subscriptions/**").uri(orderUri))
+                        "/api/v1/customers/*/subscriptions/**",
+                        // Self-scoped subscriptions (token subject, no path id).
+                        "/api/v1/customers/subscriptions/**").uri(orderUri))
+                // Self-scoped order stats + disputes (token subject, no path id).
+                .route("customer-order-extras", r -> r.path(
+                        "/api/v1/customers/orders/stats",
+                        "/api/v1/customers/disputes").uri(orderUri))
+                // Customer loyalty self surface — growth owns loyalty accounts.
+                .route("customer-loyalty-self", r -> r.path(
+                        "/api/v1/customers/loyalty-points").uri(growthUri))
+                // Customer support self surface — rewrite onto the support
+                // ticket service's canonical /api/v1/support/tickets paths.
+                .route("customer-support-self", r -> r.path(
+                        "/api/v1/customers/support/tickets")
+                        .filters(f -> f.rewritePath("/api/v1/customers/support/tickets",
+                                "/api/v1/support/tickets"))
+                        .uri(supportUri))
+                // Customer recommendations self surface — personalization owns
+                // the recommendation engines.
+                .route("customer-recommendations", r -> r.path(
+                        "/api/v1/customers/me/recommendations/**").uri(personalizationUri))
+                // "Surprise me" picks a random item from the restaurant domain.
+                .route("customer-surprise-me", r -> r.path(
+                        "/api/v1/customers/surprise-me").uri(restaurantUri))
+                // Customer order history + checkout (monolith parity: the app
+                // places orders under this path). Narrower than the customers
+                // slice, so it must precede it.
+                .route("customer-orders", r -> r.path(
+                        "/api/v1/customers/*/orders").uri(orderUri))
+                // Legacy (monolith-parity) cart surface — mobile clients still
+                // call /api/v1/cart/**; served by the order service from the
+                // token subject.
+                .route("cart-legacy", r -> r.path(
+                        "/api/v1/cart/**").uri(orderUri))
                 // Home/mobile BFF surfaces (monolith parity): composite feed is
                 // served by the restaurant service; campaigns and membership
                 // plans are narrow rewrites onto the owning services.
@@ -119,12 +162,16 @@ public class GatewayConfig {
                 // Platform status: identity carries the shared HealthController.
                 .route("platform", r -> r.path(
                         "/api/v1/platform/**").uri(identityUri))
+                // Customer self-service compliance surface (DPDP): consents and
+                // data export served by the identity service's consent store.
+                .route("compliance", r -> r.path(
+                        "/api/v1/compliance/**").uri(identityUri))
 
                 // Search service (P1): unified search + autocomplete.
                 .route("search", r -> r.path(
                         "/api/v1/search/**").uri(searchUri))
                 // Referral service (P2): referral codes + affiliate program.
-                // Declared before "restaurant"/"monolith" slices.
+                // Declared before the restaurant slice.
                 .route("referral", r -> r.path(
                         "/api/v1/referrals/**",
                         "/api/v1/admin/affiliates/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.referral.enabled")
@@ -135,11 +182,13 @@ public class GatewayConfig {
                         .uri(supportUri))
                 // Live order stream (P2): SSE kitchen/rider/customer streams
                 // and anonymous tracking tokens. Narrower than /api/v1/orders/**
-                // so declared before the order slice. Served by the realtime
-                // service (strangler of the monolith live slice); gated by the
-                // edge live kill switch.
+                // so declared before the order slice. Order ownership (customer
+                // stream) is enforced inside the order service, which also owns
+                // the order read-model; /api/v1/live/** remains on realtime.
                 .route("live", r -> r.path(
-                        "/api/v1/orders/stream/**",
+                        "/api/v1/orders/stream/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
+                        .uri(orderUri))
+                .route("live-realtime", r -> r.path(
                         "/api/v1/live/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.live.enabled")
                         .uri(realtimeUri))
                 // Growth service: campaigns + customer loyalty accounts.
@@ -160,14 +209,20 @@ public class GatewayConfig {
                         "/api/v1/reviews/**",
                         "/api/v1/feed/**").uri(restaurantUri))
                 // Identity cut-over (P3): auth endpoints served by the identity
-                // service; everything else on /api/** still falls to the monolith.
-                // Declared before "monolith" so /api/v1/auth/** wins the match.
+                // service. Declared before the broad slices so /api/v1/auth/**
+                // and /api/v1/customers/** win their respective path matches.
                 .route("identity", r -> r.path(
                         "/api/v1/auth/**",
                         "/api/v1/customers/**",
                         "/api/v1/tenants/**",
                         "/api/v1/affiliate/**",
                         "/api/v1/health/**").uri(identityUri))
+                // Personalization service: recommendation feed ranking +
+                // item-to-item similarity served by the personalization service.
+                .route("personalization", r -> r.path(
+                        "/api/v1/recommendations/**",
+                        "/api/v1/feed/ranked/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.personalization.enabled")
+                        .uri(personalizationUri))
                 // Order-service strangler slice (P5): order/cart endpoints.
                 // Order is gated on restaurant + payment + delivery extraction.
                 // Coupon + dispute surfaces extracted in P2 land here too.
@@ -189,6 +244,13 @@ public class GatewayConfig {
                         "/api/v1/zones/**",
                         "/api/v1/serviceability/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.delivery.enabled")
                         .uri(deliveryUri))
+                // Restaurant administration (platform-admin actions on the
+                // restaurant domain) — narrower than /api/v1/admin/**.
+                .route("admin-restaurants", r -> r.path(
+                        "/api/v1/admin/restaurants/**").uri(restaurantUri))
+                // Platform commission surface (restaurant domain).
+                .route("commission", r -> r.path(
+                        "/api/v1/commission/**").uri(restaurantUri))
                 // Admin-analytics service (P3): platform admin, fraud, feature
                 // flags, tenants, compliance, analytics exports.
                 // /api/v1/admin/affiliates/** is already captured by the referral
@@ -196,6 +258,11 @@ public class GatewayConfig {
                 // the order route above.
                 .route("admin-analytics", r -> r.path(
                         "/api/v1/admin/**").uri(adminAnalyticsUri))
+                // Catch-all: any unmatched path returns 404 instead of silently
+                // falling through to a legacy monolith (audit-guide V-20).
+                .route("not-found", r -> r.path("/**")
+                        .filters(f -> f.setStatus(404))
+                        .uri(orderUri))
                 .build();
     }
 }

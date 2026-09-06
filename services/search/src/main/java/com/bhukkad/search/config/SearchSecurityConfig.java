@@ -46,6 +46,8 @@ public class SearchSecurityConfig {
                          .requestMatchers("/actuator/**").permitAll()
                          .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/search").permitAll()
                          .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/search/suggest").permitAll()
+                         // Error dispatch (404/500 forwards) must keep its real status.
+                         .requestMatchers("/error").permitAll()
                          .anyRequest().authenticated());
 
          // Security headers must run first

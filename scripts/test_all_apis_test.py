@@ -1937,5 +1937,452 @@ class TestEdgeBattery(unittest.TestCase):
         m_money.assert_called_once()
 
 
+class TestOrchestrationEdgeCases(unittest.TestCase):
+    """Edge-case tests for the untested orchestration helpers in test-all-apis.py.
+
+    All HTTP/flow functions are exercised with mocked run_test/http_request so
+    they run deterministically without a live server. Assertions document the
+    *actual* current behavior so regressions (including accidental fixes that
+    change semantics) surface in CI.
+    """
+
+    @staticmethod
+    def _result(passed=True, status_code=200, skipped=False, skip_reason=""):
+        return test_all_apis.TestResult(
+            name="mock", group="g", description="d", method="POST", url="http://u",
+            request_headers={}, request_body=None, status_code=status_code,
+            response_body="{}", passed=passed, skipped=skipped,
+            skip_reason=skip_reason)
+
+    # ── extract_json_path envelope stripping ────────────────────────────────
+
+    def test_flat_response_data_prefix_stripped(self):
+        flat = {"token": "t1", "customerId": 5}
+        self.assertEqual(extract_json_path(flat, "data.token"), "t1")
+        self.assertEqual(extract_json_path(flat, "data.customerId"), 5)
+
+    def test_enveloped_response_literal_wins(self):
+        env = {"data": {"token": "t2"}}
+        self.assertEqual(extract_json_path(env, "data.token"), "t2")
+
+    def test_envelope_list_index_on_both_shapes(self):
+        env = {"data": [{"id": 7}]}
+        flat = [{"id": 7}]
+        self.assertEqual(extract_json_path(env, "data.0.id"), 7)
+        self.assertEqual(extract_json_path(flat, "data.0.id"), 7)
+
+    def test_non_data_path_never_stripped(self):
+        flat = {"token": "t"}
+        self.assertEqual(extract_json_path(flat, "token"), "t")
+        self.assertIsNone(extract_json_path(flat, "dat.token"))
+
+    def test_bare_data_path_on_flat_object(self):
+        self.assertIsNone(extract_json_path({"a": 1}, "data"))
+
+    # ── resolve_value collection semantics ──────────────────────────────────
+
+    def test_bool_and_number_passthrough(self):
+        state = RunState()
+        self.assertIs(resolve_value(True, state), True)
+        self.assertIs(resolve_value(False, state), False)
+        self.assertEqual(resolve_value(3.14, state), 3.14)
+        self.assertIsNone(resolve_value(None, state))
+
+    def test_list_items_resolve_without_numeric_conversion(self):
+        state = RunState()
+        # List items are resolved with key=None → numeric strings stay strings.
+        out = resolve_value(["2", "3.5"], state)
+        self.assertEqual(out, ["2", "3.5"])
+        self.assertIsInstance(out[0], str)
+
+    def test_nested_dict_inside_list_resolves_keys(self):
+        state = RunState()
+        out = resolve_value([{"quantity": "4"}], state)
+        self.assertEqual(out, [{"quantity": 4}])
+
+    def test_numeric_key_with_non_numeric_string_stays_string(self):
+        state = RunState()
+        out = resolve_value("abc", state, key="quantity")
+        self.assertEqual(out, "abc")
+
+    # ── truncate boundary behavior ──────────────────────────────────────────
+
+    def test_zero_limit_truncates_to_marker(self):
+        out = truncate("abcdefghij", 0)
+        self.assertTrue(out.startswith(""))
+        self.assertIn("... [10 more chars]", out)
+
+    def test_negative_limit_current_behavior(self):
+        # Documents current behavior: negative limit slices from the end.
+        out = truncate("abc", -1)
+        self.assertEqual(out, "ab\n... [4 more chars]")
+
+    def test_empty_string_zero_limit_unchanged(self):
+        self.assertEqual(truncate("", 0), "")
+
+    # ── _edge_battery_result hook ───────────────────────────────────────────
+
+    def test_battery_result_appends_and_truncates_detail(self):
+        state = RunState()
+        test_all_apis._register_edge_battery(state)
+        test_all_apis._edge_battery_result(
+            "Money — NaN rejected", True, 400, "x" * 1000, "http://u", "POST")
+        r = state.results[-1]
+        self.assertTrue(r.passed)
+        self.assertEqual(r.group, "Edge Cases & Boundaries")
+        self.assertEqual(len(r.response_body), 400)
+        self.assertEqual(r.method, "POST")
+        self.assertEqual(r.url, "http://u")
+
+    def test_battery_result_before_registration_raises_clearly(self):
+        # results list not wired → _EDGE_STATE["results"] is None → AttributeError.
+        test_all_apis._EDGE_STATE["results"] = None
+        with self.assertRaises(AttributeError):
+            test_all_apis._edge_battery_result("n", True, 400, "d")
+
+    # ── _probe helper ───────────────────────────────────────────────────────
+
+    def setUp_probe_state(self):
+        test_all_apis._EDGE_STATE["base_url"] = "http://probe"
+        test_all_apis._EDGE_STATE["timeout"] = 3
+
+    @patch("test_all_apis.http_request")
+    def test_probe_success_returns_status_and_text(self, mock_http):
+        self.setUp_probe_state()
+        mock_http.return_value = (200, "ok", {})
+        status, text = test_all_apis._probe("GET", "/ping")
+        self.assertEqual(status, 200)
+        self.assertEqual(text, "ok")
+
+    @patch("test_all_apis.http_request")
+    def test_probe_connection_error_returns_none(self, mock_http):
+        self.setUp_probe_state()
+        mock_http.side_effect = ConnectionError("down")
+        status, text = test_all_apis._probe("GET", "/ping")
+        self.assertIsNone(status)
+        self.assertIn("down", text)
+
+    @patch("test_all_apis.http_request")
+    def test_probe_sets_auth_and_content_type(self, mock_http):
+        self.setUp_probe_state()
+        mock_http.return_value = (200, "{}", {})
+        test_all_apis._probe("POST", "/x", token="tk", body={"a": 1})
+        args, _ = mock_http.call_args
+        headers = args[2]
+        self.assertEqual(headers["Authorization"], "Bearer tk")
+        self.assertEqual(headers["Content-Type"], "application/json")
+        self.assertEqual(args[3], b'{"a": 1}')
+
+    @patch("test_all_apis.http_request")
+    def test_probe_no_token_no_auth_header(self, mock_http):
+        self.setUp_probe_state()
+        mock_http.return_value = (200, "{}", {})
+        test_all_apis._probe("GET", "/x")
+        args, _ = mock_http.call_args
+        self.assertNotIn("Authorization", args[2])
+
+    # ── _fresh_customer ─────────────────────────────────────────────────────
+
+    @patch("test_all_apis._probe")
+    def test_fresh_customer_success(self, mock_probe):
+        mock_probe.return_value = (200, json.dumps({"token": "tk9"}))
+        state = RunState()
+        token, email = test_all_apis._fresh_customer(state, "dup")
+        self.assertEqual(token, "tk9")
+        self.assertIn("@bhukkad.test", email)
+        self.assertIn("edge_dup_", email)
+
+    @patch("test_all_apis._probe")
+    def test_fresh_customer_registration_failure(self, mock_probe):
+        mock_probe.return_value = (500, "err")
+        state = RunState()
+        token, email = test_all_apis._fresh_customer(state, "x")
+        self.assertIsNone(token)
+        self.assertIn("@bhukkad.test", email)
+
+    @patch("test_all_apis._probe")
+    def test_fresh_customer_malformed_json(self, mock_probe):
+        mock_probe.return_value = (200, "not-json{")
+        state = RunState()
+        token, _ = test_all_apis._fresh_customer(state, "x")
+        self.assertIsNone(token)
+
+    # ── register_or_login ───────────────────────────────────────────────────
+
+    @patch("test_all_apis.run_test")
+    def test_register_success_single_call(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        ok = test_all_apis.register_or_login(
+            "customer", "register_customer", "login_customer", "http://x", state, 5)
+        self.assertTrue(ok)
+        self.assertEqual(mock_run.call_count, 1)
+        self.assertEqual(mock_run.call_args[0][0]["path"], "/api/v1/auth/register")
+
+    @patch("test_all_apis.run_test")
+    def test_register_duplicate_falls_back_to_login(self, mock_run):
+        mock_run.side_effect = [self._result(passed=False), self._result(passed=True)]
+        state = RunState()
+        ok = test_all_apis.register_or_login(
+            "owner", "register_owner", "login_owner", "http://x", state, 5)
+        self.assertTrue(ok)
+        self.assertEqual(mock_run.call_count, 2)
+        self.assertEqual(mock_run.call_args[0][0]["path"], "/api/v1/auth/login")
+
+    @patch("test_all_apis.run_test")
+    def test_register_and_login_both_fail(self, mock_run):
+        mock_run.side_effect = [self._result(passed=False), self._result(passed=False)]
+        state = RunState()
+        ok = test_all_apis.register_or_login(
+            "agent", "register_agent", "login_agent", "http://x", state, 5)
+        self.assertFalse(ok)
+
+    # ── bootstrap_restaurant_id ─────────────────────────────────────────────
+
+    @patch("test_all_apis.run_test")
+    def test_bootstrap_restaurant_short_circuits(self, mock_run):
+        state = RunState()
+        state.vars["restaurant_id"] = "9"
+        test_all_apis.bootstrap_restaurant_id("http://x", state, 5)
+        mock_run.assert_not_called()
+
+    @patch("test_all_apis.run_test")
+    def test_bootstrap_restaurant_extracts_first_id(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        test_all_apis.bootstrap_restaurant_id("http://x", state, 5)
+        spec = mock_run.call_args[0][0]
+        self.assertEqual(spec["extract"], {"restaurant_id": "data.0.id"})
+        self.assertIsNone(spec.get("auth"))
+
+    # ── bootstrap_accounts ──────────────────────────────────────────────────
+
+    @patch("test_all_apis.run_test")
+    def test_bootstrap_accounts_three_roles_no_admin(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        test_all_apis.bootstrap_accounts("http://x", state, 5, None, None)
+        self.assertEqual(mock_run.call_count, 3)
+        self.assertNotIn("bootstrap_admin_email", state.vars)
+
+    @patch("test_all_apis.run_test")
+    def test_bootstrap_accounts_with_admin(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        test_all_apis.bootstrap_accounts("http://x", state, 5, "a@b.c", "pw")
+        self.assertEqual(mock_run.call_count, 4)
+        self.assertEqual(state.vars["bootstrap_admin_email"], "a@b.c")
+        admin_spec = mock_run.call_args[0][0]
+        self.assertEqual(admin_spec["body_key"], "login_bootstrap_admin")
+
+    # ── refill_cart_for_order_tests ─────────────────────────────────────────
+
+    @patch("test_all_apis.run_test")
+    def test_refill_cart_noop_without_menu_item(self, mock_run):
+        state = RunState()
+        test_all_apis.refill_cart_for_order_tests("http://x", state, 5)
+        mock_run.assert_not_called()
+
+    @patch("test_all_apis.run_test")
+    def test_refill_cart_calls_cart_add(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        state.vars["menu_item_id"] = "1"
+        test_all_apis.refill_cart_for_order_tests("http://x", state, 5)
+        spec = mock_run.call_args[0][0]
+        self.assertEqual(spec["path"], "/api/v1/cart/add")
+        self.assertEqual(spec["auth"], "customer")
+
+    # ── create_cancel_order ─────────────────────────────────────────────────
+
+    @patch("test_all_apis.run_test")
+    def test_cancel_order_noop_without_prereqs(self, mock_run):
+        state = RunState()
+        test_all_apis.create_cancel_order("http://x", state, 5)
+        mock_run.assert_not_called()
+
+    @patch("test_all_apis.run_test")
+    def test_cancel_order_sends_idempotency_key(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        state.vars.update({"menu_item_id": "1", "address_id": "2"})
+        test_all_apis.create_cancel_order("http://x", state, 5)
+        self.assertEqual(mock_run.call_count, 2)
+        order_spec = mock_run.call_args[0][0]
+        self.assertIn("Idempotency-Key", order_spec["headers"])
+        self.assertEqual(order_spec["path"], "/api/v1/orders/customer/create")
+
+    # ── test_order_idempotency_replay ───────────────────────────────────────
+
+    def _replay_state(self):
+        state = RunState()
+        state.vars.update({"menu_item_id": "1", "restaurant_id": "2", "address_id": "3"})
+        return state
+
+    @patch("test_all_apis.refill_cart_for_order_tests")
+    @patch("test_all_apis.run_test")
+    def test_replay_same_id_passes(self, mock_run, _mock_refill):
+        def side_effect(spec, base_url, st, timeout, verbose):
+            if "replay_order_id" in spec.get("extract", {}):
+                st.vars["replay_order_id"] = "777"
+            if "replay_order_id_2" in spec.get("extract", {}):
+                st.vars["replay_order_id_2"] = "777"
+            return self._result(passed=True)
+        mock_run.side_effect = side_effect
+        state = self._replay_state()
+        test_all_apis.test_order_idempotency_replay("http://x", state, 5)
+        self.assertTrue(state.results[-1].passed)
+        self.assertIn("first_id=777", state.results[-1].response_body)
+
+    @patch("test_all_apis.refill_cart_for_order_tests")
+    @patch("test_all_apis.run_test")
+    def test_replay_different_ids_fails(self, mock_run, _mock_refill):
+        def side_effect(spec, base_url, st, timeout, verbose):
+            if "replay_order_id" in spec.get("extract", {}):
+                st.vars["replay_order_id"] = "111"
+            if "replay_order_id_2" in spec.get("extract", {}):
+                st.vars["replay_order_id_2"] = "222"
+            return self._result(passed=True)
+        mock_run.side_effect = side_effect
+        state = self._replay_state()
+        test_all_apis.test_order_idempotency_replay("http://x", state, 5)
+        self.assertFalse(state.results[-1].passed)
+
+    @patch("test_all_apis.refill_cart_for_order_tests")
+    @patch("test_all_apis.run_test")
+    def test_replay_creation_failure_reports_skip(self, mock_run, _mock_refill):
+        mock_run.return_value = self._result(passed=False, status_code=500)
+        state = self._replay_state()
+        test_all_apis.test_order_idempotency_replay("http://x", state, 5)
+        r = state.results[-1]
+        self.assertTrue(r.skipped)
+        self.assertFalse(r.passed)
+        self.assertIn("Order creation unavailable", r.skip_reason)
+
+    def test_replay_no_prereqs_no_result(self):
+        state = RunState()
+        test_all_apis.test_order_idempotency_replay("http://x", state, 5)
+        self.assertEqual(state.results, [])
+
+    # ── test_rate_limit_order_track ─────────────────────────────────────────
+
+    @patch("test_all_apis.http_request")
+    def test_rate_limit_429_seen_passes(self, mock_http):
+        mock_http.return_value = (429, "too many", {})
+        state = RunState()
+        state.vars["order_id"] = "5"
+        state.tokens["customer_token"] = "tok"
+        test_all_apis.test_rate_limit_order_track("http://x", state, 5)
+        self.assertTrue(state.results[-1].passed)
+        self.assertEqual(state.results[-1].status_code, 429)
+        mock_http.assert_called_once()
+
+    @patch("test_all_apis.http_request")
+    def test_rate_limit_never_429_fails_after_45(self, mock_http):
+        mock_http.return_value = (200, "ok", {})
+        state = RunState()
+        state.vars["order_id"] = "5"
+        state.tokens["customer_token"] = "tok"
+        test_all_apis.test_rate_limit_order_track("http://x", state, 5)
+        self.assertFalse(state.results[-1].passed)
+        self.assertEqual(mock_http.call_count, 45)
+
+    def test_rate_limit_no_prereqs_no_result(self):
+        state = RunState()
+        test_all_apis.test_rate_limit_order_track("http://x", state, 5)
+        self.assertEqual(state.results, [])
+
+    # ── test_order_empty_cart_400 ───────────────────────────────────────────
+
+    @patch("test_all_apis.http_request")
+    def test_empty_cart_400_passes(self, mock_http):
+        state = RunState()
+        state.vars.update({"restaurant_id": "2", "address_id": "3"})
+        reg = (200, json.dumps({"token": "t1"}), {})
+        order = (400, '{"message":"Cart is empty"}', {})
+        mock_http.side_effect = [reg, order]
+        test_all_apis.test_order_empty_cart_400("http://x", state, 5)
+        r = state.results[-1]
+        self.assertTrue(r.passed)
+        self.assertEqual(r.status_code, 400)
+
+    @patch("test_all_apis.http_request")
+    def test_empty_cart_registration_failure_skips(self, mock_http):
+        mock_http.return_value = (500, "boom", {})
+        state = RunState()
+        state.vars.update({"restaurant_id": "2", "address_id": "3"})
+        test_all_apis.test_order_empty_cart_400("http://x", state, 5)
+        r = state.results[-1]
+        self.assertTrue(r.skipped)
+        self.assertIn("Registration", r.skip_reason)
+
+    @patch("test_all_apis.http_request")
+    def test_empty_cart_registration_without_token_skips(self, mock_http):
+        mock_http.return_value = (200, '{"unexpected": 1}', {})
+        state = RunState()
+        state.vars.update({"restaurant_id": "2", "address_id": "3"})
+        test_all_apis.test_order_empty_cart_400("http://x", state, 5)
+        r = state.results[-1]
+        self.assertTrue(r.skipped)
+        self.assertIn("no token", r.skip_reason)
+
+    @patch("test_all_apis.http_request")
+    def test_empty_cart_500_is_failure_not_skip(self, mock_http):
+        state = RunState()
+        state.vars.update({"restaurant_id": "2", "address_id": "3"})
+        reg = (200, json.dumps({"token": "t1"}), {})
+        order = (500, '{"message":"boom"}', {})
+        mock_http.side_effect = [reg, order]
+        test_all_apis.test_order_empty_cart_400("http://x", state, 5)
+        r = state.results[-1]
+        self.assertFalse(r.passed)
+        self.assertFalse(r.skipped)
+
+    # ── setup_review_for_moderation ─────────────────────────────────────────
+
+    @patch("test_all_apis.run_test")
+    def test_review_setup_skips_when_review_exists(self, mock_run):
+        state = RunState()
+        state.vars["review_id"] = "9"
+        test_all_apis.setup_review_for_moderation("http://x", state, 5)
+        mock_run.assert_not_called()
+
+    @patch("test_all_apis.run_test")
+    def test_review_setup_skips_without_order(self, mock_run):
+        state = RunState()
+        state.vars["menu_item_id"] = "1"
+        test_all_apis.setup_review_for_moderation("http://x", state, 5)
+        mock_run.assert_not_called()
+
+    @patch("test_all_apis.run_test")
+    def test_review_setup_restores_original_order_id(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        state.vars.update({"menu_item_id": "1", "order_id": "orig"})
+        test_all_apis.setup_review_for_moderation("http://x", state, 5, main_order_id="77")
+        self.assertEqual(state.vars["order_id"], "orig")
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("test_all_apis.run_test")
+    def test_review_setup_keeps_main_order_when_no_original(self, mock_run):
+        mock_run.return_value = self._result(passed=True)
+        state = RunState()
+        state.vars["menu_item_id"] = "1"
+        test_all_apis.setup_review_for_moderation("http://x", state, 5, main_order_id="77")
+        self.assertEqual(state.vars["order_id"], "77")
+
+    # ── setup_invoice_pdf_order ─────────────────────────────────────────────
+
+    def test_invoice_setup_points_order_id(self):
+        state = RunState()
+        test_all_apis.setup_invoice_pdf_order("http://x", state, 5, main_order_id="42")
+        self.assertEqual(state.vars["order_id"], "42")
+
+    def test_invoice_setup_noop_without_order(self):
+        state = RunState()
+        test_all_apis.setup_invoice_pdf_order("http://x", state, 5)
+        self.assertNotIn("order_id", state.vars)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

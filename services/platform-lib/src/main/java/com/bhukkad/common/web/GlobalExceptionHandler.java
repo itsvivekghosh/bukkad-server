@@ -55,10 +55,22 @@ public class GlobalExceptionHandler {
         return json(HttpStatus.NOT_FOUND, 404, ex.getCode(), ex.getMessage());
     }
 
-    @ExceptionHandler(UnauthorizedException.class)
+        @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException ex) {
         log.warn("Unauthorized | {} | traceId={}", ex.getMessage(), TraceContext.currentTraceId());
         return json(HttpStatus.UNAUTHORIZED, 401, "UNAUTHORIZED", ex.getMessage());
+    }
+
+    /**
+     * Method-security / @PreAuthorize denials must be 403, not 500: without
+     * this handler AccessDeniedException fell into the RuntimeException
+     * catch-all and masked authorization failures as internal errors.
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        log.warn("AccessDenied | {} | traceId={}", ex.getMessage(), TraceContext.currentTraceId());
+        return json(HttpStatus.FORBIDDEN, 403, "ACCESS_DENIED", "Insufficient permissions");
     }
 
     @ExceptionHandler(DuplicateRequestException.class)
@@ -94,6 +106,32 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleMissingParam(MissingServletRequestParameterException ex) {
         return json(HttpStatus.BAD_REQUEST, 400, "MISSING_PARAM",
                 "Missing required parameter: " + ex.getParameterName());
+    }
+
+    /**
+     * Malformed/unreadable/JSON-type-mismatched request bodies (and missing
+     * required bodies) are CLIENT errors: 400, never 500. Unhandled, this
+     * class turned `{"qty":"{var}"}` or `[]` bodies into opaque INTERNAL_ERRORs.
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableBody(
+            org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        log.warn("HttpMessageNotReadable | {} | traceId={}", ex.getMessage(), TraceContext.currentTraceId());
+        return json(HttpStatus.BAD_REQUEST, 400, "INVALID_BODY",
+                "Malformed or unreadable request body");
+    }
+
+    /**
+     * Persistence constraint violations surface as 409 (conflict) or 400-like
+     * errors, never as an unhandled 500 with a leaked driver message.
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException ex) {
+        log.warn("DataIntegrityViolation | type={} | traceId={}",
+                ex.getMostSpecificCause().getClass().getSimpleName(), TraceContext.currentTraceId());
+        return json(HttpStatus.CONFLICT, 409, "DATA_CONFLICT",
+                "Request conflicts with existing data");
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)

@@ -9,6 +9,7 @@ import com.bhukkad.identity.domain.CustomerRepository;
 import com.bhukkad.identity.domain.UserRepository;
 import com.bhukkad.identity.domain.User;
 import com.bhukkad.identity.domain.AdminRepository;
+import com.bhukkad.identity.referral.ReferralService;
 import com.bhukkad.identity.security.JwtService;
 import com.bhukkad.identity.security.PasswordService;
 import jakarta.persistence.EntityManager;
@@ -45,8 +46,10 @@ class IdentityServiceTest {
     private JwtService jwtService;
     @Mock
     private IdentityEventPublisher eventPublisher;
-    @Mock
+       @Mock
     private EntityManager entityManager;
+    @Mock
+    private ReferralService referralService;
 
     @InjectMocks
     private IdentityService service;
@@ -73,24 +76,25 @@ class IdentityServiceTest {
         });
         mockNativeQuery();
 
-        Customer customer = service.register("a@b.com", "999", "Alice", "password123", "CUSTOMER");
+        Customer customer = service.register("a@b.com", "999", "Alice", "password123", "CUSTOMER", null);
 
         assertThat(customer.getId()).isEqualTo(10L);
         verify(eventPublisher).customerRegistered(10L, "a@b.com", "Alice");
+        verify(referralService).initializeNewCustomer(customer, null);
     }
 
     @Test
     void register_duplicateEmail_throws() {
         when(customerRepository.findByEmailAndIsActiveTrue("a@b.com")).thenReturn(Optional.of(new Customer()));
 
-        assertThatThrownBy(() -> service.register("a@b.com", "999", "Alice", "password123", "CUSTOMER"))
+        assertThatThrownBy(() -> service.register("a@b.com", "999", "Alice", "password123", "CUSTOMER", null))
                 .isInstanceOf(DuplicateRequestException.class)
                 .hasMessageContaining("already registered");
     }
 
     @Test
     void register_unsupportedRole_throws() {
-        assertThatThrownBy(() -> service.register("a@b.com", "999", "Alice", "password123", "SUPERADMIN"))
+        assertThatThrownBy(() -> service.register("a@b.com", "999", "Alice", "password123", "SUPERADMIN", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Unsupported self-registration role");
     }

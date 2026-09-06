@@ -47,4 +47,20 @@ public class ReviewService {
     public List<Review> byRestaurant(Long restaurantId) {
         return reviewRepository.findByRestaurantId(restaurantId);
     }
+
+    /**
+     * Public review listing: only APPROVED reviews leave the service.
+     */
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<Review> approvedByRestaurant(
+            Long restaurantId, org.springframework.data.domain.Pageable pageable) {
+        return reviewRepository.findByRestaurantIdAndStatusOrderByCreatedAtDesc(
+                restaurantId, Review.STATUS_APPROVED, pageable);
+    }
+
+    /** The customer's own reviews across every restaurant (any status). */
+    public org.springframework.data.domain.Page<Review> byCustomer(
+            Long customerId, org.springframework.data.domain.Pageable pageable) {
+        return reviewRepository.findByCustomerIdOrderByCreatedAtDesc(customerId, pageable);
+    }
 }

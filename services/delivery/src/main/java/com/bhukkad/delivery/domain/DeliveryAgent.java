@@ -21,6 +21,12 @@ public class DeliveryAgent {
     private String phone;
     @Column(nullable = false)
     private Boolean isActive = true;
+
+    @jakarta.persistence.Column(length = 30)
+    private String vehicleType;
+
+    @jakarta.persistence.Column(length = 30)
+    private String vehicleNumber;
     @CreatedDate @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
     @LastModifiedDate @Column(nullable = false)

@@ -1,6 +1,7 @@
 package com.bhukkad.delivery.service;
 
 import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.delivery.RiderEarningsProperties;
 import com.bhukkad.delivery.client.PaymentServiceClient;
 import com.bhukkad.delivery.domain.RiderDeliveryBatch;
 import com.bhukkad.delivery.domain.RiderDeliveryBatchOrderRepository;
@@ -35,6 +36,7 @@ class RiderOpsServiceTest {
     @Mock private RiderDeliveryBatchRepository batchRepository;
     @Mock private RiderDeliveryBatchOrderRepository batchOrderRepository;
     @Mock private PaymentServiceClient paymentClient;
+    @Mock private RiderEarningsProperties earningsProperties;
     @InjectMocks private RiderOpsService service;
 
     @Test
@@ -94,6 +96,62 @@ class RiderOpsServiceTest {
         assertThatThrownBy(() -> service.creditCod(7L, new BigDecimal("-1")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("positive");
+    }
+
+    @Test
+    void debitCod_delegatesToPaymentService() {
+        when(paymentClient.debitCodWallet(eq(7L), eq(new BigDecimal("25.00"))))
+                .thenReturn(Map.of("agentId", 7L, "balance", new BigDecimal("75.00")));
+
+        Map<String, Object> result = service.debitCod(7L, new BigDecimal("25.00"));
+
+        assertThat(result.get("balance")).isEqualTo(new BigDecimal("75.00"));
+        verify(paymentClient).debitCodWallet(7L, new BigDecimal("25.00"));
+    }
+
+    @Test
+    void debitCod_nonPositive_throws() {
+        assertThatThrownBy(() -> service.debitCod(7L, BigDecimal.ZERO))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("positive");
+        assertThatThrownBy(() -> service.debitCod(7L, new BigDecimal("-5")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("positive");
+    }
+
+    @Test
+    void recordEarning_usesDefaultRate() {
+        when(earningsProperties.getPerDelivery()).thenReturn(30.0);
+        when(paymentClient.recordEarning(eq(7L), eq(42L), eq(new BigDecimal("30.0"))))
+                .thenReturn(Map.of("id", 99L, "agentId", 7L, "amount", new BigDecimal("30.0")));
+
+        Map<String, Object> result = service.recordEarning(7L, 42L);
+
+        assertThat(result.get("agentId")).isEqualTo(7L);
+        verify(earningsProperties).getPerDelivery();
+        verify(paymentClient).recordEarning(7L, 42L, new BigDecimal("30.0"));
+    }
+
+    @Test
+    void getEarnings_delegatesToPaymentService() {
+        when(paymentClient.getEarnings(7L))
+                .thenReturn(List.of(Map.of("id", 99L, "amount", new BigDecimal("30.0"))));
+
+        List<Map<String, Object>> earnings = service.getEarnings(7L);
+
+        assertThat(earnings).hasSize(1);
+        verify(paymentClient).getEarnings(7L);
+    }
+
+    @Test
+    void markEarningPaid_delegatesToPaymentService() {
+        when(paymentClient.markEarningPaid(99L))
+                .thenReturn(Map.of("id", 99L, "status", "PAID"));
+
+        Map<String, Object> result = service.markEarningPaid(99L);
+
+        assertThat(result.get("status")).isEqualTo("PAID");
+        verify(paymentClient).markEarningPaid(99L);
     }
 
     @Test

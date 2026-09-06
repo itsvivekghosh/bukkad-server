@@ -48,6 +48,9 @@ public class SecurityConfig {
                         // Razorpay webhook: authenticated by the HmacSHA256 signature
                         // inside PaymentWebhookController, not by customer auth.
                         .requestMatchers("/api/v1/payments/webhooks/**").permitAll()
+                        // Unauthenticated error forward (404s/401s to /error) must keep
+                        // their real status — otherwise MVC "no handler" 404s surface as 401.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         // Security headers must run first

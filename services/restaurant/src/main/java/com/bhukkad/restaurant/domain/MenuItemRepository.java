@@ -15,6 +15,8 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     List<MenuItem> findByCategoryId(Long categoryId);
     int countByCategoryId(Long categoryId);
 
+    Optional<MenuItem> findByIdAndRestaurantId(Long id, Long restaurantId);
+
     List<MenuItem> findByCategoryIdAndIsAvailableTrue(Long categoryId);
 
     @Query("SELECT m FROM MenuItem m WHERE m.categoryId = :categoryId AND m.isAvailable = true AND m.bestseller = true")

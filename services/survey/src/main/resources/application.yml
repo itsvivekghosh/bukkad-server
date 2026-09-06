@@ -17,13 +17,20 @@ management:
       endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
   endpoints: {web: {exposure: {include: health,info,metrics,prometheus}}}
   endpoint: {health: {probes: {enabled: true}}}
-  auth:
-    jwt:
-      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
 logging: {level: {com.bhukkad: INFO}}
 
 
 app:
+  auth:
+    jwt:
+      secret: ${JWT_SECRET:}
+    service:
+      # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
+      # mesh secret; internal paths REQUIRE a valid service token when the
+      # secret is set. allowed-services is deny-by-default.
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
+      enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
   environment: production
   events:
     external:

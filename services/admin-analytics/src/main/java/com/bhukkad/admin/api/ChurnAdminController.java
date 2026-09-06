@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * Admin retention dashboard (port of monolith {@code ChurnAdminController},
@@ -25,6 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/admin/churn")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class ChurnAdminController {
 
     private final ChurnService churnService;

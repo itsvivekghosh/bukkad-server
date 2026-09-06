@@ -14,6 +14,8 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -129,17 +131,31 @@ class AnalyticsExportServiceTest {
     }
 
     @Test
-    void streamOrdersCsv_bindsUserInputAsParameters_notConcatenated() throws Exception {
+    void streamOrdersCsv_rejectsMalformedDatesBeforeQuery() {
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
         AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
         String maliciousFrom = "2026-01-01' OR '1'='1";
         String maliciousTo = "2026-12-31' --";
-        service.streamOrdersCsv(pw, maliciousFrom, maliciousTo);
+
+        // Post-audit: user-supplied dates are PARSED to LocalDateTime before any
+        // SQL runs, so injection payloads and malformed values are rejected with
+        // a 400 (BusinessException) — the query is never reached.
+        assertThatThrownBy(() -> service.streamOrdersCsv(pw, maliciousFrom, maliciousTo))
+                .isInstanceOf(com.bhukkad.common.error.BusinessException.class);
+        org.mockito.Mockito.verifyNoInteractions(jdbcTemplate);
+    }
+
+    @Test
+    void streamOrdersCsv_bindsValidDatesAsParameters() throws Exception {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
+        String validFrom = "2026-01-01T00:00:00";
+        String validTo = "2026-12-31T23:59:59";
+        service.streamOrdersCsv(pw, validFrom, validTo);
         pw.flush();
 
-        // The injection payload must be bound as a parameter (a ? placeholder in
-        // the SQL), never concatenated into the query text.
         org.mockito.ArgumentCaptor<String> sqlCaptor =
                 org.mockito.ArgumentCaptor.forClass(String.class);
         org.mockito.ArgumentCaptor<Object[]> paramsCaptor =
@@ -147,11 +163,9 @@ class AnalyticsExportServiceTest {
         org.mockito.Mockito.verify(jdbcTemplate).query(
                 sqlCaptor.capture(), any(RowCallbackHandler.class), paramsCaptor.capture());
 
-        assertFalse(sqlCaptor.getValue().contains("OR '1'='1"));
-        assertFalse(sqlCaptor.getValue().contains("--"));
         assertEquals(2, paramsCaptor.getValue().length);
-        assertEquals(maliciousFrom, paramsCaptor.getValue()[0]);
-        assertEquals(maliciousTo, paramsCaptor.getValue()[1]);
+        assertThat(paramsCaptor.getValue()[0]).isInstanceOf(java.time.LocalDateTime.class);
+        assertThat(paramsCaptor.getValue()[1]).isInstanceOf(java.time.LocalDateTime.class);
     }
 
     @Test

@@ -78,6 +78,28 @@ public class CartService {
                 });
     }
 
+    /** Updates one cart line's quantity (caller must own the active cart). */
+    @Transactional
+    public void updateQuantity(Long customerId, Long cartItemId, int quantity) {
+        CartItem item = ownedItem(customerId, cartItemId);
+        item.setQuantity(quantity);
+        cartItemRepository.save(item);
+    }
+
+    /** Removes one cart line (caller must own the active cart). */
+    @Transactional
+    public void removeItem(Long customerId, Long cartItemId) {
+        CartItem item = ownedItem(customerId, cartItemId);
+        cartItemRepository.delete(item);
+    }
+
+    private CartItem ownedItem(Long customerId, Long cartItemId) {
+        return getItems(customerId).stream()
+                .filter(i -> i.getId().equals(cartItemId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Cart item not found: " + cartItemId));
+    }
+
     @Transactional
     public BigDecimal subtotal(Long customerId) {
         return getItems(customerId).stream()

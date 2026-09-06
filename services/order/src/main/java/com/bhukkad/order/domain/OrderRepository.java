@@ -21,6 +21,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     List<Order> findByStatus(String status);
 
+    List<Order> findByDeliveryAgentId(Long deliveryAgentId);
+
     List<Order> findByStatusAndScheduledAtLessThanEqual(String status, LocalDateTime scheduledAt, Pageable pageable);
 
     Optional<Order> findByOrderNumber(String orderNumber);

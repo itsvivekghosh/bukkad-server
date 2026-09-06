@@ -33,7 +33,11 @@ public class JwtService {
         return issue(customerId, email, "customer");
     }
 
-    /** Issues a token carrying the caller's explicit scope claim. */
+    /**
+     * Issues a short-lived bearer access token (HS256). Validity comes from
+     * {@code app.jwt.access-ttl-minutes} (15 min default); long-lived renewal
+     * is handled by rotating refresh tokens, not by a fat access TTL.
+     */
     public String issue(Long customerId, String email, String scope) {
         try {
             Instant now = Instant.now();
@@ -42,7 +46,7 @@ public class JwtService {
                     .claim("email", email)
                     .claim("scope", scope != null ? scope : "customer")
                     .issueTime(Date.from(now))
-                    .expirationTime(Date.from(now.plusSeconds(properties.ttlMinutes() * 60)))
+                    .expirationTime(Date.from(now.plusSeconds(properties.accessTtlMinutes() * 60)))
                     .build();
             SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
             jwt.sign(new MACSigner(properties.secret()));

@@ -11,7 +11,17 @@ spring:
 management:
   endpoints: {web: {exposure: {include: health,info,metrics,prometheus}}}
   endpoint: {health: {probes: {enabled: true}}}
+app:
   auth:
     jwt:
-      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
+      secret: ${JWT_SECRET:}
+    service:
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+      allowed-services: order,payment,delivery,growth
+      enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
+  services:
+    payment:
+      url: ${PAYMENT_SERVICE_URL:http://payment:8093}
+      order:
+        url: ${ORDER_SERVICE_URL:http://order:8092}
 logging: {level: {com.bhukkad: INFO}}

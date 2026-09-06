@@ -1,5 +1,6 @@
 package com.bhukkad.payment.api;
 
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.payment.domain.CommissionTier;
 import com.bhukkad.payment.domain.DunningRun;
 import com.bhukkad.payment.domain.Payment;
@@ -9,14 +10,24 @@ import com.bhukkad.payment.service.CommissionTierService;
 import com.bhukkad.payment.service.DunningService;
 import com.bhukkad.payment.service.DisputeService;
 import com.bhukkad.payment.service.SettlementService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
+/**
+ * Payment operations surface (refunds, dunning, commission, settlement).
+ *
+ * <p>Every mutating endpoint is ADMIN-only: refunds and settlements create
+ * money movement, and previously any authenticated user could fabricate
+ * payout obligations with an arbitrary gross amount.</p>
+ */
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -28,22 +39,29 @@ public class PaymentOperationsController {
     private final DisputeService disputeService;
     private final SettlementService settlementService;
     private final PaymentMapper paymentMapper;
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/payments/{paymentId}/refund")
+    @PreAuthorize("hasRole('ADMIN')")
     public PaymentResponse refund(@PathVariable Long paymentId, @RequestParam String reason) {
         Payment payment = refundService.refund(paymentId, reason);
         return paymentMapper.toPaymentResponse(payment);
     }
 
     @PostMapping("/payments/{paymentId}/dunning")
+    @PreAuthorize("hasRole('ADMIN')")
     public DunningRun dunning(@PathVariable Long paymentId,
                               @RequestParam(defaultValue = "1") int attempt,
                               @RequestParam(required = false) LocalDateTime scheduledAt) {
+        if (attempt < 1) {
+            throw new BusinessException("attempt must be >= 1");
+        }
         return dunningService.scheduleRetry(paymentId, attempt,
                 scheduledAt != null ? scheduledAt : LocalDateTime.now().plusHours(1));
     }
 
     @GetMapping("/dunning/pending")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<DunningRun> pendingDunning() {
         return dunningService.pending();
     }
@@ -54,23 +72,45 @@ public class PaymentOperationsController {
     }
 
     @PostMapping("/commission/tiers")
+    @PreAuthorize("hasRole('ADMIN')")
     public CommissionTier createTier(@RequestParam int minOrderCount,
                                      @RequestParam(required = false) Integer maxOrderCount,
                                      @RequestParam BigDecimal commissionPct) {
+        // A negative or 10000% commission previously corrupted the settlement
+        // math for every subsequent order.
+        if (commissionPct.signum() < 0 || commissionPct.compareTo(new BigDecimal("100")) > 0) {
+            throw new BusinessException("commissionPct must be between 0 and 100");
+        }
         return commissionTierService.create(minOrderCount, maxOrderCount, commissionPct);
     }
 
     @PostMapping("/settlement")
+    @PreAuthorize("hasRole('ADMIN')")
     public RestaurantSettlementResponse settle(@RequestParam Long restaurantId,
                                                @RequestParam int orderCount,
                                                @RequestParam BigDecimal grossAmount) {
+        if (orderCount < 0) {
+            throw new BusinessException("orderCount must be >= 0");
+        }
         SettlementService.SettlementResult result = settlementService.run(
                 LocalDate.now(), restaurantId, orderCount, grossAmount);
         return paymentMapper.toRestaurantSettlementResponse(result.settlement());
     }
 
+    /**
+     * Provider callback echo. Serialized via Jackson — the previous
+     * string-concatenation echoed attacker-controlled {@code event} text
+     * unescaped into the response body.
+     */
     @PostMapping("/webhook/payment")
     public String webhook(@RequestParam Long paymentId, @RequestParam String event) {
-        return "{\"received\":true,\"paymentId\":" + paymentId + ",\"event\":\"" + event + "\"}";
+        try {
+            return objectMapper.writeValueAsString(Map.of(
+                    "received", true,
+                    "paymentId", paymentId,
+                    "event", event == null ? "" : event));
+        } catch (Exception e) {
+            return "{\"received\":true}";
+        }
     }
 }

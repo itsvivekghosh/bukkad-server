@@ -15,7 +15,14 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     List<Review> findByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);
 
+    org.springframework.data.domain.Page<Review>
+            findByRestaurantIdAndStatusOrderByCreatedAtDesc(Long restaurantId, String status,
+                                                            org.springframework.data.domain.Pageable pageable);
+
     List<Review> findByCustomerId(Long customerId);
+
+    org.springframework.data.domain.Page<Review> findByCustomerIdOrderByCreatedAtDesc(
+            Long customerId, org.springframework.data.domain.Pageable pageable);
 
     @Query("SELECT AVG(r.rating) FROM Review r WHERE r.restaurantId = :restaurantId")
     Double getAverageRatingByRestaurant(@Param("restaurantId") Long restaurantId);

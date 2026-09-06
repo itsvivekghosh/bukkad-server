@@ -74,6 +74,8 @@ class GatewayAdminRoutingTest {
         registry.add("app.routes.referral-uri", () -> "http://127.0.0.1:1");
         registry.add("app.routes.support-uri", () -> "http://127.0.0.1:1");
         registry.add("app.routes.realtime-uri", () -> "http://127.0.0.1:1");
+        registry.add("app.routes.growth-uri", () -> "http://127.0.0.1:1");
+        registry.add("app.routes.personalization-uri", () -> "http://127.0.0.1:1");
     }
 
     @Autowired

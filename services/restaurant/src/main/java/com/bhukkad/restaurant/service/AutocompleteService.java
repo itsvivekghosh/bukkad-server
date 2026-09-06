@@ -22,6 +22,14 @@ public class AutocompleteService {
         return index().autocomplete(prefix, limit);
     }
 
+    // Warms the trie when the context is ready; Spring annotations keep the
+    // service layer free of jakarta.annotation deps (RestaurantServiceArchTest).
+    @org.springframework.context.event.EventListener(
+            org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void warmOnStartup() {
+        warm();
+    }
+
     public void warm() {
         TrieIndex fresh = new TrieIndex();
         menuItemRepository.findAll().forEach(mi -> fresh.insert(mi.getName()));

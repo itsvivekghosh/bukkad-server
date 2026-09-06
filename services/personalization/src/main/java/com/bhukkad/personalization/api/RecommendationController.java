@@ -1,16 +1,24 @@
 package com.bhukkad.personalization.api;
 
+import com.bhukkad.common.error.UnauthorizedException;
+import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.personalization.dto.FeedRankResponse;
 import com.bhukkad.personalization.dto.RecommendationResponse;
 import com.bhukkad.personalization.service.RecommendationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Recommendation surface. The subject is ALWAYS the authenticated principal:
+ * the previous {@code X-Customer-Id} header contract was client-spoofable and
+ * leaked other customers' order-history-derived preferences.
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/customers/me/recommendations")
@@ -21,33 +29,44 @@ public class RecommendationController {
 
     @GetMapping("/reorder")
     public ResponseEntity<List<RecommendationResponse>> reorderSuggestions(
-            @RequestHeader("X-Customer-Id") Long customerId) {
+            @AuthenticationPrincipal TokenPrincipal principal) {
+        Long customerId = requireCustomerId(principal);
         log.debug("Reorder suggestions for customer {}", customerId);
         return ResponseEntity.ok(recommendationService.reorderSuggestions(customerId));
     }
 
     @GetMapping("/for-you")
     public ResponseEntity<List<RecommendationResponse>> collaborativeSuggestions(
-            @RequestHeader("X-Customer-Id") Long customerId) {
+            @AuthenticationPrincipal TokenPrincipal principal) {
+        Long customerId = requireCustomerId(principal);
         log.debug("Collaborative suggestions for customer {}", customerId);
         return ResponseEntity.ok(recommendationService.collaborativeSuggestions(customerId));
     }
 
     @GetMapping("/time-aware")
     public ResponseEntity<List<RecommendationResponse>> timeAwareSuggestions(
-            @RequestHeader("X-Customer-Id") Long customerId) {
+            @AuthenticationPrincipal TokenPrincipal principal) {
+        Long customerId = requireCustomerId(principal);
         log.debug("Time-aware suggestions for customer {}", customerId);
         return ResponseEntity.ok(recommendationService.timeAwareSuggestions(customerId));
     }
 
     @GetMapping("/feed-rank")
     public ResponseEntity<FeedRankResponse> rankFeed(
-            @RequestHeader("X-Customer-Id") Long customerId,
+            @AuthenticationPrincipal TokenPrincipal principal,
             @RequestParam("restaurantIds") List<Long> restaurantIds) {
+        Long customerId = requireCustomerId(principal);
         if (restaurantIds == null || restaurantIds.isEmpty() || restaurantIds.size() > 100) {
             return ResponseEntity.badRequest().build();
         }
         log.debug("Feed rank for customer {} with {} restaurants", customerId, restaurantIds.size());
         return ResponseEntity.ok(recommendationService.rankRestaurantsForCustomer(customerId, restaurantIds));
+    }
+
+    private static Long requireCustomerId(TokenPrincipal principal) {
+        if (principal == null || principal.userId() == null) {
+            throw new UnauthorizedException("Authenticated customer required");
+        }
+        return principal.userId();
     }
 }

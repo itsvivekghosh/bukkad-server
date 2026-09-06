@@ -6,11 +6,20 @@ import com.bhukkad.growth.service.LoyaltyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 
+/**
+ * Redis-backed loyalty ledger.
+ *
+ * <p>Redemption uses an atomic Lua compare-and-decrement: the read-check-write
+ * sequence previously let two concurrent redemptions both pass the balance
+ * check and drive the counter negative (double-spend).</p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -18,7 +27,20 @@ public class LoyaltyServiceImpl implements LoyaltyService {
 
     private static final String LOYALTY_KEY_PREFIX = "loyalty:points:";
     private static final String LIFETIME_KEY_PREFIX = "loyalty:lifetime:";
-    private static final String TIER_KEY_PREFIX = "loyalty:tier:";
+
+    /**
+     * DECRBY guarded by a floor check — returns the new balance when the
+     * balance covered the redemption, otherwise the key is untouched and the
+     * script answers a negative sentinel.
+     */
+    private static final String REDEEM_SCRIPT = """
+            local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+            local points = tonumber(ARGV[1])
+            if current < points then
+              return -1
+            end
+            return redis.call('DECRBY', KEYS[1], points)
+            """;
 
     private final StringRedisTemplate redisTemplate;
     private final GrowthProperties growthProperties;
@@ -47,6 +69,10 @@ public class LoyaltyServiceImpl implements LoyaltyService {
             log.warn("Invalid points credit attempt: {} for customer {}", points, customerId);
             return;
         }
+        if (points > MAX_CREDIT_POINTS) {
+            log.warn("Rejected oversized points credit: {} for customer {}", points, customerId);
+            return;
+        }
 
         String pointsKey = LOYALTY_KEY_PREFIX + customerId;
         String lifetimeKey = LIFETIME_KEY_PREFIX + customerId;
@@ -57,16 +83,12 @@ public class LoyaltyServiceImpl implements LoyaltyService {
         log.info("Credited {} points to customer {} for: {}", points, customerId, reason);
     }
 
+    /** Single-credit ceiling; larger grants must go through an audited admin flow. */
+    private static final int MAX_CREDIT_POINTS = 100_000;
+
     @Override
     public boolean redeemPoints(Long customerId, int points) {
         if (points <= 0) {
-            return false;
-        }
-
-        int currentPoints = getCurrentPoints(customerId);
-        if (currentPoints < points) {
-            log.warn("Insufficient points for redemption: requested {} but only {} available for customer {}",
-                    points, currentPoints, customerId);
             return false;
         }
 
@@ -77,7 +99,12 @@ public class LoyaltyServiceImpl implements LoyaltyService {
         }
 
         String pointsKey = LOYALTY_KEY_PREFIX + customerId;
-        redisTemplate.opsForValue().decrement(pointsKey, points);
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>(REDEEM_SCRIPT, Long.class);
+        Long result = redisTemplate.execute(script, List.of(pointsKey), String.valueOf(points));
+        if (result == null || result < 0) {
+            log.warn("Insufficient points for redemption: requested {} for customer {}", points, customerId);
+            return false;
+        }
 
         log.info("Redeemed {} points for customer {}", points, customerId);
         return true;
@@ -108,8 +135,8 @@ public class LoyaltyServiceImpl implements LoyaltyService {
         if (lifetimePoints >= 10000) return 5; // Platinum
         if (lifetimePoints >= 5000) return 4;  // Gold
         if (lifetimePoints >= 2000) return 3;   // Silver
-        if (lifetimePoints >= 500) return 2;     // Bronze
-        return 1; // Basic
+        if (lifetimePoints >= 500) return 2;   // Bronze
+        return 1; // Member
     }
 
     private String getTierName(int tierLevel) {
@@ -118,15 +145,15 @@ public class LoyaltyServiceImpl implements LoyaltyService {
             case 4 -> "Gold";
             case 3 -> "Silver";
             case 2 -> "Bronze";
-            default -> "Basic";
+            default -> "Member";
         };
     }
 
-    private int getPointsToNextTier(int lifetimePoints, int currentTier) {
-        int[] tierThresholds = {0, 500, 2000, 5000, 10000};
-        if (currentTier >= 5) return 0;
-
-        int nextThreshold = tierThresholds[currentTier];
-        return Math.max(0, nextThreshold - lifetimePoints);
+    private int getPointsToNextTier(int lifetimePoints, int tierLevel) {
+        int[] thresholds = {0, 500, 2000, 5000, 10000};
+        if (tierLevel >= thresholds.length) {
+            return 0;
+        }
+        return thresholds[tierLevel] - lifetimePoints;
     }
 }

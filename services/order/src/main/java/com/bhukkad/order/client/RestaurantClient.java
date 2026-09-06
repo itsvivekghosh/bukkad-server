@@ -33,6 +33,23 @@ public class RestaurantClient {
     }
 
     /**
+     * Fetch a single menu item by id (canonical public surface,
+     * {@code GET /api/v1/menu/items/{id}}). Used by the cart to resolve an
+     * authoritative name+price server-side instead of trusting the caller's
+     * snapshot. Empty Mono when the item does not exist.
+     */
+    @SuppressWarnings("unchecked")
+    public Mono<java.util.Map<String, Object>> getMenuItem(Long id) {
+        return webClient.get()
+                .uri("/api/v1/menu/items/{id}", id)
+                .retrieve()
+                .bodyToMono(java.util.Map.class)
+                .map(m -> (java.util.Map<String, Object>) m)
+                .timeout(java.time.Duration.ofSeconds(3))
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    /**
      * Fetch a public restaurant profile by ID.
      *
      * @param id the restaurant ID

@@ -103,6 +103,10 @@ public class Restaurant {
     @Column(name = "delivery_radius_km")
     private Integer deliveryRadiusKm = 5;
 
+    /** Owning RESTAURANT_OWNER user id (identity `users.id`, join-inheritance). */
+    @Column(name = "owner_id")
+    private Long ownerId;
+
     @Column(length = 50)
     private String licenseNumber;
 
@@ -135,7 +139,11 @@ public class Restaurant {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
-    @ElementCollection(fetch = FetchType.LAZY)
+    // EAGER (with batch-size 50): these small sets are rendered on nearly
+    // every restaurant response; with open-in-view disabled a LAZY proxy
+    // explodes during serialization (HttpMessageNotWritableException → 500)
+    // for any endpoint returning a DB-loaded entity outside the transaction.
+    @ElementCollection(fetch = FetchType.EAGER)
     @org.hibernate.annotations.BatchSize(size = 50)
     @CollectionTable(name = "restaurant_features", joinColumns = @JoinColumn(name = "restaurant_id"))
     @Column(name = "feature", length = 100)
@@ -144,13 +152,13 @@ public class Restaurant {
     @Column(length = 100)
     private String virtualBrandName;
 
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @org.hibernate.annotations.BatchSize(size = 50)
     @CollectionTable(name = "restaurant_gallery", joinColumns = @JoinColumn(name = "restaurant_id"))
     @Column(name = "image_url", length = 500)
     private Set<String> galleryImages = new HashSet<>();
 
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @Enumerated(EnumType.STRING)
     @org.hibernate.annotations.BatchSize(size = 50)
     @CollectionTable(name = "restaurant_food_types", joinColumns = @JoinColumn(name = "restaurant_id"))

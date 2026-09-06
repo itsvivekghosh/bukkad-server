@@ -70,10 +70,17 @@ app:
       # secret = auth filter inactive in dev (protected endpoints then 401);
       # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
       # to enable.
-      secret: ${JWT_SECRET:dev-secret-change-me-0123456789abcdef0123456789abcdef}
+      secret: ${JWT_SECRET:}
       jwks-url: ${JWKS_URL:}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}
+    service:
+      # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
+      # mesh secret; internal paths REQUIRE a valid service token when the
+      # secret is set. allowed-services is deny-by-default.
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
+      enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
   events:
     external:
       enabled: false

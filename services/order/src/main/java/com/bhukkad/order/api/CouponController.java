@@ -42,17 +42,20 @@ public class CouponController {
     }
 
     @PostMapping
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public CouponResponse createCoupon(@Valid @RequestBody CouponRequest request) {
         return couponService.createCoupon(request);
     }
 
     @PutMapping("/{couponId}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public CouponResponse updateCoupon(@PathVariable Long couponId,
                                        @Valid @RequestBody CouponRequest request) {
         return couponService.updateCoupon(couponId, request);
     }
 
     @DeleteMapping("/{couponId}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public void deactivateCoupon(@PathVariable Long couponId) {
         couponService.deactivateCoupon(couponId);
     }
