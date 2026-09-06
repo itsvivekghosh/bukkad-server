@@ -5,7 +5,10 @@ import com.bhukkad.common.web.client.RetryFilter;
 import com.bhukkad.order.client.dto.MenuItemDto;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
+import com.bhukkad.order.client.dto.StockReservationLine;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -100,5 +103,51 @@ public class RestaurantClient {
                 .collectList()
                 .timeout(Duration.ofSeconds(3))
                 .onErrorResume(e -> Mono.just(List.of()));
+    }
+
+    /**
+     * Reserve stock for order lines (saga RESERVE_STOCK step). Targets the
+     * restaurant service's internal inventory surface
+     * {@code POST /api/v1/inventory/stock-reservation/reserve} with a
+     * service token on {@code X-Service-Token} (required when the restaurant
+     * service enforces mesh auth; omitted when the token is not configured).
+     *
+     * <p>Returns the reserved lines (with server-issued reservation ids when
+     * the endpoint provides them), or — while the endpoint still answers with
+     * an empty body — the request lines echoed back, so callers can only read
+     * success from a 2xx. 4xx/5xx and transport failures surface as an error
+     * signal (the saga step fails); nothing is swallowed here.</p>
+     */
+    public Mono<List<StockReservationLine>> reserveStock(List<StockReservationLine> lines, String serviceToken) {
+        return stockReservation("/api/v1/inventory/stock-reservation/reserve", lines, serviceToken);
+    }
+
+    /**
+     * Release previously reserved stock (saga compensation of RESERVE_STOCK).
+     * Same contract as {@link #reserveStock} against
+     * {@code POST /api/v1/inventory/stock-reservation/release}.
+     */
+    public Mono<List<StockReservationLine>> releaseStock(List<StockReservationLine> lines, String serviceToken) {
+        return stockReservation("/api/v1/inventory/stock-reservation/release", lines, serviceToken);
+    }
+
+    private Mono<List<StockReservationLine>> stockReservation(String path,
+                                                              List<StockReservationLine> lines,
+                                                              String serviceToken) {
+        return webClient.post()
+                .uri(path)
+                .accept(MediaType.APPLICATION_JSON)
+                .headers(headers -> {
+                    headers.setContentType(MediaType.APPLICATION_JSON);
+                    if (serviceToken != null && !serviceToken.isBlank()) {
+                        headers.set("X-Service-Token", serviceToken);
+                    }
+                })
+                .bodyValue(lines)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<List<StockReservationLine>>() { })
+                .defaultIfEmpty(lines)
+                .map(returned -> returned.isEmpty() ? lines : returned)
+                .timeout(Duration.ofSeconds(5));
     }
 }

@@ -109,4 +109,58 @@ class RestaurantClientTest {
         assertThat(results.get(0).getIsActive()).isTrue();
         assertThat(results.get(0).getAverageRating()).isEqualTo(4.2);
     }
+
+    // ---- stock reservation surface (order saga RESERVE_STOCK step) ----
+
+    private java.util.List<com.bhukkad.order.client.dto.StockReservationLine> reservationLines() {
+        return java.util.List.of(
+                com.bhukkad.order.client.dto.StockReservationLine.of(100L, "Paneer", 1),
+                com.bhukkad.order.client.dto.StockReservationLine.of(101L, "Roti", 2));
+    }
+
+    @Test
+    void reserveStock_sendsLinesAndToken_returnsReservedLines_on200() {
+        final String[] capturedToken = new String[1];
+        final String[] capturedBody = new String[1];
+        server.createContext("/api/v1/inventory/stock-reservation/reserve", exchange -> {
+            capturedToken[0] = exchange.getRequestHeaders().getFirst("X-Service-Token");
+            capturedBody[0] = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            byte[] bytes = ("[" + capturedBody[0].substring(1, capturedBody[0].length() - 1) + "]")
+                    .getBytes(StandardCharsets.UTF_8); // echo the same items back
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
+
+        var reserved = client.reserveStock(reservationLines(), "svc-token").block();
+
+        assertThat(reserved).isEqualTo(reservationLines());
+        assertThat(capturedToken[0]).isEqualTo("svc-token");
+        assertThat(capturedBody[0]).contains("\"menuItemId\":100").contains("\"quantity\":2");
+    }
+
+    @Test
+    void reserveStock_insufficientStock409_failsTheMono_soSagaStepCanFail() {
+        server.createContext("/api/v1/inventory/stock-reservation/reserve", exchange ->
+                exchange.sendResponseHeaders(409, -1));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> client.reserveStock(reservationLines(), "svc-token").block())
+                .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.class);
+    }
+
+    @Test
+    void releaseStock_omitsHeaderWhenTokenNull_succeedsOn200EmptyBody() {
+        server.createContext("/api/v1/inventory/stock-reservation/release", exchange -> {
+            assertThat(exchange.getRequestHeaders().containsKey("X-Service-Token")).isFalse();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+
+        var released = client.releaseStock(reservationLines(), null).block();
+
+        assertThat(released).isEqualTo(reservationLines());
+    }
 }

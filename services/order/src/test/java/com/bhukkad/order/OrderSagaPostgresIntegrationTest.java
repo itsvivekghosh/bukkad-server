@@ -7,22 +7,34 @@ import com.bhukkad.common.saga.SagaInstanceRepository;
 import com.bhukkad.common.saga.SagaStepDefinition;
 import com.bhukkad.order.api.CreateOrderRequest;
 import com.bhukkad.order.api.OrderItemRequest;
+import com.bhukkad.order.client.PaymentServiceClient;
+import com.bhukkad.order.client.RestaurantClient;
+import com.bhukkad.order.client.dto.ChargeResponse;
+import com.bhukkad.order.client.dto.StockReservationLine;
 import com.bhukkad.order.service.OrderService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Integration test proving the order-creation saga (RESERVE_STOCK →
  * CHARGE_PAYMENT) runs through the real {@link SagaCoordinator} against a
  * Testcontainers PostgreSQL and produces a terminal COMPLETED or COMPENSATED
  * state. The platform-lib saga integration test covers the coordinator
- * itself; this test validates the order-service wiring.
+ * itself; this test validates the order-service wiring. The (now REAL)
+ * restaurant/payment HTTP collaborators are mocked at the client boundary —
+ * their contracts are covered by PaymentServiceClientTest /
+ * RestaurantClientTest.
  */
 @SpringBootTest
 class OrderSagaPostgresIntegrationTest extends AbstractOrderPostgresTest {
@@ -36,8 +48,19 @@ class OrderSagaPostgresIntegrationTest extends AbstractOrderPostgresTest {
     @Autowired
     private SagaInstanceRepository sagaInstanceRepository;
 
+    @MockBean
+    private RestaurantClient restaurantClient;
+
+    @MockBean
+    private PaymentServiceClient paymentServiceClient;
+
     @Test
     void createOrder_sagaCompletesSuccessfully() {
+        when(restaurantClient.reserveStock(any(), any()))
+                .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
+        when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new ChargeResponse(5L, "CHARGED")));
+
         var request = new CreateOrderRequest(
                 1L, 10L, List.of(
                 new OrderItemRequest(100L, "Burger", BigDecimal.valueOf(12.50), 2),
@@ -53,6 +76,27 @@ class OrderSagaPostgresIntegrationTest extends AbstractOrderPostgresTest {
         SagaInstance saga = sagaInstanceRepository.findBySagaId(String.valueOf(response.id()));
         assertThat(saga).isNotNull();
         assertThat(saga.getStatus()).isEqualTo(SagaInstance.STATUS_COMPLETED);
+    }
+
+    @Test
+    void createOrder_chargeFails_compensatesAndCancelsOrder() {
+        when(restaurantClient.reserveStock(any(), any()))
+                .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
+        when(restaurantClient.releaseStock(any(), any()))
+                .thenReturn(Mono.just(List.of()));
+        when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new RuntimeException("payment gateway down")));
+
+        var request = new CreateOrderRequest(
+                2L, 10L, List.of(new OrderItemRequest(100L, "Burger", BigDecimal.valueOf(12.50), 1)));
+        var response = orderService.createOrder(request);
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        verify(restaurantClient).releaseStock(any(), any());
+
+        SagaInstance saga = sagaInstanceRepository.findBySagaId(String.valueOf(response.id()));
+        assertThat(saga).isNotNull();
+        assertThat(saga.getStatus()).isEqualTo(SagaInstance.STATUS_COMPENSATED);
     }
 
     @Test

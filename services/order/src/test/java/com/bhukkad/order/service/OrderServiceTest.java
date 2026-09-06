@@ -3,9 +3,12 @@ package com.bhukkad.order.service;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.saga.SagaCoordinator;
+import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.order.api.CreateOrderRequest;
 import com.bhukkad.order.api.OrderItemRequest;
 import com.bhukkad.order.api.OrderResponse;
+import com.bhukkad.order.client.PaymentServiceClient;
+import com.bhukkad.order.client.RestaurantClient;
 import com.bhukkad.order.domain.Order;
 import com.bhukkad.order.domain.OrderItemRepository;
 import com.bhukkad.order.domain.OrderRepository;
@@ -15,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -38,6 +42,9 @@ class OrderServiceTest {
     @Mock private OrderTimelineEventRepository timelineRepository;
     @Mock private SagaCoordinator sagaCoordinator;
     @Mock private OrderEventPublisher eventPublisher;
+    @Mock private RestaurantClient restaurantClient;
+    @Mock private PaymentServiceClient paymentServiceClient;
+    @Mock private ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
 
     @InjectMocks private OrderService service;
 

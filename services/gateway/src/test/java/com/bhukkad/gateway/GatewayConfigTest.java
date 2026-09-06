@@ -3,10 +3,13 @@ package com.bhukkad.gateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cloud.gateway.config.HttpClientProperties;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.route.Route;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -17,7 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Asserts the gateway wires the intended routes (restaurant slice, identity
  * auth, order slice, payment slice, delivery slice) with the configured backend
- * URIs.</p>
+ * URIs, and (audit batch A) the edge-hardening defaults: bounded httpclient
+ * timeouts plus the header-hygiene / secure-cookie global filters.</p>
  */
 @SpringBootTest(classes = {GatewayApplication.class})
 @TestPropertySource(properties = {
@@ -41,6 +45,12 @@ class GatewayConfigTest {
     @Autowired
     private RouteLocator routes;
 
+    @Autowired
+    private HttpClientProperties httpClientProperties;
+
+    @Autowired
+    private java.util.List<GlobalFilter> globalFilters;
+
     @Test
     void stranglerRouteTableIsDefined() {
         Map<String, Route> byId = routes.getRoutes()
@@ -60,8 +70,12 @@ class GatewayConfigTest {
                 "notification", "live", "live-realtime", "growth",
                 "inventory", "restaurant", "identity", "personalization",
                 "order", "payment", "delivery",
+                "admin-restaurants", "commission",
                 "admin-analytics", "not-found");
-        assertThat(routes.getRoutes().collectList().block()).hasSize(34);
+        // Pre-existing staleness from batch A's verification pass: admin-restaurants
+        // and commission landed without updating this assertion (test failed at
+        // d2393ce with "Expected size: 34 but was: 36").
+        assertThat(routes.getRoutes().collectList().block()).hasSize(36);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");
@@ -91,5 +105,19 @@ class GatewayConfigTest {
         Route adminAnalytics = byId.get("admin-analytics");
         assertThat(adminAnalytics.getUri().getHost())
                 .isEqualTo("bhukkad-admin-analytics.bhukkad.svc.cluster.local");
+    }
+
+    @Test
+    void edgeHardeningDefaultsAreConfigured() {
+        // Audit batch A: bounded upstream latency, no hung-service pinning.
+        assertThat(httpClientProperties.getResponseTimeout()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(httpClientProperties.getConnectTimeout()).isEqualTo(5000);
+
+        // Header hygiene + secure-cookie rewriting are global filters and run
+        // on every route (the programmatic RouteLocator is invisible to
+        // spring.cloud.gateway.default-filters).
+        assertThat(globalFilters)
+                .anyMatch(TransportHeaderHygieneFilter.class::isInstance)
+                .anyMatch(SecureCookieFilter.class::isInstance);
     }
 }

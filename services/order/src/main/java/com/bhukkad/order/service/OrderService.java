@@ -2,14 +2,19 @@ package com.bhukkad.order.service;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
-import com.bhukkad.common.saga.SagaAction;
 import com.bhukkad.common.saga.SagaCoordinator;
+import com.bhukkad.common.saga.SagaInstance;
 import com.bhukkad.common.saga.SagaStepDefinition;
+import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.order.api.CreateOrderRequest;
 import com.bhukkad.order.api.OrderDetailsResponse;
 import com.bhukkad.order.api.OrderItemDto;
 import com.bhukkad.order.api.OrderItemRequest;
 import com.bhukkad.order.api.OrderResponse;
+import com.bhukkad.order.client.PaymentServiceClient;
+import com.bhukkad.order.client.RestaurantClient;
+import com.bhukkad.order.client.dto.ChargeResponse;
+import com.bhukkad.order.client.dto.StockReservationLine;
 import com.bhukkad.order.domain.Order;
 import com.bhukkad.order.domain.OrderItem;
 import com.bhukkad.order.domain.OrderItemRepository;
@@ -18,17 +23,26 @@ import com.bhukkad.order.domain.OrderTimelineEvent;
 import com.bhukkad.order.domain.OrderTimelineEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Order creation as a saga: {@code RESERVE_STOCK → CHARGE_PAYMENT → CONFIRM},
- * with compensation in reverse on failure. The outbox emits
- * {@code OrderCreated}/{@code OrderStatusChanged} in the same transaction that
- * commits the order (plan §6.4 — at-least-once + idempotent consumers).
+ * Order creation as a saga: {@code RESERVE_STOCK → CHARGE_PAYMENT}, with
+ * compensation in reverse on failure. Both steps execute for real (audit
+ * batch A): RESERVE_STOCK calls the restaurant inventory API, CHARGE_PAYMENT
+ * calls the payment service. A {@link SagaStepDefinition.StepResult#FAILED}
+ * step marks the saga step FAILED, unwinds the compensation chain (a charge
+ * failure releases the reserved stock; a post-charge failure refunds it) and
+ * leaves the order {@code CANCELLED} with a timeline entry and a status event.
+ * The outbox emits {@code OrderCreated}/{@code OrderStatusChanged} in the same
+ * transaction that commits the order (plan §6.4 — at-least-once + idempotent
+ * consumers).
  */
 @Slf4j
 @Service
@@ -37,11 +51,20 @@ public class OrderService {
 
     public static final String SAGA_TYPE = "ORDER_CREATION";
 
+    /** Payment method charged by the create-order saga until the checkout API carries a method. */
+    public static final String SAGA_PAYMENT_METHOD = "WALLET";
+
+    /** Outer bound for a saga RPC (client already retries/timeouts internally). */
+    private static final Duration SAGA_RPC_TIMEOUT = Duration.ofSeconds(20);
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderTimelineEventRepository timelineRepository;
     private final SagaCoordinator sagaCoordinator;
     private final OrderEventPublisher eventPublisher;
+    private final RestaurantClient restaurantClient;
+    private final PaymentServiceClient paymentServiceClient;
+    private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -75,17 +98,60 @@ public class OrderService {
             orderItemRepository.save(item);
         });
 
-        // Saga: reserve stock -> charge payment -> (saga marks success). If any
-        // step fails, previously completed steps are compensated in reverse.
-        SagaStepDefinition reserve = SagaStepDefinition.of("RESERVE_STOCK", new SagaAction() {
-            @Override public String execute(String n, String p) { return "{\"orderId\":" + orderId + "}"; }
-            @Override public void compensate(String n, String p, String c) { log.info("STOCK_RELEASED | orderId={}", orderId); }
-        });
-        SagaStepDefinition charge = SagaStepDefinition.of("CHARGE_PAYMENT", new SagaAction() {
-            @Override public String execute(String n, String p) { return "{\"orderId\":" + orderId + "}"; }
-            @Override public void compensate(String n, String p, String c) { log.info("PAYMENT_REFUNDED | orderId={}", orderId); }
-        });
-        sagaCoordinator.executeSaga(SAGA_TYPE, String.valueOf(orderId), "{}", List.of(reserve, charge));
+        // Saga (audit batch A — real execution): reserve stock -> charge
+        // payment. A FAILED step marks the saga step FAILED, unwinds the
+        // compensation chain and leaves the order CANCELLED:
+        //   - CHARGE_PAYMENT failure -> RESERVE_STOCK compensation (releaseStock)
+        //   - a completed charge is compensated by refunding it.
+        String serviceToken = serviceToken();
+        List<StockReservationLine> reservationLines = request.items().stream()
+                .map(i -> StockReservationLine.of(i.menuItemId(), i.name(), i.quantity()))
+                .toList();
+        AtomicReference<Long> chargedPaymentId = new AtomicReference<>();
+
+        SagaStepDefinition reserve = SagaStepDefinition.executionResult(
+                "RESERVE_STOCK",
+                () -> {
+                    List<StockReservationLine> reserved = blockQuietly(
+                            restaurantClient.reserveStock(reservationLines, serviceToken),
+                            "RESERVE_STOCK", orderId);
+                    return reserved != null
+                            ? SagaStepDefinition.StepResult.SUCCESS
+                            : SagaStepDefinition.StepResult.FAILED;
+                },
+                payload -> releaseReservations(orderId, reservationLines, serviceToken));
+
+        SagaStepDefinition charge = SagaStepDefinition.executionResult(
+                "CHARGE_PAYMENT",
+                () -> {
+                    ChargeResponse response = blockQuietly(
+                            paymentServiceClient.charge(orderId, request.customerId(), total,
+                                    SAGA_PAYMENT_METHOD, "ORDER-" + orderId, serviceToken),
+                            "CHARGE_PAYMENT", orderId);
+                    if (response == null) {
+                        return SagaStepDefinition.StepResult.FAILED;
+                    }
+                    chargedPaymentId.set(response.paymentId());
+                    return SagaStepDefinition.StepResult.SUCCESS;
+                },
+                payload -> refundCharge(orderId, chargedPaymentId.get(), serviceToken));
+
+        SagaInstance saga = sagaCoordinator.executeSaga(
+                SAGA_TYPE, String.valueOf(orderId), sagaPayload(orderId, request, total),
+                List.of(reserve, charge));
+
+        if (saga != null && !SagaInstance.STATUS_COMPLETED.equals(saga.getStatus())) {
+            // The saga unwound (COMPENSATED) or could not be confirmed: the
+            // order is placed in its terminal CANCELLED state with a timeline
+            // entry and a status event — stock/payment side effects are undone.
+            order.setStatus(Order.STATUS_CANCELLED);
+            orderRepository.save(order);
+            recordTimeline(orderId, "FAILED");
+            eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
+            eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
+            log.warn("ORDER_SAGA_FAILED | orderId={} | sagaStatus={}", orderId, saga.getStatus());
+            return toResponse(order);
+        }
 
         order.setStatus(Order.STATUS_CONFIRMED);
         orderRepository.save(order);
@@ -95,6 +161,63 @@ public class OrderService {
         eventPublisher.orderStatusChanged(orderId, Order.STATUS_CONFIRMED);
 
         return toResponse(order);
+    }
+
+    private String serviceToken() {
+        ServiceJwtAuthTokenProvider provider = serviceJwtTokenProvider.getIfAvailable();
+        return provider != null ? provider.serviceToken() : null;
+    }
+
+    /**
+     * Awaits a saga RPC; transport/HTTP failures degrade to {@code null} so
+     * the caller can report {@link SagaStepDefinition.StepResult#FAILED} —
+     * the saga engine, not the client stack, owns the failure semantics.
+     */
+    private <T> T blockQuietly(reactor.core.publisher.Mono<T> call, String stepName, Long orderId) {
+        try {
+            return call.block(SAGA_RPC_TIMEOUT);
+        } catch (Exception ex) {
+            log.warn("SAGA_STEP_CALL_FAILED | step={} | orderId={} | error={}",
+                    stepName, orderId, ex.getMessage());
+            return null;
+        }
+    }
+
+    private void releaseReservations(Long orderId, List<StockReservationLine> lines, String serviceToken) {
+        try {
+            restaurantClient.releaseStock(lines, serviceToken).block(SAGA_RPC_TIMEOUT);
+            log.info("STOCK_RELEASED | orderId={}", orderId);
+        } catch (Exception ex) {
+            // Compensation itself failed: propagate so the SagaCoordinator marks
+            // the saga FAILED (the money/stock unwind is incomplete) instead of
+            // pretending the chain closed cleanly.
+            log.error("STOCK_RELEASE_FAILED | orderId={} | error={}", orderId, ex.getMessage());
+            throw new BusinessException("Stock release compensation failed for order " + orderId
+                    + ": " + ex.getMessage());
+        }
+    }
+
+    private void refundCharge(Long orderId, Long paymentId, String serviceToken) {
+        if (paymentId == null) {
+            return; // the charge never completed — nothing to refund
+        }
+        try {
+            paymentServiceClient.refund(paymentId, "saga-compensation", serviceToken)
+                    .block(SAGA_RPC_TIMEOUT);
+            log.info("PAYMENT_REFUNDED | orderId={} | paymentId={}", orderId, paymentId);
+        } catch (Exception ex) {
+            log.error("PAYMENT_REFUND_FAILED | orderId={} | paymentId={} | error={}",
+                    orderId, paymentId, ex.getMessage());
+            throw new BusinessException("Payment refund compensation failed for order " + orderId
+                    + ": " + ex.getMessage());
+        }
+    }
+
+    private String sagaPayload(Long orderId, CreateOrderRequest request, BigDecimal total) {
+        return "{\"orderId\":" + orderId
+                + ",\"customerId\":" + request.customerId()
+                + ",\"restaurantId\":" + request.restaurantId()
+                + ",\"amount\":\"" + total.toPlainString() + "\"}";
     }
 
     @Transactional

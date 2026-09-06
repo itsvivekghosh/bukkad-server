@@ -4,6 +4,19 @@ server:
 spring:
   application:
     name: bhukkad-gateway
+  cloud:
+    gateway:
+      # Audit batch A (edge hardening): bound upstream latency — without a
+      # response timeout a hung service pins gateway connections forever.
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 30s
+      # Edge header hardening (DedupeResponseHeader for Access-Control-Allow-*,
+      # Proxy-Connection/TE stripping, Set-Cookie HttpOnly+Secure+SameSite=Strict)
+      # is implemented via the TransportHeaderHygieneFilter and SecureCookieFilter
+      # GlobalFilters — spring.cloud.gateway.default-filters only decorate
+      # configuration-defined routes, and this gateway's 36-route strangler table
+      # is a programmatic RouteLocator the property would silently bypass.
   # Shared Redis holding runtime feature-flag overrides (edge kill switch).
   data:
     redis:
