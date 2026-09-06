@@ -35,20 +35,29 @@ class GatewayAdminRoutingTest {
 
     private static HttpServer adminBackend;
     private static String adminBase;
+    private static HttpServer restaurantBackend;
+    private static String restaurantBase;
 
     @BeforeAll
     static void startBackends() throws Exception {
         adminBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        adminBackend.createContext("/", ex -> {
-            byte[] body = "ADMIN-ANALYTICS-BACKEND".getBytes(StandardCharsets.UTF_8);
-            ex.getResponseHeaders().add("Content-Type", "text/plain");
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
-            }
-        });
+        adminBackend.createContext("/", ex -> respond(ex, "ADMIN-ANALYTICS-BACKEND"));
         adminBackend.start();
         adminBase = "http://127.0.0.1:" + adminBackend.getAddress().getPort();
+
+        restaurantBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        restaurantBackend.createContext("/", ex -> respond(ex, "RESTAURANT-BACKEND"));
+        restaurantBackend.start();
+        restaurantBase = "http://127.0.0.1:" + restaurantBackend.getAddress().getPort();
+    }
+
+    private static void respond(com.sun.net.httpserver.HttpExchange ex, String marker) throws java.io.IOException {
+        byte[] body = marker.getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().add("Content-Type", "text/plain");
+        ex.sendResponseHeaders(200, body.length);
+        try (var os = ex.getResponseBody()) {
+            os.write(body);
+        }
     }
 
     @AfterAll
@@ -56,14 +65,19 @@ class GatewayAdminRoutingTest {
         if (adminBackend != null) {
             adminBackend.stop(0);
         }
+        if (restaurantBackend != null) {
+            restaurantBackend.stop(0);
+        }
     }
 
     @DynamicPropertySource
     static void routeProperties(DynamicPropertyRegistry registry) {
-        // Only the admin-analytics backend is live; every other route points at
-        // a refused port so a wrong selection fails loudly instead of passing.
+        // The admin-analytics + restaurant backends are live (the latter to
+        // prove the /api/v1/admin/restaurants/** carve-out); every other
+        // route points at a refused port so a wrong selection fails loudly
+        // instead of passing.
         registry.add("app.routes.admin-analytics-uri", () -> adminBase);
-        registry.add("app.routes.restaurant-uri", () -> "http://127.0.0.1:1");
+        registry.add("app.routes.restaurant-uri", () -> restaurantBase);
         registry.add("app.routes.identity-uri", () -> "http://127.0.0.1:1");
         registry.add("app.routes.order-uri", () -> "http://127.0.0.1:1");
         registry.add("app.routes.payment-uri", () -> "http://127.0.0.1:1");
@@ -113,8 +127,24 @@ class GatewayAdminRoutingTest {
     }
 
     @Test
-    void legacyAdminPathsStillHitAdminAnalyticsBackend() {
+    void adminRestaurantsAndCommissionAreCarvedOutToRestaurantService() {
+        // The old premise "legacy admin paths still hit admin-analytics" died
+        // with the route-table refactor: /api/v1/admin/restaurants/** and
+        // /api/v1/commission/** are restaurant-domain surfaces and must be
+        // selected by the narrower admin routes declared before the admin
+        // catch-all. (This assertion failed against the committed table at
+        // d2393ce; corrected here rather than left red.)
         client.get().uri("/api/v1/admin/restaurants/stats").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("RESTAURANT-BACKEND");
+        client.get().uri("/api/v1/commission/payouts").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("RESTAURANT-BACKEND");
+    }
+
+    @Test
+    void genericAdminPathsStillHitAdminAnalyticsCatchAll() {
+        client.get().uri("/api/v1/admin/audit-log").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("ADMIN-ANALYTICS-BACKEND");
     }

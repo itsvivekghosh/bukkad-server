@@ -50,6 +50,9 @@ app:
   services:
     restaurant:
       url: ${RESTAURANT_SERVICE_URL:http://localhost:8091}
+    payment:
+      # Order-creation saga CHARGE_PAYMENT step (PaymentServiceClient).
+      url: ${PAYMENT_SERVICE_URL:http://localhost:8093}
     supportticket:
       url: ${SUPPORTTICKET_SERVICE_URL:http://localhost:8086}
   auth:

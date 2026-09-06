@@ -17,6 +17,11 @@ public interface CartItemRepository extends JpaRepository<CartItem, Long> {
     @Query("SELECT ci FROM CartItem ci WHERE ci.cartId = :cartId")
     List<CartItem> findByCartId(@Param("cartId") Long cartId);
 
+    /** Backs the UNIQUE (cart_id, menu_item_id) race-retry merge (V3 migration). */
+    @Query("SELECT ci FROM CartItem ci WHERE ci.cartId = :cartId AND ci.menuItemId = :menuItemId")
+    Optional<CartItem> findByCartIdAndMenuItemId(@Param("cartId") Long cartId,
+                                                 @Param("menuItemId") Long menuItemId);
+
     @Modifying
     @Transactional
     @Query("DELETE FROM CartItem ci WHERE ci.cartId = :cartId")
