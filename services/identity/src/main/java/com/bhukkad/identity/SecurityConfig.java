@@ -42,6 +42,9 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
+                        // Aggregate API docs (springdoc) — public metadata.
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html",
+                                "/v3/api-docs/**", "/api-docs/**").permitAll()
                         // identity issues the tokens: register/login are public.
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         // Public platform endpoints (serve by identity)

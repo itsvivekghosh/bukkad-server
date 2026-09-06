@@ -73,8 +73,11 @@ public class MenuVersionService {
         return versionRepository.save(version);
     }
 
-    public Optional<MenuVersion> latestVersion(Long restaurantId) {
-        return versionRepository.findTopByRestaurantIdOrderByVersionDesc(restaurantId);
+    public java.util.Optional<MenuVersion> get(Long versionId) {
+        return versionRepository.findById(versionId);
+    }
+
+    public Optional<MenuVersion> latestVersion(Long restaurantId) {        return versionRepository.findTopByRestaurantIdOrderByVersionDesc(restaurantId);
     }
 
     private int nextVersion(Long restaurantId) {

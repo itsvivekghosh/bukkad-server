@@ -322,8 +322,10 @@ public class MenuOpsController {
     // Owner onboarding
     // ------------------------------------------------------------------
 
-    public record OnboardingSignupRequest(String businessName, String ownerName, String phone,
-                                          String email, String gstin, String fssaiNumber,
+    public record OnboardingSignupRequest(String businessName, String name, String ownerName,
+                                          String description, String phone, String email,
+                                          Map<String, Object> address, String gstin,
+                                          String fssaiNumber, String licenseNumber,
                                           String bankAccount, String ifsc) {}
 
     /** Registers the caller's onboarding intent (monolith parity form). */
@@ -339,12 +341,15 @@ public class MenuOpsController {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Restaurant owner access required");
         }
-        if (request == null || request.businessName() == null || request.businessName().isBlank()) {
+        String businessName = request == null ? null
+                : (request.businessName() != null ? request.businessName() : request.name());
+        if (businessName == null || businessName.isBlank()) {
             throw new BusinessException("businessName is required");
         }
         return Map.of(
                 "ownerId", principal.userId(),
-                "businessName", request.businessName().trim(),
+                "businessName", businessName.trim(),
+                "fssaiNumber", request.fssaiNumber() == null ? "" : request.fssaiNumber(),
                 "status", "PENDING_VERIFICATION",
                 "message", "Onboarding submitted; pending verification");
     }

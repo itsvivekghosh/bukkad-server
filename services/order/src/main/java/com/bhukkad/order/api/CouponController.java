@@ -42,7 +42,8 @@ public class CouponController {
     }
 
     @PostMapping
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @org.springframework.security.access.prepost.PreAuthorize(
+            "hasRole('ADMIN') or hasRole('RESTAURANT_OWNER')")
     public CouponResponse createCoupon(@Valid @RequestBody CouponRequest request) {
         return couponService.createCoupon(request);
     }

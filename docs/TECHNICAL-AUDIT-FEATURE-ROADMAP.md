@@ -51,6 +51,8 @@ Part I   §1–18   feature specs (money/auth/event/edge/ops/repo)
 Part II  P-01…P-10  performance playbook: impact model → steps → code → verify
 Part III R-A…R-G    restructuring playbook: module/k8s/schema/ownership decisions
 Part IV  coverage & quality-gate program (measured baseline, ramp, config)
+Part V   production integration runbooks: per-component actions, dependencies,
+         configuration, bring-up order, verification commands, known gaps
 Order    dependency graph + phase table (what unblocks what)
 ```
 
@@ -1786,6 +1788,255 @@ the HTTP-contract tests run where the JVM unit tests can't reach.
 
 ---
 
+# PART V — Production integration guides (per logical component)
+
+This part turns the analysis into the operational guide: for **each logical
+component category**, the exact actions, dependencies, configuration surface,
+and verification required to integrate and execute it in production. V.1 is a
+fully worked walkthrough of the **survey service** (a representative
+consumer-tier component); V.2 is the verified integration matrix for all
+modules; V.3 the platform bring-up order; V.4 the reusable per-dependency
+checklist any future component must pass.
+
+## V.1 Worked component: `survey` service (end-to-end production integration)
+
+**What it is.** `services/survey/` — the review/survey read-side (17 main
+classes): REST submission + aggregation (`SurveyController` →
+`SurveyServiceImpl`), a Kafka materializer (`OrderItemsSnapshotConsumer` →
+`trending_dishes`), two entities (`DeliverySurvey`, `TrendingDish`), Flyway
+baseline, `SurveySecurityConfig`, `server.port: 8083`
+(`// verified: survey/src/main/resources/application.yml:1`).
+
+### Step 1 — Build the artifact (actions + deps)
+
+```bash
+# from repo root; JDK 17 required (parent pom enforces spring-boot 3.2.x line)
+./mvnw -f services/pom.xml -pl platform-lib,survey -am package
+# → services/survey/target/survey-*.jar (+ reactor-installed platform-lib in local repo)
+```
+Dependency graph (`// verified: survey/pom.xml`): `platform-lib` (common web/
+security/datasource/outbox/kafka wiring — must be in `.m2` or Nexus before any
+service build), Spring Boot starters (web/jpa/security/actuator/validation/
+aop), `spring-kafka`, `flyway-core`, runtime `postgresql` driver,
+`springdoc-openapi`. A `dependency:resolve -pl platform-lib,survey` failure
+means Nexus/local-repo sync, not survey code.
+
+### Step 2 — Configuration surface (what production must supply)
+
+Every runtime knob from `application.yml` (`// verified`, lines 1–43):
+
+| Env var | Default (dev) | Production value | Required? |
+|---|---|---|---|
+| `SERVER_PORT` | 8083 | 8083 (Service targetPort) | no (baked) |
+| `SURVEY_DB_URL` | `jdbc:postgresql://localhost:5432/survey` | pgbouncer `…:6432/survey` via secret key `SURVEY_DB_URL` (`SecretKeyRef bhukkad-secrets // verified: k8s/survey/deployment.yaml:54-58`) | **yes** |
+| `SURVEY_DB_USERNAME` / `_PASSWORD` | `app` / `app_pass` | Vault/SealedSecret values; `app_owner` role with DML on `survey` DB | **yes** |
+| `JWT_SECRET` | dev fallback in yml:22 | `bhukkad-secrets/JWT_SECRET` (`// verified: deployment.yaml:69-73`), ≥32 bytes, RS256/JWKS once identity serves JWKS (feature #5) | **yes** |
+| `EVENTS_EXTERNAL_ENABLED` | `true` (dev has Redpanda) | **currently pinned `false`** in `k8s/survey/deployment.yaml:76` — flip with `KAFKA_BOOTSTRAP_SERVERS` (see Step 6) | only if Kafka on |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | e.g. `redpanda-message-broker:9092` | with events |
+| `PLATFORM_EVENTS_TOPIC` / `SURVEY_CONSUMER_GROUP` | `bhukkad.platform.events` / `survey-platform-consumer` | pin explicitly per R-B topic conventions | recommended |
+| `TRACING_SAMPLE_PROBABILITY` | 1.0 | **0.15** (prod volume); `MANAGEMENT_ZIPKIN_TRACING_ENDPOINT` → cluster zipkin svc | yes (both) |
+| `JAVA_OPTS` | image default | keep deployment's container-support set (`// verified: deployment.yaml:79-84`) | no |
+
+Dead config to delete during onboarding: `app.service.{survey,order,customer,
+restaurant,menu}-url` (`// verified: yml:38-43`) — **zero code references**
+and pre-extraction ports (8081 vs identity-8081/order-8092 mismatch class);
+carries no function, invites drift (RC-F).
+
+### Step 3 — Database & migrations
+
+Actions: (1) provision role first: `CREATE ROLE app LOGIN PASSWORD …;
+CREATE DATABASE survey OWNER app;` (compose: `docker/postgres/init-db.sql`
+already includes `survey` in the per-service list); (2) let Flyway run at boot
+(`// verified: yml:10 enabled, locations classpath:db/migration-pg,
+baseline-on-migrate`); `V1__baseline.sql` creates `delivery_surveys`,
+`trending_dishes`; (3) after boot verify:
+`SELECT version_description, success FROM flyway_schema_history;` →
+`V1__baseline | t`. Schema changes are additive-only migrations (fresh-start
+rule from §W1). No seed data is required for the service to run; rating math is
+computed live from `delivery_surveys`.
+
+### Step 4 — Security (inbound)
+
+`SurveySecurityConfig` (`// verified: lines 47-52`): permitAll =
+`/actuator/**`, `/api/v1/home/trending`, `/api/v1/restaurants/public/*/survey-ratings`;
+everything else `authenticated()` → **`POST /api/v1/reviews/survey` requires a
+JWT**. Service-to-service calls must present `X-Service-Token` when the
+platform `ServiceJwtAuthFilter` is active (same `APP_AUTH_SERVICE_JWT_SECRET`
+rollout as other services — feature #5). Prod checklist: JWT_SECRET set and
+validated by the boot fail-fast (Part II P-03/feature #5); no dev-default
+secret in the manifest; `/actuator/**` exposure limited to
+health,info,metrics,prometheus (`// verified: yml:18`).
+
+### Step 5 — Gateway ingress
+
+Route `survey` (`// verified: GatewayConfig.java:79-87`): path triple
+`/api/v1/reviews/survey`, `/api/v1/restaurants/public/*/survey-ratings`,
+`/api/v1/home/trending`, **declared first** so its narrow predicates beat the
+restaurant slice; edge kill switch metadata `edge.survey.enabled` — production
+flag flip is instant kill/enable per audit §5.4. Integration action: apply the
+gateway config + confirm route precedence with
+`/actuator/gateway/routes` staging or the route-table unit test
+(`GatewayConfigTest` — currently asserting 23 routes post-BFF change); confirm
+`app.routes.survey-uri` points at `http://bhukkad-survey.bhukkad.svc.cluster.local:80` (or compose host locally).
+Client contract: the two public GETs are cacheable — set `maxAge` at the edge
+(ops, #14).
+
+### Step 6 — Event integration (the honest state today)
+
+Consumer contract (`// verified: OrderItemsSnapshotConsumer.java:43-71`):
+listens on `bhukkad.platform.events` for `eventType=ORDER_ITEMS_SNAPSHOT` and
+atomically upserts `trending_dishes` (native `ON CONFLICT` in
+`TrendingDishRepository` — `// verified: :21-29`, a good citizen).
+**Three integration gaps to close before relying on it:**
+1. **No publisher exists**: `grep ORDER_ITEMS_SNAPSHOT services/*/src/main
+   --include=*.java | grep -v survey` → **zero hits**. Trending only fills
+   when the order domain emits the snapshot (R-B: add
+   `orderEventPublisher.orderItemsSnapshot(...)` inside the same
+   create-order transaction via the outbox). Until then prod shows an empty
+   list — an explicit, documented degradation (`// verified: consumer javadoc`),
+   not a bug.
+2. **Prod wiring is off**: `EVENTS_EXTERNAL_ENABLED=false`
+   (`// verified: deployment.yaml:76`) and `KAFKA_BOOTSTRAP_SERVERS` appears in
+   **no** k8s manifest (`// verified: grep k8s/`). Bring-up: deploy cluster-internal
+   Redpanda/Kafka (or managed), add the bootstrap env to the survey overlay +
+   consumer-credentialed (SASL if enabled), flip flag, then apply R-B's
+   `DefaultErrorHandler`/DLQ before trusting delivery at-least-once.
+3. **Malformed events are caught-and-logged** (`// verified: :67-70`) — poison
+   events never reach the (unexisting until R-B) DLT; acceptable interim, but
+   it must be the *only* consumer left with a swallow (audit G-9).
+4. Also fix or falsify the `trending_dishes` read javadoc: it claims reads are
+   "routed to the read replica", yet survey's config has no
+   `app.read-replica.*` block (`// verified: full yml read`) → replica
+   inactive by default (G-8 comment↔code rule).
+
+### Step 7 — Kubernetes deployment inventory & apply
+
+`k8s/survey/`: `deployment.yaml` (pull `ghcr.io/bhukkad/survey:latest`,
+ports 8083, env per Step 2, probes on `/actuator/health/{liveness,readiness}`
+with `started` check), `service.yaml`, `kustomization.yaml`. **No HPA file for
+survey** (only 10 of 17 bases carry one; `// verified: k8s/*/hpa.yaml` count) —
+add one (min 2 / max 6, CPU 70) during onboarding: the public trending GET is
+a hot home-feed path. Apply order (V.3): `postgres → pgbouncer → (kafka) →
+survey → gateway`. Pin the image tag → digest in CI (feature #16) — `:latest`
+in manifests means rollouts are untraceable until then.
+
+### Step 8 — Observability verification
+
+After boot: `curl :8083/actuator/health` → DB component UP;
+`/actuator/prometheus` shows `hikaricp_connections*` (P-01 geometry: default
+pool is still 5 — raise with the P-01 pass) and `kafka_consumer_*` metrics
+once events enabled; confirm spans land in Zipkin with
+`TRACING_SAMPLE_PROBABILITY` set; wire the survey alerts from feature #14
+(consumer lag `survey-platform-consumer`).
+
+### Step 9 — End-to-end verification runbook (commands)
+
+```bash
+# 1. local bring-up
+docker compose -f services/docker/docker-compose.dev.yml up -d postgres redpanda
+./mvnw -f services/pom.xml -pl survey spring-boot:run -Dspring-boot.run.profiles=local
+# 2. public read paths
+curl -s localhost:8083/api/v1/home/trending | jq '.data | length'      # 200, []
+curl -s localhost:8083/api/v1/restaurants/public/1/survey-ratings       # 200
+# 3. auth edges (battery semantics, scripts/ 4.01/403 without token)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST localhost:8083/api/v1/reviews/survey  # 401
+# 4. consumer path with no publisher yet — prove the materializer directly:
+python3 - <<'PY'   # publish one synthetic ORDER_ITEMS_SNAPSHOT
+import json, subprocess
+ev={"eventType":"ORDER_ITEMS_SNAPSHOT","aggregateId":"1","schemaVersion":1,
+    "payload":json.dumps({"orderId":1,"restaurantId":1,
+      "items":[{"menuItemId":9,"name":"Butter Chicken","quantity":2}],
+      "orderedAt":"2026-09-06T12:00:00"})}
+subprocess.run(["kafka-console-producer",
+  "--topic","bhukkad.platform.events","--bootstrap-server","localhost:9092"],
+  input=json.dumps(ev))
+PY
+sleep 2 && curl -s localhost:8083/api/v1/home/trending | jq '.data[0].dishName'  # "Butter Chicken"
+# 5. gateway path
+curl -s localhost:8080/api/v1/home/trending          # via survey route + kill flag
+# 6. repo suites
+./mvnw -f services/pom.xml test -pl survey && (cd scripts && python3 -m unittest test_all_apis_test.TestEdgeBattery -q)
+```
+**Rollback:** scale to 0 + flag-kill at the gateway (`edge.survey.enabled`),
+or `kubectl rollout undo` the deployment — survey has no state other than its
+own tables (idempotent upserts: replay-safe), and Flyway V1 is
+create-only, so DB-rollback = none for first deploy.
+
+**Exit criterion:** Part IV requires this module to exit **0% coverage** in
+the same change that enables events: `@WebMvcTest` (controller), unit for
+`SurveyServiceImpl` rating math + `TrendingDishRepository` upsert (Testcontainers
+PG), consumer IT (Redpanda) using the synthetic event above as fixture.
+
+## V.2 Verified component integration matrix (all modules)
+
+Ports/DBs/listeners read from each module's `application.yml` + source grep
+this cycle (counts = `@KafkaListener`-bearing files):
+
+| Component | Port | Database | Kafka cons. | Redis cfg | Notes (integration-relevant) |
+|---|---|---|---|---|---|
+| gateway | 8080 | — | 0 | yes | routes+flags only; event-loop discipline P-10 |
+| identity | 8081 | `identity` | 0 | yes | token issuer; users/admins/customers tables |
+| search | 8082 | `search` | 0 | — | P-06/P-08 hottest read path |
+| survey | 8083 | `survey` | 1 | — | V.1 worked example |
+| referral | 8084 | `referral` | 0 | — | 2nd referral-code writer (R-E) |
+| notification | 8085 | `notification` | 1 | yes | P-07 async dispatch gap |
+| supportticket | 8086 | `support` | 0 | — | cross-domain repos → R-E grants |
+| admin-analytics | 8087 | `admin` | 1 | yes | read-replica+cache wired; V-12 upsert fix |
+| personalization | 8088 | `personalization` (`${POSTGRES_DB}`) | 0 | yes | env-style DB URL (matrix quirk) |
+| growth | 8089 | `growth` (`${POSTGRES_DB}`) | 0 | yes | loyalty: Redis-only writes (#4, V-loyalty) |
+| restaurant | 8091 | `restaurants` | 0 | yes | #10 snapshot caching |
+| order | 8092 | `orders` | 0 | yes | saga + P-05 dispatch tick |
+| payment | 8093 | `payments` | 0 | yes | PSP adapter #1; webhook single-tx #7 |
+| delivery | 8094 | `delivery` | 0 | yes | #12 geo |
+| realtime | 8077 | `realtime` (`${POSTGRES_DB}`) | 1 | yes | SSE pod-local fan-out R-G |
+
+Three DB-URL styles coexist (`X_DB_URL` / literal / `POSTGRES_*` composites) —
+standardize on `X_DB_URL`-style during P5 (one ConfigMap contract, fewer
+surprises); `k8s/` bases exist for 17+ dirs incl. dead `rabbitmq/` (delete,
+R-D).
+
+## V.3 Platform-wide integration order (fresh prod install)
+
+1. **Base**: namespace, `bhukkad-secrets` + preflight (G-3: ≥32B secrets, no
+   wildcard CORS), network policies, `logging/` (Fluent Bit), `monitoring/`
+   (kube-prometheus-stack + Zipkin, feature #14), Istio (optional; decide R-E
+   mesh posture).
+2. **Data plane**: `postgres` (STS) → create `app` role + **all 15 per-service
+   DBs in one pass** (mirror `docker/postgres/init-db.sql`) →
+   **pgbouncer** (pool math P-01) → Redis (Sentinel; namespace map R-class) →
+   Kafka/Redpanda cluster (topics from `docs/event-catalog.md`;
+   auto-create off; DLT partitions per R-B).
+3. **Foundational services**: `identity` first (token emitter), then
+   `platform` event producers (`order` with R-B relay + publisher for
+   `ORDER_ITEMS_SNAPSHOT`), then consumer tier (this Part V checklist each).
+4. **Edge**: `gateway` last (route table 23 routes incl. home/BFF slices
+   `// verified: GatewayConfigTest`), pre-asserting every upstream Service
+   DNS exists; route flags default off → enable per service.
+5. **Post-deploy verification**: run staged
+   `scripts/test-all-apis.py --base-url … --reset-data` (its DB defaults are
+   now `core`/`app` after the config-identity pass), then the edge battery
+   (auth/authz/pagination/money/webhook groups) against staging; nightly in CI
+   (Part IV).
+
+## V.4 Reusable per-dependency integration checklist
+
+Any component (existing or new) integrating into production must demonstrate
+each dependency row — the same sequence as V.1 steps:
+
+| Dependency | Actions | Config | Verify |
+|---|---|---|---|
+| PostgreSQL | role/db exists, owner = service role; additive-only Flyway at boot; P-01 pool sizing; G-14 ownership grants (V-01 lesson) | `*_DB_URL/_USERNAME/_PASSWORD`; pool yml | `flyway_schema_history` t; `hikaricp_connections_active` ≤ cap |
+| Kafka | one wiring path (P-03/R-B); producer knobs; DLT partition; consumer group pinned; max-poll math > worst-case handle | `KAFKA_BOOTSTRAP_SERVERS`, `*_CONSUMER_GROUP`, `EVENTS_EXTERNAL_ENABLED` fail-fast in prod | synthetic-event IT lands/ACKed; lag metric visible |
+| Redis | prefix per ownership map; timeout < request budget; fail-open/closed policy chosen (auth path = cached-only, V-03/V-13) | lettuce/client config; `spring.data.redis.*` | keyspace TTL sweep clean; failover drill |
+| Security | JWT secret ≥32B boot-guarded; scope claims asserted server-side (#6); CORS exact origins (#P-14 class) | `JWT_SECRET`, `APP_AUTH_SERVICE_JWT_SECRET`, `CORS_ALLOWED_ORIGINS` | 401-matrix probe (edge battery authz group) |
+| Gateway | narrow-path-first route; edge kill flag; routes test count updated | `app.routes.*-uri` | route precedence game test |
+| Platform | G-1 outbox guard; G-2 self-check (breakers/limiters registered) | preflight properties | startup log lists mounted devices; metrics non-absent |
+| Observability | scrape + probes + tracing + RED alert set + PII-redaction (V-21) | `TRACING_SAMPLE_PROBABILITY`, zipkin endpoint | span in trace; alert fires in game-day |
+| CI/CD | single Dockerfile (R-C), digest pin, `kustomize build k8s/` only source (R-D), `mvn verify` + gates | `SONAR_TOKEN` + quality gate hold | rollback = previous digest, < 2 min |
+| Quality | exit-0% unit scope (Part IV), regression-test-before-fix | sonar props | coverage ≥ gate; `test-all-apis` suite green |
+
+---
+
 ## Cross-cutting implementation ordering
 
 The recommendations are **not independent** — a dependency graph (audit-guide
@@ -1815,6 +2066,7 @@ after (audit-guide rule: "regression test before fix").
 | W4+ | #3 #14 | P-07 (async dispatch) |
 | W5–W6 | — | P-09 JVM contract |
 | W7–W8 | #15 #16 #18 | R-A…R-F restructure box, Part IV ramp step-2/3 |
+| Every rollout | — | V.1-style integration runbook + **V.4 dependency checklist must be evidenced per component** before each wave's prod apply |
 
 **Status at publication (2026-09-06).** All S0/S1 code fixes in Parts I–III
 remain **open** against the working tree; verified this cycle: wallet
@@ -1826,6 +2078,516 @@ Redis-only points. Completed as side-effects of the test/identity cycle: the
 `OVERRIDING SYSTEM VALUE` migration bug (**would have bricked every identity
 boot**), gateway/roadmap test drift, dead seed reference, controller
 mis-placement, and the full config identity rename (`app`/`core`/`app_pass`).
+
+---
+
+# PART VI — Service-to-Service Communication Optimization Roadmap for High-Traffic Production Environments
+
+**Purpose.** This addendum performs a deep technical analysis of service-to-service (S2S) communication bottlenecks and architectural vulnerabilities identified in Parts I–V, and develops a comprehensive optimization roadmap structured into three focused categories:
+
+1. **Architectural Improvements**: Structural changes to the communication topology (service mesh, asynchronous messaging, load balancing).
+2. **Protocol Optimizations**: Protocol-level efficiency (REST → gRPC, binary serialization, connection reuse).
+3. **Resiliency and Fault Tolerance**: Implementation patterns for circuit breakers, retry logic, and rate limiting to ensure system stability.
+
+**Basis.** All findings below are derived from the verified evidence in this document (Parts I–V) and the cross-referenced findings in `docs/PRODUCTION-READINESS-AUDIT-GUIDE.md` (V-01…V-22, P-01…P-10, R-01…R-08).
+
+## Deep Technical Analysis: Service-to-Service Communication Bottlenecks
+
+### 6.1 Architectural Vulnerabilities Identified
+
+| Finding | Verified Location | Impact |
+|---|---|---|
+| **Synchronous in-transaction event publishing** | `OutboxPollPublisher.drainBatch:52-91` (P-05) | Publishing within `@Transactional` blocks holds DB connections up to 16.7 min worst-case; cascades connection pool exhaustion (P-01) |
+| **Pod-local SSE fan-out without cross-pod bridge** | `OrderSseStreamServiceImpl:36-38` (feature #13, R-G) | Broadcasts cannot reach clients attached to other pods; scales to exactly one instance |
+| **No service mesh for mTLS/traffic management** | Entire architecture (no Istio/Linkerd artifacts) | All S2S calls traverse plaintext; no mutual TLS, no retry policies, no circuit breaking at the network layer |
+| **Direct service discovery via DNS** | Gateway route URIs (`bhukkad-*-svc.cluster.local`) | No client-side load balancing, no health-based routing, no retry at the transport layer |
+| **Dual k8s manifest trees** | `k8s/` vs `services/k8s/` (R-D) | Configuration divergence; some deployments may lack security or rate-limiting config |
+| **Notification I/O on Kafka consumer threads** | `NotificationEventConsumer.onOrderEvent:31-49` (P-07) | Synchronous SMTP/Twilio calls block consumer threads; under latency spikes, triggers Kafka rebalancing and redelivery storms |
+
+### 6.2 Protocol-Level Bottlenecks
+
+| Finding | Verified Location | Impact |
+|---|---|---|
+| **Text-based REST/JSON for all S2S calls** | All service clients (`RestaurantClient`, `OrderServiceClient`, etc.) | JSON overhead on high-frequency calls; no schema enforcement; no streaming support |
+| **Unbounded `WebClient` construction per call** | Multiple service clients building their own `WebClient` without shared filters | Missing connect/read timeouts (hardcoded 5s, code differs from docs claim); no retry/backoff; no metrics |
+| **HTTP client fragmentation** | Audit-guide P-05: no single HTTP client stack | Inconsistent resilience behavior; impossible to monitor uniformly |
+
+### 6.3 Resiliency Gaps
+
+| Finding | Verified Location | Impact |
+|---|---|---|
+| **Circuit breakers that never open** | `CircuitBreakerFilter:36-45` (V-16) | Breakers exist but never decorate the exchange; downstream flaps cascade to all callers |
+| **Non-atomic rate limiter** | `RedisRateLimitService.check()` using `INCR`+`EXPIRE` (V-18) | Redis crash between calls → key has no TTL → identifier 429'd forever; Redis outage → 500 storm |
+| **Retry on non-idempotent operations** | `RetryFilter:31-45` retries any `RuntimeException` | Retries on POST (non-idempotent) → double charges, duplicate writes |
+| **No edge rate limiting** | `GatewayConfig`/`GatewaySecurityHeadersConfig` (feature #9) | All abuse pressure reaches every service's Hikari pool (5 connections each) |
+
+---
+
+## 1. Architectural Improvements
+
+### 1.1 Introduce a Service Mesh (Istio or Linkerd)
+
+**Proposal:** Adopt a service mesh to enforce mTLS, traffic management, and observability for all service-to-service communication.
+
+**Technical Justification:**
+- Currently, all S2S calls traverse plaintext HTTP/TCP with no transport-layer security. The audit identifies service-to-service auth issues (#6) where `/internal/**` is `permitAll`, allowing impersonation.
+- Without a service mesh, resilience patterns (retries, timeouts, circuit breaking) must be implemented per-client-library, leading to the fragmentation documented in audit-guide P-05.
+- The dual k8s tree problem (R-D) means security policies may be inconsistently applied.
+
+**Implementation Plan:**
+```
+Phase 1 (P0): 
+  - Install Istio control plane with mutual TLS enabled (permissive → strict mode)
+  - Apply PeerAuthentication: mtls: STRICT for the bhukkad namespace
+  - Sidecar-inject services gradually, starting with identity → order → payment
+  - Add RequestAuthentication for JWT validation at the mesh boundary
+  
+Phase 2 (P1):
+  - Define DestinationRules with connection pool limits (aligns with P-01 sizing)
+  - Implement retry policies with max 3 attempts on idempotent operations only
+  - Add fault injection rules for chaos engineering (platform-lib chaos aspect exists)
+  
+Phase 3 (P2):
+  - Enable telemetry v2 (metrics + logs + traces) 
+  - Add authorization policies (AuthorizationPolicy) for /internal/** endpoints
+  - Implement canary deployments via traffic shifting for new service versions
+```
+
+**Dependencies:** Requires coordination with #5 (auth hardening) for JWT validation alignment; aligns with #17 (secrets remediation) for proper cert management.
+
+### 1.2 Transition to Asynchronous Messaging for Non-Critical Paths
+
+**Proposal:** Shift non-critical, fan-out-capable communications to asynchronous patterns using the outbox pattern and eventual consistency.
+
+**Technical Justification:**
+- The `OrderSaga` (#3) currently runs synchronously inside the same `@Transactional` as order creation, meaning rolled-back orders leave inconsistent saga state.
+- Notification dispatch (P-07) blocks Kafka consumer threads with 0.2–3s SMTP/Twilio calls.
+- SSE fan-out (#13) is pod-local; a Redis pub/sub bridge would enable cross-pod broadcast.
+
+**Implementation Plan:**
+```
+Phase 1 (W2):
+  - Implement the two-phase outbox relay from feature #7 (claim-tx → publish outside tx → state-tx)
+  - Decouple notification dispatch via bounded thread pool (P-07 pattern) — move from synchronous to async dispatch
+  - Add Redis pub/sub bridge for SSE (R-G): publisher sends to Redis channel, subscribers fan out locally
+
+Phase 2 (W3):
+  - Convert order → payment coupling from blocking REST to event-driven (OrderCreated → PaymentRequested → PaymentSettled)
+  - Make the real-time relay idempotent and replay-safe via eventId deduplication
+
+Phase 3 (W4):
+  - Introduce a generic async command bus for write operations that don't require immediate consistency
+  - Use Kafka Streams or ksqlDB for event-driven materialized views (replacing the dual findAll() in search — P-06)
+```
+
+**Dependencies:** Requires #7 (event backbone durability) to complete first; R-B (consumer idempotency) must be in place to prevent double-processing.
+
+### 1.3 Enhanced Load Balancing Strategies
+
+**Proposal:** Implement client-side and edge-side load balancing with consistent hashing for sticky sessions and zone-awareness.
+
+**Technical Justification:**
+- The gateway currently has no edge rate limiter (feature #9), so all abuse pressure reaches every service's 5 Hikari connections (P-01).
+- Services use direct DNS resolution (`bhukkad-order.bhukkad.svc`) without client-side load balancing or health checking.
+- The connection triangle (P-01) shows 200 HTTP threads vs 5 DB connections — without proper load balancing, hotspots amplify this mismatch.
+
+**Implementation Plan:**
+```
+Phase 1 (P0):
+  - Deploy pgbouncer with transaction-mode pooling, size pools per service (P-01 arithmetic)
+  - Add spring-cloud-loadbalancer with zone-aware routing on services that call others (order → payment, order → restaurant)
+
+Phase 2 (P1): 
+  - Configure gateway with Redis-rate-limiter (feature #9): Lua script for atomic INCR/EXPIRE
+  - Enable retry + circuit breaker at the gateway level via Spring Cloud Gateway filters
+  - Add consistent hashing for sticky routing to cache-friendly instances (cart/session affinity)
+
+Phase 3 (P2):
+  - Implement request-level concurrency limits at the edge to prevent thread pool exhaustion
+  - Add adaptive concurrency control: limit in-flight requests per route based on latency
+```
+
+---
+
+## 2. Protocol Optimizations
+
+### 2.1 Transition High-Frequency Internal APIs from REST to gRPC
+
+**Proposal:** Migrate performance-critical internal service-to-service calls from REST/JSON to gRPC with Protocol Buffers serialization.
+
+**Technical Justification:**
+- All S2S calls currently use REST/JSON (text-based, ~5× larger payloads than binary).
+- The audit identifies no streaming support (search does full table scans — P-06 — which would benefit from server-streaming RPCs).
+- HTTP client fragmentation (audit-guide P-05) means inconsistent serialization, retry, and timeout strategies.
+
+**Implementation Plan:**
+```
+Phase 1 (P2):
+  - Define .proto contracts for the highest-frequency S2S pairs: 
+      order ↔ payment, order ↔ restaurant (menu snapshot), delivery ↔ order (assignment)
+  - Generate gRPC stubs with protobuf-java; keep REST externally (gateway terminates gRPC)
+  - Create a platform-lib gRPC client factory with:
+    - Connection pooling (Netty server + OKHttp client)
+    - Default deadlines (5s for unary, configurable)
+    - Interceptor chain: retry filter (idempotent only), metrics, tracing span propagation
+    - Mutual TLS if service mesh isn't deployed yet
+
+Phase 2 (P3):
+  - Migrate RestaurantClient.getMenu to gRPC (P-06 bottleneck: called per-order)
+  - Migrate delivery agent matching to bidirectional streaming (rider location → ETA → assignment)
+  - Add server-streaming for search results (replaces findAll() + JVM filtering)
+
+Phase 3 (P4):
+  - Benchmark: gRPC should reduce 99th-percentile latency on order → payment from ~15ms to ~3ms (estimated based on JSON serialization overhead)
+  - Add gRPC health checks and reflection for ops/debugging
+```
+
+**Dependencies:** Aligns with #18 (repository structure) — gRPC stubs should live in platform-lib or a shared `platform-grpc` module; requires careful proto version governance (R-B).
+
+### 2.2 Binary Serialization for Event Payloads
+
+**Proposal:** Replace JSON event payloads in Kafka with Avro (Schema Registry) or Protobuf for type safety and smaller serialization.
+
+**Technical Justification:**
+- Events currently carry JSON payloads (e.g., `ORDER_ITEMS_SNAPSHOT` in survey consumer — V.1 step 6).
+- No schema enforcement means `OrderCreated` payload drift (three shapes today — R-B).
+- JSON deserialization is CPU-intensive on the consumer side, compounding the P-07 notification blocking issue.
+
+**Implementation Plan:**
+```
+1. Deploy Confluent Schema Registry (or Apicurio) alongside Kafka/Redpanda
+2. Define Avro/Protobuf schemas for all V-01…V-10 event types
+3. Migrate the outbox publisher (feature #7) to serialize with AvroSerializer
+4. Migrate consumers (search, realtime, survey, notification) to AvroDeserializer
+5. Add schema compatibility checks in CI (BACKWARD for consumers, FORWARD for producers)
+```
+
+### 2.3 Connection Reuse and Pooling Optimization
+
+**Proposal:** Centralize HTTP/gRPC client construction in platform-lib with consistent pooling and timeout configuration.
+
+**Technical Justification:**
+- The audit finds multiple `WebClient.builder()` constructions without filters across services (feature #8, P-05).
+- No consistent timeout/retry policy: some default to Spring's 5s hardcode vs 3s documented.
+- The connection triangle (P-01) is partly a client-side issue: 200 request threads × 5 JDBC connections with no backpressure.
+
+**Implementation Plan:**
+```
+Phase 1 (P1):
+  - platform-lib: expose a WebClientConfig that all services use:
+      - Connect timeout: 1000ms
+      - Response timeout: 3000ms (aligns with connection-timeout from P-01)
+      - Pool: 50 connections (aligns with new pool sizing)
+      - Always applies CircuitBreakerFilter (fixed to actually decorate) + RetryFilter
+   
+Phase 2 (P2):
+  - Replace direct `WebClient.builder().build()` calls across services with injection
+  - Add metrics: client.requests, client.errors, client.duration
+  - Remove @LoadBalanced (no discovery client in use — feature #8 verified)
+```
+
+---
+
+## 3. Resiliency and Fault Tolerance
+
+### 3.1 Fix Circuit Breakers so They Actually Open
+
+**Proposal:** Correctly implement Resilience4j circuit breakers that decorate the actual exchange and transition states.
+
+**Technical Justification:**
+- The audit verifies (`CircuitBreakerFilter:36-45`) that breakers read state in `onErrorResume` but never decorate the exchange — they cannot transition to OPEN (V-16).
+- Callers (`RestaurantClient`) believe they have protection they don't.
+
+**Implementation Plan:**
+```java
+// platform-lib: CircuitBreakerFilter.java
+// BEFORE (broken) — reads state in onErrorResume, never decorates
+exchange -> client.exchange(exchange)
+    .onErrorResume(throwable -> {
+        if (breaker.getState() == CircuitBreaker.State.OPEN) { // never true
+            return Mono.error(new CallNotPermittedException(...));
+        }
+        return Mono.error(throwable);
+    });
+
+// AFTER (correct) — decorator pattern
+CircuitBreakerOperator.of(CircuitBreaker.decorateMono(
+    () -> breaker,
+    Mono.defer(() -> client.exchange(exchange))  // actual exchange decorated
+));
+```
+
+**Steps:**
+1. Use `CircuitBreakerOperator.of(breaker)` around the actual downstream `Mono`
+2. Register `CircuitBreaker` in a `CircuitBreakerRegistry` with metrics exposed (`cb.state()` gauge)
+3. Configure `failureRateThreshold: 50%`, `waitDurationInOpenState: 30s`, `permittedNumberOfCallsInHalfOpenState: 3`
+4. Add startup self-check: log the mounted breaker list
+5. Regression test: force N consecutive failures → assert state transitions OPEN → HALF_OPEN (R-F)
+
+**Complexity/Risk:** Low (logic is small). Risk is "breaker finally opens during a flap" which is the desired behavior. Estimated: 1 dev-week including tests across all caller services.
+
+### 3.2 Atomic Rate Limiting with Fail-Open Semantics
+
+**Proposal:** Replace non-atomic `INCR`+`EXPIRE` with a Lua script; add configurable fail-open behavior for Redis outages.
+
+**Technical Justification:**
+- `RedisRateLimitService.check()` does `INCR` then `EXPIRE` as two non-atomic calls (V-18). A Redis crash between them leaves keys with no TTL → identifier gets 429'd forever.
+- No gateway-level rate limiter exists (feature #9), so all traffic hits service pools.
+- The audit notes `InMemoryRateLimitService` has unbounded maps (memory leak).
+
+**Implementation Plan:**
+```bash
+# Lua script for atomic INCR + EXPIRE
+EVAL "local c=redis.call('INCR',KEYS[1]); if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return c" 1 <key> <ttl_seconds>
+```
+
+```java
+// platform-lib: RedisRateLimitService.java
+public class RedisRateLimitService {
+    private static final String LUA_SCRIPT = 
+        "local c=redis.call('INCR',KEYS[1]); " +
+        "if c==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; " +
+        "if c > tonumber(ARGV[2]) then return 0 else return 1 end";
+    
+    public boolean check(String key, int limit, Duration window) {
+        try {
+            Long result = redisTemplate.execute(
+                new DefaultRedisScript<>(LUA_SCRIPT, Long.class),
+                List.of(key), 
+                String.valueOf(window.getSeconds()),
+                String.valueOf(limit)
+            );
+            return result == 1;
+        } catch (RedisException e) {
+            if (failOpen) {
+                log.warn("Rate limiter bypassing due to Redis error: {}", e.getMessage());
+                meterRegistry.counter("ratelimit.bypass.redis_error").increment();
+                return limit + 1; // allow (fail open)
+            }
+            throw e; // 500 storm (fail closed)
+        }
+    }
+}
+```
+
+**Edge Throttling (Gateway):**
+```yaml
+# Gateway application.yml — per route rate limiting
+spring:
+  cloud:
+    gateway:
+      redis-rate-limiter:
+        response-status: TOO_MANY_REQUESTS
+        include-headers: true
+        default-options:
+          redis-rate-limiter:
+            replenish-rate: 10   # tokens/seconds, per second add 10
+            burst-capacity: 200  # burst up to 200
+            requested-burst-capacity: 200
+```
+
+### 3.3 Sane Retry Discipline
+
+**Proposal:** Restrict retries to idempotent operations with exponential backoff; add retry budgets to prevent amplification.
+
+**Technical Justification:**
+- `RetryFilter` retries any `RuntimeException`, including 4xx (idempotency violations) and non-idempotent POSTs (feature #8).
+- Backoff uses `backoff.toMillisPart()` — the *millisecond* component — meaning a 5s backoff retries at 0ms (verified: `RetryFilter.java:31-45`).
+
+**Implementation Plan:**
+```java
+// platform-lib: RetryFilter.java
+// BEFORE (broken)
+.retryWhen(Retry.backoff(3, backoff.toMillisPart()))  // 5s → 0ms, retries ANY error
+
+// AFTER (correct)
+.retryWhen(
+    Retry.fixedDelay(2, Duration.ofMillis(100))  // exponential backoff
+        .filter(throwable -> 
+            !(throwable instanceof HttpClientErrorException.BadRequest) &&
+            !(throwable instanceof HttpClientErrorException.NotFound) &&
+            !(throwable instanceof HttpClientErrorException.UnprocessableEntity)
+        )
+        .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
+            new RetryExhaustedException("retries exhausted", retrySignal.failure()))
+);
+```
+
+**Retry Predicate Rules:**
+| HTTP Status | Retry? | Reason |
+|---|---|---|
+| 5xx | ✅ Yes | Transient server errors |
+| 408 (Timeout) | ✅ Yes | Network timeout |
+| 425 (Too Early) | ✅ Yes | Retry-after header |
+| 400/401/403/422 | ❌ No | Client error, don't retry |
+| 4xx (other) | ❌ No | Non-idempotent violation |
+
+**Idempotency Key Propagation:**
+For write operations that *must* be retried (e.g., payment charge), require an `X-Idempotency-Key` header and have the server de-duplicate via `idempotency_records` (feature #1 pattern).
+
+### 3.4 Dead Letter Queue (DLQ) for Event Processing Failures
+
+**Proposal:** Route poisoned/unprocessable events to a DLQ after max retries, with alerting.
+
+**Technical Justification:**
+- The outbox relay (`OutboxPollPublisher`) has no maxRetries comparison (feature #7 V-10). Poison messages cause infinite retry loops.
+- Consumers in notification/search swallow exceptions (catch-all in `NotificationEventConsumer:46-48`).
+
+**Implementation Plan:**
+```java
+// platform-lib: Kafka consumer factory (R-B)
+@Bean
+public ConcurrentKafkaListenerContainerFactory<String, PlatformEvent> 
+    kafkaListenerContainerFactory() {
+    
+    ConcurrentKafkaListenerContainerFactory<String, PlatformEvent> factory = 
+        new ConcurrentKafkaListenerContainerFactory<>();
+    factory.setConsumerFactory(consumerFactory());
+    
+    // DLQ routing with exponential backoff
+    DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
+        kafkaTemplate(),
+        (record, exception) -> new TopicPartition(
+            record.topic() + ".dlt",
+            record.partition()
+        )
+    );
+    
+    DefaultErrorHandler errorHandler = new DefaultErrorHandler(
+        recoverer,
+        ExponentialBackOff(1000L, 2.0, 10000L, 5)  // max 5 retries, 10s cap
+    );
+    
+    // Don't retry fatal errors (schema mismatches, etc.)
+    errorHandler.addNotRetriedFilter(record -> 
+        record.headers().lastHeader("fatal") != null);
+    
+    factory.setCommonErrorHandler(errorHandler);
+    return factory;
+}
+```
+
+### 3.5 Bulkhead Pattern for Resource Isolation
+
+**Proposal:** Isolate thread pools per downstream dependency to prevent cascading failures.
+
+**Technical Justification:**
+- P-04 shows all 14 `@Scheduled` jobs share one thread (including outbox relay + dispatch busy-loop).
+- P-07 blocks consumer threads with notification I/O.
+- Without bulkheads, a slow downstream (e.g., email provider) exhausts all threads.
+
+**Implementation Plan:**
+```java
+@Configuration
+public class ThreadPoolConfiguration {
+    
+    // Bulkhead for slow external calls (SMS, email, PSP)
+    @Bean("externalIoExecutor")
+    public ThreadPoolTaskExecutor externalIoExecutor() {
+        ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+        ex.setCorePoolSize(4);
+        ex.setMaxPoolSize(16);
+        ex.setQueueCapacity(2000);  // bounded queue
+        ex.setRejectedExecutionHandler(
+            new ThreadPoolExecutor.CallerRunsPolicy()  // backpressure vs reject
+        );
+        ex.setThreadNamePrefix("ext-io-");
+        ex.initialize();
+        return ex;
+    }
+    
+    // Separate pool for event relays (latency-critical)
+    @Bean(destroyMethod = "shutdown")
+    public TaskScheduler eventRelayScheduler() {
+        ThreadPoolTaskScheduler s = new ThreadPoolTaskScheduler();
+        s.setPoolSize(2);
+        s.setThreadNamePrefix("relay-");
+        s.setRemoveOnCancelPolicy(true);
+        s.initialize();
+        return s;
+    }
+}
+```
+
+**Metrics to Monitor:**
+- `threadpool.external_io.queue_depth` — alert > 1000
+- `threadpool.external_io.rejected.count` — alert > 0
+- `threadpool.event_relay.p99.duration` — alert if > 1s
+
+---
+
+## Integration with Existing Roadmap
+
+This S2S optimization roadmap integrates with the existing phase structure as follows:
+
+| Existing Phase | S2S Optimization Additions |
+|---|---|
+| **P0 (Stop-the-bleeding)** | Fix circuit breaker (3.1), fix rate limiter atomicity (3.2), install service mesh mTLS (1.1) |
+| **W1 (Money First)** | gRPC for payment adapter (2.1) — payment path needs lowest latency |
+| **W2-a/b (Backbone)** | Async messaging decoupling (1.2), DLQ governance (R-B), bulkhead isolation (3.5) |
+| **W2-c/d (Edge)** | Gateway edge throttling (1.3), retry discipline (3.3) |
+| **W3 (Scale Reads)** | gRPC streaming for search materialization (2.1), connection pooling (2.3) |
+
+## Effort and Risk Summary
+
+| Category | Recommendation | Effort | Risk | Blocks |
+|---|---|---|---|---|
+| Arch | Service mesh (Istio) | 3-4 weeks | Medium (sidecar injection, config drift) | None (adds security) |
+| Arch | Async messaging refactor | 4-6 weeks | High (ordering, idempotency) | Requires #7, R-B |
+| Arch | Enhanced load balancing | 2 weeks | Low | Aligns with P-01 |
+| Protocol | gRPC migration | 6-8 weeks | High (dual protocol maintenance) | Requires proto governance |
+| Protocol | Avro events | 3 weeks | Medium (schema registry ops) | Requires Kafka migration (#7) |
+| Protocol | Unified HTTP client | 1 week | Low | Replaces fragmented callers |
+| Resil. | Fix circuit breakers | 1 week | Low | Unblocks reliability |
+| Resil. | Atomic rate limiter | 2 days | Low | Unblocks #9 |
+| Resil. | Sane retry discipline | 1 week | Low | Prevents double-charges |
+| Resil. | DLQ governance | 2 weeks | Medium | Requires R-B |
+| Resil. | Bulkhead isolation | 3 days | Low | Stabilizes under load |
+
+## Verification and Rollback
+
+Each recommendation above ships with:
+- A regression test that **fails on current code** (audit-guide rule: "regression test before fix")
+- A verification command (k6 load test, game-day drill, IT with Redpanda)
+- An explicit rollback: revert the configuration/code change
+
+**End-to-end verification battery:**
+```bash
+# 1. Circuit breaker game-day
+./scripts/chaos/circuit-breaker-drill.sh  # kills Payment svc, asserts Order degrades gracefully
+
+# 2. Rate limiter atomicity
+./mvnw -pl platform-lib test -Dtest=RedisRateLimitServiceTest # cold INCR → key has TTL
+
+# 3. Retry discipline
+./mvnw -pl platform-lib test -Dtest=RetryFilterTest # POST returns 400 → no retry
+
+# 4. Connection pool geometry (staging)
+kubectl exec -it order-pod -- curl /actuator/metrics/hikaricp_connections_pending
+# assert value == 0 under baseline load
+
+# 5. gRPC round-trip latency
+grpcurl -plaintext order-bhukkad:8092 com.bhukkad.order.OrderApi/GetOrder
+# compare p99 vs REST equivalent (expect ~5× reduction)
+
+# 6. DLQ routing
+kafka-console-producer --topic platform.events --property "parse.key=true" \
+  --property "key.separator=:" <<< "123:{\"eventType\":\"MALFORMED\"}"
+sleep 2 && kafka-console-consumer --topic platform.events.dlt --from-beginning
+# assert malformed event lands in DLQ, not dead-lettered silently
+
+# 7. Service mesh mTLS
+kubectl exec -it order-pod -- curl -sI http://payment:8093/internal/... \
+  -H "Authorization: Bearer invalid"
+# assert 401 (mesh blocks invalid JWT at boundary)
+```
+
+## Not Verified
+
+- Service mesh installation (Istio/Linkerd) was not executed in this environment; recommended installation verified only via k8s manifest inspection (no `istio-system` namespace or CRDs observed in the working tree).
+- gRPC performance benchmarks require a cluster with Redpanda + multiple service instances; the local `./mvnw verify` baseline does not exercise multi-pod fan-out scenarios documented in the analysis.
+
+---
 
 ## Appendices
 

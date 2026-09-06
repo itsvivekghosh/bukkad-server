@@ -123,4 +123,11 @@ public class PaymentService {
         return paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found: " + paymentId));
     }
+
+    /** The (single) payment attached to an order — 404 when the order is unpaid. */
+    @Transactional(readOnly = true)
+    public Payment getPaymentByOrder(Long orderId) {
+        return paymentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found for order: " + orderId));
+    }
 }

@@ -166,6 +166,13 @@ public class GatewayConfig {
                 // data export served by the identity service's consent store.
                 .route("compliance", r -> r.path(
                         "/api/v1/compliance/**").uri(identityUri))
+                // Analytics CSV exports (admin-analytics owns the export tasks).
+                .route("analytics-exports", r -> r.path(
+                        "/api/v1/analytics/**").uri(adminAnalyticsUri))
+                // Swagger UI + OpenAPI documents (identity hosts the aggregate).
+                .route("swagger", r -> r.path(
+                        "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**",
+                        "/api-docs/**").uri(identityUri))
 
                 // Search service (P1): unified search + autocomplete.
                 .route("search", r -> r.path(
@@ -245,7 +252,10 @@ public class GatewayConfig {
                         "/api/v1/serviceability/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.delivery.enabled")
                         .uri(deliveryUri))
                 // Restaurant administration (platform-admin actions on the
-                // restaurant domain) — narrower than /api/v1/admin/**.
+                // restaurant domain) — narrower than /api/v1/admin/**. The
+                // /stats dashboard stays on admin-analytics.
+                .route("admin-restaurant-stats", r -> r.path(
+                        "/api/v1/admin/restaurants/stats").uri(adminAnalyticsUri))
                 .route("admin-restaurants", r -> r.path(
                         "/api/v1/admin/restaurants/**").uri(restaurantUri))
                 // Platform commission surface (restaurant domain).

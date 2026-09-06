@@ -38,6 +38,7 @@ public class SocialSelfCompatController {
     private final com.bhukkad.order.domain.GiftCardRepository giftCardRepository;
     private final com.bhukkad.order.domain.OrderRepository orderRepository;
     private final com.bhukkad.order.service.CartService cartService;
+    private final com.bhukkad.order.client.RestaurantClient restaurantClient;
 
     // ------------------------------------------------------------------
     // Cart coupon application
@@ -73,6 +74,26 @@ public class SocialSelfCompatController {
         body.put("subtotal", subtotal);
         body.put("message", "Coupon applied");
         return ResponseEntity.ok(body);
+    }
+
+    /** Removes every cart item belonging to one restaurant (monolith parity). */
+    @org.springframework.web.bind.annotation.DeleteMapping("/api/v1/cart/restaurant/{restaurantId}")
+    public Map<String, Object> removeRestaurantItems(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @org.springframework.web.bind.annotation.PathVariable Long restaurantId) {
+        Long customerId = subjectId(principal);
+        int removed = 0;
+        for (com.bhukkad.order.domain.CartItem item : cartService.getItems(customerId)) {
+            Long itemRestaurant = restaurantClient.getMenuItem(item.getMenuItemId())
+                    .map(m -> m.get("restaurantId"))
+                    .map(rid -> Long.valueOf(String.valueOf(rid)))
+                    .block(java.time.Duration.ofSeconds(5));
+            if (restaurantId.equals(itemRestaurant)) {
+                cartService.removeItem(customerId, item.getId());
+                removed++;
+            }
+        }
+        return Map.of("message", "restaurant items removed", "removed", removed);
     }
 
     // ------------------------------------------------------------------

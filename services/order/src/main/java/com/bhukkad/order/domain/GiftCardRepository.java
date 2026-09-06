@@ -12,6 +12,8 @@ import java.util.Optional;
 public interface GiftCardRepository extends JpaRepository<GiftCard, Long> {
     Optional<GiftCard> findByCodeAndStatus(String code, String status);
 
+    Optional<GiftCard> findByCode(String code);
+
     /** Gift cards purchased by a customer (self-service "my cards" view). */
     List<GiftCard> findByPurchasedByOrderByCreatedAtDesc(Long purchasedBy);
 

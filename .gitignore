@@ -69,3 +69,9 @@ src/test/resources/archunit_store/
 # Sandbox-local Maven repo mirror and JVM temp dir (agent builds only)
 .m2repo/
 .tmp/
+# Staged Spring Boot jars for services/docker/Dockerfile.prebuilt
+# (regenerate with ./services/docker/stage-jars.sh)
+services/docker/images/
+
+# Root-owned backup dir pending manual removal (rm needs sudo)
+**/wallet-old.bak/

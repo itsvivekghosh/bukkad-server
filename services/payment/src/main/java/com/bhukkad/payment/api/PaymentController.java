@@ -51,4 +51,13 @@ public class PaymentController {
         PrincipalGuard.requireSelfOrAdmin(principal, payment.getCustomerId());
         return paymentMapper.toPaymentResponse(payment);
     }
+
+    /** The payment attached to an order (self-or-admin; 404 when unpaid). */
+    @GetMapping("/orders/{orderId}")
+    public PaymentResponse byOrder(@AuthenticationPrincipal TokenPrincipal principal,
+                                   @PathVariable Long orderId) {
+        Payment payment = paymentService.getPaymentByOrder(orderId);
+        PrincipalGuard.requireSelfOrAdmin(principal, payment.getCustomerId());
+        return paymentMapper.toPaymentResponse(payment);
+    }
 }

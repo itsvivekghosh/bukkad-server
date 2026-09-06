@@ -2,6 +2,8 @@ package com.bhukkad.restaurant.api;
 
 import com.bhukkad.common.security.PrincipalGuard;
 import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.restaurant.domain.MenuItem;
+import com.bhukkad.restaurant.domain.MenuItemRepository;
 import com.bhukkad.restaurant.domain.Review;
 import com.bhukkad.restaurant.service.ReviewService;
 import jakarta.validation.Valid;
@@ -27,10 +29,15 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1")
-@RequiredArgsConstructor
 public class ReviewController {
 
     private final ReviewService reviewService;
+    private final MenuItemRepository menuItemRepository;
+
+    public ReviewController(ReviewService reviewService, MenuItemRepository menuItemRepository) {
+        this.reviewService = reviewService;
+        this.menuItemRepository = menuItemRepository;
+    }
 
     public record ReviewRequest(
             @NotNull Long restaurantId,
@@ -85,6 +92,48 @@ public class ReviewController {
                 .map(r -> new PublicReviewResponse(r.getId(), r.getRestaurantId(), r.getRating(),
                         r.getComment(), r.getStatus(), r.getCreatedAt()))
                 .toList();
+    }
+
+    /** Customer rating for one menu item from a delivered order. */
+    public record MenuItemRatingRequest(@NotNull Long orderId, @NotNull Long menuItemId,
+                                        @Min(1) @Max(5) int rating, String comment) {}
+
+    @PostMapping("/reviews/menu-items")
+    public PublicReviewResponse rateMenuItem(@AuthenticationPrincipal TokenPrincipal principal,
+                                             @Valid @RequestBody MenuItemRatingRequest request) {
+        PrincipalGuard.requireAuthenticated(principal);
+        MenuItem item = menuItemRepository.findById(request.menuItemId())
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException(
+                        "Menu item not found: " + request.menuItemId()));
+        Review review = reviewService.submit(item.getRestaurantId(), principal.userId(),
+                request.rating(), request.comment());
+        return new PublicReviewResponse(review.getId(), review.getRestaurantId(),
+                review.getRating(), review.getComment(), review.getStatus(), review.getCreatedAt());
+    }
+
+    /**
+     * Rating aggregate + approved reviews for a menu item. The dev build
+     * derives them from the restaurant's approved reviews (the monolith kept
+     * a per-item denormalised counter).
+     */
+    @GetMapping("/reviews/menu-items/{menuItemId}")
+    public java.util.Map<String, Object> menuItemRatings(
+            @org.springframework.web.bind.annotation.PathVariable Long menuItemId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        MenuItem item = menuItemRepository.findById(menuItemId)
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException(
+                        "Menu item not found: " + menuItemId));
+        List<PublicReviewResponse> reviews = byRestaurant(item.getRestaurantId(), page, size);
+        double average = reviews.stream().mapToInt(PublicReviewResponse::rating)
+                .average().orElse(0.0);
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("menuItemId", menuItemId);
+        body.put("restaurantId", item.getRestaurantId());
+        body.put("averageRating", Math.round(average * 10.0) / 10.0);
+        body.put("totalRatings", reviews.size());
+        body.put("reviews", reviews);
+        return body;
     }
 
     @PostMapping("/admin/reviews/{reviewId}/moderate")

@@ -10,8 +10,11 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -29,12 +32,15 @@ public class LegacyOrderCompatController {
     private final OrderService orderService;
     private final CartService cartService;
     private final com.bhukkad.order.domain.OrderRepository orderRepository;
+    private final com.bhukkad.order.client.RestaurantClient restaurantClient;
 
     public LegacyOrderCompatController(OrderService orderService, CartService cartService,
-                                       com.bhukkad.order.domain.OrderRepository orderRepository) {
+                                       com.bhukkad.order.domain.OrderRepository orderRepository,
+                                       com.bhukkad.order.client.RestaurantClient restaurantClient) {
         this.orderService = orderService;
         this.cartService = cartService;
         this.orderRepository = orderRepository;
+        this.restaurantClient = restaurantClient;
     }
 
     @PostMapping("/create")
@@ -177,8 +183,9 @@ public class LegacyOrderCompatController {
     }
 
     /** CSV export of the customer's order history (DPDP data-portability). */
-    @GetMapping(value = "/export/orders", produces = "text/csv")
-    public String exportOrders(@AuthenticationPrincipal TokenPrincipal principal) {
+    @GetMapping("/export/orders")
+    public org.springframework.http.ResponseEntity<String> exportOrders(
+            @AuthenticationPrincipal TokenPrincipal principal) {
         Long customerId = subjectId(principal);
         StringBuilder csv = new StringBuilder("order_id,order_number,restaurant_id,status,total_amount,created_at\n");
         for (com.bhukkad.order.domain.Order order : orderRepository.findByCustomerId(customerId)) {
@@ -189,9 +196,94 @@ public class LegacyOrderCompatController {
                     .append(order.getTotalAmount()).append(',')
                     .append(order.getCreatedAt() == null ? "" : order.getCreatedAt()).append('\n');
         }
-        return csv.toString();
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=orders.csv")
+                .header("Content-Type", "text/csv")
+                .body(csv.toString());
     }
 
+    /** Batch checkout: one idempotent order per cart across N restaurants. */
+    @PostMapping("/create-batch")
+    public List<OrderResponse> createBatch(@AuthenticationPrincipal TokenPrincipal principal,
+                                           @RequestHeader(value = "Idempotency-Key", required = false)
+                                           String idempotencyKey,
+                                           @RequestBody(required = false) CreateOrderRequest request) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new com.bhukkad.common.error.BusinessException("Idempotency-Key header is required");
+        }
+        Long customerId = subjectId(principal);
+        var items = cartService.getItems(customerId);
+        if (items.isEmpty()) {
+            throw new com.bhukkad.common.error.BusinessException("Cart is empty");
+        }
+        // Group cart lines by restaurant; one order per restaurant.
+        java.util.Map<Long, List<com.bhukkad.order.domain.CartItem>> byRestaurant =
+                new java.util.LinkedHashMap<>();
+        for (com.bhukkad.order.domain.CartItem item : items) {
+            byRestaurant.computeIfAbsent(resolveRestaurantId(item), k -> new java.util.ArrayList<>())
+                    .add(item);
+        }
+        List<OrderResponse> orders = new java.util.ArrayList<>();
+        for (var entry : byRestaurant.entrySet()) {
+            List<OrderItemRequest> lineItems = entry.getValue().stream()
+                    .map(ci -> new OrderItemRequest(ci.getMenuItemId(), ci.getItemName(),
+                            ci.getUnitPrice(), ci.getQuantity()))
+                    .toList();
+            orders.add(orderService.createOrder(
+                    new CreateOrderRequest(customerId, entry.getKey(), lineItems)));
+        }
+        cartService.clear(customerId);
+        return orders;
+    }
+
+    /** Cancels a future scheduled order (monolith parity for the planner UI). */
+    @PutMapping("/scheduled-orders/{orderId}/cancel")
+    public OrderResponse cancelScheduled(@AuthenticationPrincipal TokenPrincipal principal,
+                                         @PathVariable Long orderId,
+                                         @RequestParam(required = false) String reason) {
+        Long customerId = subjectId(principal);
+        com.bhukkad.order.domain.Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException(
+                        "Scheduled order not found: " + orderId));
+        if (!customerId.equals(order.getCustomerId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Cannot cancel another customer's scheduled order");
+        }
+        if (!"SCHEDULED".equals(order.getStatus()) && !"PLACED".equals(order.getStatus())) {
+            throw new com.bhukkad.common.error.BusinessException(
+                    "Scheduled order already dispatched (" + order.getStatus() + ")");
+        }
+        orderService.cancelOrder(orderId);
+        return orderService.getOrder(orderId);
+    }
+
+    /** Aggregate order stats for the customer profile surface. */
+    @GetMapping("/stats")
+    public java.util.Map<String, Object> stats(@AuthenticationPrincipal TokenPrincipal principal) {
+        Long customerId = subjectId(principal);
+        var orders = orderRepository.findByCustomerId(customerId);
+        long delivered = orders.stream()
+                .filter(o -> "DELIVERED".equals(o.getStatus())).count();
+        double totalSpend = orders.stream()
+                .filter(o -> o.getTotalAmount() != null)
+                .mapToDouble(o -> o.getTotalAmount().doubleValue())
+                .sum();
+        return java.util.Map.of(
+                "totalOrders", orders.size(),
+                "deliveredOrders", delivered,
+                "cancelledOrders", orders.stream()
+                        .filter(o -> "CANCELLED".equals(o.getStatus())).count(),
+                "totalSpend", totalSpend);
+    }
+
+    private Long resolveRestaurantId(com.bhukkad.order.domain.CartItem item) {
+        return restaurantClient.getMenuItem(item.getMenuItemId())
+                .map(m -> {
+                    Object rid = m.get("restaurantId");
+                    return rid == null ? null : Long.valueOf(String.valueOf(rid));
+                })
+                .block(java.time.Duration.ofSeconds(5));
+    }
 
     private static Long subjectId(TokenPrincipal principal) {
         if (principal == null || principal.userId() == null) {

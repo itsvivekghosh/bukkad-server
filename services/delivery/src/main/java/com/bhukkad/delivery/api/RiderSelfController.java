@@ -38,13 +38,13 @@ public class RiderSelfController {
     private final com.bhukkad.delivery.domain.RiderLocationUpdateRepository locationRepository;
     private final com.bhukkad.delivery.domain.DeliveryAssignmentRepository assignmentRepository;
     private final com.bhukkad.delivery.domain.RiderDeliveryBatchRepository batchRepository;
+    private final AgentProvisioner agentProvisioner;
 
     public record AgentProfileRequest(String name, String phone, String vehicleType,
                                       String vehicleNumber) {}
 
     /** Returns (lazily creating) the caller's rider profile. */
     @GetMapping("/api/v1/delivery/profile")
-    @Transactional
     public DeliveryAgent profile(@AuthenticationPrincipal TokenPrincipal principal) {
         return currentAgent(principal);
     }
@@ -53,7 +53,8 @@ public class RiderSelfController {
     @Transactional
     public DeliveryAgent updateProfile(@AuthenticationPrincipal TokenPrincipal principal,
                                        @RequestBody(required = false) AgentProfileRequest request) {
-        DeliveryAgent agent = currentAgent(principal);
+        DeliveryAgent agent = agentRepository.findById(currentAgent(principal).getId())
+                .orElseThrow();
         if (request != null) {
             if (request.name() != null && !request.name().isBlank()) {
                 agent.setName(request.name().trim());
@@ -76,7 +77,8 @@ public class RiderSelfController {
     @Transactional
     public DeliveryAgent toggleAvailability(@AuthenticationPrincipal TokenPrincipal principal,
                                             @RequestParam(required = false) Boolean available) {
-        DeliveryAgent agent = currentAgent(principal);
+        DeliveryAgent agent = agentRepository.findById(currentAgent(principal).getId())
+                .orElseThrow();
         agent.setIsActive(available == null || available);
         return agentRepository.save(agent);
     }
@@ -204,6 +206,7 @@ public class RiderSelfController {
                     var fresh = new com.bhukkad.delivery.domain.DeliveryAssignment();
                     fresh.setOrderId(orderId);
                     fresh.setStatus("READY_FOR_PICKUP");
+                    fresh.setAssignedAt(LocalDateTime.now());
                     fresh.setCreatedAt(LocalDateTime.now());
                     return fresh;
                 });
@@ -258,7 +261,11 @@ public class RiderSelfController {
     // Helpers
     // ------------------------------------------------------------------
 
-    /** Subject-scoped agent lookup, lazily provisioning the row. */
+    /**
+     * Subject-scoped agent lookup, lazily provisioning the row. The insert
+     * runs in its own writable transaction (REQUIRES_NEW) because read-only
+     * endpoints (earnings, history) still need the lazily-created profile.
+     */
     private DeliveryAgent currentAgent(TokenPrincipal principal) {
         if (principal == null || principal.userId() == null) {
             throw new UnauthorizedException("Authenticated delivery agent required");
@@ -269,21 +276,29 @@ public class RiderSelfController {
                     "Delivery agent access required");
         }
         return agentRepository.findById(principal.userId())
-                .orElseGet(() -> {
-                    DeliveryAgent agent = new DeliveryAgent();
-                    agent.setId(principal.userId());
-                    agent.setName(principal.email() == null
-                            ? "Rider " + principal.userId() : principal.email());
-                    agent.setIsActive(true);
-                    agent.setCreatedAt(LocalDateTime.now());
-                    agent.setUpdatedAt(LocalDateTime.now());
-                    try {
-                        return agentRepository.save(agent);
-                    } catch (Exception e) {
-                        // Concurrent first-call race: someone else inserted first.
-                        return agentRepository.findById(principal.userId()).orElseThrow();
-                    }
-                });
+                .orElseGet(() -> agentProvisioner.provision(principal.userId(), principal.email()));
+    }
+
+    /** Writable single-purpose transaction boundary for lazy rider onboarding. */
+    @org.springframework.stereotype.Component
+    @RequiredArgsConstructor
+    static class AgentProvisioner {
+        private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+        private final DeliveryAgentRepository agentRepository;
+
+        @org.springframework.transaction.annotation.Transactional(
+                propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+        DeliveryAgent provision(Long userId, String email) {
+            // delivery_agents.id is GENERATED ALWAYS — an explicit-id insert
+            // must override the system value (JPA's IDENTITY strategy would
+            // mint a fresh sequence id, losing the identity-user linkage).
+            jdbcTemplate.update(
+                    "INSERT INTO delivery_agents (id, name, is_active, created_at, updated_at) "
+                            + "OVERRIDING SYSTEM VALUE VALUES (?, ?, true, now(), now()) "
+                            + "ON CONFLICT (id) DO NOTHING",
+                    userId, email == null ? "Rider " + userId : email);
+            return agentRepository.findById(userId).orElseThrow();
+        }
     }
 
     private static int parseIntSafe(String value) {

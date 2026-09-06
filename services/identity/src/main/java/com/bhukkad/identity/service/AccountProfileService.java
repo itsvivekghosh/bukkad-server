@@ -56,10 +56,17 @@ public class AccountProfileService {
 
     @Transactional
     public DeviceToken registerDevice(Long userId, String token, String deviceType) {
-        DeviceToken deviceToken = new DeviceToken();
+        // Upsert by token: devices migrate between users (re-login, factory
+        // reset), so a token owned by another account is re-pointed instead of
+        // colliding with the unique constraint.
+        DeviceToken deviceToken = deviceTokenRepository.findByToken(token)
+                .orElseGet(DeviceToken::new);
         deviceToken.setUserId(userId);
         deviceToken.setToken(token);
         deviceToken.setDeviceType(deviceType);
+        if (deviceToken.getPlatform() == null) {
+            deviceToken.setPlatform(DeviceToken.Platform.WEB);
+        }
         return deviceTokenRepository.save(deviceToken);
     }
 

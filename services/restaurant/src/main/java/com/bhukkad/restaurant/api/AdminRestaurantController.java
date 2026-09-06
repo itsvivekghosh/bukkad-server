@@ -65,20 +65,41 @@ public class AdminRestaurantController {
     @PutMapping("/api/v1/admin/restaurants/{restaurantId}/onboarding")
     @Transactional
     public Restaurant reviewOnboarding(@PathVariable Long restaurantId,
-                                       @RequestParam String status,
-                                       @RequestParam(required = false) String reason) {
+                                       @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String reason,
+                                       @org.springframework.web.bind.annotation.RequestBody(
+                                               required = false) Map<String, Object> body) {
+        // The ops console PUTs JSON {approved: true|false, reason}; the monolith
+        // form used ?status=. Both are accepted.
+        String effectiveStatus = status;
+        String effectiveReason = reason;
+        if (effectiveStatus == null && body != null) {
+            Object approved = body.get("approved");
+            if (approved instanceof Boolean b) {
+                effectiveStatus = b ? "APPROVED" : "REJECTED";
+            } else if (body.get("status") != null) {
+                effectiveStatus = String.valueOf(body.get("status"));
+            }
+            if (body.get("reason") != null) {
+                effectiveReason = String.valueOf(body.get("reason"));
+            }
+        }
+        if (effectiveStatus == null || effectiveStatus.isBlank()) {
+            throw new BusinessException("status is required (?status= or body {approved})");
+        }
         Restaurant restaurant = requireRestaurant(restaurantId);
         Restaurant.OnboardingStatus next;
         try {
-            next = Restaurant.OnboardingStatus.valueOf(status.trim().toUpperCase());
+            next = Restaurant.OnboardingStatus.valueOf(effectiveStatus.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new BusinessException("Invalid onboarding status: " + status
+            throw new BusinessException("Invalid onboarding status: " + effectiveStatus
                     + " (expected PENDING_VERIFICATION, APPROVED, REJECTED or SUSPENDED)");
         }
         restaurant.setOnboardingStatus(next);
         restaurant.setOnboardingRejectionReason(
                 next == Restaurant.OnboardingStatus.REJECTED
-                        ? (reason == null || reason.isBlank() ? "Rejected by platform admin" : reason)
+                        ? (effectiveReason == null || effectiveReason.isBlank()
+                                ? "Rejected by platform admin" : effectiveReason)
                         : null);
         restaurant.setIsActive(next == Restaurant.OnboardingStatus.APPROVED);
         return restaurant;

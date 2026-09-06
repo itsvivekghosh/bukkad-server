@@ -48,6 +48,14 @@ public class IdentityController {
     public record AuthResponse(String token, Long customerId, String fullName, String role) {
     }
 
+    /** Refresh-token body: the apps post {@code {"refreshToken": "..."}}. */
+    public record RefreshBody(@NotBlank String refreshToken) {
+        public String token() {
+            return refreshToken;
+        }
+    }
+
+    /** Internal token-introspection body (service surface). */
     public record TokenRequest(@NotBlank String token) {
     }
 
@@ -103,7 +111,7 @@ public class IdentityController {
      * {@link com.bhukkad.identity.service.IdentityService#refresh(String)}).
      */
     @PostMapping({"/auth/refresh", "/auth/refresh-token"})
-    public AuthResponse refresh(@Valid @RequestBody TokenRequest request) {
+    public AuthResponse refresh(@Valid @RequestBody RefreshBody request) {
         var login = identityService.refresh(request.token());
         return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
     }

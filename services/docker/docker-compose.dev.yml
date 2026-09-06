@@ -1,14 +1,91 @@
-# Full local dev stack for the microservices (plan §2.1/§11): one PostgreSQL per
-# service, Redpanda (Kafka API) for events, nginx as the edge router.
-# Start: docker compose -f services/docker/docker-compose.dev.yml up -d
+# Full local dev/test stack for the microservices (plan §2.1/§11): one
+# PostgreSQL per service (created by initdb/00-create-databases.sql), Redis,
+# Redpanda (Kafka API) for events, nginx (optional profile "edge") as a second
+# router in front of the Spring Cloud Gateway.
+#
+# Bring up everything:        docker compose -f docker-compose.dev.yml up -d
+# Memory-tight staged bring-up (4 GB Docker VM): start with
+#   ... up -d postgres redis identity restaurant order payment gateway
+# and rotate additional services within the RAM budget (heap capped in
+# JAVA_OPTS below). App services do NOT publish host ports (developer stacks
+# commonly occupy 8080-8095 locally); all API traffic enters via the gateway.
+#
+# Build model: services use services/docker/Dockerfile.prebuilt — run
+#   ./mvnw -f services/pom.xml package -DskipTests && ./services/docker/stage-jars.sh
+# then `docker compose build <svc>` assembles runtime images in seconds.
+
+x-app-defaults: &app-defaults
+  restart: "no"
+  init: true
+  environment: &app-env
+    SERVER_PORT: "8080"
+    REDIS_HOST: redis
+    SPRING_DATA_REDIS_HOST: redis
+    # One JWT signing/verification secret across ALL services (identity mints,
+    # others validate via platform-lib PlatformJwtAuthFilter). Without this,
+    # identity signs with .env's strong secret while services verify with the
+    # yml fallback → every authenticated call 401s.
+    JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
+    # No Zipkin in dev: keep logs/meters off the tracing path.
+    TRACING_SAMPLE_PROBABILITY: "0.0"
+    # Events off unless the redpanda profile is brought up too
+    # (EVENTS_EXTERNAL_ENABLED=true docker compose up -d redpanda survey ...).
+    EVENTS_EXTERNAL_ENABLED: "${EVENTS_EXTERNAL_ENABLED:-false}"
+    # Dev-lean JVM: SerialGC + C1 keeps ~250 MB heap services under 400 MB RSS.
+    JAVA_OPTS: >-
+      -Xms64m -Xmx384m -XX:MaxMetaspaceSize=192m
+      -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+      -XX:ActiveProcessorCount=2
+    spring.datasource.hikari.maximum-pool-size: "8"
+  deploy:
+    resources:
+      limits:
+        memory: 768M
+  depends_on:
+    postgres:
+      condition: service_healthy
 
 services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bhukkad-tandoor
+    environment:
+      POSTGRES_DB: core
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pass
+    ports: ["5432:5432"]
+    volumes:
+      - bhukkad-pgdata:/var/lib/postgresql/data
+      - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d core"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+  redis:
+    image: redis:7-alpine
+    container_name: bhukkad-masala
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["6379:6379"]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   redpanda:
     image: redpandadata/redpanda:v23.3.13
     command:
       - redpanda start
       - --smp 1
+      - --memory 384M
+      - --reserve-memory 0M
       - --overprovisioned
       - --node-id 0
       - --kafka-addr PLAINTEXT://0.0.0.0:29092
@@ -21,10 +98,183 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
+  identity:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: identity}}
+    container_name: bhukkad-chef
+    image: ghcr.io/bhukkad/identity:latest
+    environment:
+      <<: *app-env
+      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
+      # Dev bootstrap: seed the platform admin the API test suite logs in as
+      # (admin@bhukkad.dev / Admin@123456). Never enable outside dev.
+      APP_BOOTSTRAPADMIN_ENABLED: "true"
+      APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
+      APP_BOOTSTRAPADMIN_PASSWORD: "Admin@123456"
+
+  restaurant:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: restaurant}}
+    container_name: bhukkad-tandoori
+    image: ghcr.io/bhukkad/restaurant:latest
+    environment:
+      <<: *app-env
+      RESTAURANT_DB_URL: jdbc:postgresql://postgres:5432/restaurants
+
+  order:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: order}}
+    container_name: bhukkad-thali
+    image: ghcr.io/bhukkad/order:latest
+    environment:
+      <<: *app-env
+      ORDER_DB_URL: jdbc:postgresql://postgres:5432/orders
+      RESTAURANT_SERVICE_URL: http://restaurant:8080
+      SUPPORTTICKET_SERVICE_URL: http://supportticket:8080
+
+  payment:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: payment}}
+    container_name: bhukkad-purse
+    image: ghcr.io/bhukkad/payment:latest
+    environment:
+      <<: *app-env
+      PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/payments
+
+  delivery:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: delivery}}
+    container_name: bhukkad-rocket
+    image: ghcr.io/bhukkad/delivery:latest
+    environment:
+      <<: *app-env
+      DELIVERY_DB_URL: jdbc:postgresql://postgres:5432/delivery
+
+  notification:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: notification}}
+    container_name: bhukkad-dhingli
+    image: ghcr.io/bhukkad/notification:latest
+    environment:
+      <<: *app-env
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/notification
+
+  admin-analytics:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: admin-analytics}}
+    container_name: bhukkad-haveli
+    image: ghcr.io/bhukkad/admin-analytics:latest
+    environment:
+      <<: *app-env
+      ADMIN_DB_URL: jdbc:postgresql://postgres:5432/admin
+
+  # Spring Cloud Gateway: owns the same route table as nginx and is the test
+  # entry point (host port 8095).
+  gateway:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: gateway}}
+    container_name: bhukkad-darwaza
+    image: ghcr.io/bhukkad/gateway:latest
+    ports: ["8095:8080"]
+    environment:
+      SERVER_PORT: "8080"
+      REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: redis
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
+      TRACING_SAMPLE_PROBABILITY: "0.0"
+      JAVA_OPTS: >-
+        -Xms64m -Xmx224m -XX:MaxMetaspaceSize=176m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2
+      RESTAURANT_SERVICE_URL: http://restaurant:8080
+      IDENTITY_SERVICE_URL: http://identity:8080
+      ORDER_SERVICE_URL: http://order:8080
+      PAYMENT_SERVICE_URL: http://payment:8080
+      DELIVERY_SERVICE_URL: http://delivery:8080
+      SEARCH_SERVICE_URL: http://search:8080
+      SURVEY_SERVICE_URL: http://survey:8080
+      REFERRAL_SERVICE_URL: http://referral:8080
+      SUPPORT_SERVICE_URL: http://supportticket:8080
+      NOTIFICATION_SERVICE_URL: http://notification:8080
+      ADMIN_ANALYTICS_SERVICE_URL: http://admin-analytics:8080
+      REALTIME_SERVICE_URL: http://realtime:8080
+      GROWTH_SERVICE_URL: http://growth:8080
+
+  search:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: search}}
+    container_name: bhukkad-jasoos
+    image: ghcr.io/bhukkad/search:latest
+    environment:
+      <<: *app-env
+      SEARCH_DB_URL: jdbc:postgresql://postgres:5432/search
+
+  survey:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: survey}}
+    container_name: bhukkad-mimamsa
+    image: ghcr.io/bhukkad/survey:latest
+    environment:
+      <<: *app-env
+      SURVEY_DB_URL: jdbc:postgresql://postgres:5432/survey
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
+      PLATFORM_EVENTS_TOPIC: bhukkad.platform.events
+      SURVEY_CONSUMER_GROUP: survey-platform-consumer
+
+  referral:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: referral}}
+    container_name: bhukkad-sathi
+    image: ghcr.io/bhukkad/referral:latest
+    environment:
+      <<: *app-env
+      REFERRAL_DB_URL: jdbc:postgresql://postgres:5432/referral
+
+  supportticket:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: supportticket}}
+    container_name: bhukkad-sahayak
+    image: ghcr.io/bhukkad/supportticket:latest
+    environment:
+      <<: *app-env
+      SUPPORT_DB_URL: jdbc:postgresql://postgres:5432/support
+
+  realtime:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: realtime}}
+    container_name: bhukkad-chashma
+    image: ghcr.io/bhukkad/realtime:latest
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+
+  growth:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: growth}}
+    container_name: bhukkad-vriddhi
+    image: ghcr.io/bhukkad/growth:latest
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+
+  personalization:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: personalization}}
+    container_name: bhukkad-rasoi-raja
+    image: ghcr.io/bhukkad/personalization:latest
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+
+  # Optional profile "edge": nginx needs every upstream container resolvable at
+  # boot (static upstream blocks); keep it out of staged bring-ups.
   nginx:
     image: nginx:1.27-alpine
-    # 8088 on the host: the monolith already owns 8080 in local dev.
+    profiles: ["edge"]
     ports: ["8088:80"]
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -41,161 +291,6 @@ services:
       - referral
       - supportticket
 
-  identity:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: identity}}
-    container_name: bhukkad-identity
-    image: ghcr.io/bhukkad/identity:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
-      IDENTITY_DB_USERNAME: app
-      IDENTITY_DB_PASSWORD: app_pass
-      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
-
-  restaurant:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: restaurant}}
-    container_name: bhukkad-restaurant
-    image: ghcr.io/bhukkad/restaurant:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      RESTAURANT_DB_URL: jdbc:postgresql://postgres:5432/restaurants
-      RESTAURANT_DB_USERNAME: app
-      RESTAURANT_DB_PASSWORD: app_pass
-
-  order:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: order}}
-    container_name: bhukkad-order
-    image: ghcr.io/bhukkad/order:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      ORDER_DB_URL: jdbc:postgresql://postgres:5432/orders
-      ORDER_DB_USERNAME: app
-      ORDER_DB_PASSWORD: app_pass
-
-  payment:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: payment}}
-    container_name: bhukkad-payment
-    image: ghcr.io/bhukkad/payment:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/payments
-      PAYMENT_DB_USERNAME: app
-      PAYMENT_DB_PASSWORD: app_pass
-
-  delivery:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: delivery}}
-    container_name: bhukkad-delivery
-    image: ghcr.io/bhukkad/delivery:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      DELIVERY_DB_URL: jdbc:postgresql://postgres:5432/delivery
-      DELIVERY_DB_USERNAME: app
-      DELIVERY_DB_PASSWORD: app_pass
-
-  notification:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: notification}}
-    container_name: bhukkad-notification
-    image: ghcr.io/bhukkad/notification:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/notification
-      NOTIFICATION_DB_USERNAME: app
-      NOTIFICATION_DB_PASSWORD: app_pass
-
-  admin-analytics:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: admin-analytics}}
-    container_name: bhukkad-admin-analytics
-    image: ghcr.io/bhukkad/admin-analytics:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      ADMIN_DB_URL: jdbc:postgresql://postgres:5432/admin
-      ADMIN_DB_USERNAME: app
-      ADMIN_DB_PASSWORD: app_pass
-
-  # Spring Cloud Gateway: owns the same route table as nginx but adds
-  # resilience/fallback behavior for local testing of the gateway deployment.
-  gateway:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: gateway}}
-    container_name: bhukkad-gateway
-    image: ghcr.io/bhukkad/gateway:latest
-    ports: ["8095:8080"]
-    environment:
-      SERVER_PORT: "8080"
-      RESTAURANT_SERVICE_URL: http://restaurant:8080
-      IDENTITY_SERVICE_URL: http://identity:8080
-      ORDER_SERVICE_URL: http://order:8080
-      PAYMENT_SERVICE_URL: http://payment:8080
-      DELIVERY_SERVICE_URL: http://delivery:8080
-      SEARCH_SERVICE_URL: http://search:8080
-      SURVEY_SERVICE_URL: http://survey:8080
-      REFERRAL_SERVICE_URL: http://referral:8080
-      SUPPORT_SERVICE_URL: http://supportticket:8080
-    depends_on:
-      - identity
-      - restaurant
-      - order
-      - payment
-      - delivery
-      - search
-      - survey
-      - referral
-      - supportticket
-
-  search:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: search}}
-    container_name: bhukkad-search
-    image: ghcr.io/bhukkad/search:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      SEARCH_DB_URL: jdbc:postgresql://postgres:5432/search
-      SEARCH_DB_USERNAME: app
-      SEARCH_DB_PASSWORD: app_pass
-
-  survey:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: survey}}
-    container_name: bhukkad-survey
-    image: ghcr.io/bhukkad/survey:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      SURVEY_DB_URL: jdbc:postgresql://postgres:5432/survey
-      SURVEY_DB_USERNAME: app
-      SURVEY_DB_PASSWORD: app_pass
-      EVENTS_EXTERNAL_ENABLED: "${EVENTS_EXTERNAL_ENABLED:-true}"
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
-      PLATFORM_EVENTS_TOPIC: bhukkad.platform.events
-      SURVEY_CONSUMER_GROUP: survey-platform-consumer
-    depends_on: [redpanda]
-
-  referral:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: referral}}
-    container_name: bhukkad-referral
-    image: ghcr.io/bhukkad/referral:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      REFERRAL_DB_URL: jdbc:postgresql://postgres:5432/referral
-      REFERRAL_DB_USERNAME: app
-      REFERRAL_DB_PASSWORD: app_pass
-
-  supportticket:
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.service, args: {MODULE: supportticket}}
-    container_name: bhukkad-supportticket
-    image: ghcr.io/bhukkad/supportticket:latest
-    environment:
-      SERVER_PORT: "8080"
-      spring.datasource.hikari.maximum-pool-size: "8"
-      SUPPORT_DB_URL: jdbc:postgresql://postgres:5432/support
-      SUPPORT_DB_USERNAME: app
-      SUPPORT_DB_PASSWORD: app_pass
-
 volumes:
   bhukkad-pgdata:
+    name: bhukkad_pgdata_dev

@@ -202,12 +202,13 @@ public class CustomerSelfController {
     public Map<String, String> deleteAccount(@AuthenticationPrincipal TokenPrincipal principal) {
         Customer c = customer(principal);
         c.setIsActive(false);
-        String suffix = "-deleted-" + c.getId();
+        String suffix = "-del-" + c.getId();
         if (c.getEmail() != null) {
             c.setEmail("deleted" + suffix + "@bhukkad.invalid");
         }
         if (c.getPhoneNumber() != null) {
-            c.setPhoneNumber("0000" + suffix);
+            // users.phone_number is varchar(15): keep the tombstone compact.
+            c.setPhoneNumber("X" + Math.abs((c.getId() * 7919) % 1_000_000_000));
         }
         if (c.getFullName() != null) {
             c.setFullName("Deleted User");

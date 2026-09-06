@@ -81,7 +81,11 @@ public class SocialOrderService {
         card.setAmount(amount);
         card.setPurchasedBy(purchasedBy);
         card.setStatus(GiftCard.STATUS_ACTIVE);
-        return giftCardRepository.save(card);
+        GiftCard saved = giftCardRepository.save(card);
+        if (saved.getRecipientEmail() == null && saved.getStatus() == null) {
+            throw new IllegalStateException("Gift card insert failed");
+        }
+        return saved;
     }
 
     /**
@@ -90,6 +94,16 @@ public class SocialOrderService {
      * overdraw (lost-update / double-spend). The entity fields
      * {@code redeemedBy}/{@code redeemedAt} are stamped on the loaded row.
      */
+    /** Fetches a gift card by code (balance check surface). */
+    @Transactional(readOnly = true)
+    public GiftCard giftCardByCode(String code) {
+        if (code == null || code.isBlank()) {
+            throw new BusinessException("code is required");
+        }
+        return giftCardRepository.findByCodeAndStatus(code, GiftCard.STATUS_ACTIVE)
+                .orElseGet(() -> giftCardRepository.findByCode(code).orElse(null));
+    }
+
     @Transactional
     public BigDecimal redeemGiftCard(String code, Long redeemedBy, BigDecimal amount) {
         if (amount.signum() <= 0) {

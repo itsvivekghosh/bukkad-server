@@ -1,0 +1,21 @@
+# Prebuilt-jar runtime image for LOCAL DOCKER TESTING (and CI where the reactor
+# is built once on the host). The k8s/CD pipeline keeps using
+# services/docker/Dockerfile.service (in-image build). This variant exists so a
+# 12-service `docker compose build` doesn't re-run the full Maven reactor per
+# image (12x in-container compiles of platform-lib + module), reducing rebuild
+# time from minutes to seconds during test/fix loops.
+#
+# Build context = repo root (same as Dockerfile.service); jars are STAGED to
+# services/docker/images/<MODULE>/app.jar first (the repo .dockerignore excludes
+# **/target). Stage script: services/docker/stage-jars.sh.
+#   docker compose build <svc>   # or:  --build-arg MODULE=survey + docker build
+ARG MODULE
+FROM eclipse-temurin:17-jre
+ARG MODULE
+RUN useradd --system --uid 10001 app
+WORKDIR /app
+COPY services/docker/images/${MODULE}/app.jar app.jar
+USER app
+EXPOSE 8080
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=70.0 -Djava.security.egd=file:/dev/urandom"
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
