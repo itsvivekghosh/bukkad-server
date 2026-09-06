@@ -35,10 +35,13 @@ public class WalletService {
                 });
         wb.setBalance(wb.getBalance().add(amount));
         wb.setUpdatedAt(LocalDateTime.now());
-        balanceRepository.save(wb);
+        // M-1: the ledger must record the balance AS PERSISTED by the atomic
+        // update — the save() result is authoritative, never a recomputed
+        // in-memory "balance + amount" of a possibly stale read.
+        WalletBalance saved = balanceRepository.save(wb);
 
-        recordTx(customerId, "CREDIT", amount, wb.getBalance(), reference);
-        return wb;
+        recordTx(customerId, "CREDIT", amount, saved.getBalance(), reference);
+        return saved;
     }
 
     @Transactional
@@ -53,10 +56,12 @@ public class WalletService {
         }
         wb.setBalance(wb.getBalance().subtract(amount));
         wb.setUpdatedAt(LocalDateTime.now());
-        balanceRepository.save(wb);
+        // M-1: balance_after is taken from the post-debit persisted entity
+        // (read AFTER the locked update), not recomputed from a pre-lock read.
+        WalletBalance saved = balanceRepository.save(wb);
 
-        recordTx(customerId, "DEBIT", amount, wb.getBalance(), reference);
-        return wb;
+        recordTx(customerId, "DEBIT", amount, saved.getBalance(), reference);
+        return saved;
     }
 
     @Transactional(readOnly = true)

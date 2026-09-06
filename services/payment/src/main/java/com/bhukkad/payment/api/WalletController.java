@@ -92,16 +92,19 @@ public class WalletController {
 
     @PostMapping("/internal/wallet/credit")
     public WalletResponse credit(@Valid @RequestBody InternalWalletRequest request) {
-        walletService.credit(request.customerId(), request.amount(),
+        // M-1: report/anchor on the balance the atomic update actually
+        // persisted (the service returns it); re-reading the wallet here
+        // could surface a concurrent transaction's value as this one's.
+        WalletBalance wallet = walletService.credit(request.customerId(), request.amount(),
                 "CREDIT:" + (request.reference() == null ? "" : request.reference()));
-        return paymentMapper.toWalletResponse(walletService.balance(request.customerId()));
+        return paymentMapper.toWalletResponse(wallet);
     }
 
     @PostMapping("/internal/wallet/debit")
     public WalletResponse debit(@Valid @RequestBody InternalWalletRequest request) {
-        walletService.debit(request.customerId(), request.amount(),
+        WalletBalance wallet = walletService.debit(request.customerId(), request.amount(),
                 "DEBIT:" + (request.reference() == null ? "" : request.reference()));
-        return paymentMapper.toWalletResponse(walletService.balance(request.customerId()));
+        return paymentMapper.toWalletResponse(wallet);
     }
 
     private static Long requireCustomerId(TokenPrincipal principal) {
@@ -133,9 +136,9 @@ public class WalletController {
             throw new com.bhukkad.common.error.BusinessException(
                     "amount must be positive");
         }
-        walletService.credit(customerId, amount,
+        WalletBalance wallet = walletService.credit(customerId, amount,
                 "ADD_MONEY:" + (idempotencyKey == null ? "" : idempotencyKey));
-        return paymentMapper.toWalletResponse(walletService.balance(customerId));
+        return paymentMapper.toWalletResponse(wallet);
     }
 
     /**

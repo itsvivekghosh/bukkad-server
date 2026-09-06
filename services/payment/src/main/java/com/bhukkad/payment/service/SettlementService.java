@@ -10,16 +10,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 
 @Service
 @RequiredArgsConstructor
 public class SettlementService {
 
-    public static final BigDecimal DEFAULT_COMMISSION_RATE = new BigDecimal("0.20");
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     private final SettlementRunRepository runRepository;
     private final RestaurantSettlementRepository settlementRepository;
+    private final CommissionTierService commissionTierService;
 
     @Transactional
     public SettlementResult run(LocalDate runDate, Long restaurantId,
@@ -32,7 +34,12 @@ public class SettlementService {
         run.setStatus("RUNNING");
         run = runRepository.save(run);
 
-        BigDecimal commission = grossAmount.multiply(DEFAULT_COMMISSION_RATE);
+        // H-4: commission follows the configured tier for this order volume,
+        // not a hardcoded 20%. commissionFor returns a PERCENT, so scale by
+        // 100 with the platform-standard HALF_UP 2 rounding.
+        BigDecimal commissionPct = commissionTierService.commissionFor(orderCount);
+        BigDecimal commission = grossAmount.multiply(commissionPct)
+                .divide(HUNDRED, 2, RoundingMode.HALF_UP);
         RestaurantSettlement settlement = new RestaurantSettlement();
         settlement.setSettlementRunId(run.getId());
         settlement.setRestaurantId(restaurantId);

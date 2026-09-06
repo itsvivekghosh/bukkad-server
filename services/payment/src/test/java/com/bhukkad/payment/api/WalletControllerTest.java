@@ -83,4 +83,48 @@ class WalletControllerTest {
         assertThat(response.get("size")).isEqualTo(10);
         assertThat(response.get("hasNext")).isEqualTo(false);
     }
+
+    // ------------------------------------------------------------------
+    // M-1: the internal wallet endpoints must echo the balance the atomic
+    // update PERSISTED (returned by the service), never a post-commit
+    // re-read a concurrent transaction could have already changed.
+    // ------------------------------------------------------------------
+
+    @Test
+    void internalDebit_reportsBalanceReturnedByAtomicDebit_neverReReads() {
+        WalletBalance postDebit = new WalletBalance();
+        postDebit.setCustomerId(2L);
+        postDebit.setBalance(new BigDecimal("300.00"));
+        when(walletService.debit(2L, new BigDecimal("100.00"), "DEBIT:ref-1"))
+                .thenReturn(postDebit);
+        // Sanity: a post-commit re-read could surface a concurrent debit's
+        // (different) value — the controller must not ask for it at all.
+        WalletResponse mapped = WalletResponse.builder()
+                .customerId(2L).balance(new BigDecimal("300.00")).build();
+        when(paymentMapper.toWalletResponse(postDebit)).thenReturn(mapped);
+
+        var req = new WalletController.InternalWalletRequest(2L, new BigDecimal("100.00"), "ref-1");
+        WalletResponse result = controller.debit(req);
+
+        assertThat(result.getBalance()).isEqualByComparingTo("300.00");
+        verify(walletService, org.mockito.Mockito.never()).balance(2L);
+    }
+
+    @Test
+    void internalCredit_reportsBalanceReturnedByAtomicCredit() {
+        WalletBalance postCredit = new WalletBalance();
+        postCredit.setCustomerId(2L);
+        postCredit.setBalance(new BigDecimal("150.00"));
+        when(walletService.credit(2L, new BigDecimal("150.00"), "CREDIT:ref-2"))
+                .thenReturn(postCredit);
+        WalletResponse mapped = WalletResponse.builder()
+                .customerId(2L).balance(new BigDecimal("150.00")).build();
+        when(paymentMapper.toWalletResponse(postCredit)).thenReturn(mapped);
+
+        var req = new WalletController.InternalWalletRequest(2L, new BigDecimal("150.00"), "ref-2");
+        WalletResponse result = controller.credit(req);
+
+        assertThat(result.getBalance()).isEqualByComparingTo("150.00");
+        verify(walletService, org.mockito.Mockito.never()).balance(2L);
+    }
 }

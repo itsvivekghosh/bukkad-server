@@ -81,7 +81,10 @@ class PaymentServiceTest {
         assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
         // A WALLET payment spends credit: balance decremented, ledger DEBIT row.
         assertThat(existing.getBalance()).isEqualByComparingTo("20.00");
-        verify(walletTransactionRepository).save(any(WalletTransaction.class));
+        // M-1: the DEBIT row's balance_after is the real remaining balance.
+        var txCaptor = org.mockito.ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(txCaptor.capture());
+        assertThat(txCaptor.getValue().getBalanceAfter()).isEqualByComparingTo("20.00");
         verify(eventPublisher).paymentSettled(7L, 10L, 1L, new BigDecimal("40.00"));
     }
 

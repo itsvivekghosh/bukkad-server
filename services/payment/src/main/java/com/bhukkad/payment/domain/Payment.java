@@ -45,6 +45,10 @@ public class Payment {
     public static final String STATUS_SETTLED = "SETTLED";
     public static final String STATUS_REFUNDED = "REFUNDED";
     public static final String STATUS_FAILED = "FAILED";
+    /** Internal saga charge (batch A contract): accepted, not yet captured. */
+    public static final String STATUS_PROCESSING = "PROCESSING";
+    /** Internal saga WALLET charge: accepted; the wallet debit is the caller's step. */
+    public static final String STATUS_PENDING_WALLET = "PENDING_WALLET";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

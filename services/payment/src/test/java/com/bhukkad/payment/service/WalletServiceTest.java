@@ -18,6 +18,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +38,7 @@ class WalletServiceTest {
     @Test
     void credit_existingWallet_addsBalance() {
         when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(balance(new BigDecimal("50.00"))));
+        when(balanceRepository.save(any(WalletBalance.class))).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
         WalletBalance result = service.credit(1L, new BigDecimal("100.00"), "TOPUP-1");
@@ -58,6 +60,7 @@ class WalletServiceTest {
     @Test
     void debit_sufficient_balanceReduces() {
         when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(balance(new BigDecimal("300.00"))));
+        when(balanceRepository.save(any(WalletBalance.class))).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
         WalletBalance result = service.debit(1L, new BigDecimal("80.00"), "ORDER-1");
@@ -92,5 +95,63 @@ class WalletServiceTest {
         assertThatThrownBy(() -> service.debit(1L, new BigDecimal("-5.00"), "x"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("positive");
+    }
+
+    // ------------------------------------------------------------------
+    // M-1 ledger accuracy: balance_after must be the post-atomic-update value.
+    // ------------------------------------------------------------------
+
+    @Test
+    void credit_recordsPersistedBalanceAsBalanceAfter() {
+        when(balanceRepository.findByCustomerIdForUpdate(1L))
+                .thenReturn(Optional.of(balance(new BigDecimal("50.00"))));
+        when(balanceRepository.save(any(WalletBalance.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.credit(1L, new BigDecimal("100.00"), "TOPUP-L1");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(transactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getBalanceAfter()).isEqualByComparingTo("150.00");
+    }
+
+    @Test
+    void debit_recordsRealRemainingBalanceAsBalanceAfter() {
+        when(balanceRepository.findByCustomerIdForUpdate(1L))
+                .thenReturn(Optional.of(balance(new BigDecimal("300.00"))));
+        when(balanceRepository.save(any(WalletBalance.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        WalletBalance result = service.debit(1L, new BigDecimal("80.00"), "ORDER-L1");
+
+        assertThat(result.getBalance()).isEqualByComparingTo("220.00");
+        var captor = org.mockito.ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(transactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getType()).isEqualTo("DEBIT");
+        assertThat(captor.getValue().getBalanceAfter())
+                .isEqualByComparingTo(result.getBalance())
+                .isEqualByComparingTo("220.00");
+    }
+
+    @Test
+    void concurrentLookingDebits_ledgerTracksTheRealRemainingBalance() {
+        // One shared row entity returned for both locked reads simulates two
+        // sequential debits racing on the same wallet: a ledger computed from
+        // the FIRST read would record 300-50=250 for the second debit.
+        WalletBalance shared = balance(new BigDecimal("300.00"));
+        when(balanceRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(shared));
+        when(balanceRepository.save(any(WalletBalance.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any(WalletTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.debit(1L, new BigDecimal("80.00"), "RACE-1");
+        service.debit(1L, new BigDecimal("50.00"), "RACE-2");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(transactionRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(WalletTransaction::getBalanceAfter)
+                .extracting(v -> v.stripTrailingZeros().toPlainString())
+                .containsExactly("220", "170");
+        assertThat(shared.getBalance()).isEqualByComparingTo("170.00");
     }
 }
