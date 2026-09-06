@@ -57,11 +57,28 @@ public class OrderController {
 
     /**
      * Internal details view for cross-service consumers (e.g. supportticket
-     * dispute auto-resolution). Requires a valid service JWT via
-     * {@code ServiceJwtAuthFilter}.
+     * dispute auto-resolution). Requires either a valid service JWT via
+     * {@code ServiceJwtAuthFilter} (ROLE_SERVICE), an ADMIN, or the order's
+     * own customer — the javadoc promise was previously unenforced, letting
+     * ANY authenticated user read ANY order's customerId (ownership oracle).
      */
     @GetMapping("/{orderId}/details")
-    public OrderDetailsResponse getOrderDetails(@PathVariable Long orderId) {
-        return orderService.getOrderDetails(orderId);
+    public OrderDetailsResponse getOrderDetails(@PathVariable Long orderId,
+                                                @AuthenticationPrincipal TokenPrincipal principal,
+                                                org.springframework.security.core.Authentication authentication) {
+        // Privilege check BEFORE any data access: an unauthenticated probe
+        // must not even trigger the DB read (existence oracle via timing).
+        OrderDetailsResponse details;
+        boolean privileged = authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_SERVICE".equals(a.getAuthority())
+                        || "ROLE_ADMIN".equals(a.getAuthority()));
+        if (privileged) {
+            details = orderService.getOrderDetails(orderId);
+        } else {
+            PrincipalGuard.requireAuthenticated(principal);
+            details = orderService.getOrderDetails(orderId);
+            PrincipalGuard.requireSelfOrAdmin(principal, details.customerId());
+        }
+        return details;
     }
 }

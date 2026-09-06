@@ -128,13 +128,15 @@ class GatewayAdminRoutingTest {
 
     @Test
     void adminRestaurantsAndCommissionAreCarvedOutToRestaurantService() {
-        // The old premise "legacy admin paths still hit admin-analytics" died
-        // with the route-table refactor: /api/v1/admin/restaurants/** and
-        // /api/v1/commission/** are restaurant-domain surfaces and must be
-        // selected by the narrower admin routes declared before the admin
-        // catch-all. (This assertion failed against the committed table at
-        // d2393ce; corrected here rather than left red.)
+        // /api/v1/admin/restaurants/stats stays on admin-analytics deliberately
+        // (its named route is declared BEFORE the restaurant-domain admin-restaurants/**
+        // carve-out — the stats dashboard is a read model owned by analytics).
+        // Non-stats admin restaurant surfaces (/api/v1/admin/restaurants/**) and
+        // the commission surface are restaurant-domain and route to restaurant.
         client.get().uri("/api/v1/admin/restaurants/stats").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("ADMIN-ANALYTICS-BACKEND");
+        client.get().uri("/api/v1/admin/restaurants/205").exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).isEqualTo("RESTAURANT-BACKEND");
         client.get().uri("/api/v1/commission/payouts").exchange()

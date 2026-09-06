@@ -4,7 +4,6 @@ import com.bhukkad.common.security.PrincipalGuard;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.domain.OrderTimelineEvent;
 import com.bhukkad.order.domain.OrderTimelineEventRepository;
-import com.bhukkad.order.service.OrderInvoiceService;
 import com.bhukkad.order.service.OrderService;
 import com.bhukkad.order.service.OrderStatusService;
 import lombok.RequiredArgsConstructor;
@@ -15,13 +14,14 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Order growth / timeline + invoice endpoints (port of monolith's
+ * Order growth / timeline endpoints (port of monolith's
  * {@code OrderGrowthController}).
  *
- * <p>Timeline and invoice are owner-or-admin reads. Status transitions are a
+ * <p>Timeline reads are owner-or-admin. Status transitions are a
  * fulfillment operation: they must never be callable by customers — a customer
  * marking an arbitrary order DELIVERED corrupts refunds, payouts, and
- * analytics.</p>
+ * analytics. Invoice lives on {@link OrderAdjunctController} with identical
+ * guard semantics (single canonical mapping).</p>
  */
 @RestController
 @RequestMapping("/api/v1/orders/{orderId}")
@@ -29,7 +29,6 @@ import java.util.List;
 public class OrderGrowthController {
 
     private final OrderTimelineEventRepository timelineRepository;
-    private final OrderInvoiceService invoiceService;
     private final OrderStatusService statusService;
     private final OrderService orderService;
 
@@ -39,14 +38,6 @@ public class OrderGrowthController {
         PrincipalGuard.requireSelfOrAdmin(principal,
                 orderService.getOrder(orderId).customerId());
         return timelineRepository.findByOrderId(orderId);
-    }
-
-    @GetMapping("/invoice")
-    public Object invoice(@AuthenticationPrincipal TokenPrincipal principal,
-                          @PathVariable Long orderId) {
-        PrincipalGuard.requireSelfOrAdmin(principal,
-                orderService.getOrder(orderId).customerId());
-        return invoiceService.getByOrder(orderId);
     }
 
     @PostMapping("/status/{status}")

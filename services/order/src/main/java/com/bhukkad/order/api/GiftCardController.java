@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 /**
  * Gift-card endpoints (port of monolith's {@code GiftCardController}).
@@ -34,32 +35,44 @@ public class GiftCardController {
     }
 
     @PostMapping("/redeem")
-    public BigDecimal redeem(@AuthenticationPrincipal TokenPrincipal principal,
-                             @org.springframework.web.bind.annotation.RequestBody(required = false)
-                             java.util.Map<String, Object> body) {
-        // Monolith parity: the apps post {"code": "...", "amount": N}; the
-        // query-param form is kept for backwards compatibility.
+    public Object redeem(@AuthenticationPrincipal TokenPrincipal principal,
+                         @org.springframework.web.bind.annotation.RequestBody(required = false)
+                         java.util.Map<String, Object> body) {
+        // Redeem requires an authenticated redeemer: a bearer-code theft must
+        // still land on a user (attribution + one-spend-per-session), and the
+        // audit requires it. Guard BEFORE any balance lookup.
+        PrincipalGuard.requireAuthenticated(principal);
+        // Monolith parity: the apps post {"code": "...", "amount": N}. Omitting
+        // the amount redeems the FULL remaining balance.
         String code = body == null ? null : asString(body.get("code"));
-        BigDecimal amount = body == null ? null : asBigDecimal(body.get("amount"));
+        BigDecimal amount = body == null ? null : asBigDecimalOrFullBalance(body.get("amount"));
         if (code == null || code.isBlank()) {
             throw new com.bhukkad.common.error.BusinessException("code is required");
         }
-        if (amount == null || amount.signum() <= 0) {
-            throw new com.bhukkad.common.error.BusinessException("amount must be positive");
-        }
-        Long redeemer = principal == null ? null : principal.userId();
-        return socialService.redeemGiftCard(code.trim(), redeemer, amount);
+        Long redeemer = principal.userId();
+        BigDecimal remaining = socialService.redeemGiftCard(code.trim(), redeemer, amount);
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("code", code.trim());
+        resp.put("redeemed", true);
+        resp.put("remainingBalance", remaining);
+        return resp;
     }
 
-    /** Balance/status lookup for a single gift card by code. */
+    /**
+     * Balance/status lookup for a single gift card by code. Returns a masked
+     * view — the entity's {@code purchaserId} (customer PII) never leaves.
+     */
+    public record CodeView(String code, String status, BigDecimal balance, BigDecimal amount) {
+    }
+
     @GetMapping("/{code}")
-    public GiftCard byCode(@org.springframework.web.bind.annotation.PathVariable String code) {
+    public CodeView byCode(@org.springframework.web.bind.annotation.PathVariable String code) {
         GiftCard card = socialService.giftCardByCode(code);
         if (card == null) {
             throw new com.bhukkad.common.error.ResourceNotFoundException(
                     "Gift card not found: " + code);
         }
-        return card;
+        return new CodeView(card.getCode(), card.getStatus(), card.getBalance(), card.getAmount());
     }
 
     private static String asString(Object v) {
@@ -75,5 +88,9 @@ public class GiftCardController {
         } catch (NumberFormatException e) {
             throw new com.bhukkad.common.error.BusinessException("amount must be numeric");
         }
+    }
+
+    private static BigDecimal asBigDecimalOrFullBalance(Object v) {
+        return v == null ? null : asBigDecimal(v);
     }
 }

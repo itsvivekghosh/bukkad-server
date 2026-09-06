@@ -82,9 +82,6 @@ public class SocialOrderService {
         card.setPurchasedBy(purchasedBy);
         card.setStatus(GiftCard.STATUS_ACTIVE);
         GiftCard saved = giftCardRepository.save(card);
-        if (saved.getRecipientEmail() == null && saved.getStatus() == null) {
-            throw new IllegalStateException("Gift card insert failed");
-        }
         return saved;
     }
 
@@ -106,16 +103,19 @@ public class SocialOrderService {
 
     @Transactional
     public BigDecimal redeemGiftCard(String code, Long redeemedBy, BigDecimal amount) {
-        if (amount.signum() <= 0) {
-            throw new BusinessException("Redemption amount must be positive");
-        }
         GiftCard card = giftCardRepository.findByCodeAndStatus(code, GiftCard.STATUS_ACTIVE)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or inactive gift card"));
-        int updated = giftCardRepository.redeem(code, amount, redeemedBy);
+        // Amount omitted → redeem the FULL remaining balance (monolith parity
+        // for the single-code redemption flow).
+        BigDecimal effectiveAmount = amount == null ? card.getBalance() : amount;
+        if (effectiveAmount.signum() <= 0) {
+            throw new BusinessException("Redemption amount must be positive");
+        }
+        int updated = giftCardRepository.redeem(code, effectiveAmount, redeemedBy);
         if (updated == 0) {
             throw new BusinessException("Insufficient gift card balance");
         }
-        BigDecimal remaining = card.getBalance().subtract(amount);
+        BigDecimal remaining = card.getBalance().subtract(effectiveAmount);
         if (remaining.signum() == 0) {
             giftCardRepository.updateStatus(code, GiftCard.STATUS_EXHAUSTED);
         }

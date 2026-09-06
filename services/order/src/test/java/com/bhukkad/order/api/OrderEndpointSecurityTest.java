@@ -161,20 +161,55 @@ class OrderEndpointSecurityTest {
         }
 
         @Test
-        void redeem_recordsRedeemer() {
+        void redeem_jsonBody_recordsRedeemerAndBalance() {
+            // Monolith-parity contract: {"code":"...","amount":N} body map.
             when(socialService.redeemGiftCard("GC-1", 7L, new BigDecimal("50")))
                     .thenReturn(new BigDecimal("150"));
 
-            BigDecimal remaining = controller.redeem(principal(7L, "CUSTOMER"), "GC-1", new BigDecimal("50"));
+            Object resp = controller.redeem(principal(7L, "CUSTOMER"),
+                    java.util.Map.of("code", "GC-1", "amount", "50"));
 
-            assertThat(remaining).isEqualByComparingTo("150");
-            org.mockito.Mockito.verify(socialService).redeemGiftCard("GC-1", 7L, new BigDecimal("50"));
+            assertThat(((java.util.Map<?, ?>) resp).get("remainingBalance").toString())
+                    .isEqualTo("150");
+            org.mockito.Mockito.verify(socialService)
+                    .redeemGiftCard("GC-1", 7L, new BigDecimal("50"));
+        }
+
+        @Test
+        void redeem_omittedAmount_redeemsFullBalance() {
+            when(socialService.redeemGiftCard("GC-2", 7L, null))
+                    .thenReturn(java.math.BigDecimal.ZERO);
+
+            controller.redeem(principal(7L, "CUSTOMER"), java.util.Map.of("code", "GC-2"));
+
+            org.mockito.Mockito.verify(socialService).redeemGiftCard("GC-2", 7L, null);
         }
 
         @Test
         void redeem_unauthenticated_throws() {
-            assertThatThrownBy(() -> controller.redeem(null, "GC-1", new BigDecimal("50")))
+            assertThatThrownBy(() -> controller.redeem(null,
+                    java.util.Map.of("code", "GC-1", "amount", "50")))
                     .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        }
+
+        @Test
+        void byCode_returnsMaskedView_withoutPurchaserId() {
+            com.bhukkad.order.domain.GiftCard card = new com.bhukkad.order.domain.GiftCard();
+            card.setCode("GC-9");
+            card.setStatus("ACTIVE");
+            card.setBalance(new BigDecimal("30"));
+            card.setAmount(new BigDecimal("100"));
+            card.setPurchasedBy(7L);
+            when(socialService.giftCardByCode("GC-9")).thenReturn(card);
+
+            Object view = controller.byCode("GC-9");
+
+            // Response type must not expose PII fields of the entity
+            // (purchasedBy / recipientEmail / recipientName / message).
+            assertThat(view).isInstanceOf(GiftCardController.CodeView.class);
+            assertThat(java.util.Arrays.stream(GiftCardController.CodeView.class.getRecordComponents())
+                    .map(c -> c.getName()))
+                    .doesNotContain("purchasedBy", "recipientEmail", "recipientName", "message");
         }
     }
 

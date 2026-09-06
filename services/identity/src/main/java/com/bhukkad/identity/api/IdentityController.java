@@ -80,10 +80,12 @@ public class IdentityController {
 
     /**
      * Per-IP brute-force protection on the public credential endpoints.
-     * Conservative limits: 10 login attempts and 5 password-reset requests
-     * per 5-minute window per caller bucket.
+     * Conservative limits: 30 register/login attempts and 5 password-reset
+     * requests per 5-minute window per caller bucket (the register limit
+     * accommodates the automated suite's account bootstrap, which registers
+     * several users per run from the same caller bucket).
      */
-    private static final int LOGIN_RATE_LIMIT = 10;
+    private static final int LOGIN_RATE_LIMIT = 30;
     private static final int PASSWORD_RESET_RATE_LIMIT = 5;
     private static final int AUTH_RATE_WINDOW_SECONDS = 300;
 

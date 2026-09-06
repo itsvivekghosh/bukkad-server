@@ -66,16 +66,17 @@ class GatewayConfigTest {
                 "customer-orders", "cart-legacy",
                 "home-feed", "home-campaigns", "home-membership",
                 "cache", "platform", "compliance",
+                "analytics-exports", "swagger",
                 "search", "referral", "support",
                 "notification", "live", "live-realtime", "growth",
                 "inventory", "restaurant", "identity", "personalization",
                 "order", "payment", "delivery",
-                "admin-restaurants", "commission",
+                "admin-restaurant-stats", "admin-restaurants", "commission",
                 "admin-analytics", "not-found");
-        // Pre-existing staleness from batch A's verification pass: admin-restaurants
-        // and commission landed without updating this assertion (test failed at
-        // d2393ce with "Expected size: 34 but was: 36").
-        assertThat(routes.getRoutes().collectList().block()).hasSize(36);
+        // Count covers the route table as restored with the concurrent-session
+        // overlay (analytics CSV exports + swagger aggregate + the explicit
+        // admin-restaurants/stats carve-out kept the analytics read model).
+        assertThat(routes.getRoutes().collectList().block()).hasSize(39);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");

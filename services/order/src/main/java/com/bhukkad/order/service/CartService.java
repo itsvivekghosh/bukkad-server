@@ -22,7 +22,7 @@ import java.util.List;
  * cart; items are snapshots (menuItemId + name + price) so later menu edits do
  * not mutate an in-flight cart.
  *
- * <p>Audit batch A — race-safe add: {@code V3__cart_unique_active.sql} enforces
+ * <p>Audit batch A — race-safe add: {@code V4__cart_unique_active.sql} enforces
  * {@code UNIQUE (customer_id) WHERE status='ACTIVE'} and
  * {@code UNIQUE (cart_id, menu_item_id)} in PostgreSQL. Concurrent {@code add}
  * callers used to double-create carts and duplicate lines (select-then-insert

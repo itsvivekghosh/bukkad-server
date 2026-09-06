@@ -52,7 +52,7 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
 
         var refresh = client().post().uri("/api/v1/auth/refresh")
                 .header("Content-Type", "application/json")
-                .body("{\"token\":\"" + token + "\"}")
+                .body("{\"refreshToken\":\"" + token + "\"}")
                 .retrieve()
                 .toEntity(String.class);
         assertThat(refresh.getStatusCode().is2xxSuccessful()).isTrue();
@@ -69,7 +69,7 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
         try {
             client().post().uri("/api/v1/auth/refresh")
                     .header("Content-Type", "application/json")
-                    .body("{\"token\":\"garbage-token\"}")
+                    .body("{\"refreshToken\":\"garbage-token\"}")
                     .retrieve()
                     .toBodilessEntity();
         } catch (org.springframework.web.client.HttpClientErrorException e) {
