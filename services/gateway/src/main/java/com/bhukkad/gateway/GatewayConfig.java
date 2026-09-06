@@ -235,6 +235,7 @@ public class GatewayConfig {
                 // Coupon + dispute surfaces extracted in P2 land here too.
                 .route("order", r -> r.path(
                         "/api/v1/orders/**",
+                        "/api/v1/delivery-truth/**",
                         "/api/v1/coupons/**",
                         "/api/v1/gift-cards/**",
                         "/api/v1/admin/disputes/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")

@@ -99,13 +99,6 @@ public class OrderAdjunctController {
         return body;
     }
 
-    /** Monolith-parity alias: {@code /api/v1/delivery-truth/orders/{id}/eta}. */
-    @GetMapping("/api/v1/delivery-truth/orders/{orderId}/eta")
-    public Map<String, Object> etaAlias(@AuthenticationPrincipal TokenPrincipal principal,
-                                        @PathVariable Long orderId) {
-        return eta(principal, orderId);
-    }
-
     // ------------------------------------------------------------------
     // Delivery proof (OTP / photo handshake)
     // ------------------------------------------------------------------
@@ -125,7 +118,10 @@ public class OrderAdjunctController {
         OrderDeliveryProof proof = proofRepository.findByOrderId(orderId)
                 .orElseGet(OrderDeliveryProof::new);
         proof.setOrderId(orderId);
-        proof.setOtpHash(String.valueOf(otp.hashCode()));
+        // Salted SHA-256 (per-issue random salt embedded before the digest).
+        // String.hashCode was trivially invertible over the 10^6 OTP space,
+        // making handover verification brute-forceable.
+        proof.setOtpHash(hashOtp(otp));
         proof.setOtpIssuedAt(java.time.LocalDateTime.now());
         proofRepository.save(proof);
         // Dev build returns the OTP inline (no SMS gateway); prod sends it
@@ -171,7 +167,15 @@ public class OrderAdjunctController {
         OrderDeliveryProof proof = proofRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No OTP issued for order: " + orderId));
-        if (otp == null || !String.valueOf(otp.hashCode()).equals(proof.getOtpHash())) {
+        // Single-use: once verified the OTP must not re-authorize a replay.
+        if (proof.getOtpVerifiedAt() != null) {
+            throw new BusinessException("OTP already used");
+        }
+        if (proof.getOtpIssuedAt() == null
+                || proof.getOtpIssuedAt().plusSeconds(600).isBefore(java.time.LocalDateTime.now())) {
+            throw new BusinessException("OTP expired — reissue required");
+        }
+        if (otp == null || !otpMatches(proof.getOtpHash(), otp)) {
             throw new BusinessException("Invalid OTP");
         }
         proof.setOtpVerifiedAt(java.time.LocalDateTime.now());
@@ -199,6 +203,39 @@ public class OrderAdjunctController {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /** salted SHA-256 with per-issue salt: $sha256$<salt>$<digest> */
+    static String hashOtp(String otp) {
+        String salt = java.util.UUID.randomUUID().toString().replace("-", "");
+        return "$sha256$" + salt + "$" + sha256Hex(salt + ":" + otp);
+    }
+
+    static boolean otpMatches(String stored, String otp) {
+        if (stored == null || !stored.startsWith("$sha256$")) {
+            return false;
+        }
+        String[] parts = stored.split("\\$");
+        if (parts.length != 4) {
+            return false;
+        }
+        byte[] expected = java.util.HexFormat.of().parseHex(parts[3]);
+        byte[] actual = sha256(parts[2] + ":" + otp);
+        // Constant-time comparison to deny timing side channels.
+        return java.security.MessageDigest.isEqual(expected, actual);
+    }
+
+    static String sha256Hex(String value) {
+        return java.util.HexFormat.of().formatHex(sha256(value));
+    }
+
+    private static byte[] sha256(String value) {
+        try {
+            return java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
 
     private Order requireOrder(Long orderId) {
         return orderRepository.findById(orderId)
