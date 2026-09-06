@@ -38,8 +38,15 @@ public class NotificationController {
             String body
     ) {}
 
+    /**
+     * Dispatch is ADMIN-gated (internal services call via their own clients),
+     * additionally rate-limited per actor: 60 sends/min stops bulk
+     * recipient-listing and blast misuse of the shared email/sms credentials.
+     */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "notification-dispatch",
+            limit = 60, windowSeconds = 60)
     public ResponseEntity<Notification> dispatch(@RequestBody DispatchRequest request) {
         Notification notification = dispatchService.dispatch(request.channel(), request.recipient(),
                 request.template(), request.subject(), request.body());

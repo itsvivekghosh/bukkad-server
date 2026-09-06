@@ -42,6 +42,22 @@ class NotificationControllerTest {
     }
 
     @Test
+    void dispatch_declaresAdminAndRateLimitGates() throws Exception {
+        // Method-security and rate limiting are enforced by AOP in the full
+        // context; the unit matrix pins the annotations (dispatch is the only
+        // unbounded send primitive — ADMIN gate + 60/min per actor).
+        var m = NotificationController.class.getMethod("dispatch",
+                NotificationController.DispatchRequest.class);
+        var authz = m.getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+        var rate = m.getAnnotation(com.bhukkad.common.ratelimit.RateLimited.class);
+        assertThat(authz).isNotNull();
+        assertThat(authz.value()).contains("ADMIN");
+        assertThat(rate).isNotNull();
+        assertThat(rate.bucket()).isEqualTo("notification-dispatch");
+        assertThat(rate.limit()).isPositive();
+    }
+
+    @Test
     void history_delegatesToDispatchService() {
         Notification notif = new Notification();
         when(dispatchService.history("a@b.com", "EMAIL")).thenReturn(List.of(notif));
