@@ -32,6 +32,9 @@ app:
       allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
       enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
   environment: production
+  survey:
+    # Internal ownership-oracle base URL of the order service (mesh).
+    order-base-url: ${ORDER_SERVICE_URL:http://order:8092}
   events:
     external:
       # Trending-dish materializer; Redpanda is part of standard dev bring-up

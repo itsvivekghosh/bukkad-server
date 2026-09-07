@@ -34,8 +34,11 @@ public class SurveyServiceImpl implements SurveyService {
     private static final int MAX_COMMENT_LENGTH = 1000;
 
     private final DeliverySurveyRepository surveyRepository;
+    private final com.bhukkad.survey.client.OrderOwnershipClient orderOwnershipClient;
 
-    public SurveyServiceImpl(DeliverySurveyRepository surveyRepository) {
+    public SurveyServiceImpl(DeliverySurveyRepository surveyRepository,
+                             com.bhukkad.survey.client.OrderOwnershipClient orderOwnershipClient) {
+        this.orderOwnershipClient = orderOwnershipClient;
         this.surveyRepository = surveyRepository;
     }
 
@@ -56,6 +59,13 @@ public class SurveyServiceImpl implements SurveyService {
         }
         if (orderId == null) {
             throw new BusinessException("Order id is required");
+        }
+        // SV-1: ratings must come from the order's owner. Ownership is the
+        // order service's fact (mesh lookup); any failure denies — survey data
+        // poisoning was possible with a bare orderId before this check.
+        if (!orderOwnershipClient.ownsOrder(customerId, orderId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Not the owner of order " + orderId);
         }
         validateRatings(ratingDelivery, ratingFood, ratingSpeed);
         validateComment(comment);
