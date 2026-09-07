@@ -28,7 +28,7 @@ public class OrderServiceClient {
           headers.setContentType(MediaType.APPLICATION_JSON);
           String token = authTokenProvider.serviceToken();
           if (token != null) {
-            headers.setBearerAuth(token);
+            headers.set("X-Service-Token", token);
           }
         })
         .build();

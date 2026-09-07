@@ -165,6 +165,20 @@ public class DisputeResolutionServiceImpl {
       return false;
     }
 
+    /** Hard cap: a refund may never exceed the order's original total. */
+    private double clampToOrderTotal(Dispute dispute, double amount) {
+      OrderDetailDto order = orderServiceClient.getOrderDetails(dispute.getOrderId());
+      if (order == null || order.getTotalAmount() == null) {
+        throw new BusinessException(
+                "Refund amount cannot be validated against the order total");
+      }
+      double total = order.getTotalAmount().doubleValue();
+      if (total <= 0) {
+        throw new BusinessException("Order total is not refundable");
+      }
+      return Math.min(amount, total);
+    }
+
     private Dispute applyRefund(Dispute dispute, double amount) {
       if (amount <= 0) {
         return dispute;
@@ -177,7 +191,9 @@ public class DisputeResolutionServiceImpl {
     private double resolveRefundAmount(Dispute dispute, Dispute.DisputeResolution resolution, Double requestedRefund) {
       if (Dispute.DisputeResolution.FULL_REFUND.equals(resolution)) {
         if (requestedRefund != null && requestedRefund > 0) {
-          return requestedRefund;
+          // NEVER above the order's paid total: an admin-supplied amount used
+          // to be credited verbatim (fabricated-money vector, audit H-3).
+          return clampToOrderTotal(dispute, requestedRefund);
         } else {
           // Lookup order total for full refund
           OrderDetailDto order = orderServiceClient.getOrderDetails(dispute.getOrderId());
@@ -191,7 +207,7 @@ public class DisputeResolutionServiceImpl {
         }
       } else if (Dispute.DisputeResolution.PARTIAL_REFUND.equals(resolution)) {
         if (requestedRefund != null && requestedRefund > 0) {
-          return Math.min(requestedRefund, MAX_LATE_DELIVERY_REFUND);
+          return clampToOrderTotal(dispute, Math.min(requestedRefund, MAX_LATE_DELIVERY_REFUND));
         } else {
           // For partial refund without explicit amount, compute late delivery refund based on order total.
           OrderDetailDto order = orderServiceClient.getOrderDetails(dispute.getOrderId());
