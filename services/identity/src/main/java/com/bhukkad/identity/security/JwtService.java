@@ -37,6 +37,9 @@ public class JwtService {
      * Issues a short-lived bearer access token (HS256). Validity comes from
      * {@code app.jwt.access-ttl-minutes} (15 min default); long-lived renewal
      * is handled by rotating refresh tokens, not by a fat access TTL.
+     * Claims: {@code sub}/{@code email}/{@code scope} as before, plus
+     * {@code jti} (UUID) and {@code typ:"access"} for introspection
+     * compatibility.
      */
     public String issue(Long customerId, String email, String scope) {
         try {
@@ -45,6 +48,8 @@ public class JwtService {
                     .subject(String.valueOf(customerId))
                     .claim("email", email)
                     .claim("scope", scope != null ? scope : "customer")
+                    .jwtID(java.util.UUID.randomUUID().toString())
+                    .claim("typ", "access")
                     .issueTime(Date.from(now))
                     .expirationTime(Date.from(now.plusSeconds(properties.accessTtlMinutes() * 60)))
                     .build();

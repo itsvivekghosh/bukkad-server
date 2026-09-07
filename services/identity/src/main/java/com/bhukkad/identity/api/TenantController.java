@@ -17,11 +17,34 @@ public class TenantController {
 
     private final TenantService tenantService;
 
-    /** Tenant provisioning is a B2B/admin operation, never customer-reachable. */
+    /** Tenant list for the B2B admin console. */
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public java.util.List<Tenant> list() {
+        return tenantService.list();
+    }
+
+    /**
+     * Tenant provisioning is a B2B/admin operation, never customer-reachable.
+     * Accepts the JSON body form (ops console) and the query-param form.
+     */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public Tenant create(@RequestParam String name, @RequestParam String domain) {
-        return tenantService.create(name, domain);
+    public Tenant create(@org.springframework.web.bind.annotation.RequestBody(
+            required = false) com.bhukkad.identity.api.TenantRequest request,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String domain) {
+        String effectiveName = request != null && request.getName() != null
+                ? request.getName() : name;
+        String effectiveDomain = request != null && request.getDomain() != null
+                ? request.getDomain() : domain;
+        if (effectiveName == null || effectiveName.isBlank()) {
+            throw new com.bhukkad.common.error.BusinessException("Tenant name is required");
+        }
+        if (effectiveDomain == null || effectiveDomain.isBlank()) {
+            throw new com.bhukkad.common.error.BusinessException("Domain is required");
+        }
+        return tenantService.create(effectiveName.trim(), effectiveDomain.trim());
     }
 
     @GetMapping("/by-domain")

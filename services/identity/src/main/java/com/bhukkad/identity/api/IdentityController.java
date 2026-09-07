@@ -29,6 +29,7 @@ public class IdentityController {
 
     private final IdentityService identityService;
     private final AddressService addressService;
+    private final com.bhukkad.identity.service.RefreshTokenService refreshTokens;
     private final JwtService jwtService;
 
     public record RegisterRequest(
@@ -42,17 +43,30 @@ public class IdentityController {
             String referralCode) {
     }
 
-    public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {
+    public record LoginRequest(@NotBlank @Email String email, @NotBlank String password,
+                               @Size(max = 64) String deviceId) {
     }
 
-    public record AuthResponse(String token, Long customerId, String fullName, String role) {
+    /**
+     * Auth pair. {@code refreshToken} is appended additively so clients that
+     * parse the original four fields keep working.
+     */
+    public record AuthResponse(String token, Long customerId, String fullName, String role,
+                               String refreshToken) {
     }
 
-    /** Refresh-token body: the apps post {@code {"refreshToken": "..."}}. */
-    public record RefreshBody(@NotBlank String refreshToken) {
-        public String token() {
-            return refreshToken;
-        }
+    /**
+     * Refresh body. Primary: rotating {@code refreshToken}. Legacy bodies
+     * posting {@code token: <pre-rotation access JWT>} keep working on a
+     * best-effort migration path (see {@code IdentityService#refresh}).
+     */
+    public record RefreshRequest(String refreshToken, String token,
+                                 @Size(max = 64) String deviceId) {
+    }
+
+    /** Logout: optional presented refresh token; without one, all sessions
+     *  of the authenticated principal are revoked. */
+    public record LogoutRequest(String refreshToken) {
     }
 
     /** Internal token-introspection body (service surface). */
@@ -87,35 +101,83 @@ public class IdentityController {
      */
     private static final int LOGIN_RATE_LIMIT = 30;
     private static final int PASSWORD_RESET_RATE_LIMIT = 5;
+    /** Refresh is a renewal, not a credential guess — abuse back-off only. */
+    private static final int REFRESH_RATE_LIMIT = 100;
     private static final int AUTH_RATE_WINDOW_SECONDS = 300;
 
-       @PostMapping("/auth/register")
+    @PostMapping("/auth/register")
     @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-register",
             limit = LOGIN_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
-    public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
+    public AuthResponse register(
+            @Valid @RequestBody RegisterRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(
+                    value = "User-Agent", required = false) String userAgent) {
         identityService.register(
                 request.email(), request.phoneNumber(), request.fullName(), request.password(), request.role(),
                 request.referralCode());
-        var login = identityService.login(request.email(), request.password());
-        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
+        var login = identityService.login(request.email(), request.password(), null, userAgent);
+        return toAuthResponse(login);
     }
 
     @PostMapping("/auth/login")
     @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-login",
             limit = LOGIN_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
-    public AuthResponse login(@Valid @RequestBody LoginRequest request) {
-        var login = identityService.login(request.email(), request.password());
-        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
+    public AuthResponse login(
+            @Valid @RequestBody LoginRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(
+                    value = "User-Agent", required = false) String userAgent) {
+        var login = identityService.login(request.email(), request.password(),
+                request.deviceId(), userAgent);
+        return toAuthResponse(login);
     }
 
     /**
-     * Rotates a still-valid access token into a fresh one (see
-     * {@link com.bhukkad.identity.service.IdentityService#refresh(String)}).
+     * Reissues the auth pair. Primary path: rotating refresh token (reuse of
+     * an already-rotated token revokes the whole family → 401). Legacy path:
+     * pre-rotation {@code {token: accessToken}} bodies keep working
+     * best-effort and return a fresh pair. Unknown/revoked/expired inputs
+     * collapse to one generic 401.
      */
     @PostMapping({"/auth/refresh", "/auth/refresh-token"})
-    public AuthResponse refresh(@Valid @RequestBody RefreshBody request) {
-        var login = identityService.refresh(request.token());
-        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role());
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-refresh",
+            limit = REFRESH_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
+    public AuthResponse refresh(
+            @RequestBody RefreshRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(
+                    value = "User-Agent", required = false) String userAgent) {
+        if (request.refreshToken() != null && !request.refreshToken().isBlank()) {
+            return toAuthResponse(identityService.refreshWithRotation(
+                    request.refreshToken(), userAgent, request.deviceId()));
+        }
+        if (request.token() != null && !request.token().isBlank()) {
+            return toAuthResponse(identityService.refresh(request.token()));
+        }
+        throw new com.bhukkad.common.error.UnauthorizedException("Invalid or expired token");
+    }
+
+    /**
+     * Revokes sessions. With a presented refreshToken: that token's family
+     * only (per-device logout). Without: every session of the authenticated
+     * caller (the 15-minute access-token grace applies; see JwtProperties).
+     */
+    @PostMapping("/auth/logout")
+    public java.util.Map<String, String> logout(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.bhukkad.common.security.TokenPrincipal principal,
+            @RequestBody(required = false) LogoutRequest request) {
+        String presented = request == null ? null : request.refreshToken();
+        if (presented != null && !presented.isBlank()) {
+            refreshTokens.revoke(presented);
+        } else if (principal != null && principal.userId() != null) {
+            refreshTokens.revokeAllForCustomer(principal.userId());
+        }
+        return java.util.Map.of("message", "Logged out");
+    }
+
+    private static AuthResponse toAuthResponse(
+            com.bhukkad.identity.service.IdentityService.LoginResult login) {
+        return new AuthResponse(login.token(), login.customerId(), login.fullName(), login.role(),
+                login.refreshToken());
     }
 
     /**
@@ -168,16 +230,6 @@ public class IdentityController {
         return java.util.Map.of("message", "Password reset successful");
     }
 
-    /**
-     * Client-side logout acknowledgment. Access tokens are short-lived JWTs;
-     * there is no server session to destroy, so the endpoint exists to give
-     * the apps a canonical logout call (and would revoke refresh tokens once
-     * a persistent refresh-token store lands).
-     */
-    @PostMapping("/auth/logout")
-    public java.util.Map<String, String> logout() {
-        return java.util.Map.of("message", "Logged out");
-    }
 
     /**
      * TOTP MFA challenge verification. The dev build issues no MFA challenges,

@@ -31,4 +31,10 @@ public class TenantService {
     public Tenant byDomain(String domain) {
         return tenantRepository.findByDomain(domain).orElse(null);
     }
+
+    /** All tenants, newest first (admin console listing). */
+    @Transactional(readOnly = true)
+    public java.util.List<Tenant> list() {
+        return tenantRepository.findAllByOrderByIdDesc();
+    }
 }

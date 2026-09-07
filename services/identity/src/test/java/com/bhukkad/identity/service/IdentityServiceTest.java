@@ -50,6 +50,8 @@ class IdentityServiceTest {
     private EntityManager entityManager;
     @Mock
     private ReferralService referralService;
+    @Mock
+    private com.bhukkad.identity.service.RefreshTokenService refreshTokens;
 
     @InjectMocks
     private IdentityService service;

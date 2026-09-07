@@ -46,18 +46,97 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
         return json.get("token").asText();
     }
 
+    /** Registers and returns [accessToken, refreshToken]. */
+    private String[] registerAndGetPair(String email) throws Exception {
+        String registerBody = "{\"email\":\"" + email + "\",\"phoneNumber\":\"999\","
+                + "\"fullName\":\"Auth IT\",\"password\":\"password123\"}";
+        var register = client().post().uri("/api/v1/auth/register")
+                .header("Content-Type", "application/json")
+                .body(registerBody)
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(register.getStatusCode().is2xxSuccessful()).isTrue();
+        JsonNode json = objectMapper.readTree(register.getBody());
+        return new String[] {json.get("token").asText(), json.get("refreshToken").asText()};
+    }
+
     @Test
     void refresh_rotatesValidToken() throws Exception {
-        String token = registerAndGetToken("refresh@test.com");
+        String[] pair = registerAndGetPair("refresh@test.com");
+        assertThat(pair[1]).as("register must return a refresh token").isNotBlank();
 
         var refresh = client().post().uri("/api/v1/auth/refresh")
                 .header("Content-Type", "application/json")
-                .body("{\"refreshToken\":\"" + token + "\"}")
+                .body("{\"refreshToken\":\"" + pair[1] + "\"}")
                 .retrieve()
                 .toEntity(String.class);
         assertThat(refresh.getStatusCode().is2xxSuccessful()).isTrue();
         JsonNode json = objectMapper.readTree(refresh.getBody());
         assertThat(json.get("token").asText()).isNotBlank();
+        String rotated = json.get("refreshToken").asText();
+        assertThat(rotated).isNotBlank().isNotEqualTo(pair[1]);
+    }
+
+    @Test
+    void refresh_reuseOfRotatedTokenRevokesFamily() throws Exception {
+        String[] pair = registerAndGetPair("reuse@test.com");
+
+        // First rotation succeeds.
+        var first = client().post().uri("/api/v1/auth/refresh")
+                .header("Content-Type", "application/json")
+                .body("{\"refreshToken\":\"" + pair[1] + "\"}")
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(first.getStatusCode().is2xxSuccessful()).isTrue();
+
+        // Presenting the ALREADY-ROTATED token again = theft signal:
+        // reject with 401 and revoke the whole family (even the fresh one).
+        org.springframework.web.client.HttpClientErrorException ex = null;
+        try {
+            client().post().uri("/api/v1/auth/refresh")
+                    .header("Content-Type", "application/json")
+                    .body("{\"refreshToken\":\"" + pair[1] + "\"}")
+                    .retrieve().toEntity(String.class);
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            ex = e;
+        }
+        assertThat(ex).isNotNull();
+        assertThat(ex.getStatusCode().value()).isEqualTo(401);
+
+        String rotated = objectMapper.readTree(first.getBody()).get("refreshToken").asText();
+        org.springframework.web.client.HttpClientErrorException dead = null;
+        try {
+            client().post().uri("/api/v1/auth/refresh")
+                    .header("Content-Type", "application/json")
+                    .body("{\"refreshToken\":\"" + rotated + "\"}")
+                    .retrieve().toEntity(String.class);
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            dead = e;
+        }
+        assertThat(dead).as("family revoked after reuse").isNotNull();
+        assertThat(dead.getStatusCode().value()).isEqualTo(401);
+    }
+
+    @Test
+    void logout_revokesSession() throws Exception {
+        String[] pair = registerAndGetPair("logout@test.com");
+        var out = client().post().uri("/api/v1/auth/logout")
+                .header("Content-Type", "application/json")
+                .body("{\"refreshToken\":\"" + pair[1] + "\"}")
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(out.getStatusCode().is2xxSuccessful()).isTrue();
+
+        org.springframework.web.client.HttpClientErrorException ex = null;
+        try {
+            client().post().uri("/api/v1/auth/refresh")
+                    .header("Content-Type", "application/json")
+                    .body("{\"refreshToken\":\"" + pair[1] + "\"}")
+                    .retrieve().toEntity(String.class);
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            ex = e;
+        }
+        assertThat(ex).as("refresh after logout must fail").isNotNull();
     }
 
     @Test

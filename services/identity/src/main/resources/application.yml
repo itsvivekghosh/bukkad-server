@@ -47,7 +47,15 @@ app:
     # HMAC secret for signing issued JWTs. In production this comes from a
     # secret manager (plan §8: JWKS once extracted; HS512 intra-monolith only).
     secret: ${JWT_SECRET:}
+    # Legacy token horizon — kept only for backward compatibility; the bearer
+    # path uses access-ttl-minutes below.
     ttl-minutes: ${JWT_TTL_MINUTES:1440}
+    # Short-lived access tokens (HS256 JWT). Renewal happens through the
+    # rotating, revocable refresh-token store, never by extending this TTL.
+    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:15}
+    # Absolute refresh-token session horizon in days; rotation never extends
+    # a session past its issue-time + refresh-ttl-days.
+    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:30}
   events:
     external:
       enabled: false

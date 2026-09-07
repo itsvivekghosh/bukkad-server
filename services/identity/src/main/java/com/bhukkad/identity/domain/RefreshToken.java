@@ -23,6 +23,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "refresh_tokens", indexes = {
         @Index(name = "idx_refresh_tokens_customer", columnList = "customer_id"),
+        @Index(name = "idx_refresh_tokens_family", columnList = "family_id"),
         @Index(name = "idx_refresh_tokens_expires", columnList = "expires_at")
 })
 @Getter
@@ -40,6 +41,14 @@ public class RefreshToken {
     @Column(name = "token_hash", nullable = false, unique = true, length = 64)
     private String tokenHash;
 
+    /**
+     * Rotation family: every token minted by successive refresh of the same
+     * session. Presenting a revoked token revokes the whole family
+     * (token-reuse detection kills any stolen-chain copies).
+     */
+    @Column(name = "family_id", nullable = false, length = 36)
+    private String familyId;
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
@@ -48,6 +57,14 @@ public class RefreshToken {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** Session metadata for revocation tooling (neither is trusted input). */
+    @Column(name = "user_agent", length = 512)
+    private String userAgent;
+
+    @Column(name = "device_id", length = 64)
+    private String deviceId;
+
 
     public static RefreshToken of(Long customerId, String tokenHash, Instant expiresAt) {
         RefreshToken token = new RefreshToken();

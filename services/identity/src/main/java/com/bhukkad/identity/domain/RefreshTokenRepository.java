@@ -34,6 +34,15 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
             + "WHERE t.customerId = :customerId AND t.revokedAt IS NULL")
     int revokeAllByCustomer(@Param("customerId") Long customerId, @Param("now") Instant now);
 
+    /**
+     * Token-reuse detection: kills every live member of a rotation family at
+     * once, so an attacker replaying a revoked token cannot keep either copy.
+     */
+    @Modifying
+    @Query("UPDATE RefreshToken t SET t.revokedAt = :now "
+            + "WHERE t.familyId = :familyId AND t.revokedAt IS NULL")
+    int revokeAllByFamily(@Param("familyId") String familyId, @Param("now") Instant now);
+
     /** Housekeeping: tombstone past-expiry rows that were never revoked. */
     @Modifying
     @Query("UPDATE RefreshToken t SET t.revokedAt = :now "

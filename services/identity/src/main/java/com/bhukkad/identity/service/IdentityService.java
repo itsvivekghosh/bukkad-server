@@ -21,6 +21,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -46,6 +47,7 @@ public class IdentityService {
     private final UserRepository userRepository;
     private final AdminRepository adminRepository;
     private final ReferralService referralService;
+    private final RefreshTokenService refreshTokens;
 
     @PersistenceContext
     private EntityManager em;
@@ -112,6 +114,17 @@ public class IdentityService {
 
     @Transactional(readOnly = true)
     public LoginResult login(String email, String rawPassword) {
+        return login(email, rawPassword, null, null);
+    }
+
+    /**
+     * Authenticates and returns a fresh access/refresh pair. The refresh
+     * token is a rotating, server-side session (SHA-256 hash stored);
+     * {@code deviceId}/{@code userAgent} are recorded (untrusted, length
+     * capped) for later revocation tooling.
+     */
+    @Transactional
+    public LoginResult login(String email, String rawPassword, String deviceId, String userAgent) {
         Optional<Customer> customerOpt = customerRepository.findByEmailAndIsActiveTrue(email);
         if (customerOpt.isPresent()) {
             Customer customer = customerOpt.get();
@@ -120,7 +133,8 @@ public class IdentityService {
             }
             String scope = resolveScope(customer.getId());
             String token = jwtService.issue(customer.getId(), customer.getEmail(), scope);
-            return new LoginResult(token, customer.getId(), customer.getFullName(), scope);
+            String refreshToken = refreshTokens.issue(customer.getId(), userAgent, deviceId);
+            return new LoginResult(token, customer.getId(), customer.getFullName(), scope, refreshToken);
         }
         // Admin fallback: credentials live on the admins row (seeded via bootstrap).
         Optional<Admin> adminOpt = adminRepository.findByEmail(email);
@@ -133,16 +147,57 @@ public class IdentityService {
                 throw new UnauthorizedException("Invalid email or password");
             }
             String token = jwtService.issue(admin.getId(), admin.getEmail(), "admin");
-            return new LoginResult(token, admin.getId(), admin.getFullName(), "ADMIN");
+            String refreshToken = refreshTokens.issue(admin.getId(), userAgent, deviceId);
+            return new LoginResult(token, admin.getId(), admin.getFullName(), "ADMIN", refreshToken);
         }
         throw new UnauthorizedException("Invalid email or password");
     }
 
     /**
-     * Rotates a still-valid access token into a fresh one. Invalid/expired
-     * tokens are rejected with a generic 401 (no user enumeration).
+     * Production refresh path: consumes a rotating refresh token and returns
+     * a new access/refresh pair (same family, same absolute expiry). Reuse of
+     * a rotated/revoked token revokes the whole family — see
+     * {@link RefreshTokenService#rotate}. Account state (active, role) is
+     * re-derived from the DB, mirroring {@link #refresh(String)}.
      */
-    @Transactional(readOnly = true)
+    @Transactional
+    public LoginResult refreshWithRotation(String refreshToken, String userAgent, String deviceId) {
+        RefreshTokenService.Rotation rotation = refreshTokens.rotate(refreshToken, userAgent, deviceId);
+        Long userId = rotation.customerId();
+        Customer customer = customerRepository.findById(userId).orElse(null);
+        if (customer != null) {
+            if (!Boolean.TRUE.equals(customer.getIsActive())) {
+                refreshTokens.revokeAllForCustomer(userId);
+                throw new UnauthorizedException("Account is deactivated");
+            }
+            String scope = resolveScope(userId);
+            String fullName = customer.getFullName() == null ? "user" : customer.getFullName();
+            String token = jwtService.issue(userId, customer.getEmail(), scope);
+            return new LoginResult(token, userId, fullName, scope, rotation.refreshToken());
+        }
+        Admin admin = adminRepository.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
+        boolean active = userRepository.findById(userId)
+                .map(u -> Boolean.TRUE.equals(u.getActive()))
+                .orElse(false);
+        if (!active) {
+            refreshTokens.revokeAllForCustomer(userId);
+            throw new UnauthorizedException("Account is deactivated");
+        }
+        String token = jwtService.issue(userId, admin.getEmail(), "admin");
+        String fullName = admin.getFullName() == null ? "user" : admin.getFullName();
+        return new LoginResult(token, userId, fullName, "ADMIN", rotation.refreshToken());
+    }
+
+    /**
+     * LEGACY refresh path ({@code {token: accessToken}} bodies from clients
+     * predating the access/refresh split): best-effort — validates the access
+     * JWT exactly as before (signature, expiry, account state) and returns a
+     * NEW access/refresh pair so the caller migrates to rotating refresh
+     * tokens without an app update. Logged at WARN so deployments can watch
+     * stragglers drain before this path is removed.
+     */
+    @Transactional
     public LoginResult refresh(String token) {
         JwtService.IntrospectionResult result = jwtService.introspect(token);
         if (!result.valid() || result.customerId() == null) {
@@ -156,10 +211,13 @@ public class IdentityService {
         if (!Boolean.TRUE.equals(customer.getIsActive())) {
             throw new UnauthorizedException("Account is deactivated");
         }
+        log.warn("LEGACY_ACCESS_TOKEN_REFRESH customerId={} — migrating caller to refresh-token rotation",
+                result.customerId());
         String scope = resolveScope(result.customerId());
         String fullName = customer.getFullName() == null ? "user" : customer.getFullName();
         String freshToken = jwtService.issue(result.customerId(), emailOf(result.customerId()), scope);
-        return new LoginResult(freshToken, result.customerId(), fullName, scope);
+        String refreshToken = refreshTokens.issue(result.customerId(), null, null);
+        return new LoginResult(freshToken, result.customerId(), fullName, scope, refreshToken);
     }
 
     /**
@@ -183,6 +241,12 @@ public class IdentityService {
                 .executeUpdate();
     }
 
+    /**
+     * Self-service password change. Also revokes EVERY refresh-token session
+     * of the account, so stolen long-lived sessions die immediately. Note:
+     * issued ACCESS tokens are stateless JWTs and stay valid until they
+     * expire — with the 15-minute access TTL that is at most 15 minutes.
+     */
     @Transactional
     public void changePassword(Long userId, String currentPassword, String newPassword) {
         Customer customer = customerRepository.findById(userId)
@@ -195,6 +259,7 @@ public class IdentityService {
         }
         customer.setPasswordHash(passwordService.hash(newPassword));
         customerRepository.save(customer);
+        refreshTokens.revokeAllForCustomer(userId);
         log.info("PASSWORD_CHANGED userId={}", userId);
     }
 
@@ -220,12 +285,18 @@ public class IdentityService {
         });
     }
 
+    /**
+     * Consumed-reset additionally revokes every refresh-token session of the
+     * account (same caveat as {@link #changePassword}: a bearer access token
+     * stays valid at most until the access TTL, default 15 minutes).
+     */
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
         if (rawToken == null || rawToken.isBlank()) {
             throw new BusinessException("Invalid or expired reset token");
         }
         String tokenHash = sha256(rawToken);
+        Long targetUserId = findResetTokenOwner(tokenHash);
         int updated = em.createNativeQuery(
                 "UPDATE customers c SET password_hash = :hash, updated_at = now() "
                 + "FROM password_reset_tokens t "
@@ -240,7 +311,21 @@ public class IdentityService {
         if (updated == 0) {
             throw new BusinessException("Invalid or expired reset token");
         }
+        if (targetUserId != null) {
+            refreshTokens.revokeAllForCustomer(targetUserId);
+        }
         log.info("PASSWORD_RESET_COMPLETED");
+    }
+
+    /** Owner of a still-fresh reset token, or null (read BEFORE consumption). */
+    private Long findResetTokenOwner(String tokenHash) {
+        List<Object> rows = em.createNativeQuery(
+                "SELECT user_id FROM password_reset_tokens "
+                + "WHERE token_hash = :tokenHash AND used = false AND expires_at > now()")
+                .setParameter("tokenHash", tokenHash)
+                .setMaxResults(1)
+                .getResultList();
+        return rows.isEmpty() ? null : ((Number) rows.get(0)).longValue();
     }
 
     /** Self-registration is limited to non-privileged roles. */
@@ -291,6 +376,7 @@ public class IdentityService {
         return "BK" + HexFormat.of().formatHex(buf).toUpperCase();
     }
 
-    public record LoginResult(String token, Long customerId, String fullName, String role) {
+    public record LoginResult(String token, Long customerId, String fullName, String role,
+                              String refreshToken) {
     }
 }
