@@ -16,6 +16,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -31,13 +32,17 @@ class MenuVersionServiceTest {
     void setUp() {
         // Constructed manually: ObjectMapper is not a mock, so @InjectMocks
         // would leave it null.
-        service = new MenuVersionService(versionRepository, new ObjectMapper());
+        service = new MenuVersionService(versionRepository, new ObjectMapper(),
+                new org.springframework.transaction.support.TransactionTemplate(
+                        // Executes callbacks inline; PG transaction semantics are
+                        // exercised in the container suite, not here.
+                        mock(org.springframework.transaction.PlatformTransactionManager.class)));
     }
 
     @Test
     void snapshot_firstVersionIsOne() {
         when(versionRepository.findByRestaurantIdOrderByVersionDesc(1L)).thenReturn(List.of());
-        when(versionRepository.save(any(MenuVersion.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(versionRepository.saveAndFlush(any(MenuVersion.class))).thenAnswer(inv -> inv.getArgument(0));
 
         MenuVersion v = service.snapshot(1L, Map.of("categories", List.of()));
 
@@ -53,7 +58,7 @@ class MenuVersionServiceTest {
         latest.setRestaurantId(1L);
         latest.setVersion(3);
         when(versionRepository.findByRestaurantIdOrderByVersionDesc(1L)).thenReturn(List.of(latest));
-        when(versionRepository.save(any(MenuVersion.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(versionRepository.saveAndFlush(any(MenuVersion.class))).thenAnswer(inv -> inv.getArgument(0));
 
         MenuVersion v = service.snapshot(1L, Map.of("name", "v4"));
 
@@ -100,5 +105,31 @@ class MenuVersionServiceTest {
 
         assertThat(published.getStatus()).isEqualTo(MenuVersion.MenuVersionStatus.PUBLISHED);
         assertThat(published.getPublishedAt()).isNotNull();
+    }
+
+    @Test
+    void snapshot_retriesOnceOnVersionUniquenessRace() {
+        MenuVersion latest = new MenuVersion();
+        latest.setRestaurantId(1L);
+        latest.setVersion(3);
+        when(versionRepository.findByRestaurantIdOrderByVersionDesc(1L)).thenReturn(List.of(latest));
+        // First flush collides on uq_menu_versions_restaurant_version, second wins.
+        when(versionRepository.saveAndFlush(any(MenuVersion.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        MenuVersion v = service.snapshot(1L, Map.of("k", "v"));
+
+        assertThat(v.getVersion()).isEqualTo(4);
+    }
+
+    @Test
+    void snapshot_failsAfterRetryLimit() {
+        when(versionRepository.findByRestaurantIdOrderByVersionDesc(1L)).thenReturn(List.of());
+        when(versionRepository.saveAndFlush(any(MenuVersion.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+
+        assertThatThrownBy(() -> service.snapshot(1L, Map.of("k", "v")))
+                .isInstanceOf(com.bhukkad.common.error.BusinessException.class);
     }
 }

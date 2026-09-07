@@ -29,19 +29,42 @@ public class MenuVersionService {
 
     private final MenuVersionRepository versionRepository;
     private final ObjectMapper objectMapper;
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
+
+    private static final int SNAPSHOT_RETRY_LIMIT = 3;
 
     /**
-     * Records a snapshot of the supplied menu document at the next version number.
+     * Records a snapshot at the next version number. Version allocation is a
+     * read-then-insert race; the unique index
+     * (V5__menu_version_unique.sql) is the source of truth, so on a clash the
+     * attempt is re-run in a FRESH transaction (a violation aborts the PG
+     * transaction it fired in — in-txn retry would keep failing).
      */
-    @Transactional
     public MenuVersion snapshot(Long restaurantId, Map<String, Object> menu) {
-        MenuVersion version = new MenuVersion();
-        version.setRestaurantId(restaurantId);
-        version.setVersion(nextVersion(restaurantId));
-        version.setSnapshotJson(toJson(menu));
-        version.setCreatedAt(LocalDateTime.now());
-        version.setStatus(MenuVersion.MenuVersionStatus.DRAFT);
-        return versionRepository.save(version);
+        String json = toJson(menu);
+        org.springframework.transaction.support.TransactionTemplate requiresNew =
+                new org.springframework.transaction.support.TransactionTemplate(
+                        txTemplate.getTransactionManager());
+        requiresNew.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return requiresNew.execute(status -> {
+                    MenuVersion version = new MenuVersion();
+                    version.setRestaurantId(restaurantId);
+                    version.setVersion(nextVersion(restaurantId));
+                    version.setSnapshotJson(json);
+                    version.setCreatedAt(LocalDateTime.now());
+                    version.setStatus(MenuVersion.MenuVersionStatus.DRAFT);
+                    return versionRepository.saveAndFlush(version);
+                });
+            } catch (org.springframework.dao.DataIntegrityViolationException race) {
+                if (attempt >= SNAPSHOT_RETRY_LIMIT) {
+                    throw new com.bhukkad.common.error.BusinessException(
+                            "Menu snapshot conflict — too much concurrent publishing, retry shortly");
+                }
+            }
+        }
     }
 
     @Transactional(readOnly = true)
