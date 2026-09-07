@@ -26,6 +26,9 @@ management:
 logging: {level: {com.bhukkad: INFO}}
 
 app:
+  routes:
+    identity-uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+    delivery-uri: ${DELIVERY_SERVICE_URL:http://localhost:8084}
   environment: production
   # A/B experiments (feature #7). Weights are percentages and may sum to less
   # than 100 — the remainder is excluded from the experiment. Assignments are

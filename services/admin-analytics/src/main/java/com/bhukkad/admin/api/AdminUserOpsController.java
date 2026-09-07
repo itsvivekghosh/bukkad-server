@@ -1,11 +1,11 @@
 package com.bhukkad.admin.api;
 
-import com.bhukkad.admin.domain.AuditEventRepository;
+import com.bhukkad.admin.audit.AuditService;
+import com.bhukkad.common.error.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,16 +14,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClient;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * Platform-admin user lifecycle (monolith parity): owner/agent verification,
- * account activation, city registry and promotion campaigns/banners. ADMIN
- * gated; user mutations run through identity-owned tables via parameterised
- * SQL and are audit-logged through the shared {@code audit_events} table.
+ * Platform-admin user + city operations. Identity-owned mutations (verify /
+ * activate / erase) and the delivery-owned city registry live on the services
+ * that own those tables — this controller is the ADMIN-gated proxy the ops
+ * console calls, forwarding over the service mesh with the shared service
+ * token (both peers run {@code ServiceJwtAuthFilter}).
  */
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -31,196 +32,137 @@ import java.util.Map;
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminUserOpsController {
 
-    private final JdbcTemplate jdbcTemplate;
-    private final AuditEventRepository auditEventRepository;
-    private final com.bhukkad.admin.audit.AuditService auditService;
+    private final AuditService auditService;
+    private final ServiceMeshClient mesh;
 
-    // ------------------------------------------------------------------
-    // Verification + activation
-    // ------------------------------------------------------------------
+    @GetMapping("/users/{userId}")
+    public Map<String, Object> user(@PathVariable Long userId) {
+        return mesh.get("/api/v1/internal/admin/users/" + userId);
+    }
 
     /** Marks a restaurant-owner account verified. */
     @PutMapping("/owners/{userId}/verify")
-    @Transactional
     public Map<String, Object> verifyOwner(@PathVariable Long userId) {
-        return verifyAccount(userId, "RESTAURANT_OWNER");
+        Map<String, Object> result = mesh.put(
+                "/api/v1/internal/admin/users/" + userId + "/verify?expectedRole=RESTAURANT_OWNER");
+        auditService.record("ACCOUNT_VERIFIED", "USER", String.valueOf(userId), null, null);
+        result.put("message", "Restaurant owner verified");
+        return result;
     }
 
     /** Marks a delivery-agent account verified. */
     @PutMapping("/agents/{userId}/verify")
-    @Transactional
     public Map<String, Object> verifyAgent(@PathVariable Long userId) {
-        return verifyAccount(userId, "DELIVERY_AGENT");
+        Map<String, Object> result = mesh.put(
+                "/api/v1/internal/admin/users/" + userId + "/verify?expectedRole=DELIVERY_AGENT");
+        auditService.record("ACCOUNT_VERIFIED", "USER", String.valueOf(userId), null, null);
+        result.put("message", "Delivery agent verified");
+        return result;
     }
 
     @PutMapping("/users/{userId}/activate")
-    @Transactional
     public Map<String, Object> activate(@PathVariable Long userId) {
-        requireUser(userId);
-        jdbcTemplate.update("UPDATE users SET active = TRUE, updated_at = NOW() WHERE id = ?", userId);
+        Map<String, Object> result = mesh.put("/api/v1/internal/admin/users/" + userId + "/activate");
         auditService.record("USER_ACTIVATED", "USER", String.valueOf(userId), null, null);
-        return Map.of("userId", userId, "active", true, "message", "Account activated");
+        result.put("message", "Account activated");
+        return result;
     }
 
     @PutMapping("/users/{userId}/deactivate")
-    @Transactional
     public Map<String, Object> deactivate(@PathVariable Long userId) {
-        requireUser(userId);
-        jdbcTemplate.update("UPDATE users SET active = FALSE, updated_at = NOW() WHERE id = ?", userId);
+        Map<String, Object> result = mesh.put("/api/v1/internal/admin/users/" + userId + "/deactivate");
         auditService.record("USER_DEACTIVATED", "USER", String.valueOf(userId), null, null);
-        return Map.of("userId", userId, "active", false, "message", "Account deactivated");
+        result.put("message", "Account deactivated");
+        return result;
     }
 
     /** GDPR erasure entry point for the admin compliance console. */
     @PostMapping("/users/{userId}/erase")
-    @Transactional
     public Map<String, Object> erase(@PathVariable Long userId) {
-        requireUser(userId);
-        String suffix = "-del-" + userId;
-        jdbcTemplate.update(
-                "UPDATE users SET active = FALSE, email = CONCAT('deleted', :suffix, '@bhukkad.invalid'), "
-                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((:id * 7919) % 1000000000)), "
-                        + "updated_at = NOW() WHERE id = :id",
-                Map.of("suffix", suffix, "id", userId));
+        Map<String, Object> result = mesh.post("/api/v1/internal/admin/users/" + userId + "/erase", null);
         auditService.record("USER_ERASED", "USER", String.valueOf(userId), null, null);
-        return Map.of("userId", userId, "erased", true, "message", "User data erased");
+        result.put("message", "User data erased");
+        return result;
     }
 
     // ------------------------------------------------------------------
-    // City registry
+    // City registry (proxied to delivery)
     // ------------------------------------------------------------------
 
     @GetMapping("/cities")
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> cities() {
-        // City registry lives in the delivery DB (city_configs); read through
-        // a lightweight projection so admin ops needs no cross-domain entities.
-        return jdbcTemplate.queryForList(
-                "SELECT id, city_name, currency, timezone, created_at FROM city_configs ORDER BY city_name");
+    public ResponseEntity<?> cities() {
+        return ResponseEntity.status(mesh.getStatus("/api/v1/internal/cities"))
+                .body(mesh.getRaw("/api/v1/internal/cities"));
     }
 
-    /** Adds a city to the delivery footprint (dev build accepts named cities). */
     @PostMapping("/cities")
-    @Transactional
     public ResponseEntity<Map<String, Object>> createCity(
             @RequestBody(required = false) Map<String, Object> body) {
         String name = body == null ? null : (String) body.get("name");
         if (name == null || name.isBlank()) {
-            throw new com.bhukkad.common.error.BusinessException("name is required");
+            throw new BusinessException("name is required");
         }
-        jdbcTemplate.update(
-                "INSERT INTO city_configs (city_name, currency, timezone, created_at) "
-                        + "VALUES (?, 'INR', 'Asia/Kolkata', NOW())",
-                name.trim());
-        Map<String, Object> created = new LinkedHashMap<>();
-        created.put("name", name.trim());
-        created.put("currency", "INR");
-        created.put("timezone", "Asia/Kolkata");
-        return ResponseEntity.status(201).body(created);
+        return mesh.postForEntity("/api/v1/internal/cities", Map.of("name", name.trim()));
     }
 
     // ------------------------------------------------------------------
-    // Promotions (campaigns + banners)
+    // Mesh client: identity/delivery internal endpoints with service token
     // ------------------------------------------------------------------
 
-    @GetMapping("/promotions/campaigns")
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> campaigns() {
-        return jdbcTemplate.queryForList(
-                "SELECT id, name, campaign_type, discount_percent, is_active, starts_at, ends_at "
-                        + "FROM promotion_campaigns ORDER BY id DESC");
-    }
+    @Component
+    @RequiredArgsConstructor
+    static class ServiceMeshClient {
+        private final RestClient.Builder restBuilder;
+        private final com.bhukkad.common.security.ServiceJwtAuthTokenProvider tokenProvider;
 
-    @PostMapping("/promotions/campaigns")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> createCampaign(
-            @RequestBody(required = false) Map<String, Object> body) {
-        String name = body == null ? null : (String) body.get("name");
-        if (name == null || name.isBlank()) {
-            throw new com.bhukkad.common.error.BusinessException("name is required");
+        @org.springframework.beans.factory.annotation.Value("${app.routes.identity-uri:http://identity:8080}")
+        private String identityUri;
+
+        @org.springframework.beans.factory.annotation.Value("${app.routes.delivery-uri:http://delivery:8080}")
+        private String deliveryUri;
+
+        private RestClient client(String base) {
+            var spec = restBuilder.baseUrl(base);
+            String token = tokenProvider.serviceToken();
+            if (token != null && !token.isBlank()) {
+                spec = spec.defaultHeader("X-Service-Token", token);
+            }
+            return spec.build();
         }
-        String campaignType = String.valueOf(body.getOrDefault("campaignType", "DISCOUNT"));
-        Double discountPercent = body.get("discountPercent") == null ? 10.0
-                : Double.valueOf(String.valueOf(body.get("discountPercent")));
-        jdbcTemplate.update(
-                "INSERT INTO promotion_campaigns (name, campaign_type, discount_percent, "
-                        + "starts_at, ends_at, is_active) VALUES (?, ?, ?, NOW(), NOW() + INTERVAL '30 days', TRUE)",
-                name.trim(), campaignType, discountPercent);
-        Map<String, Object> created = new LinkedHashMap<>();
-        created.put("name", name.trim());
-        created.put("campaignType", campaignType);
-        created.put("discountPercent", discountPercent);
-        created.put("isActive", true);
-        return ResponseEntity.status(201).body(created);
-    }
 
-    @GetMapping("/promotions/banners")
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> banners() {
-        return jdbcTemplate.queryForList(
-                "SELECT id, title, image_url, action_target, display_order, is_active "
-                        + "FROM promo_banners ORDER BY display_order, id");
-    }
-
-    @PostMapping("/promotions/banners")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> createBanner(
-            @RequestBody(required = false) Map<String, Object> body) {
-        String title = body == null ? null : (String) body.get("title");
-        if (title == null || title.isBlank()) {
-            throw new com.bhukkad.common.error.BusinessException("title is required");
+        Map<String, Object> get(String path) {
+            return client(identityUri).get().uri(path)
+                    .retrieve().body(java.util.Map.class);
         }
-        String imageUrl = body.get("imageUrl") == null ? "" : String.valueOf(body.get("imageUrl"));
-        String targetUrl = body.get("targetUrl") == null ? "" : String.valueOf(body.get("targetUrl"));
-        Object position = body.getOrDefault("position", 0);
-        jdbcTemplate.update(
-                "INSERT INTO promo_banners (title, image_url, action_target, display_order, is_active) "
-                        + "VALUES (?, ?, ?, ?, TRUE)",
-                title.trim(), imageUrl, targetUrl,
-                ((Number) position).intValue());
-        Map<String, Object> created = new LinkedHashMap<>();
-        created.put("title", title.trim());
-        created.put("imageUrl", imageUrl);
-        created.put("targetUrl", targetUrl);
-        created.put("position", position);
-        created.put("isActive", true);
-        return ResponseEntity.status(201).body(created);
-    }
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
+        Object getRaw(String path) {
+            return client(deliveryUri).get().uri(path)
+                    .retrieve().body(Object.class);
+        }
 
-    private void requireUser(Long userId) {
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM users WHERE id = ?", Integer.class, userId);
-        if (count == null || count == 0) {
-            throw new com.bhukkad.common.error.ResourceNotFoundException("User not found: " + userId);
+        int getStatus(String path) {
+            return client(deliveryUri).get().uri(path)
+                    .retrieve().toBodilessEntity().getStatusCode().value();
         }
-    }
 
-    private Map<String, Object> verifyAccount(Long userId, String expectedRole) {
-        Map<String, Object> user;
-        try {
-            user = jdbcTemplate.queryForMap(
-                    "SELECT id, role, email_verified FROM users WHERE id = ?", userId);
-        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
-            throw new com.bhukkad.common.error.ResourceNotFoundException("User not found: " + userId);
+        Map<String, Object> put(String path) {
+            return client(identityUri).put().uri(path)
+                    .retrieve().body(java.util.Map.class);
         }
-        String role = String.valueOf(user.get("role"));
-        if (!expectedRole.equals(role)) {
-            throw new com.bhukkad.common.error.BusinessException(
-                    "User " + userId + " is not a " + expectedRole + " (role=" + role + ")");
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        Map<String, Object> post(String path, Map<String, Object> body) {
+            return client(identityUri).post().uri(path)
+                    .body(body == null ? Map.of() : body)
+                    .retrieve().body(java.util.Map.class);
         }
-        jdbcTemplate.update(
-                "UPDATE users SET email_verified = TRUE, profile_completed = TRUE, "
-                        + "updated_at = NOW() WHERE id = ?", userId);
-        auditService.record("ACCOUNT_VERIFIED", "USER", String.valueOf(userId), null, null);
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("userId", userId);
-        body.put("role", role);
-        body.put("verified", true);
-        body.put("message", expectedRole + " verified");
-        return body;
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        ResponseEntity<Map<String, Object>> postForEntity(String path, Map<String, Object> body) {
+            ResponseEntity<Map> raw = client(deliveryUri).post().uri(path)
+                    .body(body == null ? Map.of() : body)
+                    .retrieve().toEntity(java.util.Map.class);
+            return new ResponseEntity<>((Map<String, Object>) raw.getBody(), raw.getStatusCode());
+        }
     }
 }

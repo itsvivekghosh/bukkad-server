@@ -40,12 +40,27 @@ public class AdminOperationsController {
     }
 
     @PostMapping("/api-keys")
-    public ApiKeyService.IssuedKey createApiKey(@RequestParam String name,
-                                                @RequestParam(defaultValue = "30") int ttlDays) {
-        return apiKeyService.create(name, ttlDays);
+    public ApiKeyService.IssuedKey createApiKey(
+            @org.springframework.web.bind.annotation.RequestBody(required = false)
+            java.util.Map<String, Object> body,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String name,
+            @RequestParam(defaultValue = "30") int ttlDays) {
+        // The ops console posts JSON {name, ...}; the monolith form used
+        // ?name=. Both are accepted.
+        String effectiveName = name;
+        if (effectiveName == null && body != null && body.get("name") != null) {
+            effectiveName = String.valueOf(body.get("name"));
+        }
+        if (effectiveName == null || effectiveName.isBlank()) {
+            throw new com.bhukkad.common.error.BusinessException("name is required");
+        }
+        return apiKeyService.create(effectiveName, ttlDays);
     }
 
-    @GetMapping("/api-keys/validate")
+    @GetMapping("/api-keys")
+    public java.util.List<com.bhukkad.admin.service.ApiKeyService.ApiKeyView> listApiKeys() {
+        return apiKeyService.list();
+    }    @GetMapping("/api-keys/validate")
     public boolean validateApiKey(@RequestHeader("X-Api-Key") String rawKey) {
         return apiKeyService.isValid(rawKey);
     }

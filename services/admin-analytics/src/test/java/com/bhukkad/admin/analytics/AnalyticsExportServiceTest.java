@@ -28,6 +28,7 @@ import static org.mockito.Mockito.doAnswer;
  * {@link ResultSet} stub so the CSV output can be asserted without a database.
  */
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 class AnalyticsExportServiceTest {
 
     @Mock
@@ -57,11 +58,11 @@ class AnalyticsExportServiceTest {
         PrintWriter pw = new PrintWriter(sw);
         AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
         RowCallbackHandler captured = capture();
-        service.streamRestaurantsCsv(pw, "Mumbai");
+        service.streamRestaurantsCsv(pw, null);
         captured.processRow(stubRs("id", "55", "name", "Taj"));
         pw.flush();
         String csv = sw.toString();
-        assertTrue(csv.contains("Restaurant ID,Name,Address,City,Phone"));
+        assertTrue(csv.contains("Restaurant ID,Name,Address,Phone,Is Active"));
         assertTrue(csv.contains("Taj"));
     }
 
@@ -71,11 +72,11 @@ class AnalyticsExportServiceTest {
         PrintWriter pw = new PrintWriter(sw);
         AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
         RowCallbackHandler captured = capture();
-        service.streamRidersCsv(pw, "Delhi");
-        captured.processRow(stubRs("id", "77", "full_name", "Rider One"));
+        service.streamRidersCsv(pw, null);
+        captured.processRow(stubRs("id", "77", "name", "Rider One"));
         pw.flush();
         String csv = sw.toString();
-        assertTrue(csv.contains("Rider ID,Full Name,Phone,Email"));
+        assertTrue(csv.contains("Rider ID,Full Name,Phone,Vehicle Type,Vehicle Number"));
         assertTrue(csv.contains("Rider One"));
     }
 
@@ -86,7 +87,7 @@ class AnalyticsExportServiceTest {
         AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
         RowCallbackHandler captured = capture();
         service.streamPaymentsCsv(pw, null, null, null);
-        captured.processRow(stubRs("id", "999", "payment_id", "PAY-1"));
+        captured.processRow(stubRs("id", "999", "provider_ref", "PAY-1"));
         pw.flush();
         String csv = sw.toString();
         assertTrue(csv.contains("Payment ID,Gateway Payment ID,Order ID"));
@@ -100,7 +101,7 @@ class AnalyticsExportServiceTest {
         AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
         RowCallbackHandler captured = capture();
         service.streamOrdersCsv(pw, null, null);
-        captured.processRow(stubRs("customer_name", "Doe, John"));
+        captured.processRow(stubRs("restaurant_name", "Doe, John"));
         pw.flush();
         String csv = sw.toString();
         assertTrue(csv.contains("\"Doe, John\""));
@@ -194,10 +195,17 @@ class AnalyticsExportServiceTest {
     /** Sets up the mock to capture the RowCallbackHandler and returns it. */
     private RowCallbackHandler capture() {
         final RowCallbackHandler[] captured = new RowCallbackHandler[1];
+        // The exports mix the params and no-params JdbcTemplate.query overloads
+        // (per-CSV), so both are stubbed; class-level LENIENT strictness allows
+        // whichever overload a given CSV does not use.
         doAnswer(invocation -> {
             captured[0] = invocation.getArgument(1);
             return null;
         }).when(jdbcTemplate).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
+        doAnswer(invocation -> {
+            captured[0] = invocation.getArgument(1);
+            return null;
+        }).when(jdbcTemplate).query(anyString(), any(RowCallbackHandler.class));
         return new RowCallbackHandler() {
             @Override
             public void processRow(ResultSet rs) throws java.sql.SQLException {

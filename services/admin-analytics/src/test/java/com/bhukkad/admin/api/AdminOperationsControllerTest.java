@@ -57,7 +57,11 @@ class AdminOperationsControllerTest {
         ApiKeyService.IssuedKey key = new ApiKeyService.IssuedKey(1L, "bhk-raw", null);
         when(apiKeyService.create("ops", 30)).thenReturn(key);
 
-        assertThat(controller.createApiKey("ops", 30).rawKey()).isEqualTo("bhk-raw");
+        // JSON body form (ops console)...
+        assertThat(controller.createApiKey(java.util.Map.of("name", "ops"), null, 30)
+                .rawKey()).isEqualTo("bhk-raw");
+        // ...and the legacy query-param form behave identically.
+        assertThat(controller.createApiKey(null, "ops", 30).rawKey()).isEqualTo("bhk-raw");
     }
 
     @Test

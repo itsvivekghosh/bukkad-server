@@ -40,6 +40,19 @@ public class ApiKeyService {
                 .orElse(false);
     }
 
+    /** Safe listing: names and status only — hashes never leave the vault. */
+    @Transactional(readOnly = true)
+    public java.util.List<ApiKeyView> list() {
+        return apiKeyRepository.findAll().stream()
+                .map(k -> new ApiKeyView(k.getId(), k.getName(), k.getStatus(),
+                        k.getCreatedAt(), k.getExpiresAt()))
+                .toList();
+    }
+
+    public record ApiKeyView(Long id, String name, String status,
+                             LocalDateTime createdAt, LocalDateTime expiresAt) {
+    }
+
     private String hash(String raw) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

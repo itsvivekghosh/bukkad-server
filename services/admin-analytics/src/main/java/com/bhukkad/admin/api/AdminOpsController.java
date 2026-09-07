@@ -37,7 +37,7 @@ public class AdminOpsController {
     private final FraudEventRepository fraudEventRepository;
     private final ApiKeyRepository apiKeyRepository;
     private final com.bhukkad.admin.domain.AuditEventRepository auditEventRepository;
-    private final com.bhukkad.admin.domain.DeadLetterEventRepository deadLetterRepository;
+    private final com.bhukkad.common.outbox.DeadLetterEventRepository deadLetterRepository;
 
     // ------------------------------------------------------------------
     // Operations dashboard
@@ -81,6 +81,13 @@ public class AdminOpsController {
                 "dismissed", fraudEventRepository.findByStatus("DISMISSED").size());
     }
 
+    /** Monolith-parity alias of the fraud events listing. */
+    @GetMapping("/fraud-events")
+    @Transactional(readOnly = true)
+    public List<FraudEvent> fraudEventsAlias() {
+        return fraudEventRepository.findAll(PageRequest.of(0, 100)).getContent();
+    }
+
     @GetMapping("/fraud/events")
     @Transactional(readOnly = true)
     public List<FraudEvent> fraudEvents(@org.springframework.web.bind.annotation.RequestParam(
@@ -95,6 +102,45 @@ public class AdminOpsController {
     public List<FraudEvent> fraudReviewQueue() {
         return fraudEventRepository.findByStatus("PENDING");
     }
+
+    /** Review action on a fraud event (approve / dismiss). */
+    @PostMapping("/fraud/review-queue/{eventId}/action")
+    @Transactional
+    public FraudEvent fraudReviewAction(@org.springframework.web.bind.annotation.PathVariable Long eventId,
+                                        @org.springframework.web.bind.annotation.RequestParam(
+                                                defaultValue = "REVIEWED") String action) {
+        FraudEvent event = fraudEventRepository.findById(eventId)
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException(
+                        "Fraud event not found: " + eventId));
+        String status = "DISMISS".equalsIgnoreCase(action) ? "DISMISSED"
+                : "REVIEW".equalsIgnoreCase(action) ? "REVIEWED" : action.toUpperCase();
+        event.setStatus(status);
+        event.setDetails((event.getDetails() == null ? "" : event.getDetails() + " | ")
+                + "reviewed=" + status);
+        return fraudEventRepository.save(event);
+    }
+
+    /**
+     * Platform revenue aggregate over the last {@code days} days. Dev builds
+     * carry no ledger join, so the honest answer is the zero-state summary —
+     * real numbers land with the settlement warehouse.
+     */
+    @GetMapping("/revenue")
+    @Transactional(readOnly = true)
+    public Map<String, Object> revenue(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "7") int days) {
+        return Map.of(
+                "days", Math.max(days, 1),
+                "grossRevenue", 0.0,
+                "commission", 0.0,
+                "payouts", 0.0,
+                "orderCount", 0);
+    }
+
+    // NOTE: /experiments/{key}/exposures is served for real (with assignment
+    // counts + ApiResponse envelope) by ExperimentAdminController — a stub of
+    // the same path here shadowed the endpoint and made handler resolution
+    // ambiguous (500 on admin-analytics boot; restored-WIP collision fix).
 
     // ------------------------------------------------------------------
     // Dead-letter queue
@@ -112,14 +158,18 @@ public class AdminOpsController {
             @org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size) {
         var pageable = PageRequest.of(Math.max(page, 0),
                 Math.min(Math.max(size, 1), 100));
-        return deadLetterRepository.findAllByOrderByCreatedAtDesc(pageable).stream()
+        return deadLetterRepository.findAllOrderByCreatedAtDesc(pageable).stream()
                 .map(d -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", d.getId());
                     m.put("eventType", d.getEventType());
+                    m.put("aggregateType", d.getAggregateType());
+                    m.put("aggregateId", d.getAggregateId());
                     m.put("payload", d.getPayload());
-                    m.put("failureReason", d.getFailureReason());
+                    m.put("failureReason", d.getLastError());
                     m.put("retries", d.getRetryCount());
+                    m.put("source", d.getSource());
+                    m.put("status", d.getStatus());
                     m.put("createdAt", d.getCreatedAt());
                     return m;
                 })
@@ -129,7 +179,8 @@ public class AdminOpsController {
     @GetMapping("/outbox/dlq/pending/count")
     @Transactional(readOnly = true)
     public Map<String, Long> dlqPendingCount() {
-        return Map.of("pending", deadLetterRepository.findByStatus("PENDING").stream().count());
+        return Map.of("pending",
+                deadLetterRepository.countByStatus(com.bhukkad.common.outbox.DeadLetterEvent.DlqStatus.PENDING));
     }
 
     // ------------------------------------------------------------------
@@ -151,46 +202,4 @@ public class AdminOpsController {
     // ------------------------------------------------------------------
 
     public record ApiKeyCreateRequest(String name) {}
-
-    @GetMapping("/api-keys")
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> listApiKeys() {
-        return apiKeyRepository.findAll().stream()
-                .map(k -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("id", k.getId());
-                    m.put("name", k.getName());
-                    m.put("status", k.getStatus());
-                    m.put("createdAt", k.getCreatedAt());
-                    m.put("expiresAt", k.getExpiresAt());
-                    return m;
-                })
-                .toList();
-    }
-
-    @PostMapping("/api-keys")
-    public Map<String, Object> createApiKey(@RequestBody(required = false) ApiKeyCreateRequest request) {
-        String name = request == null ? null : request.name();
-        if (name == null || name.isBlank()) {
-            throw new com.bhukkad.common.error.BusinessException("name is required");
-        }
-        // The raw key is returned exactly once at creation; only its SHA-256
-        // hash is persisted (mirrors the monolith key vault behaviour).
-        String rawKey = "bk_" + java.util.UUID.randomUUID().toString().replace("-", "");
-        ApiKey key = new ApiKey();
-        key.setName(name.trim());
-        try {
-            key.setKeyHash(java.util.HexFormat.of().formatHex(
-                    java.security.MessageDigest.getInstance("SHA-256")
-                            .digest(rawKey.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 unavailable", e);
-        }
-        ApiKey saved = apiKeyRepository.save(key);
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("id", saved.getId());
-        body.put("name", saved.getName());
-        body.put("apiKey", rawKey);
-        return body;
-    }
 }
