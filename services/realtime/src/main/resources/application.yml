@@ -52,6 +52,8 @@ app:
         platform-topic: order.events.v1
         dlq-topic: order.events.v1.dlt
   live:
+    # base URL for the order ownership oracle (stream authz).
+    order-base-url: ${ORDER_SERVICE_URL:http://order:8092}
     max-emitters-per-stream: 50
     max-total-emitters: 2000
     replay:

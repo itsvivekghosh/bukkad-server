@@ -9,6 +9,16 @@ public interface OrderLiveRelay {
     void publish(OrderLiveUpdate update);
 
     /**
+     * Subscribes to every relay channel and hands each received update to
+     * {@code sink} together with the channel it arrived on. Called once at
+     * startup by the SSE bridge; an update fanned to several channels must be
+     * routed by channel (otherwise kitchen clients receive it once per
+     * channel).
+     */
+    default void subscribeAll(java.util.function.BiConsumer<String, OrderLiveUpdate> sink) {
+    }
+
+    /**
      * Ingests a platform-derived live update (strangler equivalent of the
      * monolith's {@code OrderLiveUpdateBroadcaster.dispatch}): assigns a
      * monotonic event id, records it for reconnect replay, then fans it out

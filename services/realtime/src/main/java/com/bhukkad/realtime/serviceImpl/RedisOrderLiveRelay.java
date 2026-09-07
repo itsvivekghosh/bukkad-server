@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.data.redis.listener.PatternTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.stereotype.Service;
 
@@ -50,11 +51,7 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
             log.warn("LIVE_RELAY_REJECTED | type={} | reason=unmapped-payload", event.getType());
             return;
         }
-        if (update.getEventId() == null) {
-            update.setEventId(replayStore.nextEventId());
-        }
-        replayStore.record(update);
-        publish(update);
+        publish(update);  // publish() owns id assignment + replay recording
         log.debug("LIVE_RELAY_DISPATCHED | type={} | eventId={} | orderId={}",
                 event.getType(), update.getEventId(), update.getOrderId());
     }
@@ -73,13 +70,20 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
 
     @Override
     public void publish(OrderLiveUpdate update) {
-        if (update == null || update.getEventId() == null) {
+        if (update == null) {
             return;
         }
         try {
+            if (update.getEventId() == null) {
+                update.setEventId(replayStore.nextEventId());
+                replayStore.record(update);
+            }
             String payload = objectMapper.writeValueAsString(update);
-            String channel = resolveChannel(update);
-            if (channel != null) {
+            // Fan out to EVERY stream this update belongs to: a customer order
+            // update is also visible to the kitchen and rider streams (the old
+            // first-match channel selection made cross-channel delivery
+            // impossible even with subscribers present).
+            for (String channel : channelsFor(update)) {
                 stringRedisTemplate.convertAndSend(channel, payload);
             }
             log.debug("LIVE_UPDATE_PUBLISHED | eventId={} | type={} | orderId={}",
@@ -134,16 +138,33 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
         }
     }
 
-    private String resolveChannel(OrderLiveUpdate update) {
+    private java.util.List<String> channelsFor(OrderLiveUpdate update) {
+        java.util.List<String> channels = new java.util.ArrayList<>(3);
         if (update.getOrderId() != null) {
-            return CHANNEL_PREFIX + "order:" + update.getOrderId();
+            channels.add(CHANNEL_PREFIX + "order:" + update.getOrderId());
         }
         if (update.getRestaurantId() != null) {
-            return CHANNEL_PREFIX + "kitchen:" + update.getRestaurantId();
+            channels.add(CHANNEL_PREFIX + "kitchen:" + update.getRestaurantId());
         }
         if (update.getDeliveryAgentId() != null) {
-            return CHANNEL_PREFIX + "rider:" + update.getDeliveryAgentId();
+            channels.add(CHANNEL_PREFIX + "rider:" + update.getDeliveryAgentId());
         }
-        return null;
+        return channels;
+    }
+
+    @Override
+    public void subscribeAll(java.util.function.BiConsumer<String, OrderLiveUpdate> sink) {
+        listenerContainer.addMessageListener((MessageListener) (message, pattern) -> {
+            try {
+                OrderLiveUpdate update = objectMapper.readValue(
+                        new String(message.getBody()), OrderLiveUpdate.class);
+                if (update != null) {
+                    sink.accept(new String(message.getChannel()), update);
+                }
+            } catch (Exception ex) {
+                log.warn("LIVE_BRIDGE_DESERIALIZE_FAILED | error={}", ex.getMessage());
+            }
+        }, new PatternTopic(CHANNEL_PREFIX + "*"));
+        log.info("LIVE_BRIDGE_SUBSCRIBED pattern={}*", CHANNEL_PREFIX);
     }
 }
