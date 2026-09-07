@@ -19,6 +19,9 @@ import java.util.stream.Collectors;
 @Service
 public class SearchServiceImpl implements com.bhukkad.search.service.SearchService {
 
+    /** Unified search page bound (both result groups, per call). */
+    static final int UNIFIED_RESULT_LIMIT = 50;
+
     private final RestaurantSearchRepository restaurantSearchRepository;
     private final MenuItemSearchRepository menuItemSearchRepository;
 
@@ -91,21 +94,19 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
             return new UnifiedSearchResponse(new ArrayList<>(), new ArrayList<>(), 0, 0);
         }
 
-        String searchTerm = keyword.toLowerCase().trim();
+        String searchTerm = like(escapeLike(keyword.trim()));
+        var page = org.springframework.data.domain.PageRequest.of(0, UNIFIED_RESULT_LIMIT);
 
-        // Search restaurants
-        List<RestaurantSearchEntity> restaurantEntities = restaurantSearchRepository.findAll();
-        List<RestaurantSearchResult> restaurantResults = restaurantEntities.stream()
-                .filter(entity -> matchesSearchTerm(entity, searchTerm))
-                .map(this::convertToRestaurantSearchResult)
-                .collect(Collectors.toList());
-
-        // Search menu items
-        List<MenuItemSearchEntity> menuItemEntities = menuItemSearchRepository.findAll();
-        List<MenuItemSearchResult> menuItemResults = menuItemEntities.stream()
-                .filter(entity -> matchesSearchTerm(entity, searchTerm))
-                .map(this::convertToMenuItemSearchResult)
-                .collect(Collectors.toList());
+        // Bounded DB-side text search (previously findAll() loaded both
+        // projection tables per public request).
+        List<RestaurantSearchResult> restaurantResults =
+                restaurantSearchRepository.searchText(searchTerm, page).stream()
+                        .map(this::convertToRestaurantSearchResult)
+                        .collect(Collectors.toList());
+        List<MenuItemSearchResult> menuItemResults =
+                menuItemSearchRepository.searchText(searchTerm, page).stream()
+                        .map(this::convertToMenuItemSearchResult)
+                        .collect(Collectors.toList());
 
         return new UnifiedSearchResponse(
                 restaurantResults,
@@ -121,38 +122,23 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
             return new ArrayList<>();
         }
 
-        String searchTerm = prefix.toLowerCase().trim();
+        String searchTerm = escapeLike(prefix.trim().toLowerCase());
+        int safeLimit = Math.max(limit, 1);
         List<AutocompleteSuggestion> suggestions = new ArrayList<>();
 
-        // Add restaurant name suggestions
-        List<RestaurantSearchEntity> restaurantEntities = restaurantSearchRepository.findAll();
-        for (RestaurantSearchEntity entity : restaurantEntities) {
-            if (entity.getName() != null && 
-                entity.getName().toLowerCase().startsWith(searchTerm)) {
-                suggestions.add(new AutocompleteSuggestion(
-                        entity.getName(),
-                        AutocompleteSuggestion.TYPE_RESTAURANT
-                ));
-                if (suggestions.size() >= limit) {
-                    break;
-                }
-            }
+        // Prefix queries run in the DB with a hard page size; negative limits
+        // (audit S-3) are clamped by the caller anyway — defensive here too.
+        for (RestaurantSearchEntity entity : restaurantSearchRepository.searchNamePrefix(
+                searchTerm, org.springframework.data.domain.PageRequest.of(0, safeLimit))) {
+            suggestions.add(new AutocompleteSuggestion(
+                    entity.getName(), AutocompleteSuggestion.TYPE_RESTAURANT));
         }
-
-        // Add menu item name suggestions if we need more
-        if (suggestions.size() < limit) {
-            List<MenuItemSearchEntity> menuItemEntities = menuItemSearchRepository.findAll();
-            for (MenuItemSearchEntity entity : menuItemEntities) {
-                if (entity.getName() != null && 
-                    entity.getName().toLowerCase().startsWith(searchTerm)) {
-                    suggestions.add(new AutocompleteSuggestion(
-                            entity.getName(),
-                            AutocompleteSuggestion.TYPE_MENU_ITEM
-                    ));
-                    if (suggestions.size() >= limit) {
-                        break;
-                    }
-                }
+        int remaining = safeLimit - suggestions.size();
+        if (remaining > 0) {
+            for (MenuItemSearchEntity entity : menuItemSearchRepository.searchNamePrefix(
+                    searchTerm, org.springframework.data.domain.PageRequest.of(0, remaining))) {
+                suggestions.add(new AutocompleteSuggestion(
+                        entity.getName(), AutocompleteSuggestion.TYPE_MENU_ITEM));
             }
         }
 
@@ -164,18 +150,15 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
         return suggestions;
     }
 
-    private boolean matchesSearchTerm(RestaurantSearchEntity entity, String searchTerm) {
-        return (entity.getName() != null && entity.getName().toLowerCase().contains(searchTerm)) ||
-                (entity.getDescription() != null && entity.getDescription().toLowerCase().contains(searchTerm)) ||
-                (entity.getCuisineSummary() != null && entity.getCuisineSummary().toLowerCase().contains(searchTerm));
+    /** Escape LIKE metacharacters (%, _, \\) so a customer cannot alter pattern semantics. */
+    public static String escapeLike(String raw) {
+        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").toLowerCase(java.util.Locale.ROOT);
+    }
+    private static String like(String term) {
+        return term; // patterns applied inside the query (CONCAT)
     }
 
-    private boolean matchesSearchTerm(MenuItemSearchEntity entity, String searchTerm) {
-        return (entity.getName() != null && entity.getName().toLowerCase().contains(searchTerm)) ||
-                (entity.getDescription() != null && entity.getDescription().toLowerCase().contains(searchTerm)) ||
-                (entity.getCategoryName() != null && entity.getCategoryName().toLowerCase().contains(searchTerm)) ||
-                (entity.getFoodType() != null && entity.getFoodType().toLowerCase().contains(searchTerm));
-    }
+
 
     private RestaurantSearchResult convertToRestaurantSearchResult(RestaurantSearchEntity entity) {
         RestaurantSearchResult result = new RestaurantSearchResult();
