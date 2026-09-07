@@ -30,6 +30,32 @@ import java.util.Map;
 public class AdminRestaurantController {
 
     private final RestaurantRepository restaurantRepository;
+    private final com.bhukkad.restaurant.domain.ReviewRepository reviewRepository;
+
+    /** Review moderation queue: reviews awaiting a moderator decision. */
+    @GetMapping("/api/v1/admin/reviews/moderation")
+    @Transactional(readOnly = true)
+    public java.util.List<com.bhukkad.restaurant.domain.Review> moderationQueue(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return reviewRepository
+                .findByStatusOrderByCreatedAtDesc(com.bhukkad.restaurant.domain.Review.STATUS_PENDING,
+                        org.springframework.data.domain.PageRequest.of(Math.max(page, 0),
+                                Math.min(Math.max(size, 1), 100)))
+                .getContent();
+    }
+
+    /** Approves a pending review (public listing). */
+    @PutMapping("/api/v1/admin/reviews/{reviewId}/approve")
+    @Transactional
+    public com.bhukkad.restaurant.domain.Review approveReview(
+            @org.springframework.web.bind.annotation.PathVariable Long reviewId) {
+        com.bhukkad.restaurant.domain.Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException(
+                        "Review not found: " + reviewId));
+        review.setStatus(com.bhukkad.restaurant.domain.Review.STATUS_APPROVED);
+        return reviewRepository.save(review);
+    }
 
     @GetMapping("/api/v1/admin/restaurants")
     @Transactional(readOnly = true)

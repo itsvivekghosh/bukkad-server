@@ -30,7 +30,7 @@ public class WalletCreditClientImpl implements WalletCreditClient {
     private final ServiceJwtAuthTokenProvider authTokenProvider;
 
     public WalletCreditClientImpl(RestClient.Builder restClientBuilder,
-                                  @Value("${app.services.payment.url:http://payment:8093}") String paymentServiceUrl,
+                                  @Value("${app.services.payment.url:http://payment:8080}") String paymentServiceUrl,
                                   ServiceJwtAuthTokenProvider authTokenProvider) {
         this.restClient = restClientBuilder
                 .baseUrl(paymentServiceUrl)

@@ -47,12 +47,13 @@ implementation structure required to take it to production.
 
 **How to read.**
 ```
-Part I   §1–18   feature specs (money/auth/event/edge/ops/repo)
-Part II  P-01…P-10  performance playbook: impact model → steps → code → verify
-Part III R-A…R-G    restructuring playbook: module/k8s/schema/ownership decisions
-Part IV  coverage & quality-gate program (measured baseline, ramp, config)
-Part V   production integration runbooks: per-component actions, dependencies,
-         configuration, bring-up order, verification commands, known gaps
+Part I   §I.n    feature specs (money/auth/event/edge/ops/repo)
+Part II  §II-Pnn  performance playbook: impact model → steps → code → verify
+Part III §III-RXX restructuring playbook: module/k8s/schema/ownership decisions
+Part IV  §IV     coverage & quality-gate program (measured baseline, ramp, config)
+Part V   §V.n    production integration runbooks: per-component actions, dependencies,
+                 configuration, bring-up order, verification commands, known gaps
+Part VI  §VI.1   S2S communication optimization: analysis → RCA → remediation → verify
 Order    dependency graph + phase table (what unblocks what)
 ```
 
@@ -2081,7 +2082,7 @@ mis-placement, and the full config identity rename (`app`/`core`/`app_pass`).
 
 ---
 
-# PART VI — Service-to-Service Communication Optimization Roadmap for High-Traffic Production Environments
+# PART VI — S2S Communication Optimization Roadmap
 
 **Purpose.** This addendum performs a deep technical analysis of service-to-service (S2S) communication bottlenecks and architectural vulnerabilities identified in Parts I–V, and develops a comprehensive optimization roadmap structured into three focused categories:
 
@@ -2089,13 +2090,18 @@ mis-placement, and the full config identity rename (`app`/`core`/`app_pass`).
 2. **Protocol Optimizations**: Protocol-level efficiency (REST → gRPC, binary serialization, connection reuse).
 3. **Resiliency and Fault Tolerance**: Implementation patterns for circuit breakers, retry logic, and rate limiting to ensure system stability.
 
-**Basis.** All findings below are derived from the verified evidence in this document (Parts I–V) and the cross-referenced findings in `docs/PRODUCTION-READINESS-AUDIT-GUIDE.md` (V-01…V-22, P-01…P-10, R-01…R-08).
+**Basis.** All findings below are derived from the verified evidence in this document (Parts I–V) and the cross-referenced findings in `docs/PRODUCTION-READINESS-AUDIT-GUIDE.md` (V-01...V-22, P-01...P-10, R-01...R-08).
 
-## Deep Technical Analysis: Service-to-Service Communication Bottlenecks
+**Cross-reference convention.** This document uses the following reference format:
+- `§I.n` = Feature #n in Part I (e.g., §I.7 = Event backbone durability)
+- `§II-Pnn` = Playbook item P-nn in Part II (e.g., §II-P01 = Connection-sizing triangle)
+- `§III-RXX` = Restructuring item in Part III (e.g., §III-R-D = Single k8s source of truth)
+- `V-nn` = Verified finding in `docs/PRODUCTION-READINESS-AUDIT-GUIDE.md`
+- `§V.n` = Production integration section in Part V
 
-### 6.1 Architectural Vulnerabilities Identified
+## §VI.1 Deep Technical Analysis: Service-to-Service Communication Bottlenecks
 
-| Finding | Verified Location | Impact |
+### §VI.1.1 Architectural Vulnerabilities Identified
 |---|---|---|
 | **Synchronous in-transaction event publishing** | `OutboxPollPublisher.drainBatch:52-91` (P-05) | Publishing within `@Transactional` blocks holds DB connections up to 16.7 min worst-case; cascades connection pool exhaustion (P-01) |
 | **Pod-local SSE fan-out without cross-pod bridge** | `OrderSseStreamServiceImpl:36-38` (feature #13, R-G) | Broadcasts cannot reach clients attached to other pods; scales to exactly one instance |
@@ -2104,7 +2110,7 @@ mis-placement, and the full config identity rename (`app`/`core`/`app_pass`).
 | **Dual k8s manifest trees** | `k8s/` vs `services/k8s/` (R-D) | Configuration divergence; some deployments may lack security or rate-limiting config |
 | **Notification I/O on Kafka consumer threads** | `NotificationEventConsumer.onOrderEvent:31-49` (P-07) | Synchronous SMTP/Twilio calls block consumer threads; under latency spikes, triggers Kafka rebalancing and redelivery storms |
 
-### 6.2 Protocol-Level Bottlenecks
+### §VI.1.2 Protocol-Level Bottlenecks
 
 | Finding | Verified Location | Impact |
 |---|---|---|
@@ -2112,7 +2118,7 @@ mis-placement, and the full config identity rename (`app`/`core`/`app_pass`).
 | **Unbounded `WebClient` construction per call** | Multiple service clients building their own `WebClient` without shared filters | Missing connect/read timeouts (hardcoded 5s, code differs from docs claim); no retry/backoff; no metrics |
 | **HTTP client fragmentation** | Audit-guide P-05: no single HTTP client stack | Inconsistent resilience behavior; impossible to monitor uniformly |
 
-### 6.3 Resiliency Gaps
+### §VI.1.3 Resiliency Gaps
 
 | Finding | Verified Location | Impact |
 |---|---|---|
@@ -2123,11 +2129,14 @@ mis-placement, and the full config identity rename (`app`/`core`/`app_pass`).
 
 ---
 
-## 1. Architectural Improvements
+## §VI.2 Architectural Improvements
 
-### 1.1 Introduce a Service Mesh (Istio or Linkerd)
+### §VI.2.1 Introduce a Service Mesh (Istio or Linkerd)
 
-**Proposal:** Adopt a service mesh to enforce mTLS, traffic management, and observability for all service-to-service communication.
+**Root Cause Analysis (RCA).** The absence of a service mesh stems from:
+1. Early architecture decisions prioritized simplicity (direct DNS) over security
+2. Service-to-service auth (§I.6) was deferred to application-layer JWT, leaving `/internal/**` as `permitAll`
+3. No standardized ingress/egress policy was established, so each service implemented its own `WebClient` (§II-P05), leading to fragmented resilience patterns
 
 **Technical Justification:**
 - Currently, all S2S calls traverse plaintext HTTP/TCP with no transport-layer security. The audit identifies service-to-service auth issues (#6) where `/internal/**` is `permitAll`, allowing impersonation.
@@ -2155,9 +2164,12 @@ Phase 3 (P2):
 
 **Dependencies:** Requires coordination with #5 (auth hardening) for JWT validation alignment; aligns with #17 (secrets remediation) for proper cert management.
 
-### 1.2 Transition to Asynchronous Messaging for Non-Critical Paths
+### §VI.2.2 Transition to Asynchronous Messaging for Non-Critical Paths
 
-**Proposal:** Shift non-critical, fan-out-capable communications to asynchronous patterns using the outbox pattern and eventual consistency.
+**Root Cause Analysis (RCA).** Synchronous messaging persists because:
+1. The `OrderSaga` stub (§I.3) runs synchronously in the same `@Transactional` as order creation — rolled-back orders leave inconsistent saga state
+2. The default `PlatformEventPublisher` is `NoOpEventPublisher` (§I.7), so events were never expected to reach Kafka
+3. Notification dispatch (§II-P07) uses inline I/O because there was no async execution context established
 
 **Technical Justification:**
 - The `OrderSaga` (#3) currently runs synchronously inside the same `@Transactional` as order creation, meaning rolled-back orders leave inconsistent saga state.
@@ -2182,9 +2194,12 @@ Phase 3 (W4):
 
 **Dependencies:** Requires #7 (event backbone durability) to complete first; R-B (consumer idempotency) must be in place to prevent double-processing.
 
-### 1.3 Enhanced Load Balancing Strategies
+### §VI.2.3 Enhanced Load Balancing Strategies
 
-**Proposal:** Implement client-side and edge-side load balancing with consistent hashing for sticky sessions and zone-awareness.
+**Root Cause Analysis (RCA).** Load balancing gaps exist because:
+1. The connection triangle (§II-P01) creates 200 HTTP threads vs 5 DB connections per service — no backpressure at the transport layer
+2. Services resolve DNS directly (`bhukkad-order.bhukkad.svc`) without client-side LB or health checking
+3. The gateway has no edge rate limiter (§I.9), so all traffic pressure reaches every service simultaneously
 
 **Technical Justification:**
 - The gateway currently has no edge rate limiter (feature #9), so all abuse pressure reaches every service's 5 Hikari connections (P-01).
@@ -2209,11 +2224,14 @@ Phase 3 (P2):
 
 ---
 
-## 2. Protocol Optimizations
+## §VI.3 Protocol Optimizations
 
-### 2.1 Transition High-Frequency Internal APIs from REST to gRPC
+### §VI.3.1 Transition High-Frequency Internal APIs from REST to gRPC
 
-**Proposal:** Migrate performance-critical internal service-to-service calls from REST/JSON to gRPC with Protocol Buffers serialization.
+**Root Cause Analysis (RCA).** REST/JSON persists for S2S because:
+1. Spring Boot's default web stack (`spring-boot-starter-web`) optimizes for REST/JSON — gRPC requires explicit `grpc-spring-boot-starter` adoption
+2. No `.proto` contracts were defined early; Retrofit/WebClient became the de facto standard
+3. Schema evolution was deferred (no Schema Registry or proto contracts) — §III-R-B notes `OrderCreated` has three payload shapes today
 
 **Technical Justification:**
 - All S2S calls currently use REST/JSON (text-based, ~5× larger payloads than binary).
@@ -2244,9 +2262,12 @@ Phase 3 (P4):
 
 **Dependencies:** Aligns with #18 (repository structure) — gRPC stubs should live in platform-lib or a shared `platform-grpc` module; requires careful proto version governance (R-B).
 
-### 2.2 Binary Serialization for Event Payloads
+### §VI.3.2 Binary Serialization for Event Payloads
 
-**Proposal:** Replace JSON event payloads in Kafka with Avro (Schema Registry) or Protobuf for type safety and smaller serialization.
+**Root Cause Analysis (RCA).** JSON event payloads persist because:
+1. Kafka's `StringSerializer` + Jackson was the path of least resistance — no Schema Registry was deployed
+2. No Avro/Protobuf schema was defined for `PlatformEventMessage` — the envelope carries an untyped `payload` field
+3. Consumer code uses `@JsonCreator` / `ObjectMapper` without schema validation — §III-R-B documents `OrderCreated` drift (three shapes)
 
 **Technical Justification:**
 - Events currently carry JSON payloads (e.g., `ORDER_ITEMS_SNAPSHOT` in survey consumer — V.1 step 6).
@@ -2262,9 +2283,12 @@ Phase 3 (P4):
 5. Add schema compatibility checks in CI (BACKWARD for consumers, FORWARD for producers)
 ```
 
-### 2.3 Connection Reuse and Pooling Optimization
+### §VI.3.3 Connection Reuse and Pooling Optimization
 
-**Proposal:** Centralize HTTP/gRPC client construction in platform-lib with consistent pooling and timeout configuration.
+**Root Cause Analysis (RCA).** Client fragmentation occurred because:
+1. Each service team added a `WebClient` independently (no shared factory bean in platform-lib)
+2. `@LoadBalanced` annotation was inherited from a template but the discovery client was never configured (§I.8 verified)
+3. Resilience4j filters were never wired into the actual client instances — `CircuitBreakerFilter` exists but doesn't decorate the exchange (V-16)
 
 **Technical Justification:**
 - The audit finds multiple `WebClient.builder()` constructions without filters across services (feature #8, P-05).
@@ -2288,11 +2312,15 @@ Phase 2 (P2):
 
 ---
 
-## 3. Resiliency and Fault Tolerance
+## §VI.4 Resiliency and Fault Tolerance
 
-### 3.1 Fix Circuit Breakers so They Actually Open
+### §VI.4.1 Circuit Breakers That Actually Open
 
-**Proposal:** Correctly implement Resilience4j circuit breakers that decorate the actual exchange and transition states.
+**Root Cause Analysis (RCA).** The breaker fails because:
+1. The filter uses `onErrorResume` to check breaker state *after* the call fails, instead of decorating the `Mono` *around* the call
+2. Resilience4j's `CircuitBreakerOperator.of()` is never applied — the decorator that would short-circuit calls when OPEN is missing
+3. No `CircuitBreakerRegistry` is registered, so metrics (`cb.state()`) are unavailable
+4. The `RetryFilter` uses `backoff.toMillisPart()` (millisecond component only) and retries on any `RuntimeException` including 4xx (§I.8, V-16)
 
 **Technical Justification:**
 - The audit verifies (`CircuitBreakerFilter:36-45`) that breakers read state in `onErrorResume` but never decorate the exchange — they cannot transition to OPEN (V-16).
@@ -2326,9 +2354,13 @@ CircuitBreakerOperator.of(CircuitBreaker.decorateMono(
 
 **Complexity/Risk:** Low (logic is small). Risk is "breaker finally opens during a flap" which is the desired behavior. Estimated: 1 dev-week including tests across all caller services.
 
-### 3.2 Atomic Rate Limiting with Fail-Open Semantics
+### §VI.4.2 Atomic Rate Limiting with Fail-Open Semantics
 
-**Proposal:** Replace non-atomic `INCR`+`EXPIRE` with a Lua script; add configurable fail-open behavior for Redis outages.
+**Root Cause Analysis (RCA).** The non-atomic rate limiter persists because:
+1. Using RedisTemplate's high-level ops (`opsForValue().increment()`, `expire()`) which issue separate commands
+2. No Lua script usage — Redis's atomicity primitive was not leveraged
+3. No exception handling around Redis operations — a `RedisConnectionFailureException` propagates as a 500 (fail-closed), causing a 500-storm during Redis outages
+4. No gateway-level rate limiter (§I.9) so all abuse pressure reaches service Hikari pools (§II-P01: 5 connections each)
 
 **Technical Justification:**
 - `RedisRateLimitService.check()` does `INCR` then `EXPIRE` as two non-atomic calls (V-18). A Redis crash between them leaves keys with no TTL → identifier gets 429'd forever.
@@ -2386,9 +2418,13 @@ spring:
             requested-burst-capacity: 200
 ```
 
-### 3.3 Sane Retry Discipline
+### §VI.4.3 Sane Retry Discipline
 
-**Proposal:** Restrict retries to idempotent operations with exponential backoff; add retry budgets to prevent amplification.
+**Root Cause Analysis (RCA).** The incorrect retry behavior stems from:
+1. Using `Duration.toMillisPart()` instead of `Duration.toMillis()` — extracts only the sub-second portion (verified: `RetryFilter.java:31-45`). A 5-second backoff becomes 0ms.
+2. No HTTP method filtering — retries POST/PUT/DELETE the same as GET
+3. No status code filtering — retries 4xx client errors that should not be retried
+4. No retry budget — unlimited retries amplify downstream failures
 
 **Technical Justification:**
 - `RetryFilter` retries any `RuntimeException`, including 4xx (idempotency violations) and non-idempotent POSTs (feature #8).
@@ -2425,9 +2461,13 @@ spring:
 **Idempotency Key Propagation:**
 For write operations that *must* be retried (e.g., payment charge), require an `X-Idempotency-Key` header and have the server de-duplicate via `idempotency_records` (feature #1 pattern).
 
-### 3.4 Dead Letter Queue (DLQ) for Event Processing Failures
+### §VI.4.4 Dead Letter Queue (DLQ) for Event Processing Failures
 
-**Proposal:** Route poisoned/unprocessable events to a DLQ after max retries, with alerting.
+**Root Cause Analysis (RCA).** The missing DLQ is because:
+1. `KafkaPlatformConfig` (§I.7) sets only bootstrap + serializers — no `DefaultErrorHandler` or `DeadLetterPublishingRecoverer`
+2. The legacy `KafkaConfig` (§II-P03) sets producer configs but not consumer error handling
+3. Consumer code uses `try/catch(Exception){log}` instead of letting the error handler route poison to DLT
+4. The retry counter in `OutboxPollPublisher` is bumped but never compared to `maxRetries` (§I.7)
 
 **Technical Justification:**
 - The outbox relay (`OutboxPollPublisher`) has no maxRetries comparison (feature #7 V-10). Poison messages cause infinite retry loops.
@@ -2467,9 +2507,12 @@ public ConcurrentKafkaListenerContainerFactory<String, PlatformEvent>
 }
 ```
 
-### 3.5 Bulkhead Pattern for Resource Isolation
+### §VI.4.5 Bulkhead Pattern for Resource Isolation
 
-**Proposal:** Isolate thread pools per downstream dependency to prevent cascading failures.
+**Root Cause Analysis (RCA).** Resource contention occurs because:
+1. All scheduled jobs run on the default Spring scheduler (pool size 1 — verified: zero `task.scheduling.pool.size` matches)
+2. Notification I/O runs inline on Kafka consumer threads (threads == partitions)
+3. No bounded queues on thread pools — unbounded growth under load
 
 **Technical Justification:**
 - P-04 shows all 14 `@Scheduled` jobs share one thread (including outbox relay + dispatch busy-loop).
@@ -2516,76 +2559,78 @@ public class ThreadPoolConfiguration {
 
 ---
 
-## Integration with Existing Roadmap
+## §VI.5 Integration Order and Dependencies
 
-This S2S optimization roadmap integrates with the existing phase structure as follows:
+The S2S optimization roadmap has strict sequencing dependencies:
+
+```
+Phase 1 (W2): Fix circuit breakers (§VI.4.1) + fix rate limiter (§VI.4.2)
+              ↓
+Phase 2 (W3): Sane retry discipline (§VI.4.3) — requires working breakers for fallback
+              ↓
+Phase 3 (W3): DLQ governance (§VI.4.4) — requires §III-R-B consumer idempotency
+              ↓
+Phase 4 (W3): Bulkhead isolation (§VI.4.5) — protects the retry/DLQ pipeline
+```
+
+**Cross-feature dependencies:**
+- §VI.4.1 (circuit breakers) → required by §VI.4.3 (retry discipline) for effective fallback
+- §III-R-B (consumer idempotency) → required by §VI.4.4 (DLQ) for safe replay
+- §II-P01 (connection sizing) → complements §VI.4.5 (bulkhead) by bounding pool sizes
+- §II-P07 (notification dispatch) → implemented by §VI.4.5's `externalIoExecutor`
+
+**Integration with existing phase structure:**
 
 | Existing Phase | S2S Optimization Additions |
 |---|---|
-| **P0 (Stop-the-bleeding)** | Fix circuit breaker (3.1), fix rate limiter atomicity (3.2), install service mesh mTLS (1.1) |
-| **W1 (Money First)** | gRPC for payment adapter (2.1) — payment path needs lowest latency |
-| **W2-a/b (Backbone)** | Async messaging decoupling (1.2), DLQ governance (R-B), bulkhead isolation (3.5) |
-| **W2-c/d (Edge)** | Gateway edge throttling (1.3), retry discipline (3.3) |
-| **W3 (Scale Reads)** | gRPC streaming for search materialization (2.1), connection pooling (2.3) |
+| **P0 (Stop-the-bleeding)** | Fix circuit breaker (§VI.4.1), fix rate limiter atomicity (§VI.4.2), install service mesh mTLS (§VI.2.1) |
+| **W1 (Money First)** | gRPC for payment adapter (§VI.3.1) — payment path needs lowest latency |
+| **W2-a/b (Backbone)** | Async messaging decoupling (§VI.2.2), DLQ governance (§III-R-B), bulkhead isolation (§VI.4.5) |
+| **W2-c/d (Edge)** | Gateway edge throttling (§VI.2.3), retry discipline (§VI.4.3) |
+| **W3 (Scale Reads)** | gRPC streaming for search materialization (§VI.3.1), connection pooling (§VI.3.3) |
 
-## Effort and Risk Summary
+---
 
-| Category | Recommendation | Effort | Risk | Blocks |
+## §VI.6 Summary of §VI Recommendations
+
+| Category | Recommendation | RCA Root Cause | Key Fix | Implementation Effort |
 |---|---|---|---|---|
-| Arch | Service mesh (Istio) | 3-4 weeks | Medium (sidecar injection, config drift) | None (adds security) |
-| Arch | Async messaging refactor | 4-6 weeks | High (ordering, idempotency) | Requires #7, R-B |
-| Arch | Enhanced load balancing | 2 weeks | Low | Aligns with P-01 |
-| Protocol | gRPC migration | 6-8 weeks | High (dual protocol maintenance) | Requires proto governance |
-| Protocol | Avro events | 3 weeks | Medium (schema registry ops) | Requires Kafka migration (#7) |
-| Protocol | Unified HTTP client | 1 week | Low | Replaces fragmented callers |
-| Resil. | Fix circuit breakers | 1 week | Low | Unblocks reliability |
-| Resil. | Atomic rate limiter | 2 days | Low | Unblocks #9 |
-| Resil. | Sane retry discipline | 1 week | Low | Prevents double-charges |
-| Resil. | DLQ governance | 2 weeks | Medium | Requires R-B |
-| Resil. | Bulkhead isolation | 3 days | Low | Stabilizes under load |
+| Arch | §VI.2.1 Service Mesh (Istio/Linkerd) | No transport-layer security; no centralized traffic management | mTLS + PeerAuthentication + DestinationRules | 3-4 weeks |
+| Arch | §VI.2.2 Async Messaging | Synchronous in-transaction publishing; consumer thread blocking | Two-phase outbox relay + event-driven sagas + async notification dispatch | 4-6 weeks |
+| Arch | §VI.2.3 Load Balancing | No edge throttling; DNS-only routing; connection triangle mismatch | pgbouncer sizing + gateway rate limiter + zone-aware client LB | 2 weeks |
+| Protocol | §VI.3.1 gRPC Migration | REST/JSON overhead; no streaming; client fragmentation | `.proto` contracts + platform-lib gRPC factory + phased migration | 6-8 weeks |
+| Protocol | §VI.3.2 Avro Events | JSON payloads; no schema governance; high deserialization CPU | Schema Registry + AvroSerializer/Deserializer + CI compatibility checks | 3 weeks |
+| Protocol | §VI.3.3 Connection Pooling | Per-service WebClient construction; inconsistent timeouts | Centralized WebClientConfig with pooled, filtered, instrumented clients | 1 week |
+| Res. | §VI.4.1 Circuit Breaker Fix | `onErrorResume` state check instead of `CircuitBreakerOperator` decorator | Use `CircuitBreakerOperator.of(breaker)` to wrap actual exchange | 1 week |
+| Res. | §VI.4.2 Atomic Rate Limiter | Non-atomic `INCR`+`EXPIRE` Redis calls | Lua script for atomic increment + expire + limit check | 2 days |
+| Res. | §VI.4.3 Retry Discipline | `toMillisPart()` bug; no idempotency filtering | Exponential backoff, retry only 5xx/timeout/idempotent methods | 1 week |
+| Res. | §VI.4.4 DLQ Governance | No `DefaultErrorHandler`; consumers swallow exceptions | DeadLetterPublishingRecoverer + ExponentialBackOffWithMaxRetries | 2-3 weeks |
+| Res. | §VI.4.5 Bulkhead Isolation | Shared scheduler thread; inline notification I/O | Separate ThreadPoolTaskExecutor for external I/O + relay scheduler | 1-2 weeks |
 
-## Verification and Rollback
+---
 
-Each recommendation above ships with:
-- A regression test that **fails on current code** (audit-guide rule: "regression test before fix")
-- A verification command (k6 load test, game-day drill, IT with Redpanda)
-- An explicit rollback: revert the configuration/code change
+## §VI.7 Verification Matrix
 
-**End-to-end verification battery:**
-```bash
-# 1. Circuit breaker game-day
-./scripts/chaos/circuit-breaker-drill.sh  # kills Payment svc, asserts Order degrades gracefully
+Each recommendation above ships with specific verification criteria:
 
-# 2. Rate limiter atomicity
-./mvnw -pl platform-lib test -Dtest=RedisRateLimitServiceTest # cold INCR → key has TTL
+| Recommendation | Verification Method | Success Criteria |
+|---|---|---|
+| §VI.4.1 Circuit Breaker Fix | `StepVerifier` unit test | N consecutive failures → state transitions OPEN → HALF_OPEN |
+| §VI.4.2 Atomic Rate Limiter | Lua script integration test | Cold INCR → key has TTL; Redis outage → fail-open counter increments |
+| §VI.4.3 Retry Discipline | Unit test with `MockWebServer` | 4xx → 0 retries; 5xx → 2 retries with 100ms/200ms backoff |
+| §VI.4.4 DLQ Governance | Redpanda Testcontainers IT | Malformed event → lands in `.dlt` topic; retryable event → 3 retries then DLT |
+| §VI.4.5 Bulkhead Isolation | IT with slow mock SMS provider | 60 × 900ms calls → partition lag < 1s; queue ≤ 2000; no rejection |
+| §VI.2.1 Service Mesh | `kubectl exec` mTLS probe | Plaintext traffic rejected; JWT validated at mesh boundary |
+| §VI.2.2 Async Messaging | Event replay integration test | Broker kill → rows stay PENDING with `next_attempt_at`; no loss |
+| §VI.3.1 gRPC Migration | Latency benchmark | 99th-percentile latency reduction ≥ 50% on order→payment call |
+| §VI.3.2 Avro Events | Schema evolution test | Produce v1, consume v2 → backward compatible |
+| §VI.3.3 Connection Pooling | Metrics assertion | `hikaricp_connections_pending` = 0 under baseline load |
 
-# 3. Retry discipline
-./mvnw -pl platform-lib test -Dtest=RetryFilterTest # POST returns 400 → no retry
+## §VI.8 Not Verified
 
-# 4. Connection pool geometry (staging)
-kubectl exec -it order-pod -- curl /actuator/metrics/hikaricp_connections_pending
-# assert value == 0 under baseline load
-
-# 5. gRPC round-trip latency
-grpcurl -plaintext order-bhukkad:8092 com.bhukkad.order.OrderApi/GetOrder
-# compare p99 vs REST equivalent (expect ~5× reduction)
-
-# 6. DLQ routing
-kafka-console-producer --topic platform.events --property "parse.key=true" \
-  --property "key.separator=:" <<< "123:{\"eventType\":\"MALFORMED\"}"
-sleep 2 && kafka-console-consumer --topic platform.events.dlt --from-beginning
-# assert malformed event lands in DLQ, not dead-lettered silently
-
-# 7. Service mesh mTLS
-kubectl exec -it order-pod -- curl -sI http://payment:8093/internal/... \
-  -H "Authorization: Bearer invalid"
-# assert 401 (mesh blocks invalid JWT at boundary)
-```
-
-## Not Verified
-
-- Service mesh installation (Istio/Linkerd) was not executed in this environment; recommended installation verified only via k8s manifest inspection (no `istio-system` namespace or CRDs observed in the working tree).
+- Service mesh installation (Istio/Linkerd) was not executed in this environment; the recommendation is based on manifest inspection showing no `istio-system` namespace or CRDs in the working tree.
 - gRPC performance benchmarks require a cluster with Redpanda + multiple service instances; the local `./mvnw verify` baseline does not exercise multi-pod fan-out scenarios documented in the analysis.
+- Avro Schema Registry deployment has not been validated against the existing Redpanda configuration in the docker-compose template.
 
 ---
 

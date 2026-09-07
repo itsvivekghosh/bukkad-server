@@ -20,7 +20,7 @@ public class OrderServiceClient {
   private final String orderServiceUrl;
 
   public OrderServiceClient(RestClient.Builder restClientBuilder,
-                            @Value("${app.services.order.url:http://order:8092}") String orderServiceUrl,
+                            @Value("${app.services.order.url:http://order:8080}") String orderServiceUrl,
                             ServiceJwtAuthTokenProvider authTokenProvider) {
     this.restClient = restClientBuilder
         .baseUrl(orderServiceUrl)

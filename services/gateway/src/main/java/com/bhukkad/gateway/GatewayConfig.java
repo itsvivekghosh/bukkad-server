@@ -112,8 +112,12 @@ public class GatewayConfig {
                         "/api/v1/customers/subscriptions/**").uri(orderUri))
                 // Self-scoped order stats + disputes (token subject, no path id).
                 .route("customer-order-extras", r -> r.path(
-                        "/api/v1/customers/orders/stats",
-                        "/api/v1/customers/disputes").uri(orderUri))
+                        "/api/v1/customers/orders/stats").filters(
+                        f -> f.rewritePath("/api/v1/customers/orders/stats",
+                                "/api/v1/orders/customer/stats")).uri(orderUri))
+                .route("customer-disputes", r -> r.path(
+                        "/api/v1/customers/disputes",
+                        "/api/v1/customers/orders/*/disputes").uri(supportUri))
                 // Customer loyalty self surface — growth owns loyalty accounts.
                 .route("customer-loyalty-self", r -> r.path(
                         "/api/v1/customers/loyalty-points").uri(growthUri))
@@ -164,6 +168,9 @@ public class GatewayConfig {
                         "/api/v1/platform/**").uri(identityUri))
                 // Customer self-service compliance surface (DPDP): consents and
                 // data export served by the identity service's consent store.
+                // The id-scoped admin compliance surface stays on admin-analytics.
+                .route("compliance-users", r -> r.path(
+                        "/api/v1/compliance/users/**").uri(adminAnalyticsUri))
                 .route("compliance", r -> r.path(
                         "/api/v1/compliance/**").uri(identityUri))
                 // Analytics CSV exports (admin-analytics owns the export tasks).
@@ -254,14 +261,65 @@ public class GatewayConfig {
                         .uri(deliveryUri))
                 // Restaurant administration (platform-admin actions on the
                 // restaurant domain) — narrower than /api/v1/admin/**. The
-                // /stats dashboard stays on admin-analytics.
+                // /stats dashboard stays on admin-analytics. Review moderation
+                // is restaurant-owned; zones/cities are delivery-owned.
                 .route("admin-restaurant-stats", r -> r.path(
                         "/api/v1/admin/restaurants/stats").uri(adminAnalyticsUri))
+                .route("admin-restaurant-reviews", r -> r.path(
+                        "/api/v1/admin/reviews/**").uri(restaurantUri))
                 .route("admin-restaurants", r -> r.path(
                         "/api/v1/admin/restaurants/**").uri(restaurantUri))
+                .route("admin-zones-cities", r -> r.path(
+                        "/api/v1/admin/zones/**", "/api/v1/admin/cities/**").uri(deliveryUri))
+                // Admin support-ticket console (support-owned domain).
+                .route("admin-support", r -> r.path(
+                        "/api/v1/admin/support/**")
+                        .filters(f -> f.rewritePath("/api/v1/admin/support/(?<seg>.*)",
+                                "/api/v1/support/admin/${seg}"))
+                        .uri(supportUri))
+                // Platform-admin user/tenant/affiliate console (identity-owned
+                // domains): proxies onto identity over the mesh.
+                .route("admin-identity-users-list", r -> r.path(
+                        "/api/v1/admin/users")
+                        .filters(f -> f.rewritePath("/api/v1/admin/users",
+                                "/api/v1/internal/admin/users"))
+                        .uri(identityUri))
+                .route("admin-identity-users", r -> r.path(
+                        "/api/v1/admin/users/**")
+                        .filters(f -> f.rewritePath("/api/v1/admin/users/(?<seg>.*)",
+                                "/api/v1/internal/admin/users/${seg}"))
+                        .uri(identityUri))
+                .route("admin-identity-tenants", r -> r.path(
+                        "/api/v1/admin/tenants")
+                        .filters(f -> f.rewritePath("/api/v1/admin/tenants",
+                                "/api/v1/tenants"))
+                        .uri(identityUri))
+                .route("admin-identity-affiliates", r -> r.path(
+                        "/api/v1/admin/affiliates")
+                        .filters(f -> f.rewritePath("/api/v1/admin/affiliates",
+                                "/api/v1/affiliate/codes"))
+                        .uri(identityUri))
+                // Platform-admin order console (order-owned domain).
+                .route("admin-orders", r -> r.path(
+                        "/api/v1/admin/orders/**")
+                        .filters(f -> f.rewritePath("/api/v1/admin/orders/(?<seg>.*)",
+                                "/api/v1/internal/admin/orders/${seg}"))
+                        .uri(orderUri))
+                // Platform-admin notification test-fire (notification domain).
+                .route("admin-notifications", r -> r.path(
+                        "/api/v1/admin/notifications/**").uri(notificationUri))
+                // Platform-admin rider payout settlement (payment domain).
+                .route("admin-rider-payouts", r -> r.path(
+                        "/api/v1/admin/agents/*/settle-payouts")
+                        .filters(f -> f.rewritePath("/api/v1/admin/agents/(?<id>[0-9]+)/settle-payouts",
+                                "/api/v1/agents/${id}/settle-payouts"))
+                        .uri(paymentUri))
                 // Platform commission surface (restaurant domain).
                 .route("commission", r -> r.path(
                         "/api/v1/commission/**").uri(restaurantUri))
+                // Dynamic pricing (restaurant domain).
+                .route("pricing", r -> r.path(
+                        "/api/v1/pricing/**").uri(restaurantUri))
                 // Admin-analytics service (P3): platform admin, fraud, feature
                 // flags, tenants, compliance, analytics exports.
                 // /api/v1/admin/affiliates/** is already captured by the referral

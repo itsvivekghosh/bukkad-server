@@ -29,7 +29,7 @@ public class PaymentServiceClient {
     private final ServiceJwtAuthTokenProvider authTokenProvider;
 
     public PaymentServiceClient(RestTemplate restTemplate,
-                                @Value("${app.services.payment.url:http://payment:8093}") String paymentServiceUrl,
+                                @Value("${app.services.payment.url:http://payment:8080}") String paymentServiceUrl,
                                 ServiceJwtAuthTokenProvider authTokenProvider) {
         this.restTemplate = restTemplate;
         this.paymentServiceUrl = paymentServiceUrl;

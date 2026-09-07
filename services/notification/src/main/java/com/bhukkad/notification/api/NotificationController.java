@@ -58,4 +58,35 @@ public class NotificationController {
     public List<Notification> history(@RequestParam String recipient, @RequestParam String channel) {
         return dispatchService.history(recipient, channel);
     }
+
+    /**
+     * Admin "test notification" (monolith parity): fires a throwaway message
+     * through the given channel so the ops console can verify credentials and
+     * routing without a real campaign. Enforces the same rate limit as real
+     * dispatch.
+     */
+    @PostMapping("/test")
+    @PreAuthorize("hasRole('ADMIN')")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "notification-dispatch",
+            limit = 60, windowSeconds = 60)
+    public java.util.Map<String, Object> test(@org.springframework.web.bind.annotation.RequestBody(
+            required = false) TestNotificationRequest request) {
+        String channel = request == null ? "EMAIL" : request.channel();
+        String recipient = request == null ? null : request.recipient();
+        if (recipient == null || recipient.isBlank()) {
+            throw new com.bhukkad.common.error.BusinessException("recipient is required");
+        }
+        Notification notification = dispatchService.dispatch(channel, recipient,
+                "TEST", "Bhukkad test notification",
+                "This is a test notification triggered from the admin console.");
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("notificationId", notification.getId());
+        body.put("channel", channel);
+        body.put("recipient", recipient);
+        body.put("status", notification.getStatus() == null ? "SENT" : notification.getStatus());
+        body.put("message", "Test notification dispatched");
+        return body;
+    }
+
+    public record TestNotificationRequest(String channel, String recipient) {}
 }

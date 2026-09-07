@@ -28,7 +28,7 @@ public class OrderOwnershipClient {
     private final ObjectProvider<ServiceJwtAuthTokenProvider> tokenProvider;
 
     public OrderOwnershipClient(
-            @Value("${app.survey.order-base-url:http://order:8092}") String orderBaseUrl,
+            @Value("${app.survey.order-base-url:http://order:8080}") String orderBaseUrl,
             ObjectProvider<ServiceJwtAuthTokenProvider> tokenProvider) {
         this.tokenProvider = tokenProvider;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();

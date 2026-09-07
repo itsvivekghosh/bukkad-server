@@ -55,6 +55,7 @@ public class SecurityConfig {
                                 "/api/v1/home/banners", "/api/v1/mobile/feed").permitAll()
                         // Public review listing (per-restaurant alias + canonical).
                         .requestMatchers(HttpMethod.GET, "/api/v1/reviews/restaurant/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/reviews/menu-items/**").permitAll()
                         // Unauthenticated error forward (404s/401s to /error) must keep
                         // their real status — otherwise MVC "no handler" 404s surface as 401.
                         .requestMatchers("/error").permitAll()

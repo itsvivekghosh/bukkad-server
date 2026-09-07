@@ -277,12 +277,16 @@ public class LegacyOrderCompatController {
     }
 
     private Long resolveRestaurantId(com.bhukkad.order.domain.CartItem item) {
-        return restaurantClient.getMenuItem(item.getMenuItemId())
-                .map(m -> {
-                    Object rid = m.get("restaurantId");
-                    return rid == null ? null : Long.valueOf(String.valueOf(rid));
-                })
+        Long rid = restaurantClient.getMenuItem(item.getMenuItemId())
+                .map(m -> m.get("restaurantId"))
+                .map(v -> Long.valueOf(String.valueOf(v)))
                 .block(java.time.Duration.ofSeconds(5));
+        if (rid == null) {
+            throw new com.bhukkad.common.error.BusinessException(
+                    "Cannot determine the restaurant for menu item " + item.getMenuItemId()
+                            + " (item may have been deleted); remove it from the cart and retry");
+        }
+        return rid;
     }
 
     private static Long subjectId(TokenPrincipal principal) {

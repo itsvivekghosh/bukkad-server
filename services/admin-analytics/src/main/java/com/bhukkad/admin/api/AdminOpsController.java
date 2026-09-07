@@ -142,6 +142,10 @@ public class AdminOpsController {
     // the same path here shadowed the endpoint and made handler resolution
     // ambiguous (500 on admin-analytics boot; restored-WIP collision fix).
 
+    // NOTE: rider payout settlement lives on the payment service
+    // (/api/v1/agents/{id}/settle-payouts) and is reached through the
+    // gateway's admin-rider-payouts carve-out — no duplicate here.
+
     // ------------------------------------------------------------------
     // Dead-letter queue
     // ------------------------------------------------------------------

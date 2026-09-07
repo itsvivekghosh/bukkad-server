@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -75,9 +76,20 @@ public class SupportTicketController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<SupportTicketResponse>> adminUpdateStatus(
             @PathVariable @Positive Long ticketId,
-            @RequestBody Map<String, String> body) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String resolutionNotes,
+            @RequestBody(required = false) Map<String, String> body) {
+        // The ops console PUTs ?status=&resolutionNotes=; the support dashboard
+        // PUTs the same fields as a JSON body. Either is accepted.
+        String effectiveStatus = status != null ? status
+                : body == null ? null : body.get("status");
+        String effectiveNotes = resolutionNotes != null ? resolutionNotes
+                : body == null ? null : body.get("resolutionNotes");
+        if (effectiveStatus == null || effectiveStatus.isBlank()) {
+            throw new com.bhukkad.common.error.BusinessException("status is required");
+        }
         return ResponseEntity.ok(ApiResponse.success(supportTicketService.adminUpdateStatus(
-                ticketId, body.get("status"), body.get("resolutionNotes"))));
+                ticketId, effectiveStatus, effectiveNotes)));
     }
 
     private static void requireCustomerId(com.bhukkad.common.security.TokenPrincipal principal) {

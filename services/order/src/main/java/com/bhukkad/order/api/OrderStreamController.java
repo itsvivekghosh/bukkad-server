@@ -89,18 +89,15 @@ public class OrderStreamController {
     // ------------------------------------------------------------------
 
     private void requireKitchenAccess(TokenPrincipal principal, Long restaurantId) {
-        if (restaurantId == null || restaurantId <= 0 || restaurantId > 1_000_000_000L) {
-            throw new ResourceNotFoundException("Restaurant not found: " + restaurantId);
-        }
+        // Kitchen streams are owner/admin-only surfaces; the kitchen app is
+        // the sole client. 403 for every non-owner principal (the SSE test
+        // battery asserts authorization BEFORE data checks — a leaked 404
+        // would confirm which restaurant ids exist).
         if (principal == null || principal.userId() == null) {
             throw new org.springframework.security.access.AccessDeniedException("Authentication required");
         }
         String scope = String.valueOf(principal.scope());
-        boolean owner = "RESTAURANT_OWNER".equalsIgnoreCase(scope);
-        boolean admin = "ADMIN".equalsIgnoreCase(scope);
-        if (!owner && !admin) {
-            // Customers/agents have no kitchen-stream access (403, not 404,
-            // so the app can distinguish role mismatch from bad id).
+        if (!"RESTAURANT_OWNER".equalsIgnoreCase(scope) && !"ADMIN".equalsIgnoreCase(scope)) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Kitchen stream requires the restaurant owner");
         }

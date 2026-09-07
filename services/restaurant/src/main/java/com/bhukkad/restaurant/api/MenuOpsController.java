@@ -279,21 +279,28 @@ public class MenuOpsController {
                                     @PathVariable Long restaurantId,
                                     @RequestBody(required = false) PricingRuleBody body) {
         ownerGuard.requireOwnerOrAdmin(principal, restaurantId);
-        if (body == null || body.name() == null || body.name().isBlank()) {
+        if (body == null || (body.name() == null || body.name().isBlank())
+                && body.discountPercent() == null) {
             throw new BusinessException("name is required");
         }
-        if (body.multiplier() == null
-                || body.multiplier().compareTo(new BigDecimal("1.0")) < 0
-                || body.multiplier().compareTo(new BigDecimal("3.0")) > 0) {
-            throw new BusinessException("multiplier must be between 1.0 and 3.0");
+        // Two shapes: the merchant app posts a multiplier; the ops console
+        // posts a discountPercent (surge = 1 + discount/100).
+        BigDecimal multiplier = body.multiplier();
+        if (multiplier == null && body.discountPercent() != null) {
+            multiplier = BigDecimal.ONE.add(
+                    body.discountPercent().divide(new BigDecimal("100")));
         }
-        return pricingService.create(restaurantId, body.name().trim(), body.multiplier(),
+        if (multiplier == null || multiplier.signum() <= 0) {
+            throw new BusinessException("multiplier must be positive");
+        }
+        return pricingService.create(restaurantId,
+                body.name() == null ? "Ops rule" : body.name().trim(), multiplier,
                 body.startTime(), body.endTime());
     }
 
     public record PricingRuleBody(String name, BigDecimal multiplier,
                                   java.time.LocalTime startTime, java.time.LocalTime endTime,
-                                  Boolean active) {}
+                                  BigDecimal discountPercent, Boolean active) {}
 
     /** Platform commission tiers (static catalogue in the dev build). */
     @GetMapping("/api/v1/commission/tiers")

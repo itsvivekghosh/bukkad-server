@@ -76,7 +76,7 @@ class GatewayConfigTest {
         // Count covers the route table as restored with the concurrent-session
         // overlay (analytics CSV exports + swagger aggregate + the explicit
         // admin-restaurants/stats carve-out kept the analytics read model).
-        assertThat(routes.getRoutes().collectList().block()).hasSize(39);
+        assertThat(routes.getRoutes().collectList().block()).hasSize(52);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");

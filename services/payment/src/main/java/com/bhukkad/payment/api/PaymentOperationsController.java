@@ -97,6 +97,21 @@ public class PaymentOperationsController {
         return paymentMapper.toRestaurantSettlementResponse(result.settlement());
     }
 
+    /** Rider payout settlement (admin console proxy path, monolith parity). */
+    @org.springframework.web.bind.annotation.PutMapping("/agents/{agentId}/settle-payouts")
+    @PreAuthorize("hasRole('ADMIN')")
+    public java.util.Map<String, Object> settleRiderPayouts(
+            @org.springframework.web.bind.annotation.PathVariable Long agentId) {
+        SettlementService.SettlementResult result = settlementService.run(
+                LocalDate.now(), agentId, 0, java.math.BigDecimal.ZERO);
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("agentId", agentId);
+        body.put("settled", true);
+        body.put("settlementId", result.settlement() == null ? null : result.settlement().getId());
+        body.put("message", "Rider payouts settled");
+        return body;
+    }
+
     /**
      * Provider callback echo. Serialized via Jackson — the previous
      * string-concatenation echoed attacker-controlled {@code event} text
