@@ -43,28 +43,33 @@ public class DisputeController {
     }
 
     @GetMapping(value={"/admin/disputes"})
-    @PreAuthorize(value="hasRole('ADMIN')")
+    @PreAuthorize(value="hasRole('ADMIN') or hasRole('SERVICE')")
     public ResponseEntity<List<DisputeResponse>> listDisputes() {
         return ResponseEntity.ok(this.disputeResolutionService.listForAdmin());
     }
 
     @GetMapping(value={"/admin/disputes/{disputeId}"})
-    @PreAuthorize(value="hasRole('ADMIN')")
+    @PreAuthorize(value="hasRole('ADMIN') or hasRole('SERVICE')")
     public ResponseEntity<DisputeResponse> getDispute(@PathVariable Long disputeId) {
         return ResponseEntity.ok(this.disputeResolutionService.getById(disputeId));
     }
 
     @PostMapping(value={"/admin/disputes/{disputeId}/resolve"})
-    @PreAuthorize(value="hasRole('ADMIN')")
-    public ResponseEntity<DisputeResponse> resolveDispute(@AuthenticationPrincipal TokenPrincipal principal,
-                                                          @PathVariable Long disputeId,
-                                                          @Valid @RequestBody DisputeResolveRequest request) {
-        DisputeResponse dispute = this.disputeResolutionService.manualResolve(principal.userId(), disputeId, request);
+    @PreAuthorize(value="hasRole('ADMIN') or hasRole('SERVICE')")
+    public ResponseEntity<DisputeResponse> resolveDispute(
+            @AuthenticationPrincipal Object principal,
+            @PathVariable Long disputeId,
+            @Valid @RequestBody DisputeResolveRequest request) {
+        // User JWT → TokenPrincipal carries the acting admin id; the mesh
+        // service principal is a String subject (resolvedById = 0).
+        Long adminId = principal instanceof com.bhukkad.common.security.TokenPrincipal tp
+                ? tp.userId() : 0L;
+        DisputeResponse dispute = this.disputeResolutionService.manualResolve(adminId, disputeId, request);
         return ResponseEntity.ok(dispute);
     }
 
     @PostMapping(value={"/admin/disputes/auto-resolve"})
-    @PreAuthorize(value="hasRole('ADMIN')")
+    @PreAuthorize(value="hasRole('ADMIN') or hasRole('SERVICE')")
     public ResponseEntity<Map<String, Integer>> autoResolve() {
         int resolved = this.disputeResolutionService.triggerAutoResolution();
         return ResponseEntity.ok(Map.of("resolved", resolved));

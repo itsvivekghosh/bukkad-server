@@ -45,7 +45,7 @@ public class OrderAdjunctController {
     public Object invoice(@AuthenticationPrincipal TokenPrincipal principal,
                           @PathVariable Long orderId) {
         requireOrderOwner(principal, orderId);
-        return invoiceService.getByOrder(orderId);
+        return invoiceService.generate(orderId);
     }
 
     /** Printable PDF invoice (text/pdf-structured payload in the dev build). */
@@ -54,7 +54,9 @@ public class OrderAdjunctController {
     public Map<String, Object> invoicePdf(@AuthenticationPrincipal TokenPrincipal principal,
                                           @PathVariable Long orderId) {
         requireOrderOwner(principal, orderId);
-        Object invoice = invoiceService.getByOrder(orderId);
+        // Same lazy-generation contract as the JSON view: first view issues
+        // the invoice, later views replay it.
+        Object invoice = invoiceService.generate(orderId);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("orderId", orderId);
         body.put("contentType", "application/pdf");

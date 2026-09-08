@@ -78,4 +78,19 @@ class GlobalExceptionHandlerTest {
                         "abc", Long.class, "orderId", null, null));
         assertThat(response.getStatusCode().value()).isEqualTo(400);
     }
+
+    @Test
+    void upstreamUnavailable_mapsTo503WithRetryableBody() {
+        com.bhukkad.common.error.UpstreamUnavailableException ex =
+                new com.bhukkad.common.error.UpstreamUnavailableException(
+                        "restaurant", new IllegalStateException("connection refused"));
+
+        ResponseEntity<?> response = handler.handleUpstreamUnavailable(ex);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody().toString()).contains("restaurant");
+        assertThat(response.getBody().toString()).contains("retry");
+        // Must NOT read as "not found": the resource may well exist.
+        assertThat(response.getBody().toString()).doesNotContain("not found");
+    }
 }

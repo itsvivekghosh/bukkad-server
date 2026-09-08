@@ -13,7 +13,10 @@ import java.util.Optional;
 @Repository
 public interface MenuItemSearchRepository extends JpaRepository<MenuItemSearchEntity, Long> {
 
-    Optional<MenuItemSearchEntity> findByItemId(Long itemId);
+    // The document key in menu_item_search is the menu item id itself (same
+    // value), so a second "itemId" property does not exist; callers use
+    // findById(menuItemId). A derived findByItemId would break repository
+    // bootstrap at startup.
 
     @Query("""
             SELECT m FROM MenuItemSearchEntity m

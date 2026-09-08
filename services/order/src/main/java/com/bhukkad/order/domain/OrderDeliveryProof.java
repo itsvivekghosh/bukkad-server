@@ -29,7 +29,7 @@ public class OrderDeliveryProof {
     @Column(name = "order_id", nullable = false, unique = true)
     private Long orderId;
 
-    @Column(name = "otp_hash", length = 64)
+    @Column(name = "otp_hash", length = 128)
     private String otpHash;
 
     @Column(name = "otp_issued_at")

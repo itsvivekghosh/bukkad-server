@@ -99,8 +99,10 @@ jobs:
       - name: Run integration tests
         run: ./mvnw -B -f services/pom.xml test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 
-      - name: Run regression suite
-        run: ./mvnw -B -f services/pom.xml test -Dtest="com.bhukkad.regression.RegressionTestSuite"
+      # NOTE: the historical com.bhukkad.regression.RegressionTestSuite was a
+      # monolith artifact deleted in 49c63b4 (restructure to microservices);
+      # regression coverage now = unit + integration runs above plus the
+      # nightly-regression workflow (pytest API regression against staging).
 
       - name: Verify 85% code coverage (JaCoCo)
         run: ./mvnw -B -f services/pom.xml jacoco:check

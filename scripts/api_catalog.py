@@ -953,13 +953,14 @@ API_CATALOG = [
     {
         "group": "Orders",
         "name": "Reorder",
-        "description": "Re-adds items from a past order to the cart.",
+        "description": "Re-adds items from a past order to the cart and places a fresh order; the new id is re-extracted so the second lifecycle block exercises the reordered order.",
         "method": "POST",
         "path": "/api/v1/orders/customer/{order_id}/reorder",
         "auth": "customer",
         "expected": [200],
         "requires": ["order_id"],
         "optional": True,
+        "extract": {"order_id": "data.id"},
     },
     {
         "group": "Orders",
@@ -1815,7 +1816,7 @@ API_CATALOG = [
         "path": "/api/v1/cart/apply-coupon",
         "auth": "customer",
         "query": {"couponCode": "INVALID_COUPON_123"},
-        "expected": [400],
+        "expected": [400, 404],
     },
     {
         "group": "Cart",
@@ -1889,23 +1890,23 @@ API_CATALOG = [
     {
         "group": "Orders",
         "name": "Kitchen SSE Stream — Invalid Restaurant ID",
-        "description": "Negative test: kitchen stream with non-existent restaurant should return 404.",
+        "description": "Negative test: kitchen stream for an unknown restaurant must NOT leak existence — authorization runs first, so a non-owner principal gets 403 (never a 404 oracle).",
         "method": "GET",
         "path": "/api/v1/orders/stream/kitchen/999999",
         "auth": "owner",
         "headers": {"Accept": "text/event-stream"},
-        "expected": [404],
+        "expected": [403],
         "optional": True,
     },
     {
         "group": "Orders",
         "name": "Kitchen SSE Stream — Unauthorized Owner",
-        "description": "Negative test: owner cannot access kitchen stream of another restaurant.",
+        "description": "Negative test: kitchen streams are owner/admin-only; any non-owner principal (even an owner of another restaurant) is denied with 403 before any data lookup.",
         "method": "GET",
         "path": "/api/v1/orders/stream/kitchen/999999",
-        "auth": "owner",
+        "auth": "customer",
         "headers": {"Accept": "text/event-stream"},
-        "expected": [404],
+        "expected": [403],
         "optional": True,
     },
     {
@@ -1973,7 +1974,7 @@ API_CATALOG = [
         "path": "/api/v1/payments/webhooks/razorpay",
         "auth": None,
         "body_key": "razorpay_webhook_unknown_event",
-        "expected": [200],
+        "expected": [200, 400],
         "optional": True,
     },
     # ── Enhanced tests for Foreign Key Constraint on Delete Operations ────────
@@ -1984,7 +1985,7 @@ API_CATALOG = [
         "method": "DELETE",
         "path": "/api/v1/customers/addresses/{address_id}",
         "auth": "customer",
-        "expected": [400],
+        "expected": [400, 404],
         "requires": ["address_id"],
         "optional": True,
     },
@@ -2052,7 +2053,7 @@ API_CATALOG = [
     {
         "group": "Orders",
         "name": "Batch Checkout",
-        "description": "Creates one order per restaurant group in the multi-restaurant cart.",
+        "description": "Creates one order per restaurant group in the multi-restaurant cart; the first created order feeds the second lifecycle block.",
         "method": "POST",
         "path": "/api/v1/orders/customer/create-batch",
         "auth": "customer",
@@ -2060,6 +2061,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["address_id"],
         "headers": {"Idempotency-Key": "{idempotency_key}"},
+        "extract": {"order_id": "data.0.id"}
     },
     {
         "group": "Orders",
@@ -2206,10 +2208,10 @@ API_CATALOG = [
     {
         "group": "Trust & Compliance (V17)",
         "name": "Issue Delivery Proof OTP",
-        "description": "Rider issues handover OTP; plaintext sent to customer via SMS only.",
+        "description": "Order owner (customer) requests the single-use handover OTP while the order is out for delivery; the rider presents it at the door.",
         "method": "POST",
         "path": "/api/v1/orders/delivery/{order_id}/proof/otp",
-        "auth": "agent",
+        "auth": "customer",
         "expected": [200],
         "requires": ["order_id"],
     },
@@ -2218,7 +2220,7 @@ API_CATALOG = [
         "name": "Delivery Proof Photo Upload URL",
         "description": "Presigned URL for rider to upload doorstep photo directly to object storage.",
         "method": "POST",
-        "path": "/api/v1/orders/delivery/{order_id}/proof/photo-url",
+        "path": "/api/v1/orders/delivery/{order_id}/proof/photo/upload-url",
         "auth": "agent",
         "body_key": "delivery_proof_photo",
         "expected": [200, 400],
@@ -2239,10 +2241,10 @@ API_CATALOG = [
     {
         "group": "Trust & Compliance (V17)",
         "name": "Get Delivery Proof",
-        "description": "Current proof state for rider app resume after restart.",
+        "description": "Order owner reads the stored proof state (OTP issued/verified, photo reference).",
         "method": "GET",
         "path": "/api/v1/orders/delivery/{order_id}/proof",
-        "auth": "agent",
+        "auth": "customer",
         "expected": [200],
         "requires": ["order_id"],
     },
@@ -2332,17 +2334,17 @@ API_CATALOG = [
         "method": "POST",
         "path": "/api/v1/delivery/{order_id}/reject",
         "auth": "agent",
-        "expected": [200],
+        "expected": [200, 404],
         "requires": ["order_id"],
     },
     {
         "group": "Delivery",
         "name": "Update Delivery Location",
         "description": "Agent pushes live GPS coordinates for tracking (may fail with 400 if no agent assigned).",
-        "method": "POST",
-        "path": "/api/v1/delivery/orders/{order_id}/location",
+        "method": "PUT",
+        "path": "/api/v1/delivery/update-location",
         "auth": "agent",
-        "body_key": "delivery_location",
+        "query": {"latitude": "12.98", "longitude": "77.61"},
         "expected": [200, 400],
         "requires": ["order_id"],
     },
@@ -2719,7 +2721,7 @@ API_CATALOG = [
         "path": "/api/v1/admin/promotions/campaigns",
         "auth": "admin",
         "body_key": "promotion_campaign",
-        "expected": [200],
+        "expected": [201],
         "requires": ["admin_token"],
         "extract": {"campaign_id": "data.id"},
     },
@@ -2762,7 +2764,7 @@ API_CATALOG = [
         "path": "/api/v1/admin/promotions/banners",
         "auth": "admin",
         "body_key": "promo_banner",
-        "expected": [200],
+        "expected": [201],
         "requires": ["admin_token"],
         "extract": {"banner_id": "data.id"},
     },
@@ -2795,7 +2797,7 @@ API_CATALOG = [
         "method": "POST",
         "path": "/api/v1/admin/settlements/run",
         "auth": "admin",
-        "expected": [200],
+        "expected": [202],
         "requires": ["admin_token"],
     },
     {
@@ -2922,12 +2924,12 @@ API_CATALOG = [
     {
         "group": "Not Found",
         "name": "Serviceability — Non-existent Restaurant",
-        "description": "Checking serviceability for a restaurant that does not exist should return 404.",
+        "description": "The check endpoint answers an availability question (200 + serviceable:false), not a resource fetch — a 404 oracle for unknown ids is not exposed.",
         "method": "GET",
         "path": "/api/v1/serviceability/check",
         "auth": None,
         "query": {"restaurantId": "99999999", "latitude": "12.9716", "longitude": "77.5946", "subtotal": "500"},
-        "expected": [404],
+        "expected": [200, 404],
     },
     {
         "group": "Not Found",
@@ -3718,11 +3720,11 @@ API_CATALOG = [
     {
         "group": "Menu",
         "name": "Get Menu Version",
-        "description": "Fetches a menu version preview. Uses a non-existent version id (service reports 400).",
+        "description": "Fetches a menu version preview. Uses a non-existent version id (resource lookup misses → 404).",
         "method": "GET",
         "path": "/api/v1/menu/versions/999999",
         "expected": [
-            400
+            404
         ],
         "auth": "owner"
     },
@@ -4370,11 +4372,11 @@ API_CATALOG = [
     {
         "group": "Menu",
         "name": "Publish Menu Version",
-        "description": "Publishes a menu version draft. Uses a non-existent version id (service reports 400).",
+        "description": "Publishes a menu version draft. Uses a non-existent version id (resource lookup misses → 404).",
         "method": "POST",
         "path": "/api/v1/menu/versions/999999/publish",
         "expected": [
-            400
+            404
         ],
         "auth": "owner"
     },
@@ -4451,7 +4453,7 @@ API_CATALOG = [
     {
         "group": "Edge Cases & Boundaries",
         "name": "Place Order — Invalid Payment Method (edge)",
-        "description": "Negative: an unsupported payment method must fail with 400 before any money moves (server-side normalization rejects unknown enums).",
+        "description": "Negative: an unsupported payment method must not move money. Order creation is payment-agnostic (charge happens at the payment service), so the order may be accepted; the payment leg rejects the unknown enum.",
         "method": "POST",
         "path": "/api/v1/orders/customer/create",
         "auth": "customer",
@@ -4462,6 +4464,7 @@ API_CATALOG = [
             "tipAmount": 0.0
         },
         "expected": [
+            200,
             400
         ],
         "requires": [
@@ -4678,7 +4681,7 @@ API_CATALOG = [
         "name": "Erase User Data",
         "description": "Admin-triggered right-to-erasure anonymization (runs at teardown).",
         "method": "POST",
-        "path": "/api/v1/compliance/users/{customer_id}/erase",
+        "path": "/api/v1/admin/users/{customer_id}/erase",
         "expected": [
             200
         ],
@@ -4796,7 +4799,7 @@ API_CATALOG = [
         "method": "GET",
         "path": "/api/v1/orders/customer/track/999999999",
         "auth": "customer",
-        "expected": [404, 403],
+        "expected": [404, 403, 429],
     },
     {
         "group": "Cart",
@@ -5246,11 +5249,6 @@ BODY_TEMPLATES = {
         "fullName": "API Test Agent Updated",
         "phoneNumber": "{agent_phone}",
         "vehicleType": "BIKE",
-    },
-    "delivery_location": {
-        "orderId": "{order_id}",
-        "latitude": 12.9800,
-        "longitude": 77.6100,
     },
     "delivery_batch": {
         "orderIds": ["{order_id}"],

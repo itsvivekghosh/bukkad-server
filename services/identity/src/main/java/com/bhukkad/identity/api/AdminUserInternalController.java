@@ -107,21 +107,24 @@ public class AdminUserInternalController {
                 "UPDATE users SET active = FALSE, updated_at = NOW() WHERE id = ?", userId);
         // Contact data lives on the id-keyed profile tables (customers rows are
         // user-id-keyed; owners/agents share the same id space via registration).
+        // Positional parameters — the field is a plain JdbcTemplate, so the
+        // :named style previously threw BadSqlGrammarException and surfaced
+        // as a 500 on the DPDP erasure path.
         jdbcTemplate.update(
-                "UPDATE customers SET email = CONCAT('deleted', :suffix, '@bhukkad.invalid'), "
-                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((:id * 7919) % 1000000000)), "
-                        + "is_active = FALSE WHERE id = :id",
-                Map.of("suffix", "-del-" + userId, "id", userId));
+                "UPDATE customers SET email = CONCAT('deleted', ?, '@bhukkad.invalid'), "
+                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((? * 7919) % 1000000000)), "
+                        + "is_active = FALSE WHERE id = ?",
+                "-del-" + userId, userId, userId);
         jdbcTemplate.update(
-                "UPDATE restaurant_owners SET email = CONCAT('deleted', :suffix, '@bhukkad.invalid'), "
-                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((:id * 7919) % 1000000000)), "
-                        + "verified = FALSE WHERE id = :id",
-                Map.of("suffix", "-del-" + userId, "id", userId));
+                "UPDATE restaurant_owners SET email = CONCAT('deleted', ?, '@bhukkad.invalid'), "
+                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((? * 7919) % 1000000000)), "
+                        + "verified = FALSE WHERE id = ?",
+                "-del-" + userId, userId, userId);
         jdbcTemplate.update(
-                "UPDATE delivery_agents SET email = CONCAT('deleted', :suffix, '@bhukkad.invalid'), "
-                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((:id * 7919) % 1000000000)), "
-                        + "verified = FALSE WHERE id = :id",
-                Map.of("suffix", "-del-" + userId, "id", userId));
+                "UPDATE delivery_agents SET email = CONCAT('deleted', ?, '@bhukkad.invalid'), "
+                        + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((? * 7919) % 1000000000)), "
+                        + "verified = FALSE WHERE id = ?",
+                "-del-" + userId, userId, userId);
         return Map.of("userId", userId, "erased", true);
     }
 

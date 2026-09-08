@@ -81,6 +81,53 @@ class RestaurantClientTest {
         assertThat(response).isNull();
     }
 
+    // ---- menu item error contract (cart/order money path) ----
+
+    @Test
+    void getMenuItem_returnsPayload_on200() {
+        server.createContext("/api/v1/menu/items/7", exchange -> {
+            String body = "{\"id\":7,\"name\":\"Paneer Tikka\",\"price\":250.00,\"restaurantId\":3}";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
+
+        var item = client.getMenuItem(7L).block();
+
+        assertThat(item).isNotNull();
+        assertThat(item.get("name")).isEqualTo("Paneer Tikka");
+        // restaurantId extraction helper (coupon scoping + legacy order create).
+        assertThat(client.getMenuItemRestaurantId(7L).block()).isEqualTo(3L);
+    }
+
+    @Test
+    void getMenuItem_returnsEmpty_whenServiceReturns404() {
+        // Genuine 404 → EMPTY ("item does not exist"), never a false-positive
+        // "unavailable": callers map empty to a truthful 404.
+        server.createContext("/api/v1/menu/items/99", exchange ->
+                exchange.sendResponseHeaders(404, -1));
+
+        var item = client.getMenuItem(99L).block();
+
+        assertThat(item).isNull();
+    }
+
+    @Test
+    void getMenuItem_propagatesNon404Errors_soCallersSurface503() {
+        // 5xx must NOT collapse to empty — that would report a live item as
+        // missing during upstream churn; callers map it to 503 instead.
+        server.createContext("/api/v1/menu/items/5", exchange ->
+                exchange.sendResponseHeaders(500, -1));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> client.getMenuItem(5L).block())
+                .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.class)
+                .hasMessageContaining("500");
+    }
+
     @Test
     void searchRestaurants_returnsList_whenServiceResponds() {
         // Mirrors the restaurant service's real contract post-extraction:

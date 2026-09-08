@@ -30,8 +30,11 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Run full regression suite
-        run: ./mvnw -B test -Dtest="com.bhukkad.regression.RegressionTestSuite"
+      - name: Run full unit + integration test suite
+        # The historical com.bhukkad.regression.RegressionTestSuite was a
+        # monolith artifact deleted in 49c63b4; nightly regression coverage is
+        # the full reactor test run plus the API regression script below.
+        run: ./mvnw -B -f services/pom.xml test
 
       - name: Upload regression reports
         uses: actions/upload-artifact@v5

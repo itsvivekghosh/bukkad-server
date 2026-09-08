@@ -3,6 +3,7 @@ package com.bhukkad.gateway;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
@@ -94,6 +95,13 @@ class GatewayAdminRoutingTest {
 
     @Autowired
     private WebTestClient client;
+
+    @BeforeEach
+    void headroomForParallelBuilds() {
+        // Same rationale as GatewayRoutingTest: the default 5s block-read
+        // timeout flakes under `mvn -T` multi-module load.
+        client = client.mutate().responseTimeout(java.time.Duration.ofSeconds(15)).build();
+    }
 
     @Test
     void churnHighRiskRouteHitsAdminAnalyticsBackend() {

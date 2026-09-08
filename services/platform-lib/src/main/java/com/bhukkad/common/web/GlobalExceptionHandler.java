@@ -55,7 +55,19 @@ public class GlobalExceptionHandler {
         return json(HttpStatus.NOT_FOUND, 404, ex.getCode(), ex.getMessage());
     }
 
-        @ExceptionHandler(UnauthorizedException.class)
+    @ExceptionHandler(com.bhukkad.common.error.UpstreamUnavailableException.class)
+    public ResponseEntity<ApiError> handleUpstreamUnavailable(
+            com.bhukkad.common.error.UpstreamUnavailableException ex) {
+        // Mesh outages are transient environment signals, not missing
+        // resources: respond 503 so callers (and the API test suite) can
+        // distinguish "does not exist" from "temporarily unreachable".
+        log.warn("UpstreamUnavailable | upstream={} | traceId={}", ex.getUpstream(),
+                TraceContext.currentTraceId());
+        return json(HttpStatus.SERVICE_UNAVAILABLE, 503, "UPSTREAM_UNAVAILABLE",
+                "The " + ex.getUpstream() + " service is temporarily unavailable. Please retry.");
+    }
+
+    @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException ex) {
         log.warn("Unauthorized | {} | traceId={}", ex.getMessage(), TraceContext.currentTraceId());
         return json(HttpStatus.UNAUTHORIZED, 401, "UNAUTHORIZED", ex.getMessage());

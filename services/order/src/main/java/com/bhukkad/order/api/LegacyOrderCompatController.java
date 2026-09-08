@@ -33,14 +33,20 @@ public class LegacyOrderCompatController {
     private final CartService cartService;
     private final com.bhukkad.order.domain.OrderRepository orderRepository;
     private final com.bhukkad.order.client.RestaurantClient restaurantClient;
+    private final com.bhukkad.order.service.OrderCreateJobService orderCreateJobService;
+    private final com.bhukkad.order.service.AsyncOrderCreateService asyncOrderCreateService;
 
     public LegacyOrderCompatController(OrderService orderService, CartService cartService,
                                        com.bhukkad.order.domain.OrderRepository orderRepository,
-                                       com.bhukkad.order.client.RestaurantClient restaurantClient) {
+                                       com.bhukkad.order.client.RestaurantClient restaurantClient,
+                                       com.bhukkad.order.service.OrderCreateJobService orderCreateJobService,
+                                       com.bhukkad.order.service.AsyncOrderCreateService asyncOrderCreateService) {
         this.orderService = orderService;
         this.cartService = cartService;
         this.orderRepository = orderRepository;
         this.restaurantClient = restaurantClient;
+        this.orderCreateJobService = orderCreateJobService;
+        this.asyncOrderCreateService = asyncOrderCreateService;
     }
 
     @PostMapping("/create")
@@ -72,6 +78,52 @@ public class LegacyOrderCompatController {
             cartService.clear(customerId);
         }
         return response;
+    }
+
+    /**
+     * Async order create (mobile app batch checkout): {@code ?async=true}
+     * snapshots the cart into a job and returns 202 with the poll URL while
+     * {@link AsyncOrderCreateService} builds the order in the background.
+     * The job poll endpoint lives at {@code /create/jobs/{jobId}}.
+     */
+    @PostMapping(value = "/create", params = "async=true")
+    public org.springframework.http.ResponseEntity<Object> createAsync(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) CreateOrderRequest request) {
+        Long customerId = subjectId(principal);
+        if (request == null || request.restaurantId() == null) {
+            throw new com.bhukkad.common.error.BusinessException("restaurantId is required");
+        }
+        java.util.List<OrderItemRequest> items = request.items();
+        if (items == null || items.isEmpty()) {
+            items = cartService.getItems(customerId).stream()
+                    .map(ci -> new OrderItemRequest(ci.getMenuItemId(), ci.getItemName(),
+                            ci.getUnitPrice(), ci.getQuantity()))
+                    .toList();
+        }
+        if (items.isEmpty()) {
+            throw new com.bhukkad.common.error.BusinessException(
+                    "Order requires at least one item");
+        }
+        String jobId = orderCreateJobService.createJob(idempotencyKey);
+        CreateOrderRequest scoped =
+                new CreateOrderRequest(customerId, request.restaurantId(), items);
+        asyncOrderCreateService.processOrderCreate(jobId, scoped);
+        // Cart is cleared optimistically: the async snapshot already holds the
+        // line items, so a retry with the same key cannot double-add.
+        cartService.clear(customerId);
+        return org.springframework.http.ResponseEntity.accepted().body(
+                java.util.Map.of("jobId", jobId,
+                        "status", "PROCESSING",
+                        "pollUrl", "/api/v1/orders/customer/create/jobs/" + jobId));
+    }
+
+    /** Async order-create job status (mobile batch checkout polling). */
+    @GetMapping("/create/jobs/{jobId}")
+    public Object orderCreateJob(@AuthenticationPrincipal TokenPrincipal principal,
+                                 @PathVariable String jobId) {
+        return orderCreateJobService.getJob(jobId);
     }
 
     @GetMapping("/my-orders")
@@ -112,9 +164,12 @@ public class LegacyOrderCompatController {
 
     /**
      * Delivery tracking snapshot for the customer app (monolith parity):
-     * returns the live order plus a simple status timeline.
+     * returns the live order plus a simple status timeline. Shares the
+     * canonical {@code order-track} bucket with OrderAdjunctController so
+     * burst-throttling holds on either alias.
      */
     @GetMapping("/track/{orderId}")
+    @com.bhukkad.common.ratelimit.RateLimited(bucket = "order-track", limit = 20, windowSeconds = 60)
     public java.util.Map<String, Object> track(@AuthenticationPrincipal TokenPrincipal principal,
                                                @PathVariable Long orderId) {
         requireOwnerOrAdmin(principal, orderService.getOrder(orderId).customerId());
@@ -277,9 +332,7 @@ public class LegacyOrderCompatController {
     }
 
     private Long resolveRestaurantId(com.bhukkad.order.domain.CartItem item) {
-        Long rid = restaurantClient.getMenuItem(item.getMenuItemId())
-                .map(m -> m.get("restaurantId"))
-                .map(v -> Long.valueOf(String.valueOf(v)))
+        Long rid = restaurantClient.getMenuItemRestaurantId(item.getMenuItemId())
                 .block(java.time.Duration.ofSeconds(5));
         if (rid == null) {
             throw new com.bhukkad.common.error.BusinessException(

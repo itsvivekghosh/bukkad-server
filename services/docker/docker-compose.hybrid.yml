@@ -1,0 +1,22 @@
+# Hybrid bring-up for memory-tight machines (Docker VM ≤ ~4 GB).
+#
+# Runs the 13 core services (incl. gateway + admin-analytics) in Docker and
+# the two lightest, dependency-free read models — notification +
+# personalization — as HOST JVMs (see scripts/docker-up-hybrid.sh). The
+# gateway is pointed at them over host.docker.internal, and they reach
+# Postgres/Redis over the published host ports (5432/6379). Neither host
+# service issues HTTP to mesh peers, so no reverse DNS is required.
+#
+# Full-Docker bring-up (needs ~5-6 GB Docker VM): the base
+# docker-compose.dev.yml lists every app under default profile; run
+# `docker compose -f docker-compose.dev.yml up -d` directly. This override is
+# only about which endpoints the GATEWAY talks to.
+services:
+  gateway:
+    extra_hosts:
+      # Docker Desktop has host.docker.internal built in; this makes the
+      # override safe on plain Docker Engine (Linux) too.
+      - "host.docker.internal:host-gateway"
+    environment:
+      NOTIFICATION_SERVICE_URL: http://host.docker.internal:8085
+      PERSONALIZATION_SERVICE_URL: http://host.docker.internal:8088

@@ -14,8 +14,12 @@
 #   ./mvnw -f services/pom.xml package -DskipTests && ./services/docker/stage-jars.sh
 # then `docker compose build <svc>` assembles runtime images in seconds.
 
+name: backend
+
 x-app-defaults: &app-defaults
-  restart: "no"
+  # Restart on transient OOM/kill under test load (dev VM is memory-tight);
+  # "on-failure" avoids boot-looping on genuine config errors.
+  restart: on-failure
   init: true
   environment: &app-env
     SERVER_PORT: "8080"
@@ -34,20 +38,37 @@ x-app-defaults: &app-defaults
     # Service-mesh auth (order→restaurant stock reservation, order→payment
     # charge, admin→identity user ops). Same secret as the user JWT secret in
     # dev — in prod these are separate secrets.
-    SERVICE_JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
-    # Dev-lean JVM: SerialGC + C1 + capped metaspace keeps a service's RSS
-    # near ~180 MB so the full 14-service stack fits the 4 GB Docker VM with
-    # ~1 GB of headroom for recreate spikes.
+    SERVICE_JWT_SECRET: "${SERVICE_JWT_SECRET:?set SERVICE_JWT_SECRET in services/docker/.env}"
+    # Lean-avg dev JVM: SerialGC + C1 + capped metaspace/direct keeps the
+    # full 15-service stack inside a 4 GB Docker VM. The container-memory
+    # tuning bundle below is why:
+    #   MALLOC_ARENA_MAX=2      glibc otherwise reserves 8×CPU×64MB arenas
+    #                           (observed: 170 arena mappings, ~190 MB RSS
+    #                           of non-heap bloat per service)
+    #   -Xss256k                36+ threads × 1 MB default stacks
+    #   ReservedCodeCacheSize   C1-only needs ~30 MB, not the 160 MB default
+    #   Min/MaxHeapFreeRatio    return committed heap to the OS after test
+    #                           bursts instead of pinning it at Xmx
+    # Raise Xmx back to 256m+ on larger machines via JAVA_OPTS.
+    MALLOC_ARENA_MAX: "2"
     JAVA_OPTS: >-
-      -Xms32m -Xmx176m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=24m
+      -Xms24m -Xmx112m -XX:MaxMetaspaceSize=112m -XX:MaxDirectMemorySize=10m
       -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+      -XX:ReservedCodeCacheSize=48m
+      -Xss256k
+      -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=25
       -XX:ActiveProcessorCount=1
-      -XX:MaxRAMPercentage=55
+      -XX:MaxRAMPercentage=50
     spring.datasource.hikari.maximum-pool-size: "6"
   deploy:
     resources:
       limits:
-        memory: 384M
+        # Suite-load profiling on the 4 GB dev VM showed peak RSS spikes to
+        # ~500M (CSV streaming + saga fan-out + SSE sessions). 448M limits
+        # OOM-killed order/admin-analytics/identity mid-run; 576M gives ~15%
+        # headroom over the observed peak. Limits are not reservations — the
+        # fleet's steady-state RSS (~3.2G) still fits the 4G VM.
+        memory: 576M
   depends_on:
     postgres:
       condition: service_healthy
@@ -56,14 +77,14 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: bhukkad-tandoor
+    container_name: backend-postgres
     environment:
       POSTGRES_DB: core
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app_pass
     ports: ["5432:5432"]
     volumes:
-      - bhukkad-pgdata:/var/lib/postgresql/data
+      - backend-pgdata:/var/lib/postgresql/data
       - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d core"]
@@ -74,20 +95,21 @@ services:
     deploy:
       resources:
         limits:
-          memory: 320M
+          memory: 256M
 
   redis:
     image: redis:7-alpine
-    container_name: bhukkad-masala
+    container_name: backend-redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports: ["6379:6379"]
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 96M
 
   redpanda:
     image: redpandadata/redpanda:v23.3.13
+    container_name: backend-redpanda
     command:
       - redpanda start
       - --smp 1
@@ -108,13 +130,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 384M
 
   identity:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: identity}}
-    container_name: bhukkad-chef
-    image: ghcr.io/bhukkad/identity:latest
+    container_name: backend-identity
+    image: backend/identity:dev
     environment:
       <<: *app-env
       IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
@@ -123,12 +145,29 @@ services:
       APP_BOOTSTRAPADMIN_ENABLED: "true"
       APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
       APP_BOOTSTRAPADMIN_PASSWORD: "Admin@123456"
+      # Identity is the auth bottleneck under test load (mint/validate JWTs per
+      # request). Give it a larger heap than the lean default so it survives the
+      # bootstrap account-creation burst. Same container-memory tuning bundle
+      # as the app-defaults (MALLOC_ARENA_MAX is inherited from the anchor).
+      JAVA_OPTS: >-
+        -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=24m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+        -XX:ReservedCodeCacheSize=48m
+        -Xss256k
+        -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=25
+        -XX:ActiveProcessorCount=1
+        -XX:MaxRAMPercentage=50
+      spring.datasource.hikari.maximum-pool-size: "8"
+    deploy:
+      resources:
+        limits:
+          memory: 640M
 
   restaurant:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: restaurant}}
-    container_name: bhukkad-tandoori
-    image: ghcr.io/bhukkad/restaurant:latest
+    container_name: backend-restaurant
+    image: backend/restaurant:dev
     environment:
       <<: *app-env
       RESTAURANT_DB_URL: jdbc:postgresql://postgres:5432/restaurants
@@ -136,8 +175,8 @@ services:
   order:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: order}}
-    container_name: bhukkad-thali
-    image: ghcr.io/bhukkad/order:latest
+    container_name: backend-order
+    image: backend/order:dev
     environment:
       <<: *app-env
       ORDER_DB_URL: jdbc:postgresql://postgres:5432/orders
@@ -147,8 +186,8 @@ services:
   payment:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: payment}}
-    container_name: bhukkad-purse
-    image: ghcr.io/bhukkad/payment:latest
+    container_name: backend-payment
+    image: backend/payment:dev
     environment:
       <<: *app-env
       PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/payments
@@ -156,17 +195,20 @@ services:
   delivery:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: delivery}}
-    container_name: bhukkad-rocket
-    image: ghcr.io/bhukkad/delivery:latest
+    container_name: backend-delivery
+    image: backend/delivery:dev
     environment:
       <<: *app-env
       DELIVERY_DB_URL: jdbc:postgresql://postgres:5432/delivery
+      # Rider earnings proxy: PaymentServiceClient binds app.services.payment
+      # .url, which defaults to payment:8080 inside the mesh (correct here).
+      APP_SERVICES_PAYMENT_URL: http://payment:8080
 
   notification:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: notification}}
-    container_name: bhukkad-dhingli
-    image: ghcr.io/bhukkad/notification:latest
+    container_name: backend-notification
+    image: backend/notification:dev
     environment:
       <<: *app-env
       NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/notification
@@ -174,8 +216,8 @@ services:
   admin-analytics:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: admin-analytics}}
-    container_name: bhukkad-haveli
-    image: ghcr.io/bhukkad/admin-analytics:latest
+    container_name: backend-admin-analytics
+    image: backend/admin-analytics:dev
     environment:
       <<: *app-env
       ADMIN_DB_URL: jdbc:postgresql://postgres:5432/admin
@@ -189,18 +231,21 @@ services:
   gateway:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: gateway}}
-    container_name: bhukkad-darwaza
-    image: ghcr.io/bhukkad/gateway:latest
+    container_name: backend-gateway
+    image: backend/gateway:dev
     ports: ["8095:8080"]
     environment:
-      SERVER_PORT: "8080"
-      REDIS_HOST: redis
-      SPRING_DATA_REDIS_HOST: redis
-      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
-      TRACING_SAMPLE_PROBABILITY: "0.0"
+      # Merge the shared app-env anchor (JWT secrets, MALLOC_ARENA_MAX, ...)
+      # and override only what the gateway needs differently.
+      <<: *app-env
+      # Gateway routes every request; give it more breathing room under test load.
       JAVA_OPTS: >-
-        -Xms48m -Xmx192m -XX:MaxMetaspaceSize=140m -XX:MaxDirectMemorySize=32m
-        -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=1
+        -Xms64m -Xmx256m -XX:MaxMetaspaceSize=140m -XX:MaxDirectMemorySize=32m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+        -XX:ReservedCodeCacheSize=64m
+        -Xss256k
+        -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=25
+        -XX:ActiveProcessorCount=1
       RESTAURANT_SERVICE_URL: http://restaurant:8080
       IDENTITY_SERVICE_URL: http://identity:8080
       ORDER_SERVICE_URL: http://order:8080
@@ -218,8 +263,8 @@ services:
   search:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: search}}
-    container_name: bhukkad-jasoos
-    image: ghcr.io/bhukkad/search:latest
+    container_name: backend-search
+    image: backend/search:dev
     environment:
       <<: *app-env
       SEARCH_DB_URL: jdbc:postgresql://postgres:5432/search
@@ -227,20 +272,23 @@ services:
   survey:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: survey}}
-    container_name: bhukkad-mimamsa
-    image: ghcr.io/bhukkad/survey:latest
+    container_name: backend-survey
+    image: backend/survey:dev
     environment:
       <<: *app-env
       SURVEY_DB_URL: jdbc:postgresql://postgres:5432/survey
       KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
       PLATFORM_EVENTS_TOPIC: bhukkad.platform.events
       SURVEY_CONSUMER_GROUP: survey-platform-consumer
+      # Ownership oracle: survey yml default is order:8092 (a port that
+      # exists only in host-mode runs); the mesh must use the container port.
+      ORDER_SERVICE_URL: http://order:8080
 
   referral:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: referral}}
-    container_name: bhukkad-sathi
-    image: ghcr.io/bhukkad/referral:latest
+    container_name: backend-referral
+    image: backend/referral:dev
     environment:
       <<: *app-env
       REFERRAL_DB_URL: jdbc:postgresql://postgres:5432/referral
@@ -248,17 +296,20 @@ services:
   supportticket:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: supportticket}}
-    container_name: bhukkad-sahayak
-    image: ghcr.io/bhukkad/supportticket:latest
+    container_name: backend-supportticket
+    image: backend/supportticket:dev
     environment:
       <<: *app-env
       SUPPORT_DB_URL: jdbc:postgresql://postgres:5432/support
+      # Wallet credit client: yml default is payment:8093 (host-mode port);
+      # inside the compose network payment listens on 8080.
+      PAYMENT_SERVICE_URL: http://payment:8080
 
   realtime:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: realtime}}
-    container_name: bhukkad-chashma
-    image: ghcr.io/bhukkad/realtime:latest
+    container_name: backend-realtime
+    image: backend/realtime:dev
     environment:
       <<: *app-env
       POSTGRES_HOST: postgres
@@ -266,8 +317,8 @@ services:
   growth:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: growth}}
-    container_name: bhukkad-vriddhi
-    image: ghcr.io/bhukkad/growth:latest
+    container_name: backend-growth
+    image: backend/growth:dev
     environment:
       <<: *app-env
       POSTGRES_HOST: postgres
@@ -275,8 +326,8 @@ services:
   personalization:
     <<: *app-defaults
     build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: personalization}}
-    container_name: bhukkad-rasoi-raja
-    image: ghcr.io/bhukkad/personalization:latest
+    container_name: backend-personalization
+    image: backend/personalization:dev
     environment:
       <<: *app-env
       POSTGRES_HOST: postgres
@@ -285,6 +336,7 @@ services:
   # boot (static upstream blocks); keep it out of staged bring-ups.
   nginx:
     image: nginx:1.27-alpine
+    container_name: backend-edge-proxy
     profiles: ["edge"]
     ports: ["8088:80"]
     volumes:
@@ -303,5 +355,5 @@ services:
       - supportticket
 
 volumes:
-  bhukkad-pgdata:
-    name: bhukkad_pgdata_dev
+  backend-pgdata:
+    name: backend_pgdata_dev

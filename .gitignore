@@ -75,3 +75,9 @@ services/docker/images/
 
 # Root-owned backup dir pending manual removal (rm needs sudo)
 **/wallet-old.bak/
+
+# Pytest cache
+.pytest_cache/
+
+# Local dev-stack runtime state (pid files written by scripts/local-up.sh)
+.local-stack.pids

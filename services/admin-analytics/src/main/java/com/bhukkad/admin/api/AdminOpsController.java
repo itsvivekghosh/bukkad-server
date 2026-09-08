@@ -56,6 +56,26 @@ public class AdminOpsController {
         return body;
     }
 
+    /**
+     * Platform KPI dashboard (the installed admin app's home screen). The
+     * ADMIN-only projection combines the local admin tables (fraud queue,
+     * audit trail, API keys) with mesh-side counters the order/payment
+     * domains own; the dev build reports honest zero-state for the mesh
+     * counters rather than fake numbers.
+     */
+    @GetMapping("/dashboard")
+    @Transactional(readOnly = true)
+    public Map<String, Object> dashboard() {
+        Map<String, Object> kpis = new LinkedHashMap<>();
+        kpis.put("totalUsers", 0);
+        kpis.put("totalOrders", 0);
+        kpis.put("totalRevenue", 0.0);
+        kpis.put("pendingFraudCases", fraudEventRepository.findByStatus("PENDING").size());
+        kpis.put("auditEvents", auditEventRepository.count());
+        kpis.put("generatedAt", java.time.LocalDateTime.now().toString());
+        return kpis;
+    }
+
     /** Aggregate analytics view (aliases the stats dashboards). */
     @GetMapping("/analytics")
     @Transactional(readOnly = true)

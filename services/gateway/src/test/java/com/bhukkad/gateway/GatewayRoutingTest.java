@@ -3,6 +3,7 @@ package com.bhukkad.gateway;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
@@ -158,6 +159,15 @@ class GatewayRoutingTest {
 
     @Autowired
     private WebTestClient client;
+
+    @BeforeEach
+    void headroomForParallelBuilds() {
+        // @AutoConfigureWebTestClient's default 5s block-read timeout is too
+        // tight when `mvn -T` boots several module JVMs at once — the gateway
+        // context + 5 mock backends + routing chain can legitimately exceed
+        // it. Mutate to 15s (far below surefire's hang budget).
+        client = client.mutate().responseTimeout(java.time.Duration.ofSeconds(15)).build();
+    }
 
     @Test
     void restaurantSliceIsServedByRestaurantBackend() {

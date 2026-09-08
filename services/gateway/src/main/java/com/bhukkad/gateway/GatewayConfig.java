@@ -79,6 +79,13 @@ public class GatewayConfig {
     @Bean
     public RouteLocator gatewayRoutes(RouteLocatorBuilder builder) {
         return builder.routes()
+                // Service-internal surfaces (mesh clients, service JWT auth)
+                // must never be reachable through the edge. Declared first so
+                // no route ever forwards to /api/v1/internal/**.
+                .route("internal-guard", r -> r.path(
+                        "/api/v1/internal/**")
+                        .filters(f -> f.setStatus(403))
+                        .uri(orderUri))
                 // Notification service (P2): notification dispatch and history.
                 .route("notification", r -> r.path(
                         "/api/v1/notifications/**").uri(notificationUri))
@@ -278,17 +285,18 @@ public class GatewayConfig {
                                 "/api/v1/support/admin/${seg}"))
                         .uri(supportUri))
                 // Platform-admin user/tenant/affiliate console (identity-owned
-                // domains): proxies onto identity over the mesh.
-                .route("admin-identity-users-list", r -> r.path(
-                        "/api/v1/admin/users")
-                        .filters(f -> f.rewritePath("/api/v1/admin/users",
-                                "/api/v1/internal/admin/users"))
-                        .uri(identityUri))
-                .route("admin-identity-users", r -> r.path(
+                // domains): the admin console ops (list/get/verify/activate/
+                // deactivate/erase) are served by admin-analytics's
+                // AdminUserOpsController, which proxies onto identity over the
+                // mesh WITH a service token. Rewriting straight onto identity's
+                // /internal/admin/users (previous wiring) could never work:
+                // the gateway strips spoofed X-Service-Token headers and does
+                // not mint real ones, so identity's ServiceJwtAuthFilter
+                // rejected every external call with 401.
+                .route("admin-user-console", r -> r.path(
+                        "/api/v1/admin/users",
                         "/api/v1/admin/users/**")
-                        .filters(f -> f.rewritePath("/api/v1/admin/users/(?<seg>.*)",
-                                "/api/v1/internal/admin/users/${seg}"))
-                        .uri(identityUri))
+                        .uri(adminAnalyticsUri))
                 .route("admin-identity-tenants", r -> r.path(
                         "/api/v1/admin/tenants")
                         .filters(f -> f.rewritePath("/api/v1/admin/tenants",

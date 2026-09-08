@@ -11,6 +11,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
 import java.util.List;
@@ -39,7 +40,14 @@ public class RestaurantClient {
      * Fetch a single menu item by id (canonical public surface,
      * {@code GET /api/v1/menu/items/{id}}). Used by the cart to resolve an
      * authoritative name+price server-side instead of trusting the caller's
-     * snapshot. Empty Mono when the item does not exist.
+     * snapshot.
+     *
+     * <p>Error contract: a genuine 404 from restaurant resolves to an EMPTY
+     * Mono ("item does not exist"); every other failure — timeout, connection
+     * refused, 5xx, restart churn — propagates as an error signal so callers
+     * can map it to 503 (UpstreamUnavailableException) instead of falsely
+     * reporting the item as missing. (Previously all errors collapsed to
+     * empty, which produced lying 404s during upstream restarts.)</p>
      */
     @SuppressWarnings("unchecked")
     public Mono<java.util.Map<String, Object>> getMenuItem(Long id) {
@@ -49,7 +57,11 @@ public class RestaurantClient {
                 .bodyToMono(java.util.Map.class)
                 .map(m -> (java.util.Map<String, Object>) m)
                 .timeout(java.time.Duration.ofSeconds(3))
-                .onErrorResume(e -> Mono.empty());
+                // Genuine 404 → empty Mono (item does not exist). Reactor
+                // turns the 404 status into WebClientResponseException via
+                // the default status handler; catch ONLY that class here.
+                .onErrorResume(WebClientResponseException.NotFound.class,
+                        e -> Mono.empty());
     }
 
     /**
@@ -63,7 +75,6 @@ public class RestaurantClient {
                 .uri("/api/v1/restaurants/public/{id}", id)
                 .retrieve()
                 .bodyToMono(RestaurantResponse.class)
-                .timeout(Duration.ofSeconds(3))
                 .onErrorResume(e -> {
                     // Log and return empty for downstream handling
                     return Mono.empty();
@@ -81,7 +92,6 @@ public class RestaurantClient {
                 .uri("/api/v1/restaurants/{restaurantId}/menu", restaurantId)
                 .retrieve()
                 .bodyToMono(MenuSnapshot.class)
-                .timeout(Duration.ofSeconds(3))
                 .onErrorResume(e -> Mono.empty());
     }
 
@@ -101,8 +111,18 @@ public class RestaurantClient {
                 .retrieve()
                 .bodyToFlux(RestaurantResponse.class)
                 .collectList()
-                .timeout(Duration.ofSeconds(3))
                 .onErrorResume(e -> Mono.just(List.of()));
+    }
+
+    /**
+     * Resolve the owning restaurant of a menu item (item → restaurantId).
+     * Empty Mono when the item does not exist (404) or the payload carries no
+     * restaurantId.
+     */
+    public Mono<Long> getMenuItemRestaurantId(Long menuItemId) {
+        return getMenuItem(menuItemId)
+                .map(m -> m.get("restaurantId"))
+                .map(rid -> Long.valueOf(String.valueOf(rid)));
     }
 
     /**
@@ -148,6 +168,9 @@ public class RestaurantClient {
                 .bodyToMono(new ParameterizedTypeReference<List<StockReservationLine>>() { })
                 .defaultIfEmpty(lines)
                 .map(returned -> returned.isEmpty() ? lines : returned)
-                .timeout(Duration.ofSeconds(5));
+                // Bounds the WHOLE retry chain (filters: 3 attempts × 5s each
+                // + 1s backoffs) — a 5s outer timeout cut legitimate retries
+                // off mid-flight under load.
+                .timeout(Duration.ofSeconds(20));
     }
 }

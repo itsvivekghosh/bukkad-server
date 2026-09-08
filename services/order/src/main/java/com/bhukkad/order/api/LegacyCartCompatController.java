@@ -46,7 +46,18 @@ public class LegacyCartCompatController {
         }
         // Authoritative name+price from the restaurant service; never trust the
         // caller-supplied snapshot and never let NOT NULL columns explode 500.
-        java.util.Map<String, Object> item = restaurantClient.getMenuItem(request.menuItemId()).block();
+        // Error contract (RestaurantClient.getMenuItem): a genuine 404 resolves
+        // to an EMPTY mono ("item does not exist"); every other failure — mesh
+        // outage, timeout, 5xx — propagates as 503 so a restarting upstream is
+        // never misreported as "item missing".
+        java.util.Map<String, Object> item;
+        try {
+            item = restaurantClient.getMenuItem(request.menuItemId())
+                    .block(java.time.Duration.ofSeconds(5));
+        } catch (RuntimeException meshFailure) {
+            throw new com.bhukkad.common.error.UpstreamUnavailableException(
+                    "restaurant", meshFailure);
+        }
         if (item == null || item.isEmpty()) {
             throw new com.bhukkad.common.error.ResourceNotFoundException(
                     "Menu item not found: " + request.menuItemId());

@@ -35,6 +35,13 @@ public class AdminUserOpsController {
     private final AuditService auditService;
     private final ServiceMeshClient mesh;
 
+    /** Paginated user directory, proxied to identity over the mesh. */
+    @GetMapping("/users")
+    public Map<String, Object> users(@RequestParam(defaultValue = "0") int page,
+                                     @RequestParam(defaultValue = "10") int size) {
+        return mesh.get("/api/v1/internal/admin/users?page=" + page + "&size=" + size);
+    }
+
     @GetMapping("/users/{userId}")
     public Map<String, Object> user(@PathVariable Long userId) {
         return mesh.get("/api/v1/internal/admin/users/" + userId);

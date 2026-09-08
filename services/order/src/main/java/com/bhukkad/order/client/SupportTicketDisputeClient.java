@@ -1,5 +1,6 @@
 package com.bhukkad.order.client;
 
+import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.CircuitBreakerFilter;
 import com.bhukkad.common.web.client.RetryFilter;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,19 +17,41 @@ import reactor.core.publisher.Mono;
  * Service-to-service client for the SupportTicket service (dispute operations).
  *
  * <p>Uses WebClient with built-in resilience: retry (3 attempts, 1s backoff),
- * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).</p>
+ * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).
+ * Every call carries the mesh service token on {@code X-Service-Token} —
+ * supportticket authorizes dispute surfaces behind role guards, so tokenless
+ * mesh legs used to be rejected with 401 and silently swallowed into empty
+ * responses (the admin dispute console appeared to return no data).</p>
  */
 @Component
 public class SupportTicketDisputeClient {
 
     private final WebClient webClient;
+    private final org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider;
 
-    public SupportTicketDisputeClient(@Value("${app.services.supportticket.url}") String baseUrl) {
+    public SupportTicketDisputeClient(
+            @Value("${app.services.supportticket.url}") String baseUrl,
+            org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider) {
+        this.authTokenProvider = authTokenProvider;
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .filter(new RetryFilter(3, Duration.ofSeconds(1)))
                 .filter(new CircuitBreakerFilter("supportticket", CircuitBreakerFilter.DEFAULT_CONFIG))
+                // Mesh auth: stamp X-Service-Token when service auth is
+                // enabled; supportticket rejects tokenless dispute calls.
+                .filter((request, next) -> {
+                    String token = meshToken();
+                    return next.exchange(token == null ? request
+                            : org.springframework.web.reactive.function.client.ClientRequest
+                                    .from(request).header("X-Service-Token", token).build());
+                })
                 .build();
+    }
+
+    /** Mesh token when service auth is enabled; absent otherwise (dev). */
+    private String meshToken() {
+        ServiceJwtAuthTokenProvider provider = authTokenProvider.getIfAvailable();
+        return provider == null ? null : provider.serviceToken();
     }
 
     /** DTO matching supportticket's DisputeRequest */

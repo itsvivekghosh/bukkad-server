@@ -35,6 +35,9 @@ _spec.loader.exec_module(test_all_apis)
 # Access functions/classes from the dynamically-loaded module.
 RunState = test_all_apis.RunState
 TestResult = test_all_apis.TestResult
+# The imported dataclass is not a test case: keep pytest from trying to
+# collect it (silences PytestCollectionWarning "cannot collect test class").
+TestResult.__test__ = False  # type: ignore[attr-defined]
 resolve_string = test_all_apis.resolve_string
 resolve_value = test_all_apis.resolve_value
 extract_json_path = test_all_apis.extract_json_path
@@ -819,7 +822,23 @@ class TestRunTest(unittest.TestCase):
         spec = {"name": "Down", "method": "GET", "path": "/api/v1/health", "expected": [200]}
         result = run_test(spec, "http://localhost:8080", state, 5, verbose=False)
         self.assertFalse(result.passed)
+        # Mandatory spec: transport failure stays a FAIL (not a skip).
         self.assertFalse(result.skipped)
+        self.assertTrue(result.error)
+
+    @patch("test_all_apis.urlopen")
+    def test_optional_spec_connection_error_marks_skipped(self, mock_urlopen):
+        """Optional spec + transport failure → SKIP (environment signal), but
+        an optional spec failing an HTTP assertion still FAILs."""
+        from urllib.error import URLError
+        mock_urlopen.side_effect = URLError("Connection refused")
+        state = RunState()
+        state.init_defaults("pw")
+        spec = {"name": "OptDown", "method": "GET", "path": "/api/v1/x",
+                "expected": [200], "optional": True}
+        result = run_test(spec, "http://localhost:8080", state, 5, verbose=False)
+        self.assertFalse(result.passed)
+        self.assertTrue(result.skipped)
         self.assertTrue(result.error)
 
     @patch("test_all_apis.urlopen")
@@ -1613,10 +1632,6 @@ class TestRunTestWithReset(unittest.TestCase):
         mock_urlopen.return_value = self._mock_response_obj(500, b'{"message":"An unexpected error occurred"}')
         state = RunState()
         spec = {"name": "Crash", "method": "GET", "path": "/api/v1/crash", "expected": [200]}
-        """500 responses should be flagged as potential defects in logging."""
-        mock_urlopen.return_value = self._mock_response_obj(500, b'{"message":"An unexpected error occurred"}')
-        state = RunState()
-        spec = {"name": "Crash", "method": "GET", "path": "/api/v1/crash", "expected": [200]}
         with self.assertLogs("test_all_apis", level="WARNING") as log_ctx:
             result = run_test(spec, "http://localhost:8080", state, 30, verbose=False)
         self.assertFalse(result.passed)
@@ -2036,9 +2051,14 @@ class TestOrchestrationEdgeCases(unittest.TestCase):
 
     def test_battery_result_before_registration_raises_clearly(self):
         # results list not wired → _EDGE_STATE["results"] is None → AttributeError.
-        test_all_apis._EDGE_STATE["results"] = None
-        with self.assertRaises(AttributeError):
-            test_all_apis._edge_battery_result("n", True, 400, "d")
+        # Save/restore global battery state so this test cannot poison later ones.
+        saved = test_all_apis._EDGE_STATE.get("results")
+        try:
+            test_all_apis._EDGE_STATE["results"] = None
+            with self.assertRaises(AttributeError):
+                test_all_apis._edge_battery_result("n", True, 400, "d")
+        finally:
+            test_all_apis._EDGE_STATE["results"] = saved
 
     # ── _probe helper ───────────────────────────────────────────────────────
 
@@ -2382,6 +2402,849 @@ class TestOrchestrationEdgeCases(unittest.TestCase):
         state = RunState()
         test_all_apis.setup_invoice_pdf_order("http://x", state, 5)
         self.assertNotIn("order_id", state.vars)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Newly added edge-case coverage (repaired + extended suite)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestResolveStringMoreEdgeCases(unittest.TestCase):
+    """Adversarial placeholder templates and value types for resolve_string."""
+
+    def test_numeric_var_value_stringified(self):
+        state = RunState()
+        state.vars["n"] = 5
+        self.assertEqual(resolve_string("/items/{n}", state), "/items/5")
+
+    def test_vars_take_precedence_over_tokens(self):
+        state = RunState()
+        state.vars["dup"] = "from_vars"
+        state.tokens["dup"] = "from_tokens"
+        self.assertEqual(resolve_string("{dup}", state), "from_vars")
+
+    def test_backslash_digits_not_treated_as_regex_backrefs(self):
+        """re.sub with a function replacer must return the literal value,
+        not expand \\1-style group references."""
+        state = RunState()
+        state.vars["x"] = "\\1"
+        self.assertEqual(resolve_string("{x}", state), "\\1")
+
+    def test_braces_with_spaces_not_substituted(self):
+        state = RunState()
+        state.vars["a"] = "A"
+        self.assertEqual(resolve_string("{ a }", state), "{ a }")
+
+    def test_unmatched_brace_left_untouched(self):
+        state = RunState()
+        state.vars["a"] = "A"
+        self.assertEqual(resolve_string("{a", state), "{a")
+
+    def test_empty_braces_left_untouched(self):
+        state = RunState()
+        self.assertEqual(resolve_string("{}", state), "{}")
+
+    def test_nested_braces_substitute_inner_only(self):
+        state = RunState()
+        state.vars["b"] = "B"
+        # "{a{b}}" — \w+ cannot span "{a", so only the inner "{b}" matches.
+        self.assertEqual(resolve_string("{a{b}}", state), "{aB}")
+
+    def test_placeholder_with_underscore_and_digits(self):
+        state = RunState()
+        state.vars["order_id_2"] = "77"
+        self.assertEqual(resolve_string("/o/{order_id_2}", state), "/o/77")
+
+    def test_adjacent_placeholders(self):
+        state = RunState()
+        state.vars["a"] = "1"
+        state.vars["b"] = "2"
+        self.assertEqual(resolve_string("{a}{b}", state), "12")
+
+
+class TestResolveValueMoreEdgeCases(unittest.TestCase):
+    """Coercion boundaries: partial placeholders, exotic numeric formats."""
+
+    def test_partial_placeholder_under_numeric_key_stays_string(self):
+        state = RunState()
+        state.vars["n"] = "5"
+        result = resolve_value("{n} items", state, key="quantity")
+        self.assertEqual(result, "5 items")
+        self.assertIsInstance(result, str)
+
+    def test_unresolved_placeholder_under_numeric_key_stays_template(self):
+        state = RunState()
+        result = resolve_value("{never_set}", state, key="quantity")
+        self.assertEqual(result, "{never_set}")
+
+    def test_numeric_key_with_surrounding_whitespace_coerces(self):
+        """Documents current Python int() semantics: whitespace is tolerated."""
+        state = RunState()
+        state.vars["v"] = " 42 "
+        self.assertEqual(resolve_value("{v}", state, key="quantity"), 42)
+
+    def test_trailing_dot_coerces_to_float(self):
+        state = RunState()
+        state.vars["v"] = "42."
+        result = resolve_value("{v}", state, key="price")
+        self.assertIsInstance(result, float)
+        self.assertEqual(result, 42.0)
+
+    def test_scientific_notation_coerces_to_float(self):
+        state = RunState()
+        state.vars["v"] = "1e5"
+        result = resolve_value("{v}", state, key="price")
+        self.assertIsInstance(result, float)
+        self.assertAlmostEqual(result, 100000.0)
+
+    def test_bare_numeric_literal_without_placeholder_stays_string(self):
+        state = RunState()
+        # No placeholder at all; coercion only applies after substitution —
+        # a raw literal "42" under key=None must stay a string.
+        self.assertEqual(resolve_value("42", state), "42")
+
+    def test_tuple_passthrough_untouched(self):
+        state = RunState()
+        tpl = (1, "a")
+        self.assertIs(resolve_value(tpl, state), tpl)
+
+    def test_bool_values_inside_dict_preserved(self):
+        state = RunState()
+        result = resolve_value({"active": True, "deleted": False}, state)
+        self.assertIs(result["active"], True)
+        self.assertIs(result["deleted"], False)
+
+    def test_empty_containers_resolve_to_empty(self):
+        state = RunState()
+        self.assertEqual(resolve_value({}, state), {})
+        self.assertEqual(resolve_value([], state), [])
+
+    def test_unknown_key_never_coerces(self):
+        state = RunState()
+        state.vars["v"] = "199"
+        result = resolve_value("{v}", state, key="totallyUnknownKey")
+        self.assertEqual(result, "199")
+        self.assertIsInstance(result, str)
+
+
+class TestExtractJsonPathMoreEdgeCases(unittest.TestCase):
+    """Falsy values, exotic dict shapes, and envelope-fallback boundaries."""
+
+    def test_falsy_values_returned_verbatim(self):
+        self.assertEqual(extract_json_path({"a": 0}, "a"), 0)
+        self.assertIs(extract_json_path({"a": False}, "a"), False)
+        self.assertEqual(extract_json_path({"a": ""}, "a"), "")
+
+    def test_digit_key_on_dict_returns_none(self):
+        """Documented quirk: a digit path segment only indexes LISTS, so a
+        dict with a string "0" key is not reachable by "0"."""
+        self.assertIsNone(extract_json_path({"0": "zero"}, "0"))
+
+    def test_dotted_key_not_traversable(self):
+        self.assertIsNone(extract_json_path({"a.b": 1}, "a.b"))
+
+    def test_double_data_envelope_walks(self):
+        data = {"data": {"data": {"id": 9}}}
+        self.assertEqual(extract_json_path(data, "data.data.id"), 9)
+
+    def test_flat_double_data_path_not_rescued(self):
+        """Only ONE leading data. is stripped; data.data.token on a flat body
+        (whose root has no data) must not be resurrected."""
+        self.assertIsNone(extract_json_path({"token": "x"}, "data.data.token"))
+
+    def test_bare_data_path_returns_envelope_when_present(self):
+        data = {"data": {"token": "t"}}
+        self.assertEqual(extract_json_path(data, "data"), {"token": "t"})
+
+
+class TestHttpRequestMoreEdgeCases(unittest.TestCase):
+    """Request mutation details: method case, header precedence, timeouts."""
+
+    def _mock_response(self, status=200, body=b'{}', headers=None):
+        resp = MagicMock()
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        resp.status = status
+        resp.read.return_value = body
+        resp.headers = headers if headers is not None else {}
+        return resp
+
+    @patch("test_all_apis.urlopen")
+    def test_method_is_uppercased_on_wire(self, mock_urlopen):
+        mock_urlopen.return_value = self._mock_response()
+        http_request("post", "http://x/a", {}, b"{}", 5)
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(req.get_method(), "POST")
+
+    def test_explicit_content_type_not_overwritten(self):
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response()
+            http_request("POST", "http://x/a", {"Content-Type": "text/plain"}, b"x", 5)
+            req = m.call_args[0][0]
+            self.assertEqual(req.get_header("Content-type"), "text/plain")
+
+    def test_get_without_body_has_no_content_type(self):
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response()
+            http_request("GET", "http://x/a", {}, None, 5)
+            req = m.call_args[0][0]
+            self.assertIsNone(req.data)
+            self.assertIsNone(req.get_header("Content-type"))
+
+    def test_sse_accept_overrides_timeout_to_five(self):
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response()
+            http_request("GET", "http://x/sse", {"Accept": "text/event-stream"}, None, 30)
+            self.assertEqual(m.call_args.kwargs["timeout"], 5)
+
+    def test_non_sse_uses_given_timeout(self):
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response()
+            http_request("GET", "http://x/a", {}, None, 17)
+            self.assertEqual(m.call_args.kwargs["timeout"], 17)
+
+    def test_response_headers_converted_to_plain_dict(self):
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response(headers={"X-Total-Count": "5"})
+            _, _, hdrs = http_request("GET", "http://x/a", {}, None, 5)
+            self.assertIsInstance(hdrs, dict)
+            self.assertEqual(hdrs.get("X-Total-Count"), "5")
+
+
+class TestRunTestMoreEdgeCases(unittest.TestCase):
+    """Coverage for run_test paths that had no tests: skip gating, header and
+    query handling, template specials (scheduled orders, webhook replay ids)."""
+
+    def _mock_response_obj(self, status=200, body=b'{}'):
+        resp = MagicMock()
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        resp.status = status
+        resp.read.return_value = body
+        resp.headers = {}
+        return resp
+
+    def test_requires_empty_string_var_skips(self):
+        state = RunState()
+        state.vars["shop_id"] = ""
+        spec = {"name": "NeedShop", "method": "GET", "path": "/api/v1/shop/{shop_id}",
+                "expected": [200], "requires": ["shop_id"]}
+        result = run_test(spec, "http://x", state, 5, verbose=False)
+        self.assertTrue(result.skipped)
+        self.assertIn("shop_id", result.skip_reason)
+
+    def test_requires_empty_token_skips(self):
+        state = RunState()
+        state.tokens["customer_token"] = ""
+        spec = {"name": "NeedTok", "method": "GET", "path": "/api/v1/x",
+                "expected": [200], "requires": ["customer_token"]}
+        result = run_test(spec, "http://x", state, 5, verbose=False)
+        self.assertTrue(result.skipped)
+        self.assertIn("Missing required token", result.skip_reason)
+
+    def test_auth_accepts_raw_token_key_not_in_auth_map(self):
+        """auth values absent from AUTH_MAP are treated as token names directly."""
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            state = RunState()
+            state.tokens["owner_token"] = "raw.key"
+            spec = {"name": "OwnerRaw", "method": "GET", "path": "/api/v1/owner",
+                    "expected": [200], "auth": "owner_token"}
+            result = run_test(spec, "http://x", state, 5, verbose=False)
+            self.assertTrue(result.passed)
+            req = m.call_args[0][0]
+            self.assertEqual(req.get_header("Authorization"), "Bearer raw.key")
+
+    def test_unknown_custom_auth_skips_with_role_name(self):
+        state = RunState()
+        spec = {"name": "Weird", "method": "GET", "path": "/api/v1/w",
+                "expected": [200], "auth": "weird_token"}
+        result = run_test(spec, "http://x", state, 5, verbose=False)
+        self.assertTrue(result.skipped)
+        self.assertIn("weird_token", result.skip_reason)
+
+    def test_custom_headers_resolved_and_authorization_stripped_from_report(self):
+        state = RunState()
+        state.init_defaults("pw")
+        state.tokens["customer_token"] = "jwt.secret"
+        spec = {"name": "Hdrs", "method": "POST", "path": "/api/v1/h",
+                "expected": [200], "auth": "customer",
+                "headers": {"X-Idem": "{idempotency_key}"}}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            result = run_test(spec, "http://x", state, 5, verbose=False)
+            req = m.call_args[0][0]
+            # On the wire: full auth + resolved custom header
+            self.assertEqual(req.get_header("Authorization"), "Bearer jwt.secret")
+            self.assertEqual(req.get_header("X-idem"), state.vars["idempotency_key"])
+            # In the report: Authorization redacted, custom header resolved
+            self.assertNotIn("Authorization", result.request_headers)
+            self.assertEqual(result.request_headers["X-Idem"], state.vars["idempotency_key"])
+
+    def test_query_none_and_empty_values_dropped(self):
+        state = RunState()
+        state.init_defaults("pw")
+        state.vars["blank"] = ""
+        spec = {"name": "Q", "method": "GET", "path": "/api/v1/z", "expected": [200],
+                "query": {"a": None, "b": "{blank}", "c": "1"}}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            result = run_test(spec, "http://x", state, 5, verbose=False)
+            self.assertEqual(result.url, "http://x/api/v1/z?c=1")
+
+    def test_base_url_trailing_slash_normalized(self):
+        state = RunState()
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            result = run_test({"name": "S", "method": "GET", "path": "/api/v1/z",
+                               "expected": [200]}, "http://x/", state, 5, verbose=False)
+            self.assertEqual(result.url, "http://x/api/v1/z")
+
+    def test_unknown_body_key_sends_no_body(self):
+        """A body_key missing from BODY_TEMPLATES must degrade to no body,
+        not crash and not send an empty dict."""
+        state = RunState()
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            result = run_test({"name": "NB", "method": "POST", "path": "/p",
+                               "body_key": "no_such_template_xyz",
+                               "expected": [200]}, "http://x", state, 5, verbose=False)
+            req = m.call_args[0][0]
+            self.assertIsNone(req.data)
+            self.assertIsNone(result.request_body)
+
+    def test_scheduled_order_gets_future_scheduled_at(self):
+        """The scheduled_order template receives scheduledAt = now + 35 min."""
+        from datetime import datetime
+        state = RunState()
+        state.init_defaults("pw")
+        spec = {"name": "Sched", "method": "POST", "path": "/api/v1/orders/schedule",
+                "body_key": "scheduled_order", "expected": [200]}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            result = run_test(spec, "http://x", state, 5, verbose=False)
+            scheduled = datetime.strptime(result.request_body["scheduledAt"],
+                                          "%Y-%m-%dT%H:%M:%S")
+            delta_min = (scheduled - datetime.now()).total_seconds() / 60
+            self.assertGreater(delta_min, 30)
+            self.assertLess(delta_min, 40)
+
+    def test_razorpay_webhook_payment_id_unique_per_invocation(self):
+        """Replay protection: each webhook spec run must mint a fresh paymentId."""
+        state = RunState()
+        spec = {"name": "WH", "method": "POST", "path": "/api/v1/payments/webhook",
+                "body_key": "razorpay_webhook", "expected": [200, 404]}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            first = run_test(spec, "http://x", state, 5, verbose=False)
+            second = run_test(spec, "http://x", state, 5, verbose=False)
+        self.assertEqual(first.request_body["paymentId"], "pay_test1")
+        self.assertEqual(second.request_body["paymentId"], "pay_test2")
+
+    def test_extract_tolerates_malformed_response_json(self):
+        state = RunState()
+        spec = {"name": "Bad", "method": "GET", "path": "/p", "expected": [200],
+                "extract": {"shop_id": "data.id"}}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj(200, b"this is not json{{{")
+            result = run_test(spec, "http://x", state, 5, verbose=False)
+            self.assertTrue(result.passed)
+            self.assertNotIn("shop_id", state.vars)
+
+    def test_400_logs_warning_with_response_message(self):
+        state = RunState()
+        spec = {"name": "V400", "method": "POST", "path": "/p", "expected": [200]}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj(
+                400, b'{"message":"must not be blank"}')
+            with self.assertLogs("test_all_apis", level="WARNING") as ctx:
+                run_test(spec, "http://x", state, 5, verbose=False)
+        self.assertTrue(any("returned 400" in line and "must not be blank" in line
+                            for line in ctx.output))
+
+    def test_passes_when_status_matches_any_expected(self):
+        state = RunState()
+        spec = {"name": "Multi", "method": "POST", "path": "/p",
+                "expected": [200, 201, 204]}
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj(201)
+            result = run_test(spec, "http://x", state, 5, verbose=False)
+        self.assertTrue(result.passed)
+        self.assertEqual(result.status_code, 201)
+
+    def test_group_and_description_copied_into_result(self):
+        state = RunState()
+        with patch("test_all_apis.urlopen") as m:
+            m.return_value = self._mock_response_obj()
+            result = run_test({"name": "G", "group": "My Group",
+                               "description": "desc!", "method": "GET",
+                               "path": "/p", "expected": [200]},
+                              "http://x", state, 5, verbose=False)
+        self.assertEqual(result.group, "My Group")
+        self.assertEqual(result.description, "desc!")
+        self.assertIsInstance(result.duration_ms, int)
+        self.assertGreaterEqual(result.duration_ms, 0)
+
+
+class TestApplyAuthExtractMoreEdgeCases(unittest.TestCase):
+
+    def test_integer_value_stringified(self):
+        state = RunState()
+        state.init_defaults("pw")
+        apply_auth_extract(state, {"customer_id": "customerId"}, {"customerId": 42})
+        self.assertEqual(state.vars["customer_id"], "42")
+        self.assertIsInstance(state.vars["customer_id"], str)
+
+    def test_token_varals_populate_plain_vars(self):
+        state = RunState()
+        apply_auth_extract(state, {"customer_token": "token"}, {"token": "abc"})
+        self.assertEqual(state.vars["customer_token"], "abc")
+        self.assertEqual(state.tokens["customer_token"], "abc")
+
+    def test_refresh_token_lands_in_tokens_via_suffix_rule(self):
+        state = RunState()
+        apply_auth_extract(state, {"customer_refresh_token": "refreshToken"},
+                           {"refreshToken": "rt"})
+        self.assertEqual(state.tokens["customer_refresh_token"], "rt")
+
+    def test_zero_valued_extraction_still_stored(self):
+        """0 is falsy but not None/empty — var extraction must store it."""
+        state = RunState()
+        state.init_defaults("pw")
+        apply_auth_extract(state, {"page_count": "count"}, {"count": 0})
+        self.assertEqual(state.vars["page_count"], "0")
+
+
+class TestProbeAndFreshCustomerEdgeCases(unittest.TestCase):
+    """Edge behavior of the low-level battery probe + throwaway accounts."""
+
+    def setUp(self):
+        self._saved = dict(test_all_apis._EDGE_STATE)
+        test_all_apis._EDGE_STATE["base_url"] = "http://probe"
+        test_all_apis._EDGE_STATE["timeout"] = 3
+
+    def tearDown(self):
+        test_all_apis._EDGE_STATE.clear()
+        test_all_apis._EDGE_STATE.update(self._saved)
+
+    @patch.object(test_all_apis, "http_request")
+    def test_probe_custom_headers_override_defaults(self, mock_http):
+        mock_http.return_value = (200, "{}", {})
+        test_all_apis._probe("GET", "/x", headers={"Accept": "text/csv"})
+        headers = mock_http.call_args[0][2]
+        self.assertEqual(headers["Accept"], "text/csv")
+
+    @patch.object(test_all_apis, "http_request")
+    def test_probe_without_body_omits_content_type(self, mock_http):
+        mock_http.return_value = (200, "{}", {})
+        test_all_apis._probe("GET", "/x")
+        headers = mock_http.call_args[0][2]
+        self.assertNotIn("Content-Type", headers)
+        self.assertIsNone(mock_http.call_args[0][3])
+
+    @patch.object(test_all_apis, "http_request")
+    def test_probe_passes_4xx_5xx_through_unchanged(self, mock_http):
+        mock_http.return_value = (418, "teapot", {})
+        status, text = test_all_apis._probe("GET", "/x")
+        self.assertEqual(status, 418)
+        self.assertEqual(text, "teapot")
+
+    @patch.object(test_all_apis, "_probe")
+    def test_fresh_customer_uses_state_password_and_97_phone(self, mock_probe):
+        mock_probe.return_value = (200, '{"token":"tk"}')
+        state = RunState()
+        state.init_defaults("Sup3rSecret!")
+        token, email = test_all_apis._fresh_customer(state, "pwcheck")
+        self.assertEqual(token, "tk")
+        body = mock_probe.call_args.kwargs["body"]
+        self.assertEqual(body["password"], "Sup3rSecret!")
+        self.assertTrue(body["phoneNumber"].startswith("97"))
+        self.assertEqual(len(body["phoneNumber"]), 10)
+        self.assertIn("edge_pwcheck_", email)
+
+    @patch.object(test_all_apis, "_probe")
+    def test_fresh_customer_defaults_password_when_state_empty(self, mock_probe):
+        mock_probe.return_value = (200, '{"token":"tk"}')
+        state = RunState()
+        test_all_apis._fresh_customer(state, "empty")
+        body = mock_probe.call_args.kwargs["body"]
+        self.assertEqual(body["password"], "Test@123456")
+
+    @patch.object(test_all_apis, "_probe")
+    def test_fresh_customer_does_not_unwrap_data_envelope(self, mock_probe):
+        """Documents current flat-body assumption: an enveloped register
+        response yields no token (batteries skip gracefully)."""
+        mock_probe.return_value = (200, '{"data":{"token":"tk"}}')
+        state = RunState()
+        token, email = test_all_apis._fresh_customer(state, "env")
+        self.assertIsNone(token)
+        self.assertIn("@bhukkad.test", email)
+
+
+class TestResetDatabaseMoreEdgeCases(unittest.TestCase):
+
+    @patch("test_all_apis.subprocess.run")
+    def test_psql_timeout_while_listing_returns_false(self, mock_run):
+        import subprocess as sp
+        mock_run.side_effect = sp.TimeoutExpired("psql", 30)
+        with patch.dict(os.environ, {"DB_PASSWORD": "secret"}):
+            self.assertFalse(reset_database())
+
+    @patch("test_all_apis.subprocess.run")
+    def test_unparseable_db_url_falls_back_to_env_defaults(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="orders\n", stderr=""),
+            MagicMock(returncode=0, stdout="TRUNCATE", stderr=""),
+            MagicMock(returncode=0, stdout="INSERT 0 1", stderr=""),
+            MagicMock(returncode=0, stdout="DO", stderr=""),
+        ]
+        env = {"DB_HOST": "envhost", "DB_PORT": "5555", "DB_NAME": "envdb",
+               "DB_USERNAME": "envuser", "DB_PASSWORD": "envsecret"}
+        with patch.dict(os.environ, env):
+            reset_database("jdbc:postgresql://not/parsable")
+        argv = mock_run.call_args_list[0][0][0]
+        self.assertEqual(argv[argv.index("-h") + 1], "envhost")
+        self.assertEqual(argv[argv.index("-p") + 1], "5555")
+        self.assertEqual(argv[argv.index("-U") + 1], "envuser")
+        self.assertEqual(argv[argv.index("-d") + 1], "envdb")
+
+    @patch("test_all_apis.subprocess.run")
+    def test_pgpassword_exported_from_db_url_password(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="orders\n", stderr=""),
+            MagicMock(returncode=0, stdout="TRUNCATE", stderr=""),
+            MagicMock(returncode=0, stdout="INSERT 0 1", stderr=""),
+            MagicMock(returncode=0, stdout="DO", stderr=""),
+        ]
+        with patch.dict(os.environ, {}, clear=False):
+            reset_database("postgres://u:sup3r@h:6543/d")
+            self.assertEqual(os.environ["PGPASSWORD"], "sup3r")
+        argv = mock_run.call_args_list[0][0][0]
+        self.assertEqual(argv[argv.index("-h") + 1], "h")
+        self.assertEqual(argv[argv.index("-p") + 1], "6543")
+        self.assertEqual(argv[argv.index("-d") + 1], "d")
+
+
+class TestReportWritersMoreEdgeCases(unittest.TestCase):
+
+    def test_markdown_error_result_rendered(self):
+        results = [TestResult(name="X", group="Err", description="", method="GET",
+                              url="/x", request_headers={}, request_body=None,
+                              status_code=None, response_body="", passed=False,
+                              skipped=False, error="timed out")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.md"
+            write_markdown_report(results, path, "http://x")
+            content = path.read_text()
+            self.assertIn("**Error:** timed out", content)
+
+    def test_markdown_repeats_group_header_on_non_contiguous_groups(self):
+        """Groups are emitted on every *change* from the previous result; a
+        non-contiguous group appears in more than one section (documented)."""
+        results = [
+            TestResult(name="a", group="A", description="", method="GET", url="",
+                       request_headers={}, request_body=None, status_code=200,
+                       response_body="{}", passed=True, skipped=False),
+            TestResult(name="b", group="B", description="", method="GET", url="",
+                       request_headers={}, request_body=None, status_code=200,
+                       response_body="{}", passed=True, skipped=False),
+            TestResult(name="c", group="A", description="", method="GET", url="",
+                       request_headers={}, request_body=None, status_code=200,
+                       response_body="{}", passed=True, skipped=False),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.md"
+            write_markdown_report(results, path, "http://x")
+            content = path.read_text()
+            self.assertEqual(content.count("## A"), 2)
+
+    def test_markdown_long_response_truncated_at_four_k(self):
+        results = [TestResult(name="Big", group="G", description="", method="GET",
+                              url="", request_headers={}, request_body=None,
+                              status_code=200, response_body="x" * 4096,
+                              passed=True, skipped=False)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.md"
+            write_markdown_report(results, path, "http://x")
+            content = path.read_text()
+            # "xxxx…" is not valid JSON → pretty_json passes it through
+            # unchanged, then the markdown writer truncates at 4000 chars.
+            self.assertIn("... [96 more chars]", content)
+
+    def test_json_report_body_truncated_at_eight_k(self):
+        results = [TestResult(name="Big", group="G", description="", method="GET",
+                              url="", request_headers={"A": "b"},
+                              request_body={"k": "v"}, status_code=200,
+                              response_body="x" * 9000, passed=True, skipped=False)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.json"
+            write_json_report(results, path, "http://x")
+            data = json.loads(path.read_text())
+            body = data["tests"][0]["responseBody"]
+            self.assertIn("... [1000 more chars]", body)
+            self.assertEqual(data["tests"][0]["requestHeaders"], {"A": "b"})
+            self.assertEqual(data["tests"][0]["requestBody"], {"k": "v"})
+
+    def test_json_report_has_iso_generated_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.json"
+            write_json_report([], path, "http://x")
+            data = json.loads(path.read_text())
+            # Parses without error on any valid ISO-8601 timestamp.
+            from datetime import datetime as dt
+            dt.fromisoformat(data["generatedAt"])
+
+
+class TestEdgeBatteryWiringMoreEdgeCases(unittest.TestCase):
+
+    def test_run_edge_battery_primes_global_state(self):
+        """run_edge_battery must inject base_url/timeout and the results sink
+        before batteries execute (batteries read _EDGE_STATE, not RunState)."""
+        saved = dict(test_all_apis._EDGE_STATE)
+        try:
+            with patch.object(test_all_apis, "battery_auth_edges"), \
+                 patch.object(test_all_apis, "battery_authz_edges"), \
+                 patch.object(test_all_apis, "battery_pagination_edges"), \
+                 patch.object(test_all_apis, "battery_resource_edges"), \
+                 patch.object(test_all_apis, "battery_money_edges"), \
+                 patch.object(test_all_apis, "battery_webhook_edges"):
+                state = RunState()
+                state.init_defaults("pw")
+                test_all_apis.run_edge_battery("http://wired", state, 9)
+            self.assertEqual(test_all_apis._EDGE_STATE["base_url"], "http://wired")
+            self.assertEqual(test_all_apis._EDGE_STATE["timeout"], 9)
+            self.assertIs(test_all_apis._EDGE_STATE["results"], state.results)
+        finally:
+            test_all_apis._EDGE_STATE.clear()
+            test_all_apis._EDGE_STATE.update(saved)
+
+    def test_battery_webhook_edges_accepts_404_and_rejects_200(self):
+        """404 on a forged webhook = no side effect (pass); 200 = the bug."""
+        saved = dict(test_all_apis._EDGE_STATE)
+        try:
+            for status, expect_pass, calls in ((404, True, []), (200, False, ["side effect"])):
+                state = RunState()
+                state.init_defaults("pw")
+                test_all_apis._EDGE_STATE["base_url"] = "http://t"
+                test_all_apis._EDGE_STATE["timeout"] = 2
+                test_all_apis._register_edge_battery(state)
+                with patch.object(test_all_apis, "_probe", return_value=(status, "x")):
+                    test_all_apis.battery_webhook_edges("http://t", state, 2)
+                res = next(r for r in state.results if "invalid signature body" in r.name)
+                self.assertIs(res.passed, expect_pass,
+                              f"status {status}: passed={res.passed}")
+        finally:
+            test_all_apis._EDGE_STATE.clear()
+            test_all_apis._EDGE_STATE.update(saved)
+
+    def test_pagination_battery_accepts_clamp_or_reject(self):
+        """Both clamp-to-empty (200) and hard-reject (400) designs pass."""
+        saved = dict(test_all_apis._EDGE_STATE)
+        try:
+            for status in (200, 400):
+                state = RunState()
+                state.init_defaults("pw")
+                state.tokens["customer_token"] = "tok"
+                test_all_apis._EDGE_STATE["base_url"] = "http://t"
+                test_all_apis._EDGE_STATE["timeout"] = 2
+                test_all_apis._register_edge_battery(state)
+                with patch.object(test_all_apis, "_fresh_customer",
+                                  return_value=(None, "x@y.test")), \
+                     patch.object(test_all_apis, "_probe",
+                                  return_value=(status, "{}")):
+                    test_all_apis.battery_pagination_edges("http://t", state, 2)
+                pag = [r for r in state.results if "Pagination —" in r.name]
+                self.assertEqual(len(pag), 6)
+                self.assertTrue(all(r.passed for r in pag), f"status {status}")
+        finally:
+            test_all_apis._EDGE_STATE.clear()
+            test_all_apis._EDGE_STATE.update(saved)
+
+    def test_resource_battery_flags_fabricated_wallet_data(self):
+        """A 200 for an unknown wallet id that echoes the id AND a balance is
+        fabricated data — battery_resource_edges must flag it as a failure,
+        while the 404-correct siblings still pass."""
+        saved = dict(test_all_apis._EDGE_STATE)
+        try:
+            state = RunState()
+            state.init_defaults("pw")
+            state.tokens["customer_token"] = "tok"
+            test_all_apis._EDGE_STATE["base_url"] = "http://t"
+            test_all_apis._EDGE_STATE["timeout"] = 2
+            test_all_apis._register_edge_battery(state)
+
+            def probe(method, path, token=None, body=None, headers=None):
+                if "wallet" in path:
+                    return 200, '{"customerId":99999999,"balance":42}'
+                return 404, "nf"
+
+            with patch.object(test_all_apis, "_probe", side_effect=probe):
+                test_all_apis.battery_resource_edges("http://t", state, 2)
+            wallet = next(r for r in state.results if "wallet" in r.url)
+            self.assertFalse(wallet.passed)
+            self.assertIn("fabricated_data=True", wallet.response_body)
+            others = [r for r in state.results
+                      if "unknown id" in r.name and "wallet" not in r.url]
+            self.assertTrue(all(r.passed for r in others))
+        finally:
+            test_all_apis._EDGE_STATE.clear()
+            test_all_apis._EDGE_STATE.update(saved)
+
+    def test_probe_connection_error_marked_failed_not_skipped(self):
+        """Probe returning None status (connection error) fails the case."""
+        saved = dict(test_all_apis._EDGE_STATE)
+        try:
+            state = RunState()
+            state.init_defaults("pw")
+            test_all_apis._EDGE_STATE["base_url"] = "http://t"
+            test_all_apis._EDGE_STATE["timeout"] = 2
+            test_all_apis._register_edge_battery(state)
+            with patch.object(test_all_apis, "_probe",
+                              return_value=(None, "connection refused")):
+                test_all_apis.battery_webhook_edges("http://t", state, 2)
+            res = next(r for r in state.results if "invalid signature body" in r.name)
+            self.assertFalse(res.passed)
+            self.assertIsNone(res.status_code)
+            # response detail carries the connection error excerpt
+            self.assertIn("connection refused", res.response_body)
+        finally:
+            test_all_apis._EDGE_STATE.clear()
+            test_all_apis._EDGE_STATE.update(saved)
+
+    def test_detail_truncated_to_four_hundred_chars(self):
+        saved = dict(test_all_apis._EDGE_STATE)
+        try:
+            state = RunState()
+            test_all_apis._register_edge_battery(state)
+            test_all_apis._edge_battery_result("T", True, 200, "d" * 900)
+            self.assertEqual(len(state.results[-1].response_body), 400)
+        finally:
+            test_all_apis._EDGE_STATE.clear()
+            test_all_apis._EDGE_STATE.update(saved)
+
+
+class TestCatalogIntegrityMoreChecks(unittest.TestCase):
+    """Deeper structural invariants over the shared API catalog."""
+
+    def test_all_paths_absolute(self):
+        for spec in API_CATALOG:
+            self.assertTrue(spec["path"].startswith("/"),
+                            f"path must start with '/': {spec['name']}")
+
+    def test_method_is_uppercase(self):
+        for spec in API_CATALOG:
+            self.assertEqual(spec["method"], spec["method"].upper(),
+                             f"method must be uppercase: {spec['name']}")
+
+    def test_expected_codes_are_valid_http_range(self):
+        for spec in API_CATALOG:
+            for code in spec["expected"]:
+                self.assertIsInstance(code, int, spec["name"])
+                self.assertTrue(100 <= code < 600,
+                                f"invalid status expectation {code} in {spec['name']}")
+
+    def test_names_are_nonempty_strings(self):
+        for spec in API_CATALOG:
+            self.assertIsInstance(spec.get("name"), str)
+            self.assertTrue(spec["name"].strip(), f"empty name in {spec}")
+
+    def test_header_values_are_strings(self):
+        for spec in API_CATALOG:
+            for k, v in (spec.get("headers") or {}).items():
+                self.assertIsInstance(k, str, spec["name"])
+                self.assertIsInstance(v, str,
+                                       f"header {k} in {spec['name']} not a string")
+
+    def test_extract_paths_are_strings(self):
+        for spec in API_CATALOG:
+            for var, path in (spec.get("extract") or {}).items():
+                self.assertIsInstance(var, str)
+                self.assertIsInstance(path, str,
+                                       f"extract {var} in {spec['name']} not a string")
+
+    def test_requires_entries_are_reachable(self):
+        """Every requires entry must be satisfiable at runtime: a var produced
+        by init_defaults, a *_token name, an extract target of any catalog
+        spec, or a key produced by an orchestration helper in the runner
+        script (its inline specs extract into RunState.vars)."""
+        state = RunState()
+        state.init_defaults("Test@123456")
+        runtime_keys = set(state.vars.keys())
+        produced = set()
+        for spec in API_CATALOG:
+            produced.update((spec.get("extract") or {}).keys())
+        # Scan the runner source for helper-produced vars: inline extract maps
+        # and direct state.vars["x"] = assignments.
+        runner_src = test_all_apis.__file__
+        src = Path(runner_src).read_text()
+        for m in re.finditer(r'["\'](\w+)["\']\s*:\s*"data', src):
+            produced.add(m.group(1))
+        for m in re.finditer(r'state\.vars\["(\w+)"\]\s*=', src):
+            produced.add(m.group(1))
+        for spec in API_CATALOG:
+            for req in spec.get("requires", []):
+                ok = req in runtime_keys or req.endswith("_token") or req in produced
+                self.assertTrue(ok,
+                                f"requirement '{req}' of {spec['name']} is unreachable "
+                                f"(never in vars, tokens, or any extract target)")
+
+    def test_json_serializable_body_templates(self):
+        for key, tpl in BODY_TEMPLATES.items():
+            try:
+                json.dumps(resolve_value(tpl, RunState()))
+            except TypeError as e:  # pragma: no cover - regression guard
+                self.fail(f"template {key} not JSON-serializable: {e}")
+
+
+class TestCheckServerAvailableMoreEdgeCases(unittest.TestCase):
+    """Health-probing edge behavior."""
+
+    def _resp(self, status):
+        resp = MagicMock()
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        resp.status = status
+        resp.read.return_value = b'{}'
+        resp.headers = {}
+        return resp
+
+    @patch("test_all_apis.urlopen")
+    def test_falls_through_non_200_until_actuator_ok(self, mock_urlopen):
+        mock_urlopen.side_effect = [self._resp(204), self._resp(503), self._resp(200)]
+        self.assertTrue(check_server_available("http://x", 2))
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+    @patch("test_all_apis.urlopen")
+    def test_connection_then_recovery_on_second_endpoint(self, mock_urlopen):
+        from urllib.error import URLError
+        mock_urlopen.side_effect = [URLError("refused"), self._resp(200)]
+        self.assertTrue(check_server_available("http://x", 2))
+
+
+class TestPrintResultMoreEdgeCases(unittest.TestCase):
+    """Output-formatting corners: N/A status, request body on verbose pass."""
+
+    def test_pass_verbose_shows_request_and_response(self):
+        buf = io.StringIO()
+        r = TestResult(name="OK", group="G", description="", method="POST",
+                       url="/x", request_headers={}, request_body={"a": 1},
+                       status_code=201, response_body='{"b":2}', passed=True,
+                       skipped=False)
+        with redirect_stdout(buf):
+            print_result(r, verbose=True)
+        out = buf.getvalue()
+        self.assertIn("Request:", out)
+        self.assertIn("Response:", out)
+
+    def test_short_body_no_truncation_marker(self):
+        buf = io.StringIO()
+        r = TestResult(name="OK", group="G", description="", method="GET",
+                       url="/x", request_headers={}, request_body=None,
+                       status_code=200, response_body='{"tiny":1}', passed=True,
+                       skipped=False)
+        with redirect_stdout(buf):
+            print_result(r, verbose=True)
+        self.assertNotIn("more chars", buf.getvalue())
 
 
 if __name__ == "__main__":

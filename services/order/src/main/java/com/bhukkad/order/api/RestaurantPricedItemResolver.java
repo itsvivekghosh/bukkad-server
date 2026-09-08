@@ -40,9 +40,17 @@ public class RestaurantPricedItemResolver {
         if (cached != null && now < cached.expiresAtMillis()) {
             return cached.item();
         }
-        Map<String, Object> remote = restaurantClient.getMenuItem(menuItemId)
-                .timeout(java.time.Duration.ofSeconds(3))
-                .block(java.time.Duration.ofSeconds(4));
+        Map<String, Object> remote;
+        try {
+            remote = restaurantClient.getMenuItem(menuItemId)
+                    .timeout(java.time.Duration.ofSeconds(3))
+                    .block(java.time.Duration.ofSeconds(4));
+        } catch (RuntimeException meshFailure) {
+            // A downstream outage must NOT look like a missing item: surface
+            // 503 so callers can retry (matches GlobalExceptionHandler).
+            throw new com.bhukkad.common.error.UpstreamUnavailableException(
+                    "restaurant", meshFailure);
+        }
         if (remote == null || remote.isEmpty()) {
             // A downstream outage must NOT look like a missing item.
             throw new com.bhukkad.common.error.BusinessException(

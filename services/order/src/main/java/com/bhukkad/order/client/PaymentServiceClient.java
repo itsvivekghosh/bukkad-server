@@ -68,7 +68,12 @@ public class PaymentServiceClient {
                 .retrieve()
                 .bodyToMono(ChargeResponse.class)
                 .filter(response -> response.paymentId() != null && CHARGE_STATUS.equals(response.status()))
-                .timeout(Duration.ofSeconds(5));
+                // Bounds the WHOLE retry chain, not one attempt: the filters
+                // already cap each attempt at 5s and the RetryFilter may make
+                // 3 attempts with 1s backoffs (~17s worst case). A 5s outer
+                // timeout killed legitimate retries mid-flight under load
+                // (TimeoutException in 'filter' — seen in parallel builds).
+                .timeout(Duration.ofSeconds(20));
     }
 
     /**
@@ -87,7 +92,7 @@ public class PaymentServiceClient {
                 .retrieve()
                 .bodyToMono(RefundResponse.class)
                 .filter(response -> REFUND_STATUS.equals(response.status()))
-                .timeout(Duration.ofSeconds(5));
+                .timeout(Duration.ofSeconds(20));
     }
 
     private static void applyServiceToken(org.springframework.http.HttpHeaders headers, String serviceToken) {

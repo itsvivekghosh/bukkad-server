@@ -66,7 +66,10 @@ public class SocialSelfCompatController {
                 .map(i -> i.getUnitPrice() == null ? BigDecimal.ZERO
                         : i.getUnitPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        var coupon = couponService.validate(couponCode, subtotal, null, customerId);
+        Long firstItemRestaurant = restaurantClient
+                .getMenuItemRestaurantId(items.get(0).getMenuItemId())
+                .block(java.time.Duration.ofSeconds(5));
+        var coupon = couponService.validate(couponCode, subtotal, firstItemRestaurant, customerId);
         BigDecimal discount = couponService.calculateDiscount(coupon, subtotal);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", coupon.getCode());
@@ -84,9 +87,8 @@ public class SocialSelfCompatController {
         Long customerId = subjectId(principal);
         int removed = 0;
         for (com.bhukkad.order.domain.CartItem item : cartService.getItems(customerId)) {
-            Long itemRestaurant = restaurantClient.getMenuItem(item.getMenuItemId())
-                    .map(m -> m.get("restaurantId"))
-                    .map(rid -> Long.valueOf(String.valueOf(rid)))
+            Long itemRestaurant = restaurantClient
+                    .getMenuItemRestaurantId(item.getMenuItemId())
                     .block(java.time.Duration.ofSeconds(5));
             if (restaurantId.equals(itemRestaurant)) {
                 cartService.removeItem(customerId, item.getId());
@@ -162,6 +164,48 @@ public class SocialSelfCompatController {
         body.put("title", title);
         body.put("status", "OPEN");
         return ResponseEntity.status(201).body(body);
+    }
+
+    /** Self alias for the id-scoped GET (acting identity = JWT subject). */
+    @GetMapping("/api/v1/customers/group-orders/{groupOrderId}")
+    public GroupOrderResponse getGroupOrder(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @org.springframework.web.bind.annotation.PathVariable Long groupOrderId) {
+        return groupOrderService.getGroup(groupOrderId, subjectId(principal));
+    }
+
+    public record GroupOrderInviteRequest(String phone) {}
+
+    /** Self alias for inviting a member by phone (host-only, service rule). */
+    @PostMapping("/api/v1/customers/group-orders/{groupOrderId}/invite")
+    public GroupOrderResponse inviteToGroupOrder(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @org.springframework.web.bind.annotation.PathVariable Long groupOrderId,
+            @org.springframework.web.bind.annotation.RequestBody(required = false)
+            GroupOrderInviteRequest request) {
+        String phone = request == null ? null : request.phone();
+        return groupOrderService.inviteMember(groupOrderId, subjectId(principal), phone);
+    }
+
+    /** Self alias for placing the group order (host-only, service rule). */
+    @PostMapping("/api/v1/customers/group-orders/{groupOrderId}/place")
+    public GroupOrderResponse placeGroupOrder(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @org.springframework.web.bind.annotation.PathVariable Long groupOrderId) {
+        return groupOrderService.placeGroupOrder(groupOrderId, subjectId(principal));
+    }
+
+    public record GroupOrderSplitRequest(Map<Long, Double> shares) {}
+
+    /** Self alias for the split-payment preview (host-only, service rule). */
+    @PostMapping("/api/v1/customers/group-orders/{groupOrderId}/split")
+    public GroupOrderResponse splitGroupOrderPayment(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @org.springframework.web.bind.annotation.PathVariable Long groupOrderId,
+            @org.springframework.web.bind.annotation.RequestBody(required = false)
+            GroupOrderSplitRequest request) {
+        Map<Long, Double> shares = request == null ? null : request.shares();
+        return groupOrderService.splitPayment(groupOrderId, subjectId(principal), shares);
     }
 
     // ------------------------------------------------------------------
