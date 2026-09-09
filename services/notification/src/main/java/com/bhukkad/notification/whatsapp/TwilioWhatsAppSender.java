@@ -1,5 +1,6 @@
 package com.bhukkad.notification.whatsapp;
 
+import com.bhukkad.common.util.LogRedactor;
 import com.bhukkad.notification.config.NotificationProperties;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -65,13 +66,13 @@ public class TwilioWhatsAppSender implements WhatsAppSender {
         form.add("Body", body);
 
         restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
-        log.info("Twilio WhatsApp sent | to={}", phoneNumber);
+        log.info("Twilio WhatsApp sent | to={}", LogRedactor.maskE164(phoneNumber));
         return true;
     }
 
     public boolean whatsAppUnavailable(String phoneNumber, String body, Throwable ex) {
         log.warn("Twilio WhatsApp unavailable (circuit open) | to={} | error={}",
-                phoneNumber, ex.getMessage());
+                LogRedactor.maskE164(phoneNumber), ex.getMessage());
         return false;
     }
 }

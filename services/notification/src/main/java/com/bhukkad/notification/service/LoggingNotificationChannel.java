@@ -1,5 +1,6 @@
 package com.bhukkad.notification.service;
 
+import com.bhukkad.common.util.LogRedactor;
 import com.bhukkad.notification.domain.Notification;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,12 @@ public class LoggingNotificationChannel implements NotificationChannel {
 
     @Override
     public void send(Notification notification) {
+        // V-21: the recipient may be a phone number or an email.
+        String recipient = notification.getRecipient();
+        String masked = recipient != null && recipient.contains("@")
+                ? LogRedactor.maskEmail(recipient)
+                : LogRedactor.maskE164(recipient);
         log.info("NOTIFICATION_CHANNEL_SEND | channel={} | recipient={} | template={}",
-                notification.getChannel(), notification.getRecipient(), notification.getTemplate());
+                notification.getChannel(), masked, notification.getTemplate());
     }
 }
