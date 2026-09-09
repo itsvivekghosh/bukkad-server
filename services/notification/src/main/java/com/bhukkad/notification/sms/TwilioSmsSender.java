@@ -1,5 +1,6 @@
 package com.bhukkad.notification.sms;
 
+import com.bhukkad.common.util.LogRedactor;
 import com.bhukkad.notification.config.NotificationProperties;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -60,13 +61,13 @@ public class TwilioSmsSender implements SmsSender {
         form.add("Body", body);
 
         restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
-        log.info("Twilio SMS sent | to={}", phoneNumber);
+        log.info("Twilio SMS sent | to={}", LogRedactor.maskE164(phoneNumber));
         return true;
     }
 
     public boolean smsUnavailable(String phoneNumber, String body, Throwable ex) {
         log.warn("Twilio SMS unavailable (circuit open) | to={} | error={}",
-                phoneNumber, ex.getMessage());
+                LogRedactor.maskE164(phoneNumber), ex.getMessage());
         return false;
     }
 }

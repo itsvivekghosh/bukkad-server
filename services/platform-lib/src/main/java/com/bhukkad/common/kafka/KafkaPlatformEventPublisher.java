@@ -15,8 +15,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Publishes a {@link PlatformEventMessage} envelope to Kafka when the
  * platform is enabled and a {@link KafkaTemplate} is available (plan §6.2).
- * When gated off, the call is a no-op — the outbox poller ships the same
- * envelope instead.
+ * When gated off, {@link #publish} is a no-op and {@link #publishForResult}
+ * reports failure ({@code false}) — it must never claim success for a message
+ * it will not send (PERF-2/B2 blackhole fix).
  *
  * <p>Two publish modes:
  * <ul>
@@ -70,16 +71,21 @@ public class KafkaPlatformEventPublisher {
     /**
      * Synchronous, acknowledged publish for the outbox relay.
      *
-     * @return {@code true} if the record was acknowledged by the broker within
-     *         {@link #getSendTimeout()}, or if the publisher is disabled (a
-     *         no-op success — local/dev runs without a broker), so the calling
-     *         outbox row can flip to a terminal state; {@code false} on
-     *         timeout/error so the caller keeps the row re-queueable.
+     * @return {@code true} only when the record was acknowledged by the broker
+     *         within {@link #getSendTimeout()}.
+     *         <p><strong>PERF-2/B2:</strong> when the publisher is disabled this
+     *         returns {@code false}, NOT {@code true}. The old "no-op success"
+     *         let the relay flip rows to PUBLISHED without anything being sent
+     *         — a silent event-loss blackhole reachable whenever the relay bean
+     *         was up and Kafka was off (the shipped default). With the
+     *         aligned single gate the relay cannot even exist disabled, but the
+     *         publisher must never answer "published" for a message it will not
+     *         send, so a disabled publisher keeps rows re-queueable.</p>
      */
     public boolean publishForResult(PlatformEventMessage message) {
         if (!properties.enabled()) {
             log.debug("KAFKA_DISABLED | eventType={} | eventId={}", message.eventType(), message.eventId());
-            return true;
+            return false;
         }
         String topic = properties.topicPrefix() + message.eventType().toLowerCase();
         try {

@@ -2,11 +2,13 @@ package com.bhukkad.common.outbox;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,6 +27,26 @@ class OutboxEventServiceTest {
     @BeforeEach
     void setUp() {
         service = new OutboxEventService(outboxEventRepository, new ObjectMapper());
+        // G-1 guard (PERF-2/D6): enqueue requires an ambient business tx.
+        // Unit tests emulate the proxy having opened one (the real @Transactional
+        // MANDATORY enforcement is exercised through Spring, not here).
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TransactionSynchronizationManager.setActualTransactionActive(false);
+    }
+
+    @Test void enqueue_withoutTransaction_throwsG1Violation() {
+        TransactionSynchronizationManager.setActualTransactionActive(false);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.enqueue("ORDER_CREATED", 9L, "{}"));
+        org.assertj.core.api.Assertions.assertThat(ex.getMessage()).contains("G-1 violation");
+        verify(outboxEventRepository, org.mockito.Mockito.never()).save(any(OutboxEvent.class));
+
+        TransactionSynchronizationManager.setActualTransactionActive(true);
     }
 
     @Test void enqueue_savesPendingEventWithSerializedPayload() {

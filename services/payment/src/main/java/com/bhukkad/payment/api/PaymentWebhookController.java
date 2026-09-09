@@ -1,17 +1,16 @@
 package com.bhukkad.payment.api;
 
 import com.bhukkad.common.error.ResourceNotFoundException;
-import com.bhukkad.common.outbox.OutboxEventService;
+import com.bhukkad.common.ratelimit.RateLimited;
 import com.bhukkad.common.web.RequestUtils;
-import com.bhukkad.payment.domain.Payment;
 import com.bhukkad.payment.gateway.RazorpayWebhookVerifier;
-import com.bhukkad.payment.idempotency.WebhookIdempotencyService;
-import com.bhukkad.payment.service.PaymentService;
+import com.bhukkad.payment.service.WebhookService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,16 +19,18 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 /**
  * Razorpay webhook intake (ported from the monolith's PaymentWebhookController).
  *
- * <p>Flow: rate limit by client IP → verify HmacSHA256 signature → dedupe by
- * provider event id → mark the payment captured → enqueue
- * {@code PAYMENT_WEBHOOK_RECEIVED} to the payment service's outbox. External
- * callers hit this through the gateway; no customer auth applies (providers
- * authenticate via the signature).</p>
+ * <p>Flow (PERF-2/V-11): rate-limit by client IP/bucket → verify HmacSHA256
+ * signature → cheap duplicate fast-path on the provider event id → delegate
+ * the transactional unit (dedup claim + settlement + outbox enqueue, ALL IN
+ * ONE TRANSACTION) to {@link WebhookService}. Losing the concurrent-duplicate
+ * race (unique {@code (scope, key)} violation) is answered with a benign
+ * 200 — the winner's delivery applied the effects. Any failure inside the
+ * transaction (including the outbox enqueue) rolls settlement back so the
+ * provider's retry can redo the whole unit: the money trail can no longer
+ * diverge from the event trail (RC-D / G-1).</p>
  */
 @RestController
 @RequestMapping("/api/v1/payments/webhooks")
@@ -38,24 +39,19 @@ public class PaymentWebhookController {
     private static final Logger log = LoggerFactory.getLogger(PaymentWebhookController.class);
 
     private final RazorpayWebhookVerifier signatureVerifier;
-    private final WebhookIdempotencyService webhookIdempotencyService;
-    private final PaymentService paymentService;
-    private final OutboxEventService outboxEventService;
+    private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
 
     public PaymentWebhookController(RazorpayWebhookVerifier signatureVerifier,
-                                    WebhookIdempotencyService webhookIdempotencyService,
-                                    PaymentService paymentService,
-                                    OutboxEventService outboxEventService,
+                                    WebhookService webhookService,
                                     ObjectMapper objectMapper) {
         this.signatureVerifier = signatureVerifier;
-        this.webhookIdempotencyService = webhookIdempotencyService;
-        this.paymentService = paymentService;
-        this.outboxEventService = outboxEventService;
+        this.webhookService = webhookService;
         this.objectMapper = objectMapper;
     }
 
     @PostMapping("/razorpay")
+    @RateLimited(bucket = "razorpay-webhook", limit = 600, windowSeconds = 60)
     public ResponseEntity<String> handleRazorpayWebhook(
             @RequestBody String payload,
             @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
@@ -85,39 +81,21 @@ public class PaymentWebhookController {
                 return ResponseEntity.badRequest().body("Missing gateway order or payment id");
             }
 
-            // Fast-path dedup: skip re-completion for known events. The insert
-            // below is still the race-safe guarantee — this check only avoids
-            // repeating work on ordinary provider redeliveries.
             String eventId = eventId(root);
-            if (webhookIdempotencyService.isAlreadyProcessed(eventId)) {
+            // Fast-path dedup for ordinary provider redeliveries; the in-tx
+            // unique claim inside WebhookService remains the race-safe guard.
+            if (webhookService.isKnownEvent(eventId)) {
                 log.info("Webhook duplicate ignored | eventId={}", eventId);
                 return ResponseEntity.ok("Webhook duplicate ignored");
             }
 
-            // Apply side effects FIRST, then record the event id. Marking before
-            // completing would burn the event id on a transient failure (e.g.
-            // unknown order) and the provider's retry could never complete it.
-            // Concurrent duplicate delivery loses the insert race below and is
-            // acknowledged as a duplicate instead of re-applying the effect
-            // (completion itself is idempotent: SETTLED -> SETTLED).
-            Payment payment = paymentService.completeWebhookPayment(gatewayOrderId, gatewayPaymentId);
-
             try {
-                webhookIdempotencyService.markProcessed(eventId);
-            } catch (org.springframework.dao.DataIntegrityViolationException ex) {
-                log.info("Webhook duplicate delivery acknowledged after completion | eventId={}",
-                        eventId);
-            }
-
-            try {
-                outboxEventService.enqueue("PAYMENT_WEBHOOK_RECEIVED", payment.getOrderId(),
-                        Map.of("eventId", eventId,
-                                "gatewayOrderId", gatewayOrderId,
-                                "gatewayPaymentId", gatewayPaymentId,
-                                "paymentId", String.valueOf(payment.getId())));
-            } catch (Exception enqueueEx) {
-                log.warn("Failed to enqueue webhook outbox event | eventId={} | error={}",
-                        eventId, enqueueEx.getMessage());
+                webhookService.completeFromWebhook(gatewayOrderId, gatewayPaymentId, eventId);
+            } catch (DataIntegrityViolationException dup) {
+                // Concurrent delivery of the same event id won the claim; the
+                // whole unit rolled back here. The effects are applied ONCE.
+                log.info("Webhook duplicate delivery (concurrent claim) | eventId={}", eventId);
+                return ResponseEntity.ok("Webhook duplicate ignored");
             }
         } catch (JsonProcessingException e) {
             log.warn("Invalid JSON in Razorpay webhook payload: {}", e.getMessage());
@@ -129,6 +107,8 @@ public class PaymentWebhookController {
             log.warn("Webhook bad request: {}", ex.getMessage());
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception e) {
+            // Includes outbox enqueue failures: settlement rolled back with it
+            // (G-1) and the provider redelivery re-processes the event.
             log.error("Failed to process Razorpay webhook: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body("Webhook processing failed");
         }

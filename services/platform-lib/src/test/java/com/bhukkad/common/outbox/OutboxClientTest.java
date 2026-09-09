@@ -1,11 +1,14 @@
 package com.bhukkad.common.outbox;
 
 import com.bhukkad.common.event.PlatformEventMessage;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,6 +23,30 @@ class OutboxClientTest {
     private OutboxEventRepository repository;
 
     private OutboxClient client;
+
+    @BeforeEach
+    void beginTx() {
+        // G-1 guard (PERF-2/D6): enqueue only runs inside a business tx.
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+    }
+
+    @AfterEach
+    void endTx() {
+        TransactionSynchronizationManager.setActualTransactionActive(false);
+    }
+
+    @Test
+    void enqueue_withoutTransaction_throwsG1Violation() {
+        TransactionSynchronizationManager.setActualTransactionActive(false);
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> client().enqueue("OrderCreated", 1L, "{}"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("G-1 violation");
+            org.mockito.Mockito.verifyNoInteractions(repository);
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(true);
+        }
+    }
 
     private OutboxClient client() {
         return new OutboxClient(repository);
