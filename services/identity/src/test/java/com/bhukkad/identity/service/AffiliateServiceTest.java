@@ -211,16 +211,23 @@ class AffiliateServiceTest {
     // ==================== additional coverage ====================
 
     @Test
-    void listAll_returnsAllCodes() {
+    void listAll_returnsNewestCodes_boundedInSql() {
         AffiliateCode code = new AffiliateCode();
         code.setId(1L);
         code.setCode("FOODIE-VIVEK");
-        when(affiliateCodeRepository.findAll()).thenReturn(List.of(code));
+        when(affiliateCodeRepository.findAllByOrderByCreatedAtDesc(
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(List.of(code));
 
         var result = service.listAll();
 
         assertEquals(1, result.size());
         assertEquals("FOODIE-VIVEK", result.get(0).getCode());
+        // PERF-3: bounded, newest-first page (cap 200) — never findAll().
+        var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        org.mockito.Mockito.verify(affiliateCodeRepository).findAllByOrderByCreatedAtDesc(captor.capture());
+        assertEquals(200, captor.getValue().getPageSize());
+        org.mockito.Mockito.verify(affiliateCodeRepository, never()).findAll();
     }
 
     @Test

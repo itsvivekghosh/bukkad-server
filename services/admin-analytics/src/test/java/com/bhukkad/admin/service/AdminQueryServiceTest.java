@@ -39,15 +39,23 @@ class AdminQueryServiceTest {
     }
 
     @Test
-    void fraudAlerts_withStatus_filters() {
+    void fraudAlerts_withStatus_filtersBoundedPage() {
         service.fraudAlerts("REVIEW");
-        verify(fraudRepository).findByStatus("REVIEW");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(fraudRepository).findByStatusOrderByCreatedAtDesc(any(), captor.capture());
+        // PERF-3: bounded, newest-first (ORDER BY created_at DESC in SQL).
+        assertThat(captor.getValue().getPageSize()).isEqualTo(200);
+        assertThat(captor.getValue().getSort().getOrderFor("createdAt")).isNotNull();
     }
 
     @Test
-    void fraudAlerts_nullStatus_returnsAll() {
+    void fraudAlerts_nullStatus_returnsBoundedPage() {
         service.fraudAlerts(null);
-        verify(fraudRepository).findAll();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(fraudRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getPageSize()).isEqualTo(200);
     }
 
     @Test
@@ -59,10 +67,12 @@ class AdminQueryServiceTest {
     }
 
     @Test
-    void restaurantStats_delegatesToRepository() {
+    void restaurantStats_delegatesToBoundedPage() {
         RestaurantOrderStat stat = new RestaurantOrderStat();
-        when(statRepository.findAll()).thenReturn(List.of(stat));
+        when(statRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(stat)));
 
         assertThat(service.restaurantStats()).containsExactly(stat);
+        verify(statRepository, org.mockito.Mockito.never()).findAll();
     }
 }

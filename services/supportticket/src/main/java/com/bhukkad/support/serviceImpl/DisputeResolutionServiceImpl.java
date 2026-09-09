@@ -21,6 +21,8 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class DisputeResolutionServiceImpl {
+
+    private static final int ADMIN_DISPUTE_PAGE_SIZE = 200;
     private static final Logger log = LoggerFactory.getLogger(DisputeResolutionServiceImpl.class);
     private static final double LATE_DELIVERY_REFUND_PERCENT = 0.1;
     private static final double MAX_LATE_DELIVERY_REFUND = 100.0;
@@ -60,7 +62,22 @@ public class DisputeResolutionServiceImpl {
 
     @Transactional(readOnly=true)
     public List<DisputeResponse> listForAdmin() {
-      return this.disputeRepository.findAll().stream().sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt())).map(this::toResponse).toList();
+      return listForAdmin(ADMIN_DISPUTE_PAGE_SIZE);
+    }
+
+    /**
+     * PERF-3: the admin history listed EVERY dispute and sorted in the JVM.
+     * Now a bounded, newest-first SQL page (ORDER BY created_at DESC + limit
+     * in the database). The endpoint contract keeps the same List shape; it
+     * is additively capped at {@value #ADMIN_DISPUTE_PAGE_SIZE} recent rows
+     * (deeper history is pageable later without changing the current body).
+     */
+    public List<DisputeResponse> listForAdmin(int maxSize) {
+      int cap = Math.max(1, Math.min(maxSize, ADMIN_DISPUTE_PAGE_SIZE));
+      return this.disputeRepository
+              .findAllByOrderByCreatedAtDesc(
+                      org.springframework.data.domain.PageRequest.of(0, cap))
+              .stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly=true)

@@ -46,6 +46,26 @@ public class PublicBrowseController {
     private final MenuItemRepository menuItemRepository;
     private final MenuCategoryRepository menuCategoryRepository;
     private final CuisineRepository cuisineRepository;
+    private final org.springframework.beans.factory.ObjectProvider<com.bhukkad.common.cache.RedisCacheService>
+            cacheProvider;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
+    /**
+     * Per-id cache round-trips keep money decimals exact: floats bind back to
+     * BigDecimal (with scale) instead of Double, so a cached item serializes
+     * byte-identically to a freshly loaded one.
+     */
+    private volatile com.fasterxml.jackson.databind.ObjectMapper cacheJsonMapper;
+
+    private com.fasterxml.jackson.databind.ObjectMapper cacheJsonMapper() {
+        var mapper = cacheJsonMapper;
+        if (mapper == null) {
+            mapper = objectMapper.copy().enable(
+                    com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+            cacheJsonMapper = mapper;
+        }
+        return mapper;
+    }
 
     // ---------- restaurants ----------
 
@@ -149,6 +169,17 @@ public class PublicBrowseController {
 
     // ---------- menu ----------
 
+    /**
+     * Batch menu-item read for the checkout chord (guide §6 PERF-3.4):
+     * {@code GET /api/v1/menu/items?ids=1,2,3}, capped at
+     * {@value #MAX_BATCH_IDS} ids (over cap fails 400 via BusinessException).
+     *
+     * <p>PERF-3: each id resolves through a short-lived (60 s) per-id cache
+     * ({@code menu:item:<id>}) served from L1/L2; cold ids load from the DB.
+     * The wire contract is unchanged: {@code {"items": [...]}} with the same
+     * rendered item shape. Without Redis beans the DB batch load runs per
+     * request like before.</p>
+     */
     @GetMapping("/api/v1/menu/items")
     @Transactional(readOnly = true)
     public Map<String, Object> batchMenuItems(@RequestParam(required = false) String ids) {
@@ -159,11 +190,56 @@ public class PublicBrowseController {
         if (idList.size() > MAX_BATCH_IDS) {
             throw new BusinessException("Too many ids; maximum is " + MAX_BATCH_IDS);
         }
-        List<MenuItem> items = menuItemRepository.findAllById(idList).stream()
-                .filter(i -> Boolean.TRUE.equals(i.getIsAvailable()))
-                .toList();
-        return Map.of("items", renderItemBatch(items));
+        com.bhukkad.common.cache.RedisCacheService cache = cacheProvider.getIfAvailable();
+        if (cache == null) {
+            List<MenuItem> items = menuItemRepository.findAllById(idList).stream()
+                    .filter(i -> Boolean.TRUE.equals(i.getIsAvailable()))
+                    .toList();
+            return Map.of("items", renderItemBatch(items));
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Long id : idList) {
+            String json = cache.getOrCompute(
+                    com.bhukkad.restaurant.service.cache.RestaurantCacheKeys.menuItem(id),
+                    String.class,
+                    com.bhukkad.restaurant.service.cache.RestaurantCacheKeys.MENU_ITEM_TTL_SECONDS,
+                    () -> loadRenderedItemJson(id));
+            if (json == null) {
+                continue; // nonexistent
+            }
+            Map<String, Object> rendered = readItem(json);
+            if (Boolean.TRUE.equals(rendered.get("available"))) {
+                out.add(rendered);
+            }
+        }
+        return Map.of("items", out);
     }
+
+    /** Supplier for one cold id; returns null for missing items (nulls stay uncached). */
+    private String loadRenderedItemJson(Long id) {
+        return menuItemRepository.findById(id)
+                .map(item -> renderItemBatch(List.of(item)).get(0))
+                .map(this::writeItem)
+                .orElse(null);
+    }
+
+    private String writeItem(Map<String, Object> rendered) {
+        try {
+            return cacheJsonMapper().writeValueAsString(rendered);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Menu item serialization failed", e);
+        }
+    }
+
+    private Map<String, Object> readItem(String json) {
+        try {
+            return cacheJsonMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<
+                    java.util.LinkedHashMap<String, Object>>() { });
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Menu item deserialization failed", e);
+        }
+    }
+
 
     @GetMapping("/api/v1/menu/items/{id}")
     @Transactional(readOnly = true)

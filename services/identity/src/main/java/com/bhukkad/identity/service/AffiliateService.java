@@ -30,12 +30,20 @@ import java.util.Locale;
 @Transactional(readOnly = true)
 public class AffiliateService {
 
+    static final int ADMIN_LIST_CAP = 200;
+
     private final AffiliateCodeRepository affiliateCodeRepository;
     private final AffiliateReferralRepository affiliateReferralRepository;
     private final CustomerRepository customerRepository;
 
     public List<AffiliateCodeResponse> listAll() {
-        return affiliateCodeRepository.findAll().stream().map(this::toResponse).toList();
+        // PERF-3: whole-table listing replaced by a bounded, newest-first SQL
+        // page. Response shape (bare list) unchanged; additively capped at the
+        // 200 newest codes. (Duplicate owner vs referral module: ADR R-04.)
+        return affiliateCodeRepository
+                .findAllByOrderByCreatedAtDesc(
+                        org.springframework.data.domain.PageRequest.of(0, ADMIN_LIST_CAP))
+                .stream().map(this::toResponse).toList();
     }
 
     @Transactional
