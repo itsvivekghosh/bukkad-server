@@ -42,10 +42,17 @@ public class PaymentServiceClient {
     private final WebClient webClient;
 
     public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl) {
+        this(baseUrl, (org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>) null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl,
+                                org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("payment", CircuitBreakerFilter.DEFAULT_CONFIG))
+                .filter(new CircuitBreakerFilter("payment", CircuitBreakerFilter.DEFAULT_CONFIG,
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 

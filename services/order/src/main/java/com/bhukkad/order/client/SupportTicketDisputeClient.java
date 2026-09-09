@@ -31,12 +31,14 @@ public class SupportTicketDisputeClient {
 
     public SupportTicketDisputeClient(
             @Value("${app.services.supportticket.url}") String baseUrl,
-            org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider) {
+            org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
         this.authTokenProvider = authTokenProvider;
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("supportticket", CircuitBreakerFilter.DEFAULT_CONFIG))
+                .filter(new CircuitBreakerFilter("supportticket", CircuitBreakerFilter.DEFAULT_CONFIG,
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 // Mesh auth: stamp X-Service-Token when service auth is
                 // enabled; supportticket rejects tokenless dispute calls.
                 .filter((request, next) -> {

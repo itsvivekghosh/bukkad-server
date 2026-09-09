@@ -14,6 +14,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.net.InetSocketAddress;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
  * End-to-end routing proof for the strangler gateway (P0).
  *
@@ -28,7 +30,14 @@ import java.net.InetSocketAddress;
         properties = {
                 "management.endpoint.health.probes.enabled=true",
                 "management.endpoint.health.show-details=always",
-                "management.endpoints.web.exposure.include=health"
+                "management.endpoints.web.exposure.include=health",
+                // Deterministic edge-limiter posture: nothing listens on :1, so
+                // the limiter exercises its fail-open bypass on every run
+                // regardless of a developer's local Redis. The health probe
+                // test above must stay UP, so Redis is excluded from the
+                // health aggregate in this hermetic routing suite.
+                "spring.data.redis.port=1",
+                "management.health.redis.enabled=false"
         })
 @AutoConfigureWebTestClient
 class GatewayRoutingTest {
@@ -194,10 +203,34 @@ class GatewayRoutingTest {
 
     @Test
     void apiPathForUnmappedDomainReturns404() {
-        // /api/v1/inventory-system (not mapped to any service) → 404 because
-        // there is no fallback route to the decommissioned monolith.
+        // /api/v1/inventory-system (not mapped to any service) hits the final
+        // unmatched /api/** route: platform 404 envelope, never an upstream
+        // (audit V-20 — visible, shaped edge 404s).
         client.get().uri("/api/v1/inventory-system").exchange()
-                .expectStatus().isNotFound();
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("ROUTE_NOT_FOUND")
+                .jsonPath("$.path").isEqualTo("/api/v1/inventory-system");
+    }
+
+    @Test
+    void unmatchedApiRouteIsCountedWithNormalizedPathTag() {
+        // G-2: the device is only real if its counter moves; numeric segments
+        // collapse to {id} so the metric stays low cardinality. /api/v1/zz-* is
+        // not covered by any strangler predicate.
+        client.get().uri("/api/v1/zz-unit-test/12345").exchange().expectStatus().isNotFound();
+        assertThat(unmatchedCount("/api/v1/zz-unit-test/{id}")).isGreaterThanOrEqualTo(1);
+        // The raw id must never become its own time series:
+        assertThat(unmatchedCount("/api/v1/zz-unit-test/12345")).isZero();
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
+    private long unmatchedCount(String pathTag) {
+        io.micrometer.core.instrument.Counter counter = meterRegistry.find("gateway_route_unmatched")
+                .tag("path", pathTag).counter();
+        return counter == null ? 0L : (long) counter.count();
     }
 
     @Test
