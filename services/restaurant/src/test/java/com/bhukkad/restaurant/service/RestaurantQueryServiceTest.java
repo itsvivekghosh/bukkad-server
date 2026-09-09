@@ -9,7 +9,6 @@ import com.bhukkad.restaurant.domain.Restaurant;
 import com.bhukkad.restaurant.domain.RestaurantRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -29,8 +28,20 @@ class RestaurantQueryServiceTest {
     @Mock
     private MenuItemRepository menuItemRepository;
 
-    @InjectMocks
     private RestaurantQueryService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        service = newService(false);
+    }
+
+    /** No-Redis variant = pre-PERF-3 direct-DB behaviour (what this suite asserts). */
+    private RestaurantQueryService newService(boolean withCache) {
+        return new RestaurantQueryService(restaurantRepository, menuItemRepository,
+                new com.bhukkad.restaurant.testsupport.FixedObjectProvider<>(
+                        withCache ? org.mockito.Mockito.mock(com.bhukkad.common.cache.RedisCacheService.class) : null),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+    }
 
     private Restaurant restaurant(Long id, String name) {
         Restaurant r = new Restaurant();

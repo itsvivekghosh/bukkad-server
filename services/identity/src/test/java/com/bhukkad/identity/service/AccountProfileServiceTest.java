@@ -22,29 +22,32 @@ import static org.mockito.Mockito.when;
 class AccountProfileServiceTest {
 
     @Mock private UserRepository userRepository;
+    @Mock private com.bhukkad.identity.domain.RestaurantOwnerRepository restaurantOwnerRepository;
     @Mock private com.bhukkad.identity.domain.DeviceTokenRepository deviceTokenRepository;
     @Mock private com.bhukkad.identity.domain.FavoriteRestaurantRepository favoriteRepository;
     @InjectMocks private AccountProfileService service;
 
     @Test
     void registerOwner_savesWithOwnerRole() {
+        when(restaurantOwnerRepository.existsByEmailIgnoreCase("o@b.com")).thenReturn(false);
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         User owner = service.registerOwner("o@b.com", "Owner", "999", "LIC");
 
         assertThat(owner.getRole()).isEqualTo(User.UserRole.RESTAURANT_OWNER);
         verify(userRepository).save(any(User.class));
+        // PERF-3: the duplicate guard is a keyed EXISTS — never a users scan.
+        verify(userRepository, org.mockito.Mockito.never()).findAll();
     }
 
     @Test
     void registerOwner_duplicateEmail_throws() {
-        com.bhukkad.identity.domain.RestaurantOwner existing = new com.bhukkad.identity.domain.RestaurantOwner();
-        existing.setEmail("o@b.com");
-        when(userRepository.findAll()).thenReturn(List.of(existing));
+        when(restaurantOwnerRepository.existsByEmailIgnoreCase("O@B.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.registerOwner("o@b.com", "Owner", "999", "LIC"))
+        assertThatThrownBy(() -> service.registerOwner("O@B.com", "Owner", "999", "LIC"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("already registered");
+        verify(userRepository, org.mockito.Mockito.never()).findAll();
     }
 
     @Test

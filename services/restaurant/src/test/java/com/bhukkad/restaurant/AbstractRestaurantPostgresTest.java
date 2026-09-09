@@ -17,7 +17,10 @@ public abstract class AbstractRestaurantPostgresTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
             .withDatabaseName("restaurants")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw");
+            .withPassword("bhukkad_test_pw")
+            // Multi-suite local runs (parallel audit batches) can starve the
+            // Docker VM; the default 60 s init wait is too tight there.
+            .withStartupTimeout(java.time.Duration.ofMinutes(3));
 
     static {
         if (!DockerClientFactory.instance().isDockerAvailable()) {
@@ -35,5 +38,10 @@ public abstract class AbstractRestaurantPostgresTest {
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
         registry.add("spring.flyway.locations", () -> "classpath:db/migration-pg");
+        // PERF-0 raises the default pool (minimum-idle 20); several cached
+        // contexts share one Testcontainers PG (max_connections 100) inside a
+        // single suite, so cap the test pool to keep the container solvent.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
+        registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
     }
 }

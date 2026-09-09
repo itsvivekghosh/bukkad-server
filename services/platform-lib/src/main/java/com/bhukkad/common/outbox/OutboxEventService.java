@@ -4,8 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+/**
+ * Marker-annotation-free outbox write service used by flows that build the
+ * payload inline. Same G-1 contract as {@link OutboxClient}: enqueue must run
+ * inside the caller's business transaction so the event commits atomically
+ * with the domain change (or not at all when the transaction rolls back).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -16,8 +24,13 @@ public class OutboxEventService {
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
 
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public void enqueue(String eventType, Long aggregateId, Object payload) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "G-1 violation: outbox enqueue outside a business transaction — "
+                            + "the event could outlive a rolled-back domain change");
+        }
         try {
             OutboxEvent event = new OutboxEvent();
             event.setEventType(eventType);

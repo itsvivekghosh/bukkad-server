@@ -104,6 +104,49 @@ class IdempotencyPostgresIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     @Test
+    void deleteBatch_boundedSweep_removesOldestExpiredFirst_livesUntouched() {
+        // V-19: batched cleanup — a 5000-page delete must be bounded, ordered
+        // and never touch unexpired rows.
+        insertRecord("k-batch-1", IdempotencyRecord.IdempotencyScope.KAFKA_CONSUME,
+                java.time.LocalDateTime.now().minusDays(2));
+        insertRecord("k-batch-2", IdempotencyRecord.IdempotencyScope.KAFKA_CONSUME,
+                java.time.LocalDateTime.now().minusDays(2));
+        insertRecord("k-batch-3", IdempotencyRecord.IdempotencyScope.KAFKA_CONSUME,
+                java.time.LocalDateTime.now().minusSeconds(1));
+        insertRecord("k-live", IdempotencyRecord.IdempotencyScope.KAFKA_CONSUME,
+                java.time.LocalDateTime.now().plusDays(1));
+
+        int removed = repository.deleteBatch(java.time.LocalDateTime.now(), 2);
+        assertThat(removed).isEqualTo(2);
+        int removed2 = repository.deleteBatch(java.time.LocalDateTime.now(), 2);
+        assertThat(removed2).isEqualTo(1);
+        assertThat(repository.deleteBatch(java.time.LocalDateTime.now(), 2)).isZero();
+        assertThat(repository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.KAFKA_CONSUME, "k-live")).isPresent();
+    }
+
+    @Test
+    void deleteByScopeAndIdempotencyKey_targetedRelease() {
+        insertRecord("k-targeted", IdempotencyRecord.IdempotencyScope.ADMIN_PROJECTION,
+                java.time.LocalDateTime.now().plusDays(1));
+        int deleted = repository.deleteByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.ADMIN_PROJECTION, "k-targeted");
+        assertThat(deleted).isEqualTo(1);
+        assertThat(repository.findByScopeAndIdempotencyKey(
+                IdempotencyRecord.IdempotencyScope.ADMIN_PROJECTION, "k-targeted")).isEmpty();
+    }
+
+    private void insertRecord(String key, IdempotencyRecord.IdempotencyScope scope,
+                              java.time.LocalDateTime expiresAt) {
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setIdempotencyKey(key);
+        record.setScope(scope);
+        record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
+        record.setExpiresAt(expiresAt);
+        repository.saveAndFlush(record);
+    }
+
+    @Test
     void insertIfAbsent_firstWins_secondIsNoop() {
         int first = repository.insertIfAbsent("key-ia", IdempotencyRecord.IdempotencyScope.ORDER_CREATE.name(),
                 1L, IdempotencyRecord.IdempotencyStatus.IN_PROGRESS.name(), "{}", LocalDateTime.now().plusHours(1));

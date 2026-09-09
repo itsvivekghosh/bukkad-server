@@ -149,12 +149,30 @@
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-micrometer</artifactId>
 		</dependency>
+		<!-- Reactor adapter for the WebClient CircuitBreakerOperator (PERF-1/V-16:
+		     the breaker must DECORATE the exchange with transformDeferred).
+		     Version from the resilience4j-bom imported via the Spring Cloud BOM. -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-reactor</artifactId>
+		</dependency>
 
 		<!-- Kafka publisher/consumer support. Optional: only services that own a
 		     Kafka producer/consumer group declare spring-kafka. -->
 		<dependency>
 			<groupId>org.springframework.kafka</groupId>
 			<artifactId>spring-kafka</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- ShedLock annotations for platform schedulers (V-19 idempotency cleanup).
+		     Optional (same pattern as spring-kafka): services that already declare
+		     shedlock-spring (order, admin-analytics) get the lock honoured; the
+		     annotation is silently absent elsewhere and the sweep stays idempotent. -->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>5.16.0</version>
 			<optional>true</optional>
 		</dependency>
 
@@ -201,6 +219,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- StepVerifier for the reactive WebClient filters (PERF-1/V-16). -->
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

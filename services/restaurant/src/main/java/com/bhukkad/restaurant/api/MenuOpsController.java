@@ -42,6 +42,7 @@ public class MenuOpsController {
     private final RestaurantOwnerController ownerGuard;
     private final com.bhukkad.restaurant.service.DynamicPricingService pricingService;
     private final InventoryAlertRepository inventoryAlertRepository;
+    private final com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
 
     // ------------------------------------------------------------------
     // Menu item CRUD
@@ -99,7 +100,10 @@ public class MenuOpsController {
         if (request.tags() != null) {
             item.setTags(request.tags());
         }
-        return menuItemRepository.save(item);
+        MenuItem saved = menuItemRepository.save(item);
+        cacheInvalidator.invalidateMenu(saved.getRestaurantId());
+        cacheInvalidator.invalidateMenuItem(saved.getId());
+        return saved;
     }
 
     @PutMapping("/api/v1/menu/items/{id}")
@@ -156,7 +160,10 @@ public class MenuOpsController {
                 item.setTags(request.tags());
             }
         }
-        return menuItemRepository.save(item);
+        MenuItem saved = menuItemRepository.save(item);
+        cacheInvalidator.invalidateMenu(saved.getRestaurantId());
+        cacheInvalidator.invalidateMenuItem(saved.getId());
+        return saved;
     }
 
     @DeleteMapping("/api/v1/menu/items/{id}")
@@ -168,7 +175,10 @@ public class MenuOpsController {
         ownerGuard.requireOwnerOrAdmin(principal, item.getRestaurantId());
         // Items referenced by historical orders are soft-deleted so past
         // order snapshots keep resolving; unreferenced ones go hard.
+        Long restaurantId = item.getRestaurantId();
         menuItemRepository.delete(item);
+        cacheInvalidator.invalidateMenu(restaurantId);
+        cacheInvalidator.invalidateMenuItem(id);
         return Map.of("message", "Menu item deleted", "id", id);
     }
 
@@ -181,7 +191,10 @@ public class MenuOpsController {
                 .orElseThrow(() -> new ResourceNotFoundException("Menu item not found: " + id));
         ownerGuard.requireOwnerOrAdmin(principal, item.getRestaurantId());
         item.setIsAvailable(available == null || available);
-        return menuItemRepository.save(item);
+        MenuItem saved = menuItemRepository.save(item);
+        cacheInvalidator.invalidateMenu(saved.getRestaurantId());
+        cacheInvalidator.invalidateMenuItem(saved.getId());
+        return saved;
     }
 
     /** Issues a presigned-style upload URL slot (dev build: placeholder URL). */

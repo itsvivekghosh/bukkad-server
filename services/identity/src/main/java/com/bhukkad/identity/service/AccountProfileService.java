@@ -17,13 +17,16 @@ import java.util.List;
 public class AccountProfileService {
 
     private final UserRepository userRepository;
+    private final RestaurantOwnerRepository restaurantOwnerRepository;
     private final DeviceTokenRepository deviceTokenRepository;
     private final FavoriteRestaurantRepository favoriteRepository;
 
     @Transactional
     public User registerOwner(String email, String fullName, String phoneNumber, String businessLicense) {
-        if (userRepository.findAll().stream().anyMatch(u ->
-                (u instanceof RestaurantOwner ro) && email.equalsIgnoreCase(ro.getEmail()))) {
+        // PERF-3: keyed EXISTS on the owners table (SQL predicate) replaces the
+        // findAll()-over-every-user anyMatch scan that grew with the customer
+        // base. Case-insensitive comparison preserved (equalsIgnoreCase).
+        if (restaurantOwnerRepository.existsByEmailIgnoreCase(email)) {
             throw new BusinessException("Owner email already registered");
         }
         RestaurantOwner owner = new RestaurantOwner();

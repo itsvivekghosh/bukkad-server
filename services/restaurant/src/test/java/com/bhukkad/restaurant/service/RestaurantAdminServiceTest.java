@@ -27,6 +27,7 @@ class RestaurantAdminServiceTest {
 
     @Mock private RestaurantRepository restaurantRepository;
     @Mock private RestaurantEventPublisher eventPublisher;
+    @Mock private com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
     @InjectMocks private RestaurantAdminService service;
 
     @Test
@@ -48,6 +49,7 @@ class RestaurantAdminServiceTest {
         assertThat(saved.getPhone()).isEqualTo("9999999999");
         assertThat(saved.getIsActive()).isTrue();
         verify(eventPublisher).restaurantCreated(5L, "Test");
+        verify(cacheInvalidator).invalidateFeed(); // PERF-3: new restaurant changes the feed
     }
 
     @Test
@@ -72,6 +74,7 @@ class RestaurantAdminServiceTest {
 
         assertThat(updated.getIsActive()).isFalse();
         verify(eventPublisher).availabilityChanged(3L, false);
+        verify(cacheInvalidator).invalidateFeed(); // PERF-3: activation change invalidates feed
     }
 
     @Test

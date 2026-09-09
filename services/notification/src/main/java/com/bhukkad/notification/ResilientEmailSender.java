@@ -3,6 +3,7 @@ package com.bhukkad.notification;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
+import com.bhukkad.common.util.LogRedactor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -102,14 +103,22 @@ public class ResilientEmailSender {
 
         mailSender.send(mimeMessage);
         log.info("EMAIL_ATTACHMENT_SENT | to={} | subject={} | attachment={} | bytes={}",
-                to, subject, attachmentName, attachment != null ? attachment.length : 0);
+                LogRedactor.maskEmail(to), subject, attachmentName, attachment != null ? attachment.length : 0);
         return true;
+    }
+
+    /** V-21: mask every address before it reaches the log. */
+    static String maskTo(String[] to) {
+        if (to == null) {
+            return "unknown";
+        }
+        return java.util.Arrays.stream(to).map(LogRedactor::maskEmail).collect(java.util.stream.Collectors.joining(","));
     }
 
     @SuppressWarnings("unused")
     public void emailUnavailable(SimpleMailMessage message, Throwable cause) {
         log.warn("EMAIL_CIRCUIT_OPEN | to={} | subject={} | error={}",
-                message.getTo(), message.getSubject(), cause.getMessage());
+                maskTo(message.getTo()), message.getSubject(), cause.getMessage());
     }
 
     @SuppressWarnings("unused")
@@ -122,7 +131,7 @@ public class ResilientEmailSender {
                                           String contentType,
                                           Throwable cause) {
         log.warn("EMAIL_ATTACHMENT_FAILED | to={} | subject={} | attachment={} | error={}",
-                to, subject, attachmentName, cause.getMessage());
+                LogRedactor.maskEmail(to), subject, attachmentName, cause.getMessage());
         return false;
     }
 }

@@ -430,11 +430,10 @@ class RedisCacheServiceTest {
         long elapsed = System.currentTimeMillis() - start;
 
         assertEquals("fallback", result);
-        // Batch C: the wait-poll runs 10 exponential-backoff retries
-        // (20+40+80+160+320+500×5 ≈ 3.1s) before falling back to the supplier —
-        // long enough for a slow lock holder to populate the cache, but strictly
-        // bounded so a losing thread can never hang indefinitely.
-        assertTrue(elapsed < 5000, "wait-poll should be bounded, took " + elapsed + "ms");
+        // PERF-3: the lock-not-acquired branch never parks. It performs one
+        // bounded L2 re-read and then serves from the supplier — the old
+        // implementation slept up to ~3.5 s here (waitForValue backoff).
+        assertTrue(elapsed < 250, "lock-loss must fall through without parking, took " + elapsed + "ms");
     }
 
     @Test
@@ -676,13 +675,13 @@ class RedisCacheServiceTest {
     }
 
     @Test
-    void sleepBackoff_interruptFlag_exitsPromptlyAndFallsBack() {
+    void getOrCompute_interruptFlagSet_noParkingFallsBackToSupplier() {
         when(localCacheService.get("ik", String.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:ik")).thenReturn(null);
         when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:ik"), anyString(), any(Duration.class)))
                 .thenReturn(false);
-        // Pre-set the interrupt flag: every Thread.sleep in the backoff loop
-        // returns immediately, so the bounded wait collapses to near-zero.
+        // Pre-set the interrupt flag: PERF-3 removed all sleep parking from the
+        // lock-loss path, so the call must not even observe it.
         Thread.currentThread().interrupt();
 
         long start = System.currentTimeMillis();
@@ -693,7 +692,7 @@ class RedisCacheServiceTest {
         Thread.interrupted();
 
         assertEquals("fallback", result);
-        assertTrue(elapsed < 2000, "interrupted backoff should exit promptly, took " + elapsed + "ms");
+        assertTrue(elapsed < 500, "interrupted caller should not park at all, took " + elapsed + "ms");
     }
 
     // ===== Batch C: remaining branch coverage =====
@@ -795,5 +794,74 @@ class RedisCacheServiceTest {
         java.util.Map<String, Object> stats = service.getCacheStats();
 
         assertEquals("stats down", stats.get("error"));
+    }
+
+    // ===== PERF-3: in-JVM single-flight (no Thread.sleep parking) =====
+
+    @Test
+    void getOrCompute_concurrentMisses_singleFlightComputesSupplierExactlyOnce() throws Exception {
+        // L1 and L2 always miss, so every caller falls through to the
+        // cache-aside path; the per-key future must coalesce them onto one
+        // supplier execution.
+        when(localCacheService.get("hot", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:hot")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:hot"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        int threads = 8;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        java.util.List<java.util.concurrent.Future<String>> results = new java.util.ArrayList<>();
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(threads);
+        for (int i = 0; i < threads; i++) {
+            results.add(pool.submit(() -> {
+                try {
+                    start.await();
+                    return service.getOrCompute("hot", String.class, 60, () -> {
+                        calls.incrementAndGet();
+                        // Hold the flight open long enough for every sibling to
+                        // join it (well under the 250 ms join cap).
+                        try {
+                            Thread.sleep(120);
+                        } catch (InterruptedException ex) {
+                            Thread.currentThread().interrupt();
+                        }
+                        return "computed";
+                    });
+                } finally {
+                    done.countDown();
+                }
+            }));
+        }
+        start.countDown();
+        assertTrue(done.await(5, java.util.concurrent.TimeUnit.SECONDS), "worker threads did not finish");
+
+        // The single-flight runs one compute but populates the cache exactly
+        // once, so the leader's setIfAbsent path executes once as well.
+        assertEquals(1, calls.get(), "supplier must be executed exactly once under concurrent miss");
+        for (java.util.concurrent.Future<String> f : results) {
+            assertEquals("computed", f.get());
+        }
+        pool.shutdownNow();
+    }
+
+    @Test
+    void getOrCompute_redisDown_servesFromSupplierWithoutParking() {
+        // Redis fully unavailable: L1 miss, L2 get throws, lock throws. The
+        // pre-PERF-3 code slept in a backoff loop for ~3.5 s before falling
+        // back to the supplier; now it must go straight to the supplier.
+        when(localCacheService.get("down", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:down")).thenThrow(new RuntimeException("redis down"));
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:down"), anyString(), any(Duration.class)))
+                .thenThrow(new RuntimeException("redis down"));
+
+        long start = System.currentTimeMillis();
+        String result = service.getOrCompute("down", String.class, 60, () -> "from-db");
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertEquals("from-db", result);
+        assertTrue(elapsed < 500,
+                "redis-down must not park the caller (old ~3.5s wait), took " + elapsed + "ms");
     }
 }

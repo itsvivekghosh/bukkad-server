@@ -8,4 +8,7 @@ public interface RestaurantOwnerRepository extends JpaRepository<RestaurantOwner
     Optional<RestaurantOwner> findByEmail(String email);
 
     boolean existsByEmail(String email);
+
+    /** PERF-3: keyed duplicate check for owner registration (was a full findAll scan). */
+    boolean existsByEmailIgnoreCase(String email);
 }

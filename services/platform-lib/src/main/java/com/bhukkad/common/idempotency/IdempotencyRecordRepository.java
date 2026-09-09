@@ -22,6 +22,30 @@ public interface IdempotencyRecordRepository extends JpaRepository<IdempotencyRe
     @Modifying
     int deleteByExpiresAtBefore(LocalDateTime expiresAt);
 
+    /**
+     * Batched expiry sweep for the platform cleanup scheduler (V-19): deletes
+     * at most {@code limit} expired rows in one statement via the
+     * {@code idx_idempotency_expires} index, so a big legacy backlog is bled
+     * off in bounded transactions instead of one table-locking delete.
+     */
+    @Modifying
+    @Query(value = """
+            DELETE FROM idempotency_records
+            WHERE id IN (
+                SELECT id FROM idempotency_records
+                WHERE expires_at < :expiresAtBefore
+                ORDER BY expires_at
+                LIMIT :limit
+            )
+            """, nativeQuery = true)
+    int deleteBatch(@Param("expiresAtBefore") LocalDateTime expiresAtBefore,
+                    @Param("limit") int limit);
+
+    /** Targeted release (PERF-2/P-07): un-claim a dedupe row whose dispatch never started. */
+    @Modifying
+    int deleteByScopeAndIdempotencyKey(
+            IdempotencyRecord.IdempotencyScope scope, String idempotencyKey);
+
     /** Inserts only when the (scope, key) pair does not exist (first-write-wins). */
     @Modifying
     @Query(value = """

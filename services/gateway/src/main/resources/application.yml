@@ -4,13 +4,19 @@ server:
 spring:
   application:
     name: bhukkad-gateway
+  # PERF-0 geometry: gateway is reactive (netty, no Tomcat/DB/Hikari keys apply);
+  # it gets the scheduler pool and Redis timeouts that it does support.
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULER_POOL_SIZE:12}
   cloud:
     gateway:
       # Audit batch A (edge hardening): bound upstream latency — without a
       # response timeout a hung service pins gateway connections forever.
       httpclient:
         connect-timeout: 5000
-        response-timeout: 30s
+        response-timeout: 8s
       # Edge header hardening (DedupeResponseHeader for Access-Control-Allow-*,
       # Proxy-Connection/TE stripping, Set-Cookie HttpOnly+Secure+SameSite=Strict)
       # is implemented via the TransportHeaderHygieneFilter and SecureCookieFilter
@@ -22,6 +28,8 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      timeout: 2000
+      connect-timeout: 1000
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration

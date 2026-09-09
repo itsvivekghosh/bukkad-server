@@ -29,10 +29,17 @@ public class RestaurantClient {
     private final WebClient webClient;
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
+        this(baseUrl, (org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>) null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
+                            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("restaurant", CircuitBreakerFilter.DEFAULT_CONFIG))
+                .filter(new CircuitBreakerFilter("restaurant", CircuitBreakerFilter.DEFAULT_CONFIG,
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 
@@ -62,6 +69,40 @@ public class RestaurantClient {
                 // the default status handler; catch ONLY that class here.
                 .onErrorResume(WebClientResponseException.NotFound.class,
                         e -> Mono.empty());
+    }
+
+    /**
+     * Batch menu-item fetch for the checkout chord (PERF-3, one S2S RTT per
+     * cart): {@code GET /api/v1/menu/items?ids=1,2,3}. The restaurant service
+     * caps the list at 100 ids (over cap answers 400) and omits
+     * non-existent/unavailable ids from the returned list; every item map
+     * carries {@code id}, {@code restaurantId}, {@code name} and {@code price}.
+     *
+     * <p>Error contract follows the read conventions of this client: a
+     * per-call 3 s response timeout and other failures surface as an error
+     * signal for callers to map to 503. Unlike {@link #getMenuItem}, a 404 is
+     * NOT mapped to "item does not exist": the batch route answers 404 only
+     * when the endpoint itself is gone (upstream contract break), so it
+     * propagates as an upstream failure instead of lying about the items.</p>
+     */
+    @SuppressWarnings("unchecked")
+    public Mono<List<java.util.Map<String, Object>>> getMenuItems(java.util.Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Mono.just(List.of());
+        }
+        String joined = ids.stream().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        return webClient.get()
+                .uri("/api/v1/menu/items?ids={ids}", joined)
+                .retrieve()
+                .bodyToMono(java.util.Map.class)
+                .timeout(java.time.Duration.ofSeconds(3))
+                .map(body -> {
+                    Object items = ((java.util.Map<String, Object>) body).get("items");
+                    return items instanceof List<?> list
+                            ? (List<java.util.Map<String, Object>>) list
+                            : List.<java.util.Map<String, Object>>of();
+                });
     }
 
     /**

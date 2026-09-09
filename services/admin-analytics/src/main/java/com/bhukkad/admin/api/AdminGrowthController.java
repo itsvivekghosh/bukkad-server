@@ -26,15 +26,24 @@ public class AdminGrowthController {
 
     @GetMapping("/restaurants")
     public List<RestaurantOrderStat> restaurantStats() {
-        return statRepository.findAll();
+        // PERF-3: same bounded page as the canonical query service (was a
+        // direct whole-table findAll here).
+        return queryService.restaurantStats();
     }
 
+    /**
+     * PERF-3: top-N now runs ORDER BY order_count DESC + LIMIT in SQL (was
+     * findAll + JVM sort + limit on servlet threads). Request shape unchanged;
+     * the cap doubles as the page size, bounded by {@value AdminQueryService#LIST_PAGE_CAP}.
+     */
     @GetMapping("/restaurants/top")
     public List<RestaurantOrderStat> topRestaurants(@RequestParam(defaultValue = "10") int limit) {
-        return statRepository.findAll().stream()
-                .sorted((a, b) -> Long.compare(b.getOrderCount(), a.getOrderCount()))
-                .limit(limit)
-                .toList();
+        int capped = Math.max(1, Math.min(limit, AdminQueryService.LIST_PAGE_CAP));
+        return statRepository.findAll(org.springframework.data.domain.PageRequest.of(
+                        0, capped,
+                        org.springframework.data.domain.Sort.by(
+                                org.springframework.data.domain.Sort.Direction.DESC, "orderCount")))
+                .getContent();
     }
 
     @GetMapping("/fraud/summary")

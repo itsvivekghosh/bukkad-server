@@ -210,4 +210,48 @@ class RestaurantClientTest {
 
         assertThat(released).isEqualTo(reservationLines());
     }
+
+    // ===== PERF-3: batch menu items (one S2S call for a cart) =====
+
+    @Test
+    void getMenuItems_singleCall_returnsEnvelopeItems_includingRestaurantId() {
+        java.util.concurrent.atomic.AtomicReference<String> seenQuery =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        server.createContext("/api/v1/menu/items", exchange -> {
+            seenQuery.set(exchange.getRequestURI().getQuery());
+            byte[] bytes = ("{\"items\":["
+                    + "{\"id\":1,\"restaurantId\":10,\"name\":\"A\",\"price\":\"10.00\",\"available\":true},"
+                    + "{\"id\":2,\"restaurantId\":20,\"name\":\"B\",\"price\":\"20.50\",\"available\":true}"
+                    + "]}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
+
+        var items = client.getMenuItems(java.util.List.of(1L, 2L)).block();
+        // Raw or percent-encoded comma both resolve server-side to one ids param.
+        assertThat(seenQuery.get()).startsWith("ids=1").contains("2");
+
+        assertThat(items).hasSize(2);
+        assertThat(items.get(0).get("restaurantId")).isEqualTo(10); // JSON int binds as Number
+        assertThat(String.valueOf(items.get(1).get("name"))).isEqualTo("B");
+    }
+
+    @Test
+    void getMenuItems_emptyIdList_skipsNetworkCall() {
+        assertThat(client.getMenuItems(java.util.List.of()).block()).isEmpty();
+        assertThat(client.getMenuItems(null).block()).isEmpty();
+    }
+
+    @Test
+    void getMenuItems_overCap400_propagatesAsErrorSignal() {
+        server.createContext("/api/v1/menu/items", exchange ->
+                exchange.sendResponseHeaders(400, -1));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> client.getMenuItems(java.util.List.of(1L, 2L)).block())
+                .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.class);
+    }
 }

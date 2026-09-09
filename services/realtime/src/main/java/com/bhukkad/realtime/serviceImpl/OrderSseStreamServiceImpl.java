@@ -2,11 +2,11 @@ package com.bhukkad.realtime.serviceImpl;
 
 import com.bhukkad.realtime.config.LiveProperties;
 import com.bhukkad.realtime.dto.OrderLiveUpdate;
+import com.bhukkad.realtime.exception.SseCapacityExceededException;
 import com.bhukkad.realtime.service.OrderLiveReplayStore;
 import com.bhukkad.realtime.service.OrderSseStreamService;
-import com.bhukkad.realtime.exception.SseCapacityExceededException;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -18,24 +18,62 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Pod-local SSE registry for the live order streams. Mirrors the semantics of
+ * the delivery module's twin (budgets, O(1) disconnect via the emitter index,
+ * evict-on-dispatch-rejection, identical metric names); the copies exist
+ * because the two services carry different update DTO classes, so a shared
+ * helper would be cross-service abstraction (align-semantics note, unify in
+ * PERF-5).
+ *
+ * <p>Metric contract: {@code sse_connections} gauge = emitters currently
+ * registered on this pod (Prometheus: {@code sse_connections});
+ * {@code sse_capacity_rejected{reason=stream|global|dispatch}} counter
+ * (Prometheus: {@code sse_capacity_rejected_total}).</p>
+ */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class OrderSseStreamServiceImpl implements OrderSseStreamService {
 
     private static final long DEFAULT_TIMEOUT = 300_000L;
+    public static final String METRIC_CONNECTIONS = "sse_connections";
+    public static final String METRIC_CAPACITY_REJECTED = "sse_capacity_rejected";
 
     private final OrderLiveReplayStore replayStore;
     private final Executor sseDispatchExecutor;
     private final LiveProperties liveProperties;
+    private final MeterRegistry meterRegistry;
+
+    public OrderSseStreamServiceImpl(OrderLiveReplayStore replayStore,
+                                     Executor sseDispatchExecutor,
+                                     LiveProperties liveProperties,
+                                     MeterRegistry meterRegistry) {
+        this.replayStore = replayStore;
+        this.sseDispatchExecutor = sseDispatchExecutor;
+        this.liveProperties = liveProperties;
+        this.meterRegistry = meterRegistry;
+        if (meterRegistry != null) {
+            meterRegistry.gauge(METRIC_CONNECTIONS, totalEmitters, AtomicInteger::doubleValue);
+        }
+    }
 
     private final AtomicInteger totalEmitters = new AtomicInteger();
 
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> customerStreams = new ConcurrentHashMap<>();
+
+    /**
+     * emitter → (streams, key): disconnect and send failures resolve in O(1)
+     * instead of scanning every registered stream (audit V-06 finish).
+     */
+    private final Map<SseEmitter, StreamHandle> emitterIndex = new ConcurrentHashMap<>();
+
+    private record StreamHandle(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, Long key) {
+    }
 
     @Override
     public SseEmitter subscribeKitchen(Long restaurantId, String lastEventId) {
@@ -97,24 +135,39 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
         return countStreams(kitchenStreams) + countStreams(riderStreams) + countStreams(customerStreams);
     }
 
+    /** Index residency, observable for tests/maintenance assertions. */
+    public int indexedEmitterCount() {
+        return emitterIndex.size();
+    }
+
     private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
                                   Long key,
                                   String channel,
                                   String replayStreamKey,
                                   String lastEventId,
                                   Object snapshot) {
-        reserveGlobalBudget(channel, key);
         SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
+        try {
+            reserveGlobalBudget(channel, key);
+        } catch (SseCapacityExceededException ex) {
+            recordCapacityRejected("global");
+            throw ex;
+        }
         CopyOnWriteArrayList<SseEmitter> emitters = streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>());
 
         synchronized (emitters) {
             if (emitters.size() >= liveProperties.getMaxEmittersPerStream()) {
                 totalEmitters.decrementAndGet();
+                recordCapacityRejected("stream");
+                if (emitters.isEmpty()) {
+                    streams.remove(key, emitters);
+                }
                 log.warn("SSE_CAPACITY_EXCEEDED | channel={} | id={}", channel, key);
                 throw new SseCapacityExceededException("Stream capacity reached for " + channel + " " + key);
             }
             emitters.add(emitter);
         }
+        emitterIndex.put(emitter, new StreamHandle(streams, key));
 
         Runnable cleanup = () -> remove(streams, key, emitter);
         emitter.onCompletion(cleanup);
@@ -160,17 +213,15 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
                     try {
                         sendUpdate(emitter, update);
                     } catch (Exception e) {
-                        removeFromAllStreams(emitter);
-                        removeAndCompleteEmitter(emitter);
+                        evictEmitter(emitter);
                     }
                 });
-            } catch (Exception ex) {
-                try {
-                    sendUpdate(emitter, update);
-                } catch (Exception e) {
-                    removeFromAllStreams(emitter);
-                    removeAndCompleteEmitter(emitter);
-                }
+            } catch (RejectedExecutionException ex) {
+                // Never run the write on the caller (broadcast) thread: pool
+                // saturation means this socket is behind, so drop + count it.
+                log.warn("SSE_DISPATCH_REJECTED | error={}", ex.getMessage());
+                recordCapacityRejected("dispatch");
+                evictEmitter(emitter);
             }
         }
     }
@@ -183,7 +234,18 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
         emitter.send(event);
     }
 
+    private void evictEmitter(SseEmitter emitter) {
+        removeFromAllStreams(emitter);
+        removeAndCompleteEmitter(emitter);
+    }
+
     private void removeFromAllStreams(SseEmitter emitter) {
+        StreamHandle handle = emitterIndex.get(emitter);
+        if (handle != null) {
+            remove(handle.streams(), handle.key(), emitter);
+            return;
+        }
+        // Emitter unknown to the index (defensive): fall back to the scan.
         remove(kitchenStreams, emitter);
         remove(riderStreams, emitter);
         remove(customerStreams, emitter);
@@ -205,6 +267,7 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
     }
 
     private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, Long key, SseEmitter emitter) {
+        emitterIndex.remove(emitter);
         CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
         if (emitters != null) {
             if (emitters.remove(emitter)) {
@@ -235,6 +298,12 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
         }
     }
 
+    private void recordCapacityRejected(String reason) {
+        if (meterRegistry != null) {
+            meterRegistry.counter(METRIC_CAPACITY_REJECTED, "reason", reason).increment();
+        }
+    }
+
     private void sendHeartbeat(List<SseEmitter> emitters) {
         if (emitters == null || emitters.isEmpty()) {
             return;
@@ -245,17 +314,13 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
                     try {
                         emitter.send(SseEmitter.event().comment("heartbeat"));
                     } catch (IOException | IllegalStateException e) {
-                        removeFromAllStreams(emitter);
-                        removeAndCompleteEmitter(emitter);
+                        evictEmitter(emitter);
                     }
                 });
-            } catch (Exception ex) {
-                try {
-                    emitter.send(SseEmitter.event().comment("heartbeat"));
-                } catch (IOException | IllegalStateException e) {
-                    removeFromAllStreams(emitter);
-                    removeAndCompleteEmitter(emitter);
-                }
+            } catch (RejectedExecutionException ex) {
+                log.warn("SSE_HEARTBEAT_DISPATCH_REJECTED | error={}", ex.getMessage());
+                recordCapacityRejected("dispatch");
+                evictEmitter(emitter);
             }
         }
     }
@@ -265,6 +330,7 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
         closeAll(kitchenStreams);
         closeAll(riderStreams);
         closeAll(customerStreams);
+        emitterIndex.clear();
         log.info("SSE streams closed for graceful shutdown");
     }
 

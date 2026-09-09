@@ -1,14 +1,31 @@
 spring:
   application:
     name: realtime-service
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULER_POOL_SIZE:12}
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:realtime}
     username: ${POSTGRES_USER:app}
     password: ${POSTGRES_PASSWORD:app_pass}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: 20
+      connection-timeout: 3000
+      keepalive-time: 300000
+      max-lifetime: 900000
   jpa:
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+        jdbc.batch_versioned_data: true
+        query_plan_cache_size: 200
     show-sql: false
   flyway:
     enabled: true
@@ -17,9 +34,15 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      timeout: 2000
+      connect-timeout: 1000
 
 server:
   port: 8077
+  tomcat:
+    threads:
+      max: 100
+    accept-count: 200
 
 app:
   auth:

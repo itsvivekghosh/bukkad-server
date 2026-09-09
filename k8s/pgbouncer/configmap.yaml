@@ -9,6 +9,24 @@ metadata:
 data:
   pgbouncer.ini: |
     [databases]
+    # PERF-0: per-DB pool_size caps per the perf-guide §4.2 budget table, kept
+    # consistent with the enforced CI arithmetic (scripts/ci/pool-budget-check.py):
+    #   Σ(hpa-max × DB_POOL_SIZE) ≤ 0.8 × min(per-DB pool_size, PG max_connections)
+    # with the maxReplicas actually declared in k8s/*/hpa.yaml (12 for every DB
+    # service), the §4.2 starting values (280/140/280/100/80) under-size the hot
+    # DBs — e.g. orders 12×20=240 > 0.8×280 — so each entry is raised to the
+    # smallest value that satisfies the rule (240→300, identity 12×15=180→225,
+    # small DBs via default_pool_size 12×10=120→150). Pool sizes are caps, not
+    # reservations: transaction pooling + server_idle_timeout keep the number of
+    # REAL server sockets opened on the primary far below the summed caps during
+    # normal operation.
+    # PostgreSQL server budget: max_connections ≈ 320 (§4.2) on the primary —
+    # summed per-DB caps must never be simultaneously saturated against it without
+    # re-running the §4.2 arithmetic (the CI guard enforces the per-DB rule only).
+    orders = host=bhukkad-postgresql port=5432 dbname=orders pool_size=300
+    payments = host=bhukkad-postgresql port=5432 dbname=payments pool_size=300
+    restaurants = host=bhukkad-postgresql port=5432 dbname=restaurants pool_size=300
+    identity = host=bhukkad-postgresql port=5432 dbname=identity pool_size=225
     * = host=bhukkad-postgresql port=5432
 
     [pgbouncer]
@@ -18,7 +36,9 @@ data:
     auth_file = /etc/pgbouncer/userlist.txt
     pool_mode = transaction
     max_client_conn = 2000
-    default_pool_size = 40
+    # §4.2 "others (small)" tier: sized so 12 HPA-pods × 10-pool small services
+    # (120) stay under 0.8 of this default (table start value 80 → raised, see above).
+    default_pool_size = 150
     min_pool_size = 5
     reserve_pool_size = 5
     server_idle_timeout = 600

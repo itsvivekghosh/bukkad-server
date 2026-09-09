@@ -14,12 +14,26 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
 /**
  * Extended Redis cache service that publishes invalidation events for
  * distributed cache coherence across multiple application instances.
+ *
+ * <p>PERF-3: concurrent misses inside one JVM are coalesced with a per-key
+ * {@link CompletableFuture} (single-flight): the first thread computes, the
+ * rest join the same future for at most {@value #INFLIGHT_WAIT_CAP_MS} ms and
+ * otherwise fall through to the L2 read or their own supplier. The previous
+ * implementation parked losing callers in a {@code Thread.sleep} backoff loop
+ * of up to ~3.5 s, so adopting the cache on a hot path would have turned every
+ * cold entry into a p99 cliff; that parking is gone. The distributed Redis lock
+ * (cross-pod compute coalescing), the jittered Redis TTL, the probabilistic
+ * early-expiry and the L1 structure are kept unchanged.</p>
  */
 @Service
 @ConditionalOnBean(name = "redisTemplate")
@@ -27,10 +41,14 @@ public class RedisCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisCacheService.class);
     private static final String LOCK_PREFIX = "cache-lock:";
-    private static final int LOCK_WAIT_RETRIES = 10;
-    private static final long LOCK_WAIT_BASE_MS = 20L;
     private static final long LOCK_TTL_SECONDS = 10L;
     private static final double TTL_JITTER_PERCENT = 0.10;
+
+    /**
+     * Maximum time a thread joining an in-JVM single-flight may wait for the
+     * computing thread before falling back to an L2 read / its own supplier.
+     */
+    private static final long INFLIGHT_WAIT_CAP_MS = 250L;
 
     /**
      * Atomically releases the lock only if we still own it. The lock value is a
@@ -53,6 +71,16 @@ public class RedisCacheService {
     private final ObjectMapper objectMapper;
     private final LocalCacheService localCacheService;
     private final DistributedCacheInvalidator distributedInvalidator;
+
+    /**
+     * In-JVM single-flight map: one entry per key currently being computed by
+     * the cache-aside path. Losing threads join the leader's future instead of
+     * re-running the supplier or parking on sleeps. The flight key is prefixed
+     * ({@code v:}/{@code l:}) so the single-value and list variants of the same
+     * cache key never share a future whose value has a different shape.
+     */
+    private final ConcurrentHashMap<String, CompletableFuture<?>> inFlightLoads =
+            new ConcurrentHashMap<>();
 
     public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
                              StringRedisTemplate stringRedisTemplate,
@@ -79,26 +107,25 @@ public class RedisCacheService {
             return cached.get();
         }
 
-        String lockKey = LOCK_PREFIX + key;
-        String lockToken = tryAcquireLock(lockKey);
-        if (lockToken != null) {
-            try {
-                cached = get(key, type);
-                if (cached.isPresent()) {
-                    return cached.get();
-                }
-                T value = supplier.get();
-                if (value != null) {
-                    set(key, value, ttlSeconds);
-                    localCacheService.put(key, value);
-                }
-                return value;
-            } finally {
-                releaseLock(lockKey, lockToken);
-            }
+        // In-JVM single-flight: exactly one thread per key computes the value;
+        // concurrent misses join the same future (bounded by INFLIGHT_WAIT_CAP_MS)
+        // and otherwise fall through to an L2 read or their own supplier.
+        String flightKey = "v:" + key;
+        CompletableFuture<T> future = new CompletableFuture<>();
+        CompletableFuture<T> leader = registerOrJoinFlight(flightKey, future);
+        if (leader != null) {
+            return joinSingleFlight(leader, () -> get(key, type).orElse(null), supplier);
         }
-
-        return waitForValue(key, type, supplier);
+        try {
+            T computed = computeUnderDistributedLock(key, ttlSeconds, () -> get(key, type), supplier);
+            future.complete(computed);
+            return computed;
+        } catch (RuntimeException | Error ex) {
+            future.completeExceptionally(ex);
+            throw ex;
+        } finally {
+            inFlightLoads.remove(flightKey, future);
+        }
     }
 
     public <T> List<T> getListOrCompute(String key, Class<T> type, long ttlSeconds, Supplier<List<T>> supplier) {
@@ -113,29 +140,99 @@ public class RedisCacheService {
             return cached.get();
         }
 
+        String flightKey = "l:" + key;
+        CompletableFuture<List<T>> future = new CompletableFuture<>();
+        CompletableFuture<List<T>> leader = registerOrJoinFlight(flightKey, future);
+        if (leader != null) {
+            return joinSingleFlight(leader, () -> getList(key, type).orElse(null),
+                    () -> normaliseList(supplier.get()));
+        }
+        try {
+            List<T> computed = normaliseList(computeUnderDistributedLock(
+                    key, ttlSeconds, () -> getList(key, type), supplier));
+            future.complete(computed);
+            return computed;
+        } catch (RuntimeException | Error ex) {
+            future.completeExceptionally(ex);
+            throw ex;
+        } finally {
+            inFlightLoads.remove(flightKey, future);
+        }
+    }
+
+    /**
+     * Tries to claim the in-flight slot for {@code flightKey}. Returns
+     * {@code null} when the caller becomes the leader (it must compute and
+     * complete {@code future}), or the existing leader's future to join. The
+     * flight key is variant-prefixed ({@code v:}/{@code l:}) so the single-value
+     * and list variants of the same cache key never share a differently-typed
+     * future.
+     */
+    @SuppressWarnings("unchecked")
+    private <T> CompletableFuture<T> registerOrJoinFlight(String flightKey, CompletableFuture<T> future) {
+        CompletableFuture<?> existing = inFlightLoads.putIfAbsent(flightKey, future);
+        return existing == null ? null : (CompletableFuture<T>) existing;
+    }
+
+    /**
+     * Leader computation. Holds the distributed Redis lock best-effort so pods
+     * coalesce onto one database read; on contention or a Redis outage the
+     * value is still served — a cheap L2 re-read first, then the supplier.
+     * Losing the lock must never park the caller (the pre-PERF-3 behaviour
+     * slept up to ~3.5 s here).
+     */
+    private <T> T computeUnderDistributedLock(String key, long ttlSeconds,
+                                              Supplier<Optional<T>> l2Reader, Supplier<T> supplier) {
         String lockKey = LOCK_PREFIX + key;
         String lockToken = tryAcquireLock(lockKey);
         if (lockToken != null) {
             try {
-                cached = getList(key, type);
+                Optional<T> cached = l2Reader.get();
                 if (cached.isPresent()) {
                     return cached.get();
                 }
-                List<T> value = supplier.get();
+                T value = supplier.get();
                 if (value != null) {
                     set(key, value, ttlSeconds);
                     localCacheService.put(key, value);
                 }
-                return value != null ? value : List.of();
+                return value;
             } finally {
                 releaseLock(lockKey, lockToken);
             }
         }
+        // Lock held by another pod, or Redis is unavailable: fall through to
+        // L2, then to the supplier itself (never park; the pre-PERF-3 sleep
+        // loop added up to ~3.5 s to this exact path).
+        Optional<T> cached = l2Reader.get();
+        return cached.isPresent() ? cached.get() : supplier.get();
+    }
 
-        return waitForList(key, type, supplier);
+    /**
+     * Awaits the leader's future for at most {@value #INFLIGHT_WAIT_CAP_MS} ms.
+     * Timeout, leader failure, or interruption each fall through to one final
+     * L2 read and then the caller's own supplier.
+     */
+    private <T> T joinSingleFlight(CompletableFuture<T> leader, Supplier<T> l2Reader, Supplier<T> supplier) {
+        try {
+            return leader.get(INFLIGHT_WAIT_CAP_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException failedLeader) {
+            log.warn("CACHE_LEADER_FAILED error={}", String.valueOf(failedLeader.getCause()));
+        } catch (TimeoutException slowLeader) {
+            // bounded: never wait past the cap for a slow leader
+        }
+        T cached = l2Reader.get();
+        return cached != null ? cached : supplier.get();
+    }
+
+    private <T> List<T> normaliseList(List<T> value) {
+        return value != null ? value : List.of();
     }
 
     // ==================== INVALIDATION (WITH DISTRIBUTED PUBLISH) ====================
+
 
     public void delete(String key) {
         String cacheName = extractCacheName(key);
@@ -347,8 +444,8 @@ public class RedisCacheService {
     /**
      * Attempts to acquire the single-flight lock for {@code lockKey}. Returns
      * the unique ownership token on success, or {@code null} when the lock is
-     * held by another thread or Redis is unavailable (the caller then falls
-     * through to {@link #waitForValue}).
+     * held by another pod or Redis is unavailable (the caller then falls
+     * through to a direct L2 read / supplier without waiting).
      */
     private String tryAcquireLock(String lockKey) {
         try {
@@ -373,40 +470,6 @@ public class RedisCacheService {
             stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(buildKey(lockKey)), token);
         } catch (Exception e) {
             log.warn("CACHE_UNLOCK_FAILED key={} error={}", lockKey, e.getMessage());
-        }
-    }
-
-    private <T> T waitForValue(String key, Class<T> type, Supplier<T> supplier) {
-        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
-            sleepBackoff(attempt);
-            Optional<T> cached = get(key, type);
-            if (cached.isPresent()) {
-                return cached.get();
-            }
-        }
-        return supplier.get();
-    }
-
-    private <T> List<T> waitForList(String key, Class<T> type, Supplier<List<T>> supplier) {
-        for (int attempt = 0; attempt < LOCK_WAIT_RETRIES; attempt++) {
-            sleepBackoff(attempt);
-            Optional<List<T>> cached = getList(key, type);
-            if (cached.isPresent()) {
-                return cached.get();
-            }
-        }
-        List<T> value = supplier.get();
-        return value != null ? value : List.of();
-    }
-
-    private void sleepBackoff(int attempt) {
-        try {
-            // Exponential backoff: 20,40,80,160... with jitter to avoid synchronized retry
-            long base = LOCK_WAIT_BASE_MS * (1L << Math.min(attempt, 6));
-            long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(0, 10);
-            Thread.sleep(Math.min(base + jitter, 500));
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
         }
     }
 

@@ -54,8 +54,14 @@ public class EdgeKillSwitchFilter implements org.springframework.cloud.gateway.f
         if (!(flagMeta instanceof String flagKey)) {
             return chain.filter(exchange);
         }
-        Long subject = subjectId(exchange);
-        return flags.isRouteEnabled(flagKey, subject)
+        // Audit V-13/PERF-1.4: subjectId() calls the (servlet-built) JWT
+        // validator, which can block — it must never run eagerly on the Netty
+        // event loop. Every blocking piece is deferred onto boundedElastic;
+        // an empty/failed lookup degrades to anonymous (fail-open, as before).
+        return Mono.fromCallable(() -> subjectId(exchange))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .defaultIfEmpty(0L)
+                .flatMap(subject -> flags.isRouteEnabled(flagKey, subject == 0L ? null : subject))
                 .flatMap(enabled -> enabled
                         ? chain.filter(exchange)
                         : disabled(exchange, flagKey, route.getId()));

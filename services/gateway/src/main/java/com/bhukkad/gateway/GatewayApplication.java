@@ -6,10 +6,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Bhukkad API Gateway (P0).
  *
- * <p>Reactive edge gateway in front of the monolith and the per-service
- * deployments. Routes by path so a strangler flip is an edit to route
- * predicates only, with no service redeploy. Authentication is passthrough:
- * each service validates its own JWT via {@code platform-lib}'s
+ * <p>Reactive edge gateway in front of the per-service deployments. Routes by
+ * path so a strangler flip is an edit to route predicates only, with no
+ * service redeploy. The decommissioned monolith is not in the route table:
+ * unmatched {@code /api/**} paths answer the platform 404 envelope and a
+ * {@code gateway_route_unmatched} counter (audit V-20). Authentication is
+ * passthrough: each service validates its own JWT via {@code platform-lib}'s
  * {@code PlatformJwtAuthFilter}, so the gateway does not inspect tokens.</p>
  *
  * <p>Service discovery is intentionally NOT used (architecture §1.3): routes

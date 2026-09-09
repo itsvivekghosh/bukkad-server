@@ -28,6 +28,7 @@ public class MenuBulkController {
 
     private final MenuItemRepository menuItemRepository;
     private final RestaurantOwnerController ownerGuard;
+    private final com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
 
     public record BulkItem(Long id, String name, BigDecimal price, Boolean available) {}
 
@@ -43,7 +44,7 @@ public class MenuBulkController {
         if (items.size() > MAX_ITEMS) {
             throw new BusinessException("Bulk list exceeds " + MAX_ITEMS + " items");
         }
-        return items.stream().map(item -> {
+        List<MenuItem> saved = items.stream().map(item -> {
             if (item.name() == null || item.name().isBlank()) {
                 throw new BusinessException("Item name is required");
             }
@@ -63,5 +64,11 @@ public class MenuBulkController {
             mi.setIsAvailable(item.available() == null || item.available());
             return menuItemRepository.save(mi);
         }).toList();
+        // PERF-3: the whole batch mutates this restaurant's menu caches.
+        cacheInvalidator.invalidateMenu(restaurantId);
+        for (MenuItem mi : saved) {
+            cacheInvalidator.invalidateMenuItem(mi.getId());
+        }
+        return saved;
     }
 }

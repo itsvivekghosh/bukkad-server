@@ -4,12 +4,14 @@ import com.bhukkad.common.AbstractPostgresIntegrationTest;
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
 import com.bhukkad.common.kafka.KafkaProperties;
+import com.bhukkad.common.outbox.DeadLetterEventRepository;
+import com.bhukkad.common.outbox.DeadLetterEventService;
 import com.bhukkad.common.outbox.OutboxEvent;
 import com.bhukkad.common.outbox.OutboxEventRepository;
 import com.bhukkad.common.outbox.OutboxPollPublisher;
 import com.bhukkad.common.outbox.OutboxProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -22,6 +24,9 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.redpanda.RedpandaContainer;
@@ -33,14 +38,18 @@ import java.util.Map;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 /**
- * End-to-end verification of {@link OutboxPollPublisher}: a PENDING row is
- * claimed (real PostgreSQL with {@code FOR UPDATE SKIP LOCKED}), published to a
- * real broker (Redpanda via Testcontainers) through
- * {@link KafkaPlatformEventPublisher}, and flipped to PUBLISHED. A publish
- * failure (no broker) leaves the row re-queueable (PROCESSING, retry bumped).
+ * End-to-end verification of the two-phase {@link OutboxPollPublisher} against
+ * real PostgreSQL + real Redpanda: a PENDING row is claimed inside a real
+ * transaction ({@code FOR UPDATE SKIP LOCKED} + batched PROCESSING flip),
+ * published OUTSIDE the tx through {@link KafkaPlatformEventPublisher}, and
+ * flipped to PUBLISHED in a second short batched transaction.
+ *
+ * <p>A publish failure (dead broker port) now leaves the row re-queueable as
+ * PENDING with a bumped {@code retry_count} and a future
+ * {@code next_attempt_at} backoff (PERF-2/D1 — the old code stranded rows in
+ * PROCESSING and had no backoff at all).</p>
  *
  * <p>Skips cleanly when Docker is unavailable, matching
  * {@link AbstractPostgresIntegrationTest}.</p>
@@ -48,6 +57,7 @@ import static org.mockito.Mockito.mock;
 @Testcontainers(disabledWithoutDocker = true)
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@ContextConfiguration(classes = com.bhukkad.common.PlatformTestConfig.class)
 class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private static final RedpandaContainer REDPANDA;
@@ -68,12 +78,19 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
     @Autowired
     private OutboxEventRepository repository;
+    @Autowired
+    private DeadLetterEventRepository deadLetterRepository;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void clean() {
         jdbcTemplate.update("DELETE FROM outbox_events");
+        jdbcTemplate.update("DELETE FROM dead_letter_events");
     }
 
     @Test
@@ -84,9 +101,10 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
         int published = relay.drainBatch();
 
         assertThat(published).isEqualTo(1);
-        OutboxEvent row = repository.findAll().get(0);
+        OutboxEvent row = repository.findById(onlyId()).orElseThrow();
         assertThat(row.getStatus()).isEqualTo(OutboxEvent.OutboxStatus.PUBLISHED);
         assertThat(row.getPublishedAt()).isNotNull();
+        assertThat(row.getNextAttemptAt()).isNull();
 
         // And the message actually landed on the topic.
         ConsumerRecord<String, String> record = consumeOne(TOPIC);
@@ -96,22 +114,68 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
     }
 
     @Test
-    void endToEnd_noBroker_publishesNothingAndLeavesRequeueable() {
+    void endToEnd_noBroker_backsOffRequeueableRow() {
         insertPending(PlatformEventMessage.of("OrderCreated", "42", "{\"id\":42}"));
 
         // Publisher pointing at a port that nothing listens on.
         OutboxPollPublisher relay = buildRelay(false);
+        LocalDateTime drainStartedAt = LocalDateTime.now();
         int published = relay.drainBatch();
 
         assertThat(published).isZero();
-        OutboxEvent row = repository.findAll().get(0);
-        // Failed sends keep the row PROCESSING so recoverStale() can re-queue it.
-        assertThat(row.getStatus()).isEqualTo(OutboxEvent.OutboxStatus.PROCESSING);
+        OutboxEvent row = repository.findById(onlyId()).orElseThrow();
+        // PERF-2: failed publish is re-queued to PENDING with retry_count bumped
+        // and an exponential next_attempt_at, not stranded in PROCESSING.
+        assertThat(row.getStatus()).isEqualTo(OutboxEvent.OutboxStatus.PENDING);
         assertThat(row.getRetryCount()).isEqualTo(1);
+        assertThat(row.getNextAttemptAt()).isAfterOrEqualTo(drainStartedAt);
         assertThat(row.getLastError()).isNotNull();
     }
 
+    @Test
+    void endToEnd_retryExhaustion_movesRowToDeadLetterTable() {
+        OutboxEvent row = insertPending(PlatformEventMessage.of("OrderCreated", "42", "{\"id\":42}"));
+        // One remaining attempt below the cap: this failed publish kills it.
+        jdbcTemplate.update("UPDATE outbox_events SET retry_count = ?, next_attempt_at = NULL " +
+                "WHERE id = ?",
+                OutboxProperties.defaults().maxRetries() - 1, row.getId());
+        // Out-of-band JDBC write: drop the stale managed instance so the claim
+        // SELECT materialises the row with retry_count already bumped.
+        entityManager.clear();
+
+        OutboxPollPublisher relay = buildRelay(false);
+        relay.drainBatch();
+
+        OutboxEvent after = repository.findById(row.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(OutboxEvent.OutboxStatus.FAILED);
+        assertThat(deadLetterRepository.count()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM dead_letter_events LIMIT 1", String.class)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void endToEnd_recoverStale_requeuesStrandedProcessingRows() {
+        OutboxEvent row = insertPending(PlatformEventMessage.of("OrderCreated", "42", "{\"id\":42}"));
+        // Simulate a crashed relay replica: PROCESSING started before the timeout.
+        jdbcTemplate.update("UPDATE outbox_events SET status='PROCESSING', " +
+                "processing_started_at = ? WHERE id = ?",
+                LocalDateTime.now().minusMinutes(5), row.getId());
+        entityManager.clear();
+
+        OutboxPollPublisher relay = buildRelay(true);
+        int recovered = relay.recoverStale();
+
+        assertThat(recovered).isEqualTo(1);
+        OutboxEvent after = repository.findById(row.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(OutboxEvent.OutboxStatus.PENDING);
+        assertThat(after.getProcessingStartedAt()).isNull();
+    }
+
     private OutboxPollPublisher buildRelay(boolean withBroker) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        DeadLetterEventService deadLetters =
+                new DeadLetterEventService(deadLetterRepository, repository);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
         if (withBroker) {
             KafkaProperties props = new KafkaProperties(true, "bhukkad.", "it-group");
             Map<String, Object> cfg = Map.of(
@@ -123,12 +187,13 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
             KafkaTemplate<String, String> template =
                     new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(cfg));
             KafkaPlatformEventPublisher publisher =
-                    new KafkaPlatformEventPublisher(template, props, Duration.ofSeconds(5));
-            return new OutboxPollPublisher(repository, publisher, OutboxProperties.defaults());
+                    new KafkaPlatformEventPublisher(template, props, Duration.ofSeconds(20));
+            return new OutboxPollPublisher(repository, publisher, OutboxProperties.defaults(),
+                    tx, deadLetters, registry);
         }
         // Enabled publisher pointed at a dead port: the real send attempt times
-        // out / errors, so publishForResult returns false and the row stays
-        // PROCESSING (re-queueable) with retryCount bumped.
+        // out / errors, so publishForResult returns false and the row is
+        // re-queued PENDING with backoff (or dead-lettered at maxRetries).
         KafkaProperties props = new KafkaProperties(true, "bhukkad.", "it-dead-group");
         Map<String, Object> cfg = Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:1",
@@ -141,7 +206,8 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
                 new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(cfg)),
                 props, Duration.ofMillis(200));
-        return new OutboxPollPublisher(repository, publisher, OutboxProperties.defaults());
+        return new OutboxPollPublisher(repository, publisher, OutboxProperties.defaults(),
+                tx, deadLetters, registry);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -157,19 +223,29 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
                 StringDeserializer.class);
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(p)) {
             consumer.subscribe(List.of(topic));
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(10));
-            assertThat(records.iterator().hasNext()).as("a record was published to %s".formatted(topic)).isTrue();
-            return records.iterator().next();
+            // Loop across poll windows: topic auto-creation + group join can
+            // legitimately exceed a single 10s poll on a loaded dev machine.
+            java.util.List<ConsumerRecord<String, String>> seen = new java.util.ArrayList<>();
+            long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+            while (seen.isEmpty() && System.nanoTime() < deadline) {
+                consumer.poll(Duration.ofSeconds(5)).forEach(seen::add);
+            }
+            assertThat(seen).as("a record was published to %s".formatted(topic)).isNotEmpty();
+            return seen.get(0);
         }
     }
 
-    private void insertPending(PlatformEventMessage message) {
+    private Long onlyId() {
+        return jdbcTemplate.queryForObject("SELECT id FROM outbox_events LIMIT 1", Long.class);
+    }
+
+    private OutboxEvent insertPending(PlatformEventMessage message) {
         OutboxEvent e = new OutboxEvent();
         e.setEventType(message.eventType());
         e.setAggregateType("ORDER");
         e.setAggregateId(42L);
         e.setPayload(message.toJson());
         e.setStatus(OutboxEvent.OutboxStatus.PENDING);
-        repository.saveAndFlush(e);
+        return repository.saveAndFlush(e);
     }
 }

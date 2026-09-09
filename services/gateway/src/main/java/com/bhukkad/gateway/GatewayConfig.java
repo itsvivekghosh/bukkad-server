@@ -2,11 +2,17 @@ package com.bhukkad.gateway;
 
 import com.bhukkad.gateway.flags.EdgeKillSwitchFilter;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Arrays;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Strangler route table (P0 + P4 first slice).
@@ -17,11 +23,12 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>Path predicates are declared from most-specific to least-specific: narrow
  * customer carve-outs, survey sub-paths, live order streams, etc. precede the
- * broad identity / order / restaurant slices. The table is closed with a
- * catch-all {@code http_status: 404} route so no request silently falls through
- * to a legacy monolith (audit-guide V-20). Cutover order follows the ownership
- * matrix (§3): identity (auth) → restaurant (read slice) → order → payment →
- * delivery → notification → admin-analytics → monolith teardown.</p>
+ * broad identity / order / restaurant slices. The table is closed by an
+ * observable {@code unmatched} 404 for every {@code /api/**} path plus a final
+ * catch-all 404 — no request is silently proxied to an unintended backend
+ * (audit-guide V-20). Cutover order follows the ownership matrix (§3):
+ * identity (auth) → restaurant (read slice) → order → payment → delivery →
+ * notification → admin-analytics → monolith teardown.</p>
  */
 @Configuration
 public class GatewayConfig {
@@ -74,10 +81,14 @@ public class GatewayConfig {
     /**
      * Defines the path → backend routing table.
      *
+     * @param meterRegistryProvider for the {@code gateway_route_unmatched}
+     *                              observability counter (audit V-20)
      * @return the {@link RouteLocator} consulted by the gateway on every request
      */
     @Bean
-    public RouteLocator gatewayRoutes(RouteLocatorBuilder builder) {
+    public RouteLocator gatewayRoutes(RouteLocatorBuilder builder,
+                                      ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        MeterRegistry meters = meterRegistryProvider.getIfAvailable();
         return builder.routes()
                 // Service-internal surfaces (mesh clients, service JWT auth)
                 // must never be reachable through the edge. Declared first so
@@ -335,11 +346,43 @@ public class GatewayConfig {
                 // the order route above.
                 .route("admin-analytics", r -> r.path(
                         "/api/v1/admin/**").uri(adminAnalyticsUri))
-                // Catch-all: any unmatched path returns 404 instead of silently
-                // falling through to a legacy monolith (audit-guide V-20).
+                // Observable 404 for every unmatched /api/** path (audit V-20):
+                // the platform envelope + a normalized-path counter — no
+                // request is silently proxied to an unintended backend.
+                .route("unmatched", r -> r.path("/api/**")
+                        .filters(f -> f.filter((exchange, chain) -> {
+                            String path = exchange.getRequest().getURI().getPath();
+                            MeterRegistry metrics = meters;
+                            if (metrics != null) {
+                                metrics.counter("gateway_route_unmatched", "path",
+                                        normalizePath(path)).increment();
+                            }
+                            return EdgeApiErrors.write(exchange,
+                                    org.springframework.http.HttpStatus.NOT_FOUND, "ROUTE_NOT_FOUND",
+                                    "no route matches " + exchange.getRequest().getMethod() + " " + path);
+                        }))
+                        .uri("http://127.0.0.1:1"))
+                // Final non-/api catch-all: unmatched paths simply 404.
                 .route("not-found", r -> r.path("/**")
                         .filters(f -> f.setStatus(404))
                         .uri(orderUri))
                 .build();
+    }
+
+    /** Numeric and UUID path segments collapse to {id} to bound metric cardinality. */
+    static String normalizePath(String path) {
+        // split(-1) keeps the leading empty element: joining on "/" restores it
+        // ("/api/x" → ["", "api", "x"] → "/api/x").
+        return Arrays.stream(path.split("/", -1))
+                .map(segment -> isIdSegment(segment) ? "{id}" : segment)
+                .collect(Collectors.joining("/"));
+    }
+
+    private static final Pattern DIGITS = Pattern.compile("\\d+");
+    private static final Pattern UUID_SEGMENT = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    private static boolean isIdSegment(String segment) {
+        return DIGITS.matcher(segment).matches() || UUID_SEGMENT.matcher(segment).matches();
     }
 }

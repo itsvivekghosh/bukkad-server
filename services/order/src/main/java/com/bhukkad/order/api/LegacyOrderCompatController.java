@@ -274,8 +274,10 @@ public class LegacyOrderCompatController {
         // Group cart lines by restaurant; one order per restaurant.
         java.util.Map<Long, List<com.bhukkad.order.domain.CartItem>> byRestaurant =
                 new java.util.LinkedHashMap<>();
+        java.util.Map<Long, Long> restaurantByItem = resolveRestaurantIds(items);
         for (com.bhukkad.order.domain.CartItem item : items) {
-            byRestaurant.computeIfAbsent(resolveRestaurantId(item), k -> new java.util.ArrayList<>())
+            byRestaurant.computeIfAbsent(restaurantByItem.get(item.getMenuItemId()),
+                            k -> new java.util.ArrayList<>())
                     .add(item);
         }
         List<OrderResponse> orders = new java.util.ArrayList<>();
@@ -331,15 +333,56 @@ public class LegacyOrderCompatController {
                 "totalSpend", totalSpend);
     }
 
-    private Long resolveRestaurantId(com.bhukkad.order.domain.CartItem item) {
-        Long rid = restaurantClient.getMenuItemRestaurantId(item.getMenuItemId())
-                .block(java.time.Duration.ofSeconds(5));
-        if (rid == null) {
-            throw new com.bhukkad.common.error.BusinessException(
-                    "Cannot determine the restaurant for menu item " + item.getMenuItemId()
-                            + " (item may have been deleted); remove it from the cart and retry");
+    /**
+     * PERF-3: resolve every cart line's owning restaurant with batch calls
+     * (server cap 100 ids) instead of the old per-item {@code block(5s)} loop.
+     * An ordinary cart is a single S2S round-trip; the restaurantId comes from
+     * the menu-item payload itself (same field the menu snapshot carries).
+     */
+    private java.util.Map<Long, Long> resolveRestaurantIds(
+            List<com.bhukkad.order.domain.CartItem> items) {
+        java.util.List<Long> menuItemIds = items.stream()
+                .map(com.bhukkad.order.domain.CartItem::getMenuItemId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        java.util.Map<Long, Long> restaurantByItem = new java.util.LinkedHashMap<>();
+        // Chunk to the restaurant batch cap; a normal cart never loops.
+        for (int from = 0; from < menuItemIds.size(); from += 100) {
+            java.util.List<Long> chunk = menuItemIds.subList(from, Math.min(from + 100, menuItemIds.size()));
+            java.util.List<java.util.Map<String, Object>> remote;
+            try {
+                remote = restaurantClient.getMenuItems(chunk)
+                        .block(java.time.Duration.ofSeconds(5));
+            } catch (RuntimeException meshFailure) {
+                // A downstream outage must NOT look like deleted cart items.
+                throw new com.bhukkad.common.error.UpstreamUnavailableException(
+                        "restaurant", meshFailure);
+            }
+            if (remote != null) {
+                for (java.util.Map<String, Object> item : remote) {
+                    Object id = item.get("id");
+                    Object restaurantId = item.get("restaurantId");
+                    if (id != null && restaurantId != null) {
+                        try {
+                            restaurantByItem.put(Long.valueOf(String.valueOf(id)),
+                                    Long.valueOf(String.valueOf(restaurantId)));
+                        } catch (NumberFormatException malformed) {
+                            // Skip the malformed row; the missing-id check below
+                            // surfaces it as an unresolvable cart line.
+                        }
+                    }
+                }
+            }
         }
-        return rid;
+        for (Long menuItemId : menuItemIds) {
+            if (!restaurantByItem.containsKey(menuItemId)) {
+                throw new com.bhukkad.common.error.BusinessException(
+                        "Cannot determine the restaurant for menu item " + menuItemId
+                                + " (item may have been deleted); remove it from the cart and retry");
+            }
+        }
+        return restaurantByItem;
     }
 
     private static Long subjectId(TokenPrincipal principal) {
