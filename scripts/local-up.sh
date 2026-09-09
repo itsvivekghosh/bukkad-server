@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 
 export JWT_SECRET="$(grep -m1 '^JWT_SECRET=' services/docker/.env | cut -d= -f2-)"
 export SERVICE_JWT_SECRET="$JWT_SECRET"
+export SPRING_PROFILES_ACTIVE=local
 export TRACING_SAMPLE_PROBABILITY=0.0
 export EVENTS_EXTERNAL_ENABLED=false
 export REDIS_HOST=localhost
@@ -42,18 +43,41 @@ export GROWTH_SERVICE_URL=http://localhost:8089
 export APP_SERVICES_PAYMENT_URL=http://localhost:8093
 
 # "name port" pairs (gateway port overridable via GATEWAY_PORT)
-SERVICES=(
+ALL_SERVICES=(
   "identity 8081" "search 8082" "survey 8083" "referral 8084"
   "notification 8085" "supportticket 8086" "admin-analytics 8087"
   "personalization 8088" "growth 8089" "restaurant 8091" "order 8092"
   "payment 8093" "delivery 8094" "realtime 8077" "gateway ${GATEWAY_PORT:-8095}"
 )
 
+# Optional positional args restrict the launch to a subset of services
+# (canonical ports are kept so mesh URLs still resolve): local-up.sh identity gateway
+SERVICES=()
+if [ "$#" -gt 0 ]; then
+  for entry in "${ALL_SERVICES[@]}"; do
+    for want in "$@"; do
+      if [ "${entry% *}" = "$want" ]; then
+        SERVICES+=("$entry")
+      fi
+    done
+  done
+  if [ "${#SERVICES[@]}" -eq 0 ]; then
+    echo "no requested service is known: $*"
+    echo "available: ${ALL_SERVICES[*]% *}"
+    exit 1
+  fi
+else
+  SERVICES=("${ALL_SERVICES[@]}")
+fi
+
 LOG_DIR=/tmp/bhukkad-local
 mkdir -p "$LOG_DIR"
 PIDFILE=.local-stack.pids
 : > "$PIDFILE"
-LEAN_OPTS="-Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=1"
+# Lean JVM defaults mirror the memory-tight container tuning; C1-only +
+# single-processor heuristics triple startup time when 15 JVMs launch at once.
+# On a roomy host override for faster boots, e.g.: LOCAL_JVM_OPTS="-Xmx512m"
+LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=1}"
 
 echo "== launching ${#SERVICES[@]} JVMs (logs: $LOG_DIR/<service>.log) =="
 for entry in "${SERVICES[@]}"; do
@@ -67,7 +91,10 @@ for entry in "${SERVICES[@]}"; do
   echo "$! $name" >> "$PIDFILE"
 done
 
-echo "== waiting for 'Started ... Application' =="
+echo "== waiting for services to report healthy =="
+# The local profile sets logging.level.com.bhukkad=WARN, which suppresses the
+# "Started ... Application" INFO line — readiness is therefore probed on
+# /actuator/health (200/UP), not on the log.
 deadline=$(( $(date +%s) + 600 ))
 count=${#SERVICES[@]}
 while true; do
@@ -75,7 +102,8 @@ while true; do
   waiting=""
   for entry in "${SERVICES[@]}"; do
     name=${entry% *}
-    if grep -q "Started .*Application" "$LOG_DIR/$name.log" 2>/dev/null; then
+    port=${entry##* }
+    if curl -sf -o /dev/null --max-time 3 "http://localhost:${port}/actuator/health"; then
       ok=$((ok+1))
     else
       pid=$(awk -v n="$name" '$2==n{print $1}' "$PIDFILE")
@@ -90,13 +118,24 @@ while true; do
   printf '   ready %d/%d\n' "$ok" "$count"
   [ "$ok" -eq "$count" ] && break
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "TIMEOUT waiting for:$waiting"
-    for n in $waiting; do tail -5 "$LOG_DIR/$n.log"; done
-    exit 1
+    # Do not give up (a 600 s cap on a contended boot killed live JVMs):
+    # warn and keep watching, re-reporting every 5 minutes.
+    echo "   STILL WAITING:$waiting (tip: LOCAL_JVM_OPTS can raise the dev heap)"
+    deadline=$(( $(date +%s) + 300 ))
   fi
   sleep 10
 done
 
 echo "== local stack ready =="
 echo "   gateway: http://localhost:${GATEWAY_PORT:-8095}"
-echo "   stop with: scripts/local-down.sh"
+echo "   logs:    $LOG_DIR/<service>.log"
+echo "   staying attached — Ctrl+C stops the stack (or: scripts/local-down.sh)"
+
+# Foreground supervisor: keep this script alive for the lifetime of the JVMs so
+# the stack (and whoever tracks this script) owns the whole tree. Signals sent
+# to the process group reach the service JVMs directly.
+trap '' HUP
+for pid_entry in $(awk '{print $1}' "$PIDFILE"); do
+  wait "$pid_entry" 2>/dev/null || true
+done
+rm -f "$PIDFILE"

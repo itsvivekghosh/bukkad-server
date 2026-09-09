@@ -1,0 +1,14 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+
+app:
+  environment: production
+  events:
+    external:
+      enabled: true

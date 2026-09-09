@@ -1,62 +1,74 @@
 #!/usr/bin/env bash
 #
-# Run Bhukkad services locally without Docker/Kubernetes.
+# Run the Bhukkad LOCAL stack (microservices on host JVMs + Dockerized infra).
 #
-# Two modes:
+# The legacy monolith was removed in 49c63b4 ("Restructure to microservices") —
+# there is no root POM anymore, so every invocation brings up the microservices
+# stack instead:
 #
-#   1. Monolith (default):
-#      ./scripts/run-local.sh
-#      Runs the single Spring Boot app against MySQL + Redis on localhost.
-#
-#   2. Microservices:
-#      ./scripts/run-local.sh --microservices [service1 service2 ...]
-#      Runs the named services from services/ against PostgreSQL on localhost.
-#      If no service names are given, all are started.
-#
-# Prerequisites for microservices mode:
-#   - PostgreSQL 15+ running on localhost:5432
-#   - One database per service (see --create-databases flag below)
-#   - Java 17
+#   1. Infrastructure: PostgreSQL (services/docker/docker-compose.dev.yml) and
+#      Redis (an already-running instance on :6379 is reused; otherwise Redis
+#      is started in docker too). Per-service databases are created by the
+#      compose initdb on first postgres boot.
+#   2. Build: `./mvnw -f services/pom.xml package -DskipTests` when any
+#      requested service's fat jar is missing.
+#   3. Launch: scripts/local-up.sh starts the host JVMs with the mesh URLs,
+#      JWT secrets and profile settings the services expect, waits for every
+#      service to report UP on /actuator/health (logs under
+#      /tmp/bhukkad-local) and then stays attached until the stack is stopped
+#      (Ctrl+C from a terminal).
 #
 # Usage examples:
-#   ./scripts/run-local.sh                                    # monolith
-#   ./scripts/run-local.sh --microservices                    # all services
-#   ./scripts/run-local.sh --microservices identity restaurant payment  # subset
-#   ./scripts/run-local.sh --microservices --create-databases  # init DBs then start
+#   ./scripts/run-local.sh                                # core stack + gateway
+#   ./scripts/run-local.sh identity restaurant gateway    # subset (canonical ports kept)
+#   ./scripts/run-local.sh identity search survey referral notification supportticket \
+#       admin-analytics personalization growth restaurant order payment delivery realtime gateway
+#                                                         # full 15-JVM stack
+#   ./scripts/run-local.sh --create-databases             # init DBs on an already-running PG
+#   ./scripts/run-local.sh --microservices ...            # legacy flag, accepted as no-op
 #
+# Stop: Ctrl+C (stops the JVMs with it) or ./scripts/local-down.sh from another shell.
+# Tear down infra: docker compose -f services/docker/docker-compose.dev.yml down
+#
+# Prerequisites: Java 17, Docker; the full 15-JVM stack fits a ~4 GB heap budget
+# (lean JVM options are set in local-up.sh).
+# This script uses bash arrays. If invoked via a plain POSIX sh
+# (`sh scripts/run-local.sh` on systems where sh != bash), re-exec under bash.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# ── Database setup for microservices mode ────────────────────────────
+COMPOSE_FILE="services/docker/docker-compose.dev.yml"
+
+port_open() { nc -z -G 2 localhost "$1" >/dev/null 2>&1; }
+
+# ── Database setup (optional; the compose initdb does this on first boot) ──
 create_pg_databases() {
     echo "Creating PostgreSQL databases for each service..."
     local psql_cmd
     if command -v psql &>/dev/null; then
         psql_cmd="psql"
-    elif [ -x /usr/local/bin/psql ]; then
-        psql_cmd="/usr/local/bin/psql"
     elif [ -x /opt/homebrew/bin/psql ]; then
         psql_cmd="/opt/homebrew/bin/psql"
+    elif [ -x /usr/local/bin/psql ]; then
+        psql_cmd="/usr/local/bin/psql"
     else
-        echo "ERROR: psql not found. Install PostgreSQL or create databases manually."
+        echo "ERROR: psql not found. Start the compose stack instead (it creates the DBs itself)."
         exit 1
     fi
 
-    export PGPASSWORD="${PGPASSWORD:-bhukkad_dev}"
+    export PGPASSWORD="${PGPASSWORD:-app_pass}"   # matches compose POSTGRES_PASSWORD
     local db_user="${PGUSER:-app}"
     local db_host="${PGHOST:-localhost}"
     local db_port="${PGPORT:-5432}"
 
     local dbs=(
-        restaurants
-        identity
-        orders
-        payments
-        delivery
-        notification
-        admin
+        identity restaurants orders payments delivery notification admin
+        search survey referral support realtime personalization growth
     )
 
     for db in "${dbs[@]}"; do
@@ -68,63 +80,15 @@ create_pg_databases() {
     echo "Database setup complete."
 }
 
-# ── Microservices mode ─────────────────────────────────────────────────
-run_microservice() {
-    local module="$1"
-    local port_offset="$2"
-    local base_port=8090
-    local port=$((base_port + port_offset))
-
-    echo ""
-    echo "=== Starting ${module} on port ${port} ==="
-    local svc_name=""
-    case "$module" in
-        identity)       svc_name="identity" ;;
-        restaurant)     svc_name="restaurants" ;;
-        order)          svc_name="orders" ;;
-        payment)        svc_name="payments" ;;
-        delivery)       svc_name="delivery" ;;
-        notification)   svc_name="notification" ;;
-        admin-analytics) svc_name="admin" ;;
-    esac
-    echo "  Database: ${svc_name} (PostgreSQL)"
-
-    IDENTITY_DB_URL="jdbc:postgresql://localhost:5432/identity" \
-    IDENTITY_DB_USERNAME="app" \
-    IDENTITY_DB_PASSWORD="bhukkad_dev" \
-    RESTAURANT_DB_URL="jdbc:postgresql://localhost:5432/restaurants" \
-    RESTAURANT_DB_USERNAME="app" \
-    RESTAURANT_DB_PASSWORD="bhukkad_dev" \
-    ORDER_DB_URL="jdbc:postgresql://localhost:5432/orders" \
-    ORDER_DB_USERNAME="app" \
-    ORDER_DB_PASSWORD="bhukkad_dev" \
-    PAYMENT_DB_URL="jdbc:postgresql://localhost:5432/payments" \
-    PAYMENT_DB_USERNAME="app" \
-    PAYMENT_DB_PASSWORD="bhukkad_dev" \
-    DELIVERY_DB_URL="jdbc:postgresql://localhost:5432/delivery" \
-    DELIVERY_DB_USERNAME="app" \
-    DELIVERY_DB_PASSWORD="bhukkad_dev" \
-    NOTIFICATION_DB_URL="jdbc:postgresql://localhost:5432/notification" \
-    NOTIFICATION_DB_USERNAME="app" \
-    NOTIFICATION_DB_PASSWORD="bhukkad_dev" \
-    ADMIN_DB_URL="jdbc:postgresql://localhost:5432/admin" \
-    ADMIN_DB_USERNAME="app" \
-    ADMIN_DB_PASSWORD="bhukkad_dev" \
-    JWT_SECRET="dev-secret-change-me-0123456789abcdef0123456789abcdef" \
-    SERVER_PORT="$port" \
-    ./mvnw -f services/pom.xml -pl "$module" -am spring-boot:run -DskipTests &
-    echo "  ${module} PID: $!"
-}
-
 # ── Argument parsing ─────────────────────────────────────────────────
-MICROSERVICES_MODE=false
 CREATE_DBS=false
 SERVICE_NAMES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --microservices)
-            MICROSERVICES_MODE=true
+        --microservices|--monolith)
+            # Flags kept for backward compatibility. The monolith no longer
+            # exists; the local path is the microservices stack either way.
             shift
             ;;
         --create-databases)
@@ -132,9 +96,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            head -30 "$0"
+            sed -n '2,36p' "$0"
             exit 0
-            ;;
+        ;;
         *)
             SERVICE_NAMES+=("$1")
             shift
@@ -142,52 +106,68 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Main ─────────────────────────────────────────────────────────────
-if [ "$MICROSERVICES_MODE" = true ]; then
-    if [ "$CREATE_DBS" = true ]; then
-        create_pg_databases
-    fi
-
-    # Default: start all services
-    if [ ${#SERVICE_NAMES[@]} -eq 0 ]; then
-        SERVICE_NAMES=(identity restaurant order payment delivery notification admin-analytics)
-    fi
-
-    echo "Starting ${#SERVICE_NAMES[@]} microservice(s)..."
-    echo "Each service runs its own PostgreSQL database on localhost:5432"
-    echo "nginx reverse proxy exposed at http://localhost:8088 (-> each service on :8080 internally)"
-    echo ""
-
-    # Port offsets: identity=0, restaurant=1, order=2, ...
-    port_offset=0
-    for svc in "${SERVICE_NAMES[@]}"; do
-        run_microservice "$svc" "$port_offset"
-        ((port_offset++))
-    done
-
-    echo ""
-    echo "All services started. Press Ctrl+C to stop."
-    echo "Ports: identity=8090, restaurant=8091, order=8092, payment=8093, delivery=8094, notification=8095, admin-analytics=8096"
-
-    # Wait for all background PIDs
-    wait
+# ── 1. Infrastructure ────────────────────────────────────────────────
+if port_open 5432; then
+    echo "== PostgreSQL already listening on :5432 =="
 else
-    # ── Monolith mode (original behavior) ───────────────────────────────
-    export SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}"
-    export DB_HOST="${DB_HOST:-localhost}"
-    export DB_PORT="${DB_PORT:-5432}"
-    export DB_NAME="${DB_NAME:-core}"
-    export DB_USERNAME="${DB_USERNAME:-app}"
-    export DB_PASSWORD="${DB_PASSWORD:-bhukkad_dev}"
-    export REDIS_HOST="${REDIS_HOST:-localhost}"
-    export REDIS_PORT="${REDIS_PORT:-6379}"
-    export SERVER_PORT="${SERVER_PORT:-8080}"
-    export FRAUD_BLOCKING_ENABLED="${FRAUD_BLOCKING_ENABLED:-false}"
+    echo "== Starting PostgreSQL via docker compose =="
+    docker compose -f "$COMPOSE_FILE" up -d postgres
+    for _ in $(seq 1 60); do
+        status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' backend-postgres 2>/dev/null || echo none)"
+        [ "$status" = "healthy" ] && break
+        sleep 2
+    done
+    if port_open 5432; then
+        echo "== PostgreSQL listening on :5432 =="
+    else
+        echo "ERROR: PostgreSQL did not come up on :5432 (docker inspect status: ${status:-unknown})"
+        exit 1
+    fi
+fi
 
-    echo "Starting Bhukkad monolith on http://localhost:${SERVER_PORT} (profile=${SPRING_PROFILES_ACTIVE})"
-    echo "PostgreSQL: ${DB_USERNAME}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-    echo "Redis: ${REDIS_HOST}:${REDIS_PORT}"
-    echo ""
+if port_open 6379; then
+    echo "== Redis already listening on :6379 (reusing it) =="
+else
+    echo "== Starting Redis via docker compose =="
+    docker compose -f "$COMPOSE_FILE" up -d redis
+fi
 
-    exec ./mvnw spring-boot:run -DskipTests "$@"
+if $CREATE_DBS; then
+    create_pg_databases
+fi
+
+# ── 2. Ensure service jars exist ─────────────────────────────────────
+# Default = the core commerce slice this script has always documented
+# (identity restaurant order payment delivery notification admin-analytics)
+# plus the gateway, so it boots on an 8 GB laptop. Name services explicitly
+# (or use scripts/local-up.sh) for the full 15-JVM stack.
+CORE_MODULES=(identity restaurant order payment delivery notification
+              admin-analytics gateway)
+if [ "${#SERVICE_NAMES[@]}" -gt 0 ]; then
+    MODULES=("${SERVICE_NAMES[@]}")
+else
+    MODULES=("${CORE_MODULES[@]}")
+fi
+
+missing=false
+for m in "${MODULES[@]}"; do
+    if [ ! -f "services/$m/target/$m-1.0.0.jar" ]; then
+        echo "  missing jar: $m"
+        missing=true
+    fi
+done
+if [ "$missing" = true ]; then
+    echo "== Building service jars (./mvnw -f services/pom.xml package -DskipTests) =="
+    ./mvnw -f services/pom.xml package -DskipTests -q
+fi
+
+# ── 3. Launch the host stack (delegates to scripts/local-up.sh) ──────
+if [ ! -f scripts/local-up.sh ]; then
+    echo "ERROR: scripts/local-up.sh is missing — cannot launch the stack."
+    exit 1
+fi
+if [ "${#SERVICE_NAMES[@]}" -gt 0 ]; then
+    exec bash scripts/local-up.sh "${SERVICE_NAMES[@]}"
+else
+    exec bash scripts/local-up.sh "${CORE_MODULES[@]}"
 fi

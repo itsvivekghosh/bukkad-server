@@ -22,6 +22,7 @@ x-app-defaults: &app-defaults
   restart: on-failure
   init: true
   environment: &app-env
+    SPRING_PROFILES_ACTIVE: local
     SERVER_PORT: "8080"
     REDIS_HOST: redis
     SPRING_DATA_REDIS_HOST: redis
