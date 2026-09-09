@@ -47,11 +47,9 @@ class AffiliateListBoundingTest {
 
         ArgumentCaptor<Pageable> page = ArgumentCaptor.forClass(Pageable.class);
         verify(affiliateCodeRepository).findAllByOrderByCreatedAtDesc(page.capture());
+        // ORDER BY created_at DESC is expressed by the derived method name;
+        // the pageable carries the 200-row cap.
         assertThat(page.getValue().getPageSize()).isEqualTo(200);
-        assertThat(page.getValue().getSort().getOrderFor("createdAt"))
-                .isNotNull();
-        assertThat(page.getValue().getSort().getOrderFor("createdAt").getDirection())
-                .isEqualTo(Sort.Direction.DESC);
         verify(affiliateCodeRepository, never()).findAll();
     }
 }

@@ -52,6 +52,7 @@ class DisputeAdminListBoundTest {
         d.setId(1L);
         d.setCreatedAt(LocalDateTime.now());
         d.setStatus(Dispute.DisputeStatus.OPEN);
+        d.setType(Dispute.DisputeType.FOOD_QUALITY);
         when(disputeRepository.findAllByOrderByCreatedAtDesc(any(Pageable.class)))
                 .thenReturn(List.of(d));
 
@@ -60,12 +61,10 @@ class DisputeAdminListBoundTest {
         assertThat(page).hasSize(1);
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(disputeRepository).findAllByOrderByCreatedAtDesc(captor.capture());
+        // ORDER BY created_at DESC comes from the derived repository method
+        // name; the pageable contributes the bounded page only.
         assertThat(captor.getValue().getPageSize()).isEqualTo(200);
         assertThat(captor.getValue().getPageNumber()).isZero();
-        assertThat(captor.getValue().getSort().getOrderFor("createdAt"))
-                .isNotNull();
-        assertThat(captor.getValue().getSort().getOrderFor("createdAt").getDirection())
-                .isEqualTo(Sort.Direction.DESC);
         verify(disputeRepository, never()).findAll();
     }
 }
