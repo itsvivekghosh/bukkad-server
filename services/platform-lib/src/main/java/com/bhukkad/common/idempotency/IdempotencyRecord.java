@@ -61,7 +61,11 @@ public class IdempotencyRecord {
     private LocalDateTime expiresAt;
 
     public enum IdempotencyScope {
-        ORDER_CREATE, BATCH_ORDER_CREATE, PAYMENT_PROCESS, RAZORPAY_WEBHOOK, KAFKA_CONSUME
+        ORDER_CREATE, BATCH_ORDER_CREATE, PAYMENT_PROCESS, RAZORPAY_WEBHOOK,
+        /** Kafka consumer event-id dedupe (PERF-2/V-10: poison-safe replay). */
+        KAFKA_CONSUME,
+        /** Admin CQRS projection dedupe (PERF-2/V-12: replay must not double count). */
+        ADMIN_PROJECTION
     }
 
     public enum IdempotencyStatus {

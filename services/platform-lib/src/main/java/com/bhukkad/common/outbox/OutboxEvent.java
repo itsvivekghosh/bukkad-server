@@ -66,6 +66,13 @@ public class OutboxEvent {
 
     private LocalDateTime processingStartedAt;
 
+    /**
+     * Earliest time the relay may claim this row again (PERF-2 exponential
+     * backoff after a failed publish; {@code null} = immediately eligible).
+     */
+    @Column(name = "next_attempt_at")
+    private LocalDateTime nextAttemptAt;
+
     public enum OutboxStatus {
         PENDING, PROCESSING, PUBLISHED, FAILED
     }

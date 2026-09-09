@@ -158,6 +158,17 @@
 			<optional>true</optional>
 		</dependency>
 
+		<!-- ShedLock annotations for platform schedulers (V-19 idempotency cleanup).
+		     Optional (same pattern as spring-kafka): services that already declare
+		     shedlock-spring (order, admin-analytics) get the lock honoured; the
+		     annotation is silently absent elsewhere and the sweep stays idempotent. -->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>5.16.0</version>
+			<optional>true</optional>
+		</dependency>
+
 		<!-- SLF4J API only — binding is chosen by the consuming service. -->
 		<dependency>
 			<groupId>org.slf4j</groupId>

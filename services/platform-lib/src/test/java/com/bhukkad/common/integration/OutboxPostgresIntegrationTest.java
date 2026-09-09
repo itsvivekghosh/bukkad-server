@@ -65,7 +65,7 @@ class OutboxPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
         insertEvent("OrderStatusChanged", OutboxEvent.OutboxStatus.PUBLISHED, LocalDateTime.now().minusMinutes(5));
 
         List<OutboxEvent> claimed = repository.findPendingForProcessing(
-                OutboxEvent.OutboxStatus.PENDING.name(), 50);
+                OutboxEvent.OutboxStatus.PENDING.name(), 50, LocalDateTime.now());
 
         assertThat(claimed).hasSize(1);
         assertThat(claimed.get(0).getEventType()).isEqualTo("OrderCreated");
@@ -78,7 +78,7 @@ class OutboxPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
         }
 
         List<OutboxEvent> claimed = repository.findPendingForProcessing(
-                OutboxEvent.OutboxStatus.PENDING.name(), 3);
+                OutboxEvent.OutboxStatus.PENDING.name(), 3, LocalDateTime.now());
 
         assertThat(claimed).hasSize(3);
     }
@@ -90,7 +90,7 @@ class OutboxPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
         insertRawEvent("OrderDelivered", LocalDateTime.now().minusMinutes(20));
 
         List<OutboxEvent> claimed = repository.findPendingForProcessing(
-                OutboxEvent.OutboxStatus.PENDING.name(), 50);
+                OutboxEvent.OutboxStatus.PENDING.name(), 50, LocalDateTime.now());
 
         assertThat(claimed).extracting(OutboxEvent::getEventType)
                 .containsExactly("OrderCreated", "OrderDelivered", "OrderStatusChanged");
@@ -136,7 +136,7 @@ class OutboxPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
                     while (true) {
                         int claimed = tx.execute(status -> {
                             List<OutboxEvent> batch = repository.findPendingForProcessing(
-                                    OutboxEvent.OutboxStatus.PENDING.name(), BATCH);
+                                    OutboxEvent.OutboxStatus.PENDING.name(), BATCH, LocalDateTime.now());
                             for (OutboxEvent e : batch) {
                                 e.setStatus(OutboxEvent.OutboxStatus.PROCESSING);
                                 e.setProcessingStartedAt(LocalDateTime.now());

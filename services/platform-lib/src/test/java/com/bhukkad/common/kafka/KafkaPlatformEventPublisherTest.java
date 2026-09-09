@@ -55,14 +55,20 @@ class KafkaPlatformEventPublisherTest {
         publisher.publish(PlatformEventMessage.of("OrderCreated", "42", "{}"));
     }
 
+    /**
+     * PERF-2/B2 (fail-first rewrite): the disabled publisher must report
+     * FALSE, not the old "no-op success". Returning true let the relay flip
+     * outbox rows to PUBLISHED without anything reaching the broker — the
+     * silent event-loss blackhole.
+     */
     @Test
-    void publishForResult_disabled_returnsTrue() {
+    void publishForResult_disabled_returnsFalse() {
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
                 kafkaTemplate, new KafkaProperties(false, "bhukkad.", "test-group"));
 
         boolean result = publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}"));
 
-        assertThat(result).isTrue();
+        assertThat(result).isFalse();
         verifyNoInteractions(kafkaTemplate);
     }
 
