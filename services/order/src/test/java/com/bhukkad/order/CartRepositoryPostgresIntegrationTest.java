@@ -40,13 +40,21 @@ class CartRepositoryPostgresIntegrationTest extends AbstractOrderPostgresTest {
         jdbcTemplate.update("DELETE FROM carts");
     }
 
+    /**
+     * JPA auditing (@EnableJpaAuditing on the app) rewrites updatedAt on
+     * entity saves, so staleness is stamped via raw SQL — deterministic and
+     * auditing-immune, exactly what the sweeper predicate reads.
+     */
     private Cart cart(Long customerId, String status, LocalDateTime updatedAt) {
         Cart c = new Cart();
         c.setCustomerId(customerId);
         c.setStatus(status);
-        c.setCreatedAt(updatedAt.minusDays(1));
-        c.setUpdatedAt(updatedAt);
-        return cartRepository.saveAndFlush(c);
+        Cart saved = cartRepository.saveAndFlush(c);
+        jdbcTemplate.update("UPDATE carts SET updated_at = ?, created_at = ? WHERE id = ?",
+                java.sql.Timestamp.valueOf(updatedAt),
+                java.sql.Timestamp.valueOf(updatedAt.minusDays(1)),
+                saved.getId());
+        return saved;
     }
 
     @Test
