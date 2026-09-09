@@ -2,7 +2,6 @@ package com.bhukkad.payment.idempotency;
 
 import com.bhukkad.common.idempotency.IdempotencyRecord;
 import com.bhukkad.common.idempotency.IdempotencyRecordRepository;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,11 +15,18 @@ import java.time.LocalDateTime;
  *
  * <p>Payment providers may deliver the same event more than once (network retry,
  * provider redelivery). Without dedup, the same webhook would run
- * {@code completeWebhookPayment} twice, which is a money-path correctness risk.
+ * {@code completeWebhookPayment} twice, which is a money-path correctness risk.</p>
  *
- * <p>Port of the monolith's {@code WebhookIdempotencyService}; the record lives
- * in the payment service's own DB (platform-lib V1 creates
- * {@code idempotency_records}).</p>
+ * <p><strong>PERF-2/V-11 rework:</strong> the old {@code REQUIRES_NEW}
+ * {@code markProcessed} deliberately committed the event id BEFORE the
+ * settlement/enqueue of the same delivery — burning the dedup token on paths
+ * that then failed and making provider retries un-retryable. The claim now
+ * runs {@code MANDATORY}: it commits inside the caller's business transaction
+ * ({@link com.bhukkad.payment.service.WebhookService#completeFromWebhook}),
+ * so settlement + dedup + event are one atomic unit. A concurrent duplicate
+ * delivery surfaces as {@code DataIntegrityViolationException} from the unique
+ * {@code (scope, key)} index, rolls that transaction back and is answered with
+ * a benign duplicate response.</p>
  */
 @Service
 public class WebhookIdempotencyService {
@@ -35,7 +41,8 @@ public class WebhookIdempotencyService {
 
     /**
      * Returns {@code true} when the given provider event id has already been
-     * processed. Call this before applying a webhook's side effects.
+     * processed. Fast path for redeliveries — the in-tx claim remains the
+     * race-safe guarantee this check only avoids repeating work.
      */
     @Transactional(readOnly = true)
     public boolean isAlreadyProcessed(String eventId) {
@@ -48,20 +55,20 @@ public class WebhookIdempotencyService {
     }
 
     /**
-     * Marks a provider event id as processed. Callers must invoke this BEFORE
-     * applying webhook side effects.
+     * Claims a provider event id inside the caller's business transaction
+     * (first-write-wins via the unique index). Blank event ids carry no
+     * dedup token; the caller proceeds without one.
      *
-     * <p>Throws {@link DataIntegrityViolationException} on concurrent duplicate
-     * delivery — deliberately, so it propagates out of this {@code REQUIRES_NEW}
-     * transaction and the duplicate insert rolls back cleanly. Do NOT catch it
-     * inside this method: a caught exception in a transactional method leaves
-     * the transaction rollback-only and surfaces as
-     * {@code UnexpectedRollbackException} at the caller's commit.</p>
+     * @throws org.springframework.dao.DataIntegrityViolationException on a
+     *         concurrent duplicate delivery — the caller's transaction rolls
+     *         back; do NOT catch this inside a transactional scope (the tx is
+     *         already rollback-only at that point and the commit would
+     *         surface as {@code UnexpectedRollbackException}).
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean markProcessed(String eventId) {
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void claim(String eventId) {
         if (!StringUtils.hasText(eventId)) {
-            return true; // nothing to dedupe; let the caller proceed
+            return;
         }
         IdempotencyRecord record = new IdempotencyRecord();
         record.setIdempotencyKey(eventId);
@@ -69,6 +76,5 @@ public class WebhookIdempotencyService {
         record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
         record.setExpiresAt(LocalDateTime.now().plus(WEBHOOK_TTL));
         idempotencyRecordRepository.saveAndFlush(record);
-        return true;
     }
 }

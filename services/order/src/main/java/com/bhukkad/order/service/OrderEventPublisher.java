@@ -9,6 +9,17 @@ import org.springframework.stereotype.Service;
 /**
  * Publishes order domain events via the transactional outbox (plan §6.2,
  * {@code order.events.v1}): {@code OrderCreated}, {@code OrderStatusChanged}.
+ *
+ * <p><strong>G-1 contract (audit §8, PERF-2/D6):</strong> enqueue failures
+ * PROPAGATE. The swallow that used to live here logged
+ * {@code ORDER_EVENT_ENQUEUE_FAILED} and let the order commit with no event —
+ * exactly the lost-event class G-1 forbids. An order row and its outbox row
+ * are one atomic unit: if the event cannot be recorded, the business
+ * transaction must roll back with it. Every call site therefore runs inside a
+ * {@code @Transactional} service method ({@code OrderService},
+ * {@code OrderStatusService}, {@code ScheduledOrderProcessor}'s per-order
+ * {@code TransactionTemplate}); {@link OutboxClient} additionally hard-throws
+ * a {@code G-1 violation} when no transaction is active.</p>
  */
 @Slf4j
 @Service
@@ -33,12 +44,10 @@ public class OrderEventPublisher {
     }
 
     private void enqueue(String type, Long aggregateId, String payload) {
-        try {
-            PlatformEventMessage message = PlatformEventMessage.of(type, String.valueOf(aggregateId), payload);
-            outboxClient.enqueue(message, aggregateId);
-            log.info("ORDER_EVENT_ENQUEUED | type={} | orderId={}", type, aggregateId);
-        } catch (Exception e) {
-            log.error("ORDER_EVENT_ENQUEUE_FAILED | type={} | orderId={}", type, aggregateId, e);
-        }
+        PlatformEventMessage message = PlatformEventMessage.of(type, String.valueOf(aggregateId), payload);
+        // No try/catch: the exception must reach the caller so its @Transactional
+        // rolls back together with the order change (G-1).
+        outboxClient.enqueue(message, aggregateId);
+        log.info("ORDER_EVENT_ENQUEUED | type={} | orderId={}", type, aggregateId);
     }
 }
