@@ -18,6 +18,7 @@ spec:
         app: bhukkad
         component: pgbouncer
     spec:
+      terminationGracePeriodSeconds: 90
       securityContext:
         runAsNonRoot: true
         runAsUser: 70

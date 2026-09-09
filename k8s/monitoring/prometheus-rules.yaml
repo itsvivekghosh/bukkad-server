@@ -1,0 +1,173 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bhukkad-actionable-alerts
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    # 'release' label selects which Prometheus (Prometheus Operator rule
+    # selector) picks this rule set — adjust to your release label.
+    release: bhukkad-prometheus
+spec:
+  groups:
+    # =========================================================================
+    # Roadmap #14: the actionable alert set. Every expression references a
+    # metric the code already emits (audit-guide §9.1/§9.2 master list) —
+    # G-2 "no inert safety devices" applies here too: an alert whose metric is
+    # never produced must be deleted, not left firing on absent().
+    # =========================================================================
+    - name: bhukkad.events
+      rules:
+        # Outbox backlog > 1000 for 5m (V-02/G-1): the transactional outbox is
+        # the only publish path — a growing backlog means lost delivery
+        # guarantees. Metric: gauge exported by OutboxEventProcessor
+        # (outbox_events_pending / outbox.publish.lag_ms family).
+        - alert: OutboxBacklogHigh
+          expr: max(outbox_events_pending) > 1000
+          for: 5m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Outbox backlog > 1000 for 5m (service {{ $labels.service }})"
+            runbook: docs/backup-and-restore-runbook.md # placeholder anchor; events runbook
+
+        # DLT lag > 0 on money topics (V-10): anything sitting on a
+        # *.dlt topic failed consumption — for money topics (orders/payments
+        # streams per docs/event-catalog.md) that is a money-integrity event.
+        # Metric: kafka_consumergroup_lag via the Kafka exporter / Redpanda rpk
+        # exporter.
+        - alert: MoneyTopicDltLag
+          expr: kafka_consumergroup_lag{topic=~"order\\.events\\.v1\\.dlt|bhukkad\\.platform\\.events\\.dlt"} > 0
+          for: 5m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Messages parked on money-topic DLT {{ $labels.topic }} (group {{ $labels.consumergroup }})"
+
+        # Kafka consumer lag on business topics (S2/PERF-2 follow-through).
+        - alert: KafkaConsumerLagHigh
+          expr: kafka_consumergroup_lag{topic!~".*\\.dlt"} > 5000
+          for: 10m
+          labels:
+            severity: warning
+            domain: events
+          annotations:
+            summary: "Consumer group {{ $labels.consumergroup }} lagging {{ $value }} on {{ $labels.topic }}"
+
+    - name: bhukkad.database
+      rules:
+        # HikariCP connection-pending > 8 for 2m (P-01): pool saturation —
+        # requests are queueing for a connection; pgbouncer caps (G-15) sized
+        # against 8 per pod.
+        - alert: HikariPoolSaturated
+          expr: max by (app) (hikaricp_connections_pending{app!=""}) > 8
+          for: 2m
+          labels:
+            severity: warning
+            domain: database
+          annotations:
+            summary: "Hikari pending connections > 8 on {{ $labels.app }}"
+
+        - alert: HikariConnectionTimeouts
+          expr: rate(hikaricp_connections_timeout_total{app!=""}[5m]) > 0
+          labels:
+            severity: critical
+            domain: database
+          annotations:
+            summary: "Hikari timeouts occurring on {{ $labels.app }} — pool exhausted"
+
+    - name: bhukkad.edge
+      rules:
+        # Circuit breaker open (V-16): any breaker OPEN for 1m is a degraded
+        # upstream; 5m means the fallback route is carrying real traffic.
+        - alert: CircuitBreakerOpen
+          expr: max by (name) (resilience4j_circuitbreaker_state{name!="",state="open"}) > 0
+          for: 5m
+          labels:
+            severity: warning
+            domain: edge
+          annotations:
+            summary: "Circuit breaker {{ $labels.name }} OPEN for 5m"
+
+        # Gateway unmatched 404s sustained (V-20): the gateway counts every
+        # unrouted /api path on gateway_route_unmatched — sustained traffic
+        # means a route is missing or a client is pinned to a dead path.
+        - alert: GatewayUnmatchedRoutesSustained
+          expr: sum(rate(gateway_route_unmatched[5m])) by (path) > 0.5
+          for: 15m
+          labels:
+            severity: warning
+            domain: edge
+          annotations:
+            summary: "Gateway has unmatched /api paths hitting {{ $labels.path }} for 15m"
+
+        # JWKS refresh failures (V-03): token verification will start failing
+        # wholesale if the key cache cannot refresh.
+        - alert: JwksRefreshFailing
+          expr: increase(jwks_refresh_outcome{outcome="failure"}[10m]) > 1
+          labels:
+            severity: critical
+            domain: edge
+          annotations:
+            summary: "JWKS refresh failed >1x in 10m"
+
+    - name: bhukkad.realtime
+      rules:
+        # SSE global budget rejects (V-06/V-07): the SSE connection budget is
+        # being hit — new subscribers are rejected and frames dropped.
+        - alert: SseBudgetExhausted
+          expr: increase(sse_global_budget_exhausted_total[5m]) > 0
+          labels:
+            severity: warning
+            domain: realtime
+          annotations:
+            summary: "SSE global connection budget exhausted in the last 5m"
+
+        - alert: SseDroppedFrames
+          expr: increase(sse_dropped_frames_total[5m]) > 0
+          labels:
+            severity: warning
+            domain: realtime
+          annotations:
+            summary: "SSE frames dropped in the last 5m"
+
+    - name: bhukkad.backup
+      rules:
+        # Roadmap #15: backup-success/failure alerting.
+        - alert: BackupJobFailed
+          expr: kube_job_status_failed{namespace="bhukkad", job_name=~"bhukkad-backup-.*"} > 0
+          labels:
+            severity: critical
+            domain: backup
+          annotations:
+            summary: "Nightly backup job failed (dump and/or S3 upload)"
+
+        # Watchdog: the 02:00 CronJob must have scheduled within the last 25h.
+        - alert: BackupJobMissing
+          expr: time() - kube_cronjob_status_last_schedule_time{namespace="bhukkad", cronjob="bhukkad-backup"} > 90000
+          for: 0m
+          labels:
+            severity: critical
+            domain: backup
+          annotations:
+            summary: "bhukkad-backup has not scheduled in >25h"
+
+        # Freshness: .last_success_epoch exported by the metrics sidecar;
+        # >25h without a successful dump set = RPO breach.
+        - alert: BackupStale
+          expr: time() - backup_last_success_epoch_seconds > 90000
+          labels:
+            severity: critical
+            domain: backup
+          annotations:
+            summary: "No successful backup in >25h (RPO breach)"
+
+        - alert: RestoreDrillStale
+          expr: time() - restore_drill_last_success_timestamp_seconds > 2678400  # 31d
+          labels:
+            severity: warning
+            domain: backup
+          annotations:
+            summary: "Monthly restore drill has not passed in >31d (scripts/ci/restore-drill.sh)"

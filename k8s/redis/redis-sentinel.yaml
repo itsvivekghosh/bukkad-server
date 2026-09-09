@@ -35,6 +35,7 @@ spec:
         app: bhukkad
         component: redis-sentinel
     spec:
+      terminationGracePeriodSeconds: 90
       containers:
         - name: sentinel
           image: redis:7-alpine

@@ -51,6 +51,9 @@ class GatewayRoutingTest {
     private static HttpServer orderBackend;
     private static String orderBase;
 
+    private static HttpServer supportBackend;
+    private static String supportBase;
+
     private static HttpServer notificationBackend;
     private static String notificationBase;
 
@@ -92,6 +95,17 @@ class GatewayRoutingTest {
         orderBackend.start();
         orderBase = "http://127.0.0.1:" + orderBackend.getAddress().getPort();
 
+        supportBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        supportBackend.createContext("/", ex -> {
+            byte[] body = "SUPPORT-BACKEND".getBytes();
+            ex.sendResponseHeaders(200, body.length);
+            try (var os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        supportBackend.start();
+        supportBase = "http://127.0.0.1:" + supportBackend.getAddress().getPort();
+
         notificationBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         notificationBackend.createContext("/", ex -> {
             byte[] body = "NOTIFICATION-BACKEND".getBytes();
@@ -126,6 +140,9 @@ class GatewayRoutingTest {
         if (orderBackend != null) {
             orderBackend.stop(0);
         }
+        if (supportBackend != null) {
+            supportBackend.stop(0);
+        }
         if (notificationBackend != null) {
             notificationBackend.stop(0);
         }
@@ -156,8 +173,9 @@ class GatewayRoutingTest {
         registry.add("app.routes.survey-uri", () -> "http://127.0.0.1:1");
         // Referral service path → refused port (not under test).
         registry.add("app.routes.referral-uri", () -> "http://127.0.0.1:1");
-        // Support service path → refused port (not under test).
-        registry.add("app.routes.support-uri", () -> "http://127.0.0.1:1");
+        // Support service path → live embedded backend (ADR-001: disputes and
+        // the admin dispute console are support-owned).
+        registry.add("app.routes.support-uri", () -> supportBase);
         // Growth service path → refused port (not under test).
         registry.add("app.routes.growth-uri", () -> "http://127.0.0.1:1");
         // Realtime service path → live embedded backend (live SSE stream).
@@ -319,11 +337,13 @@ class GatewayRoutingTest {
     }
 
     @Test
-    void disputeAdminPathIsServedByOrderBackend() {
-        // /api/v1/admin/disputes/** → order backend.
+    void disputeAdminPathIsServedBySupportBackend() {
+        // ADR-001 (binding): supportticket is the single dispute
+        // system-of-record — /api/v1/admin/disputes/** routes to the support
+        // backend, not order.
         client.get().uri("/api/v1/admin/disputes").exchange()
                 .expectStatus().isOk()
-                .expectBody(String.class).isEqualTo("ORDER-BACKEND");
+                .expectBody(String.class).isEqualTo("SUPPORT-BACKEND");
     }
 
     @Test

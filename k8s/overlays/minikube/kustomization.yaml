@@ -2,31 +2,81 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Low-memory profile for local minikube (3–4 GB Docker RAM).
-# Lists base manifests individually (cannot use `resources: [../../]` — kustomize cycle).
-# Usage: kubectl apply -k k8s/overlays/minikube
+#
+# W3-RESTRUCTURE fix: this overlay had TWO defects — (1) referencing
+# `../../namespace.yaml` style single files outside the overlay root is
+# refused by kustomize's default loader ("must build at directory"), so the
+# overlay has been un-buildable since those paths were introduced — the fix
+# is running kustomize with `--load-restrictor LoadRestrictionsNone` (kubectl
+# apply -k cannot pass it, so use: `kubectl kustomize --load-restrictor
+# LoadRestrictionsNone k8s/overlays/minikube`); (2) the patches target the
+# retired monolith bhukkad-app Deployment (k8s/app/ is gone with W5). Dead
+# patches dropped, low-memory patches for postgres/redis kept.
+#
+# The static secrets.yaml is intentionally NOT included — Vault-less minikube
+# users create bhukkad-secrets out-of-band (see k8s/secrets.yaml header).
+#
+# Usage:
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/overlays/minikube | kubectl apply -f -
 
 namespace: bhukkad
 
 resources:
   - ../../namespace.yaml
   - ../../configmap.yaml
-  - ../../secrets.yaml
+  - ../../secret-store.yaml
+  - ../../external-secret.yaml
   - ../../postgres/pvc.yaml
   - ../../postgres/configmap.yaml
   - ../../postgres/deployment.yaml
   - ../../postgres/service.yaml
+  - ../../postgres/read-replica.yaml
+  - ../../pgbouncer/deployment.yaml
+  - ../../pgbouncer/service.yaml
   - ../../redis/configmap.yaml
   - ../../redis/pvc.yaml
   - ../../redis/deployment.yaml
   - ../../redis/service.yaml
-  - ../../app/serviceaccount.yaml
+  - ../../redis/redis-sentinel.yaml
+  - ../../survey/deployment.yaml
+  - ../../survey/service.yaml
+  - ../../referral/deployment.yaml
+  - ../../referral/service.yaml
+  - ../../supportticket/deployment.yaml
+  - ../../supportticket/service.yaml
+  - ../../restaurant/deployment.yaml
+  - ../../restaurant/service.yaml
+  - ../../identity/deployment.yaml
+  - ../../identity/service.yaml
+  - ../../order/deployment.yaml
+  - ../../order/service.yaml
+  - ../../payment/deployment.yaml
+  - ../../payment/service.yaml
+  - ../../delivery/deployment.yaml
+  - ../../delivery/service.yaml
+  - ../../notification/deployment.yaml
+  - ../../notification/service.yaml
+  - ../../search/deployment.yaml
+  - ../../search/service.yaml
+  - ../../admin-analytics/deployment.yaml
+  - ../../admin-analytics/service.yaml
+  - ../../gateway/deployment.yaml
+  - ../../gateway/service.yaml
   - ../../logging/fluent-bit-configmap.yaml
+  - ../../logging/fluent-bit-rbac.yaml
+  - ../../logging/fluent-bit-daemonset.yaml
+  - ../../nginx/configmap.yaml
+  - ../../nginx/deployment.yaml
+  - ../../nginx/service.yaml
   - ../../ingress.yaml
 
 patches:
   - path: patches/postgres-deployment.yaml
   - path: patches/redis-deployment.yaml
   - path: patches/postgres-config.yaml
+
+components:
+  - ../../components/redpanda
 
 labels:
   - includeSelectors: true

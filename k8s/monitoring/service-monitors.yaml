@@ -1,0 +1,68 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bhukkad-services
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    release: bhukkad-prometheus
+spec:
+  # Template selector: matches every bhukkad service Service in the namespace.
+  # Roadmap #14 — one ServiceMonitor covers the whole fleet; per-service label
+  # churn is unnecessary because each Deployment already carries the
+  # prometheus.io/* scrape annotations AND the kustomize-managed-by labels
+  # (kustomization.yaml: project=bhukkad).
+  namespaceSelector:
+    matchNames:
+      - bhukkad
+  selector:
+    matchLabels:
+      project: bhukkad
+  endpoints:
+    # Spring Boot actuator Prometheus endpoint on each service's HTTP port
+    # (the Service targets the containerPort; the port NAME is stable: http).
+    - port: http
+      path: /actuator/prometheus
+      interval: 30s
+      scrapeTimeout: 10s
+      # Envelope auth: services reject unauthenticated /actuator on prod
+      # profile except the scrape role — service-to-service token is injected
+      # below if your scrape config requires it (V-15 posture).
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+---
+# Per-service monitors for the infrastructure components that do NOT expose
+# Spring actuator endpoints (postgres exporter + redis exporter are expected to
+# be deployed by the platform team per Prometheus Operator conventions; the
+# monitors below pick them up if present — absence is harmless, the selector
+# simply matches nothing).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bhukkad-infra
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    release: bhukkad-prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - bhukkad
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["bhukkad"]
+      - key: component
+        operator: In
+        values: ["postgres", "redis"]
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s

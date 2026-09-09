@@ -24,7 +24,7 @@ spec:
         component: gateway
     spec:
       serviceAccountName: bhukkad-app
-      terminationGracePeriodSeconds: 45
+      terminationGracePeriodSeconds: 90  # G-16: SSE + in-flight requests need the full drain window (was 45)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001

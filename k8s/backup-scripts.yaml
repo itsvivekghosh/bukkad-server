@@ -8,42 +8,104 @@ metadata:
     component: backup
 binaryData: {}
 data:
+  # ---------------------------------------------------------------------------
+  # Roadmap #15 rewrite: the platform is database-per-service (15+ Postgres
+  # DBs, docs/ARCHITECTURE.md service catalog) — the old script dumped the
+  # single legacy `bhukkad` DB, leaving 14/15 databases with NO backup.
+  #
+  # This script loops over ALL service DBs (DB_LIST) and pg_dumps each into its
+  # own gzipped file, so a single corrupt dump cannot poison the whole set and
+  # per-service restore granularity is natural. Credentials come from
+  # bhukkad-secrets; the backup runs as the POSTGRES superuser so one login
+  # suffices for all DBs (per-service roles are intentionally least-privilege
+  # and cannot read each other's databases — R-08/G-14).
+  #
+  # Off-site copy: the sibling `s3-sync` container (backup-cronjob.yaml, pinned
+  # amazon/aws-cli image) waits for the .backup_done marker this script writes
+  # and mirrors /backup to s3://$S3_BUCKET — neither postgres nor redis images
+  # ship an `aws` binary, and only s3-sync holds cloud credentials.
+  #
+  # Failure semantics: exits non-zero on any DB failure so the CronJob records
+  # a failed job (alert rule BackupJobFailing); partial dumps are deleted, the
+  # previous good dump stays intact.
+  # ---------------------------------------------------------------------------
   backup-postgres.sh: |
     #!/bin/bash
-    set -euo pipefail
-    DB_HOST="${DB_HOST:-postgres}"
+    set -uo pipefail
+    # NOT `set -e`: one failing DB must not skip the remaining databases — the
+    # loop collects failures and reports the full set at the end.
+    DB_HOST="${DB_HOST:-bhukkad-postgresql}"
     DB_PORT="${DB_PORT:-5432}"
-    DB_USERNAME="${DB_USERNAME:-app}"
+    DB_USERNAME="${DB_USERNAME:?DB_USERNAME (backup superuser) is required}"
     DB_PASSWORD="${DB_PASSWORD:?DB_PASSWORD is required}"
-    DB_NAME="${DB_NAME:-core}"
-    BACKUP_DIR="${BACKUP_DIR:-/backup}"
+    # Space-separated list of service databases. Default: AUTO-DISCOVER every
+    # non-template database on the cluster, so a newly added service is backed
+    # up with no manifest change (must match initdb/00-create-databases.sql:
+    # identity restaurants orders payments delivery notification admin search
+    # survey referral support realtime personalization growth).
+    DB_LIST="${DB_LIST:-}"
+    BACKUP_DIR="${BACKUP_DIR:-/backup/postgres}"
     RETENTION_DAYS="${RETENTION_DAYS:-30}"
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    FILENAME="bhukkad_postgres_${TIMESTAMP}.sql.gz"
+    STAMP=$(date +%s)
+    LOG_PREFIX="[$(date '+%Y-%m-%dT%H:%M:%S%z')]"
     mkdir -p "${BACKUP_DIR}"
-    echo "[$(date)] Starting PostgreSQL backup: ${DB_NAME}@${DB_HOST}:${DB_PORT}"
-    PGPASSWORD="${DB_PASSWORD}" pg_dump \
-      --host="${DB_HOST}" --port="${DB_PORT}" \
-      --username="${DB_USERNAME}" --dbname="${DB_NAME}" \
-      --format=plain --no-owner --no-acl \
-      | gzip > "${BACKUP_DIR}/${FILENAME}"
-    echo "[$(date)] Backup created: ${BACKUP_DIR}/${FILENAME}"
-    find "${BACKUP_DIR}" -name "bhukkad_postgres_*.sql.gz" -mtime +${RETENTION_DAYS} -delete
-    if [ -n "${S3_BUCKET:-}" ]; then
-      aws s3 cp "${BACKUP_DIR}/${FILENAME}" "s3://${S3_BUCKET}/postgres/${FILENAME}" --no-progress
+    FAILED=()
+    SUCCEEDED=0
+    export PGPASSWORD="${DB_PASSWORD}"
+    if [ -z "${DB_LIST}" ]; then
+      DB_LIST=$(psql --host="${DB_HOST}" --port="${DB_PORT}" \
+        --username="${DB_USERNAME}" --dbname=postgres --tuples-only --no-align \
+        --command="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate AND datname <> 'postgres';")
     fi
-    echo "[$(date)] PostgreSQL backup finished successfully"
+    echo "${LOG_PREFIX} Starting per-service PostgreSQL backup: ${DB_LIST} @ ${DB_HOST}:${DB_PORT}"
+    for DB in ${DB_LIST}; do
+      FILENAME="bhukkad_${DB}_${TIMESTAMP}.sql.gz"
+      if pg_dump --host="${DB_HOST}" --port="${DB_PORT}" \
+                 --username="${DB_USERNAME}" --dbname="${DB}" \
+                 --format=plain --no-owner --no-acl \
+          | gzip > "${BACKUP_DIR}/${FILENAME}.partial"; then
+        # gzip success is not dump success (pipefail is on, but verify the
+        # artifact is a real, non-empty, gzip-valid file before promoting it).
+        if [ -s "${BACKUP_DIR}/${FILENAME}.partial" ] && gzip -t "${BACKUP_DIR}/${FILENAME}.partial" 2>/dev/null; then
+          mv "${BACKUP_DIR}/${FILENAME}.partial" "${BACKUP_DIR}/${FILENAME}"
+          SUCCEEDED=$((SUCCEEDED + 1))
+          echo "${LOG_PREFIX} dumped ${DB} -> ${FILENAME} ($(du -h "${BACKUP_DIR}/${FILENAME}" | cut -f1))"
+        else
+          rm -f "${BACKUP_DIR}/${FILENAME}.partial"
+          FAILED+=("${DB}:artifact-invalid")
+        fi
+      else
+        rm -f "${BACKUP_DIR}/${FILENAME}.partial"
+        FAILED+=("${DB}:pg_dump")
+      fi
+    done
+    # Retention: prune local dumps past RETENTION_DAYS (remote retention is a
+    # bucket lifecycle rule — see docs/backup-and-restore-runbook.md).
+    find "${BACKUP_DIR}" -name "bhukkad_*_*.sql.gz" -mtime +"${RETENTION_DAYS}" -delete
+    rm -f "${BACKUP_DIR}/.backup_done" "${BACKUP_DIR}/.backup_failed"
+    if [ ${#FAILED[@]} -eq 0 ]; then
+      # Success marker consumed by the s3-sync container and by the freshness
+      # check in scripts/ci/restore-drill.sh.
+      printf '%s\n' "${STAMP}" > "${BACKUP_DIR}/.last_success_epoch"
+      printf '%s\n' "${SUCCEEDED}" > "${BACKUP_DIR}/.backup_done"
+      echo "${LOG_PREFIX} PostgreSQL backup finished successfully for ${SUCCEEDED} databases"
+      exit 0
+    fi
+    printf '%s\n' "${FAILED[*]}" > "${BACKUP_DIR}/.backup_failed"
+    echo "${LOG_PREFIX} BACKUP FAILED for: ${FAILED[*]}"
+    exit 1
 
   backup-redis.sh: |
     #!/bin/sh
     set -euo pipefail
-    REDIS_HOST="${REDIS_HOST:-redis}"
+    REDIS_HOST="${REDIS_HOST:-bhukkad-redis}"
     REDIS_PORT="${REDIS_PORT:-6379}"
     REDIS_PASSWORD="${REDIS_PASSWORD:-}"
-    REDIS_DATA_DIR="${REDIS_DATA_DIR:-/data}"
-    BACKUP_DIR="${BACKUP_DIR:-/backup}"
+    REDIS_DATA_DIR="${REDIS_DATA_DIR:-/redis-data}"
+    BACKUP_DIR="${BACKUP_DIR:-/backup/redis}"
     RETENTION_DAYS="${RETENTION_DAYS:-7}"
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    STAMP=$(date +%s)
     mkdir -p "${BACKUP_DIR}"
     echo "[$(date)] Starting Redis backup: ${REDIS_HOST}:${REDIS_PORT}"
     AUTH_ARGS=""
@@ -63,11 +125,10 @@ data:
     done
     RDB_FILE="${REDIS_DATA_DIR}/dump.rdb"
     if [ -f "${RDB_FILE}" ]; then
-      cp "${RDB_FILE}" "${BACKUP_DIR}/bhukkad_redis_${TIMESTAMP}.rdb"
-      echo "[$(date)] RDB archived: ${BACKUP_DIR}/bhukkad_redis_${TIMESTAMP}.rdb"
+      cp "${RDB_FILE}" "${BACKUP_DIR}/bhukkad_redis_$(date +%Y%m%d_%H%M%S).rdb"
+      echo "[$(date)] RDB archived"
     fi
     find "${BACKUP_DIR}" \( -name "bhukkad_redis_*.rdb" -o -name "bhukkad_redis_*.aof" \) -mtime +${RETENTION_DAYS} -delete
-    if [ -n "${S3_BUCKET:-}" ]; then
-      aws s3 cp "${BACKUP_DIR}" "s3://${S3_BUCKET}/redis/${TIMESTAMP}/" --recursive --no-progress
-    fi
+    printf '%s\n' "${STAMP}" > "${BACKUP_DIR}/.last_success_epoch"
+    printf 'ok\n' > "${BACKUP_DIR}/.backup_done"
     echo "[$(date)] Redis backup finished successfully"

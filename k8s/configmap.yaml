@@ -41,24 +41,26 @@ data:
   REDIS_HOST: "bhukkad-redis"
   REDIS_PORT: "6379"
 
-  # STOMP relay broker (RabbitMQ). Without this the app would relay to
-  # localhost:61613 and live order tracking would fail.
-  RABBITMQ_HOST: "bhukkad-rabbitmq"
-  RABBITMQ_PORT: "5672"
-  RABBITMQ_STOMP_PORT: "61613"
-
   APP_ENVIRONMENT: "production"
   APP_DEBUG: "false"
   TZ: "Asia/Kolkata"
 
-  # STOMP relay defaults to the in-memory broker. Set to "rabbitmq" (and ensure
-  # RABBITMQ_* secrets are mounted) for multi-replica live order tracking.
+  # STOMP relay defaults to the in-memory broker. The RabbitMQ relay was
+  # retired with the monolith (k8s/rabbitmq deleted, W3-RESTRUCTURE); leave
+  # "simple" — live order tracking flows through the realtime service + SSE.
   STOMP_BROKER_TYPE: "simple"
 
-  # Kafka/Redpanda is optional. Keep disabled unless you deploy a broker and set
-  # APP_EVENTS_EXTERNAL_TYPE=kafka plus KAFKA_BOOTSTRAP_SERVERS.
+  # Kafka/Redpanda events. The 3-broker Redpanda cluster ships with the base
+  # build via the kustomize component k8s/components/redpanda (SPOF #8); topics
+  # are seeded by its topics-init Job from docs/event-catalog.md. Consumers
+  # stay disabled until ops flips this flag per service; KAFKA_BOOTSTRAP_SERVERS
+  # targets the brokers' headless Service so the flip needs no re-render.
   APP_EVENTS_EXTERNAL_ENABLED: "false"
-  APP_EVENTS_EXTERNAL_TYPE: "log"
+  APP_EVENTS_EXTERNAL_TYPE: "kafka"
+  KAFKA_BOOTSTRAP_SERVERS: >-
+    redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,
+    redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,
+    redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
 
   # Razorpay payment gateway. The simulated gateway (default) is rejected by
   # SecretValidationConfig in the prod profile because it cannot validate webhook
@@ -66,3 +68,18 @@ data:
   # corresponding secrets (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET,
   # RAZORPAY_WEBHOOK_SECRET) in bhukkad-secrets to enable the real gateway.
   APP_PAYMENT_RAZORPAY_ENABLED: "true"
+
+  # ---------------------------------------------------------------------------
+  # Backup off-site copy (roadmap #15): the bhukkad-backup CronJob's s3-sync
+  # container reads these. S3_BUCKET is REQUIRED — the in-cluster PVC alone was
+  # the audited single-point-of-failure. AWS keys come from bhukkad-secrets
+  # (Vault path bhukkad/prod/backup); the bucket lifecycle rule must enforce
+  # 30-day retention (docs/backup-and-restore-runbook.md).
+  # ---------------------------------------------------------------------------
+  S3_BUCKET: "CHANGE_ME_BACKUP_BUCKET"
+  AWS_REGION: "ap-south-1"
+
+  # Loki endpoint for the FluentBit DaemonSet (k8s/logging/). Unset/empty ⇒
+  # the log shipper idles (tail-only); set to e.g. "loki.observability.svc"
+  # or an external Loki host to enable shipping.
+  LOKI_HOST: ""

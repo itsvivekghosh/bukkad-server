@@ -257,13 +257,16 @@ public class GatewayConfig {
                         .uri(personalizationUri))
                 // Order-service strangler slice (P5): order/cart endpoints.
                 // Order is gated on restaurant + payment + delivery extraction.
-                // Coupon + dispute surfaces extracted in P2 land here too.
+                // Coupon surfaces extracted in P2 land here too. Disputes do
+                // NOT: ADR-001 makes supportticket the single dispute
+                // system-of-record, so /api/v1/admin/disputes/** is routed by
+                // the admin-disputes route below (declared before the
+                // admin-analytics catch-all).
                 .route("order", r -> r.path(
                         "/api/v1/orders/**",
                         "/api/v1/delivery-truth/**",
                         "/api/v1/coupons/**",
-                        "/api/v1/gift-cards/**",
-                        "/api/v1/admin/disputes/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
+                        "/api/v1/gift-cards/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
                         .uri(orderUri))
                 // Payment service (P6): payment endpoints.
                 .route("payment", r -> r.path(
@@ -295,6 +298,13 @@ public class GatewayConfig {
                         .filters(f -> f.rewritePath("/api/v1/admin/support/(?<seg>.*)",
                                 "/api/v1/support/admin/${seg}"))
                         .uri(supportUri))
+                // Platform-admin dispute console. ADR-001 (binding): support-
+                // ticket is the single dispute system-of-record — payment no
+                // longer writes Dispute rows and the gateway routes the admin
+                // dispute lifecycle to the support backend (was orderUri).
+                // Declared before the admin-analytics catch-all.
+                .route("admin-disputes", r -> r.path(
+                        "/api/v1/admin/disputes/**").uri(supportUri))
                 // Platform-admin user/tenant/affiliate console (identity-owned
                 // domains): the admin console ops (list/get/verify/activate/
                 // deactivate/erase) are served by admin-analytics's
@@ -342,8 +352,8 @@ public class GatewayConfig {
                 // Admin-analytics service (P3): platform admin, fraud, feature
                 // flags, tenants, compliance, analytics exports.
                 // /api/v1/admin/affiliates/** is already captured by the referral
-                // route declared above; /api/v1/admin/disputes/** is captured by
-                // the order route above.
+                // route above; /api/v1/admin/disputes/** is captured by the
+                // admin-disputes route above (ADR-001: support-owned).
                 .route("admin-analytics", r -> r.path(
                         "/api/v1/admin/**").uri(adminAnalyticsUri))
                 // Observable 404 for every unmatched /api/** path (audit V-20):

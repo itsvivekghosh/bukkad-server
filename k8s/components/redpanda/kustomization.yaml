@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# Redpanda (Kafka API) cluster — SPOF #8 bring-up (W3-RESTRUCTURE).
+#
+# The event transport is Kafka/Redpanda per docs/event-catalog.md and ADR A2
+# ("Transport: Kafka / Redpanda (cluster-a), at-least-once via the per-service
+# transactional outbox"). This component ships the 3-broker cluster so the
+# base build no longer depends on an absent broker:
+#
+#   * included  → StatefulSet (3 brokers) + headless Service + topics-init Job
+#   * removed   → Kafka-free build (one line in k8s/kustomization.yaml)
+#
+# The dev docker-compose stack (services/docker/docker-compose.dev.yml) keeps
+# its own single-node redpanda container and stays the default local path —
+# this component only affects the kustomize build.
+#
+# Services keep APP_EVENTS_EXTERNAL_ENABLED=false until ops flips them per
+# service (see k8s/configmap.yaml KAFKA_BOOTSTRAP_SERVERS) — deploying the
+# broker first is safe: no consumers, no lag, no alerts.
+# =============================================================================
+
+resources:
+  - headless-service.yaml
+  - statefulset.yaml
+  - topics-job.yaml

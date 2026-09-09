@@ -22,7 +22,12 @@ spec:
             runAsGroup: 1001
             fsGroup: 1001
           containers:
-            # PostgreSQL dump — connects to the primary, streams to a gzipped file.
+            # PostgreSQL dump — loops over ALL service databases (roadmap #15:
+            # the platform is database-per-service; dumping one legacy DB left
+            # 14/15 unrecoverable). The postgres image provides pg_dump; the
+            # pinned aws-cli `s3-sync` container below performs the off-site
+            # copy (postgres/redis images ship no `aws` binary, and only
+            # s3-sync holds cloud credentials).
             - name: postgres-backup
               image: postgres:16-alpine
               imagePullPolicy: IfNotPresent
@@ -32,21 +37,24 @@ spec:
                   value: "bhukkad-postgresql"
                 - name: DB_PORT
                   value: "5432"
-                - name: DB_NAME
-                  valueFrom:
-                    configMapKeyRef:
-                      name: bhukkad-config
-                      key: DB_NAME
+                # Backup superuser: one login reads every service DB. The
+                # per-service roles are least-privilege (R-08/G-14) and must
+                # NOT be able to read each other's databases.
                 - name: DB_USERNAME
                   valueFrom:
-                    configMapKeyRef:
-                      name: bhukkad-config
+                    secretKeyRef:
+                      name: bhukkad-secrets
                       key: DB_USERNAME
                 - name: DB_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: bhukkad-secrets
                       key: DB_PASSWORD
+                # Space-separated service databases. Omitted ⇒ the script
+                # auto-discovers every non-template database on the cluster
+                # (new services are covered with no manifest change).
+                # - name: DB_LIST
+                #   value: "identity restaurants orders payments delivery notification admin search survey referral support"
                 - name: BACKUP_DIR
                   value: "/backup/postgres"
                 - name: RETENTION_DAYS
@@ -64,6 +72,80 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 512Mi
+
+            # Off-site copy (roadmap #15): mirrors the dump dir to S3 after the
+            # dump containers finish. Pinned aws-cli image — neither postgres
+            # nor redis images ship an `aws` binary, and only this container
+            # holds cloud credentials (least privilege). Fails the job if the
+            # dump failed or the upload broke, so a successful job means the
+            # backup exists BOTH on the PVC and off-site.
+            - name: s3-sync
+              image: amazon/aws-cli:2.22.35
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "-euo", "pipefail", "-c"]
+              args:
+                - |
+                  BACKUP_DIR="${BACKUP_DIR:-/backup}"
+                  # Poll for EITHER marker: .backup_done (dump ok) or
+                  # .backup_failed (dump errors are still a signal to fail fast
+                  # — no 10-minute timeout wait).
+                  wait_for_dump() {
+                    for _ in $(seq 1 360); do
+                      [ -f "${BACKUP_DIR}/postgres/.backup_done" ] && return 0
+                      if [ -f "${BACKUP_DIR}/postgres/.backup_failed" ]; then
+                        echo "postgres backup FAILED: $(cat "${BACKUP_DIR}/postgres/.backup_failed")"
+                        exit 1
+                      fi
+                      sleep 5
+                    done
+                    echo "timeout waiting for postgres dump markers"; return 1
+                  }
+                  wait_for_dump
+                  for _ in $(seq 1 120); do
+                    [ -f "${BACKUP_DIR}/redis/.backup_done" ] && break
+                    sleep 5
+                  done
+                  [ -f "${BACKUP_DIR}/redis/.backup_done" ] || { echo "timeout waiting for redis snapshot"; exit 1; }
+                  PREFIX="${S3_PREFIX:-backups/$(date +%Y/%m/%d)}"
+                  echo "syncing ${BACKUP_DIR} -> s3://${S3_BUCKET}/${PREFIX}"
+                  # Exclude marker files — they are job-internal signals.
+                  aws s3 sync "${BACKUP_DIR}" "s3://${S3_BUCKET}/${PREFIX}" \
+                    --exclude "*.partial" --exclude ".backup_done" \
+                    --exclude ".backup_failed" --exclude ".last_success_epoch" --no-progress
+                  # Retention on the object store is enforced by a bucket
+                  # lifecycle rule (30d), not by deletes here — see
+                  # docs/backup-and-restore-runbook.md.
+              env:
+                - name: S3_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: bhukkad-config
+                      key: S3_BUCKET
+                - name: AWS_REGION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: bhukkad-config
+                      key: AWS_REGION
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+              volumeMounts:
+                - name: backup-volume
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
 
             # Redis snapshot — triggers BGSAVE and archives dump.rdb.
             - name: redis-backup

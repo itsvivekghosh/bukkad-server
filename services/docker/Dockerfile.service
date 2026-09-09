@@ -1,26 +1,120 @@
-# Template Dockerfile used by all services (the compose file passes MODULE).
-# Runtime executes the executable Spring Boot jar; the build stage compiles the
-# module and its reactor dependencies in one go.
-ARG MODULE
-FROM eclipse-temurin:17-jdk AS build
-# Re-declare the ARG inside the stage: an ARG declared before the first FROM is
-# not automatically available to instructions after FROM.
-ARG MODULE
-WORKDIR /workspace
-COPY . .
-RUN ./mvnw -q -f services/pom.xml -pl "$MODULE" -am package -DskipTests
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# CANONICAL service image recipe (R-02 consolidation — audit G-13).
+#
+# This is the ONLY image build path for all Bhukkad microservices. The former
+# 12 per-service Dockerfiles (services/*/Dockerfile) and the two rival
+# templates (services/docker/Dockerfile.template, Dockerfile.prebuilt) were
+# consolidated into this file: CI and the dev compose both build through here.
+#
+# Build (from the REACTOR ROOT services/ so the build context contains
+# pom.xml, platform-lib/ and the module sources):
+#
+#   docker buildx build \
+#     -f services/docker/Dockerfile.service \
+#     --build-arg MODULE=order \
+#     services/
+#
+# CI note (integrator): .github/workflows/services.yml builds each matrix
+# entry with `-f services/${svc}/Dockerfile`; those files are removed here and
+# the workflow must be rewired to the single line above (see final report).
+# =============================================================================
 
-FROM eclipse-temurin:17-jre
-# Re-declare for the runtime stage COPY path.
+# --- build stage -------------------------------------------------------------
+# MODULE is passed via --build-arg and selects the service reactor module
+# (identity, restaurant, order, payment, delivery, notification, search,
+# survey, referral, supportticket, admin-analytics, gateway, realtime, growth,
+# personalization). Declared here AND re-declared inside each stage: an ARG
+# declared before the first FROM is not automatically visible after FROM.
 ARG MODULE
-RUN useradd --system --uid 10001 bhukkad
+FROM --platform=$BUILDPLATFORM maven:3.9.9-eclipse-temurin-17 AS builder
+ARG MODULE
+WORKDIR /build
+
+# Cache-optimized dependency resolution (preserved from the per-service
+# Dockerfiles): copy the pom skeleton first, resolve the full dependency graph
+# into a locked cache mount, THEN copy sources — unchanged sources no longer
+# invalidate the expensive dependency layer.
+COPY pom.xml .
+# lombok.config at the build-context root (repo commit 2b42050: without it the
+# copyableAnnotations += @Lazy setting is lost). Glob form tolerates contexts
+# where the file is absent, unlike `COPY x . 2>/dev/null || true` which is NOT
+# shell — a missing file hard-fails the build.
+COPY lombok.config* ./
+# EVERY reactor module's pom must exist before Maven parses the parent
+# (<modules> is validated eagerly) — the old per-service Dockerfiles copied
+# only the target module's pom and hard-failed on reactor parse. Adding a
+# service = add its pom line here AND to services/pom.xml.
+COPY platform-lib/pom.xml ./platform-lib/pom.xml
+COPY gateway/pom.xml ./gateway/pom.xml
+COPY restaurant/pom.xml ./restaurant/pom.xml
+COPY identity/pom.xml ./identity/pom.xml
+COPY order/pom.xml ./order/pom.xml
+COPY payment/pom.xml ./payment/pom.xml
+COPY delivery/pom.xml ./delivery/pom.xml
+COPY notification/pom.xml ./notification/pom.xml
+COPY search/pom.xml ./search/pom.xml
+COPY admin-analytics/pom.xml ./admin-analytics/pom.xml
+COPY survey/pom.xml ./survey/pom.xml
+COPY referral/pom.xml ./referral/pom.xml
+COPY supportticket/pom.xml ./supportticket/pom.xml
+COPY realtime/pom.xml ./realtime/pom.xml
+COPY personalization/pom.xml ./personalization/pom.xml
+COPY growth/pom.xml ./growth/pom.xml
+COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
+# No dependency:go-offline pre-pass: it is notoriously flaky ("Failed to read
+# artifact descriptor" on transitive poms) and the locked cache mount below
+# gives the same reuse — the first `package` run populates /root/.m2, and every
+# subsequent build (any module, any source change) resolves from cache.
+# The pom-first COPY order above still keeps the classic layer cache warm for
+# builders without cache-mount support.
+# Source copy: platform-lib + the target module (the poms above let the
+# reactor parse; other services' sources are irrelevant to this image).
+COPY platform-lib ./platform-lib
+COPY ${MODULE} ./${MODULE}
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    mvn -B -q clean package -DskipTests -pl ${MODULE} -am
+
+# --- runtime stage -----------------------------------------------------------
+FROM eclipse-temurin:17-jre-jammy AS runtime
+ARG MODULE
+ENV TZ=Asia/Kolkata \
+    LANG=C.UTF-8 \
+    SPRING_PROFILES_ACTIVE=prod \
+    SERVER_PORT=8080 \
+    # Canonical JVM container contract (audit P-09 / perf guide §4.1 / roadmap
+    # P-09 step-2 uniform set):
+    #   MaxRAMPercentage=75      heap = 75% of the container memory limit
+    #                            (requests==limits ⇒ Guaranteed QoS, no
+    #                            node-sizing roulette)
+    #   ExitOnOutOfMemoryError   OOM ⇒ process exits 137, kubelet replaces
+    #                            the pod instead of a half-dead JVM serving
+    #                            garbage (G-16 drain still runs on SIGTERM)
+    #   G1 + MaxGCPauseMillis=200 bounded pause times under 1-2Gi heaps
+    #   UseStringDeduplication   G1-side dedup for duplicated payloads
+    #   gc.log rotation          5×20M in the log dir the FluentBit tail ships
+    #                            to Loki (P-09 step-2)
+    # Per-service overrides (heap ceiling on the dev VM, extra flags) are
+    # injected via the JAVA_OPTS env in docker-compose.dev.yml / k8s env —
+    # this ENV is the BASELINE, not the ceiling.
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -XX:+UseStringDeduplication -Xlog:gc*:file=/tmp/logs/bhukkad/gc.log:time,uptime:filecount=5,filesize=20M -Djava.security.egd=file:/dev/./urandom"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo "$TZ" > /etc/timezone \
+    && groupadd -r -g 1001 bhukkad \
+    && useradd -r -u 1001 -g bhukkad -d /app -s /usr/sbin/nologin bhukkad \
+    && mkdir -p /tmp/logs/bhukkad /app \
+    && chown -R bhukkad:bhukkad /app
+
 WORKDIR /app
-# Scope the glob to the module-named Spring Boot jar: target/ also contains
-# byte-buddy-agent.jar (copied by the reactor's dependency plugin at
-# process-test-classes), and a bare *.jar would copy that 366KB agent jar
-# instead of the ~58MB repackaged application jar.
-COPY --from=build /workspace/services/$MODULE/target/${MODULE}-*.jar app.jar
+# exec form via sh -c so $JAVA_OPTS expands; `exec` hands PID 1 to the JVM so
+# SIGTERM (G-16 graceful drain, terminationGracePeriodSeconds=90) reaches it.
+COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/app.jar
 USER bhukkad
 EXPOSE 8080
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/urandom"
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
+HEALTHCHECK --interval=20s --timeout=5s --start-period=90s --retries=5 \
+  CMD curl -fsS "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" >/dev/null || exit 1
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

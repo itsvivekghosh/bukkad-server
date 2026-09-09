@@ -20,6 +20,7 @@ spec:
         app: bhukkad
         component: postgres
     spec:
+      terminationGracePeriodSeconds: 90
       containers:
         - name: postgres
           image: postgres:16-alpine

@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redpanda
+spec:
+  serviceName: redpanda-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: redpanda
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: redpanda
+    spec:
+      terminationGracePeriodSeconds: 90   # G-16: clean WAL/segment close on drain
+      serviceAccountName: bhukkad-app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101           # redpanda uid in the official image
+        runAsGroup: 101
+        fsGroup: 101
+      containers:
+        - name: redpanda
+          # Same major as the dev compose stack (v23.3.x, Kafka API 3.5-era);
+          # pin to minor for deterministic rollouts.
+          image: redpandadata/redpanda:v23.3.13
+          imagePullPolicy: IfNotPresent
+          args:
+            - redpanda
+            - start
+            # One broker per pod; tune --smp with the CPU request if raised.
+            - --smp=1
+            - --memory=1G
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --node-id=$(POD_ORDINAL)
+            # Kafka listener on every interface; each broker ADVERTISES its
+            # stable headless DNS so clients across the mesh re-resolve
+            # correctly after pod rescheduling (this is the SPOF #8 fix over a
+            # single bootstrap IP).
+            - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+            - --advertise-kafka-addr=PLAINTEXT://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9092
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:33145
+            - --controller-addr=0.0.0.0:33146
+          env:
+            - name: POD_ORDINAL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['statefulset.kubernetes.io/pod-name']
+            # Redpanda rejects non-numeric node-id via the annotation directly;
+            # derive the ordinal in start.sh style: strip everything before the
+            # last dash.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: admin
+              containerPort: 9644
+            - name: rpc
+              containerPort: 33145
+            - name: controller
+              containerPort: 33146
+          readinessProbe:
+            httpGet:
+              path: /v1/status/ready
+              port: admin
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 1Gi      # requests==limits (Guaranteed QoS, P-09 posture)
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+      initContainers:
+        # Map the pod-name annotation to a numeric node-id the broker accepts.
+        - name: set-node-id
+          image: busybox:1.36
+          command: ["sh", "-c", "echo ${POD_NAME##*-} > /config/node-id"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: node-id
+              mountPath: /config
+      volumes:
+        - name: node-id
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: bhukkad
+          component: redpanda
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

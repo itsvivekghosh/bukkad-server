@@ -6,7 +6,20 @@ namespace: bhukkad
 resources:
   - namespace.yaml
   - configmap.yaml
-  - secrets.yaml
+  # ---------------------------------------------------------------------------
+  # R-01 secret race resolution (audit G-12/R-01): `secrets.yaml` is DELIBERATELY
+  # not part of the base. It declared a static `bhukkad-secrets` Secret while
+  # `external-secret.yaml` syncs the SAME secret name with `creationPolicy:
+  # Owner`, so every ExternalSecret reconcile deleted/replaced the static keys —
+  # two owners for one secret = guaranteed drift. The Vault-backed ExternalSecret
+  # is now the SINGLE owner of bhukkad-secrets; every key referenced by any
+  # deployment is mapped in external-secret.yaml (including the previously
+  # missing IDENTITY_DB_*/SEARCH_DB_* keys the deployments already referenced).
+  # The placeholder secrets.yaml stays on disk for the Vault-less minikube
+  # overlay (k8s/overlays/minikube) only — never apply it to a shared cluster.
+  # ---------------------------------------------------------------------------
+  - secret-store.yaml
+  - external-secret.yaml
   - postgres/pvc.yaml
   - postgres/configmap.yaml
   - postgres/deployment.yaml
@@ -26,13 +39,11 @@ resources:
   # deployment can monitor the password-protected master. Requires the
   # bhukkad-redis service and redis-sentinel ConfigMap/deployment to be present.
   - redis/redis-sentinel.yaml
-  # Secrets from Vault: the ExternalSecret materializes bhukkad-secrets from the
-  # Vault SecretStore (see scripts/provision-vault.sh to seed the paths).
-  - secret-store.yaml
-  - external-secret.yaml
-  - rabbitmq/deployment.yaml
-  # Monolith retired (W5, migration-batch-8): all routes served by
-  # services behind the gateway. k8s/app/ is removed from the build.
+  # RabbitMQ removed (W3-RESTRUCTURE, SPOF #8): the STOMP relay was retired with
+  # the monolith — services publish over the transactional outbox to Kafka/
+  # Redpanda (docs/event-catalog.md) and stream via the realtime service + SSE.
+  # k8s/rabbitmq/ was deleted; STOMP_BROKER_TYPE stays "simple" in configmap.yaml.
+  # Survey service (P2).
   - survey/deployment.yaml
   - survey/service.yaml
   - survey/pdb.yaml
@@ -81,7 +92,11 @@ resources:
   - gateway/service.yaml
   - gateway/pdb.yaml
   - gateway/hpa.yaml
+  # Logging: FluentBit DaemonSet tails /var/log/containers and ships to Loki at
+  # ${LOKI_HOST} (wired via the DaemonSet env; k8s/logging/).
   - logging/fluent-bit-configmap.yaml
+  - logging/fluent-bit-rbac.yaml
+  - logging/fluent-bit-daemonset.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml
@@ -89,6 +104,25 @@ resources:
   - backup-scripts.yaml
   - backup-pvc.yaml
   - backup-cronjob.yaml
+
+# ---------------------------------------------------------------------------
+# Feature flag: Redpanda (Kafka API) cluster — SPOF #8 bring-up.
+#
+# k8s/components/redpanda is a kustomize COMPONENT (not a base resource), so it
+# is toggled by exactly one line: present here = the 3-broker cluster + headless
+# Service + topics-init Job (seeded from docs/event-catalog.md, including the
+# .dlt dead-letter topics) ships with every base build; remove the line to build
+# a Kafka-free stack. The dev docker-compose stack (services/docker/
+# docker-compose.dev.yml) is unchanged and remains the default local path — it
+# runs its own single-node redpanda container behind EVENTS_EXTERNAL_ENABLED.
+#
+# NOTE: consumers stay off until ops flips APP_EVENTS_EXTERNAL_ENABLED=true in
+# configmap.yaml per service (KAFKA_BOOTSTRAP_SERVERS below already points at
+# the headless Service). Deploying the broker first is safe: an unused broker
+# produces no alerts and no consumer lag.
+# ---------------------------------------------------------------------------
+components:
+  - components/redpanda
 
 labels:
   - includeSelectors: true

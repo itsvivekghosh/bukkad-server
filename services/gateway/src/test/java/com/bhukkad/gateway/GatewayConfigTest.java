@@ -72,12 +72,14 @@ class GatewayConfigTest {
                 "inventory", "restaurant", "identity", "personalization",
                 "order", "payment", "delivery",
                 "admin-restaurant-stats", "admin-restaurants", "commission",
+                "admin-support", "admin-disputes",
                 "admin-analytics", "unmatched", "not-found");
         // Count covers the route table as restored with the concurrent-session
         // overlay (analytics CSV exports + swagger aggregate + the explicit
         // admin-restaurants/stats carve-out kept the analytics read model) plus
-        // the observable unmatched-/api 404 route (audit V-20).
-        assertThat(routes.getRoutes().collectList().block()).hasSize(53);
+        // the observable unmatched-/api 404 route (audit V-20) and the
+        // admin-disputes route (ADR-001: support is the dispute SOR).
+        assertThat(routes.getRoutes().collectList().block()).hasSize(54);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");
@@ -107,6 +109,11 @@ class GatewayConfigTest {
         Route adminAnalytics = byId.get("admin-analytics");
         assertThat(adminAnalytics.getUri().getHost())
                 .isEqualTo("bhukkad-admin-analytics.bhukkad.svc.cluster.local");
+
+        // ADR-001 (binding): the admin dispute console is support-owned.
+        Route adminDisputes = byId.get("admin-disputes");
+        assertThat(adminDisputes.getUri().getHost())
+                .isEqualTo("bhukkad-support.bhukkad.svc.cluster.local");
     }
 
     @Test
