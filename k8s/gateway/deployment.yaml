@@ -43,12 +43,25 @@ spec:
           env:
             - name: SERVER_PORT
               value: "8080"
+            # P-09 JVM<->container contract. Value mirrors the image's JAVA_OPTS
+            # ENV default verbatim (services/gateway/Dockerfile) plus the
+            # canonical §4.1 flag set — merge, not clobber. Memory
+            # requests==limits below, CPU has a request and no limit so GC
+            # threads are never throttled.
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+UseG1GC
+                -XX:MaxGCPauseMillis=200
+                -XX:+ExitOnOutOfMemoryError
+                -XX:+UseStringDeduplication
+                -Djava.security.egd=file:/dev/./urandom
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 750m
+              memory: 512Mi
             limits:
-              cpu: "1000m"
               memory: 512Mi
           startupProbe:
             httpGet:

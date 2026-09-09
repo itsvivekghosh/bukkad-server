@@ -2,9 +2,11 @@ package com.bhukkad.delivery.live;
 
 import com.bhukkad.common.error.SseCapacityExceededException;
 import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -22,19 +24,28 @@ import static org.mockito.Mockito.when;
 
 /**
  * SSE registry: registration + connected frame, missed-event replay on
- * subscribe, per-stream and global capacity budgets, executor fallback,
- * eviction of dead emitters, heartbeats and shutdown.
+ * subscribe, per-stream and global capacity budgets (each surfaced on
+ * {@code sse_capacity_rejected{reason=...}}), O(1) disconnect bookkeeping,
+ * dispatch-saturation eviction (never inline send), the
+ * {@code sse_connections} gauge, heartbeats and shutdown.
  */
 @ExtendWith(MockitoExtension.class)
 class OrderSseStreamServiceTest {
 
     @Mock private OrderLiveReplayStore replayStore;
 
+    private MeterRegistry metrics;
     private OrderSseStreamService service;
 
     @BeforeEach
     void setUp() {
-        service = new OrderSseStreamService(replayStore, Runnable::run);
+        metrics = new SimpleMeterRegistry();
+        service = new OrderSseStreamService(replayStore, Runnable::run, metrics);
+    }
+
+    private double rejectedCount(String reason) {
+        return metrics.find(OrderSseStreamService.METRIC_CAPACITY_REJECTED)
+                .tag("reason", reason).counter().count();
     }
 
     @Test
@@ -43,7 +54,17 @@ class OrderSseStreamServiceTest {
 
         assertThat(emitter).isNotNull();
         assertThat(service.activeConnectionCount()).isEqualTo(1);
+        assertThat(service.indexedEmitterCount()).isEqualTo(1);
         verifyNoInteractions(replayStore);
+    }
+
+    @Test
+    void connectionsGaugeTracksEmitters() {
+        assertThat(metrics.find(OrderSseStreamService.METRIC_CONNECTIONS).gauge().value()).isZero();
+
+        service.subscribeKitchen(9L, null);
+        service.subscribeRider(3L, null);
+        assertThat(metrics.find(OrderSseStreamService.METRIC_CONNECTIONS).gauge().value()).isEqualTo(2.0);
     }
 
     @Test
@@ -94,6 +115,7 @@ class OrderSseStreamServiceTest {
                 .hasMessageContaining("Stream capacity reached");
 
         assertThat(service.activeConnectionCount()).isEqualTo(1);
+        assertThat(rejectedCount("stream")).isEqualTo(1.0);
     }
 
     @Test
@@ -107,6 +129,7 @@ class OrderSseStreamServiceTest {
                 .hasMessageContaining("budget");
 
         assertThat(service.activeConnectionCount()).isEqualTo(2);
+        assertThat(rejectedCount("global")).isEqualTo(1.0);
     }
 
     @Test
@@ -129,26 +152,29 @@ class OrderSseStreamServiceTest {
     }
 
     @Test
-    void broadcast_deadEmitterIsEvictedFromStreams() {
+    void broadcast_deadEmitterIsEvictedFromStreamsAndIndex() {
         SseEmitter emitter = service.subscribeKitchen(9L, null);
         emitter.complete();
 
         service.broadcastKitchen(9L, OrderLiveUpdate.builder().eventId(1L).build());
 
         assertThat(service.activeConnectionCount()).isZero();
+        assertThat(service.indexedEmitterCount()).isZero();
     }
 
     @Test
-    void broadcast_executorRejectionFallsBackToInlineSend() {
+    void broadcast_executorRejectionEvictsEmitterAndCountsIt() {
         OrderSseStreamService rejecting =
                 new OrderSseStreamService(replayStore, task -> {
                     throw new RejectedExecutionException("saturated");
-                });
+                }, metrics);
         rejecting.subscribeKitchen(9L, null);
 
         rejecting.broadcastKitchen(9L, OrderLiveUpdate.builder().eventId(1L).build());
 
-        assertThat(rejecting.activeConnectionCount()).isEqualTo(1);
+        // No CallerRuns fallback: the emitter is dropped, not served inline.
+        assertThat(rejecting.activeConnectionCount()).isZero();
+        assertThat(rejectedCount("dispatch")).isEqualTo(1.0);
     }
 
     @Test
@@ -156,7 +182,7 @@ class OrderSseStreamServiceTest {
         OrderSseStreamService rejecting =
                 new OrderSseStreamService(replayStore, task -> {
                     throw new RejectedExecutionException("saturated");
-                });
+                }, metrics);
         SseEmitter emitter = rejecting.subscribeKitchen(9L, null);
         emitter.complete();
 
@@ -187,16 +213,17 @@ class OrderSseStreamServiceTest {
     }
 
     @Test
-    void sendHeartbeats_executorRejectionFallsBackInline() {
+    void sendHeartbeats_executorRejectionEvictsAndCounts() {
         OrderSseStreamService rejecting =
                 new OrderSseStreamService(replayStore, task -> {
                     throw new RejectedExecutionException("saturated");
-                });
+                }, metrics);
         rejecting.subscribeKitchen(9L, null);
 
         rejecting.sendHeartbeats();
 
-        assertThat(rejecting.activeConnectionCount()).isEqualTo(1);
+        assertThat(rejecting.activeConnectionCount()).isZero();
+        assertThat(rejectedCount("dispatch")).isGreaterThanOrEqualTo(1.0);
     }
 
     @Test
@@ -207,6 +234,7 @@ class OrderSseStreamServiceTest {
         service.shutdown();
 
         assertThat(service.activeConnectionCount()).isZero();
+        assertThat(service.indexedEmitterCount()).isZero();
     }
 
     @Test

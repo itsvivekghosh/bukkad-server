@@ -31,21 +31,21 @@ resources:
   - secret-store.yaml
   - external-secret.yaml
   - rabbitmq/deployment.yaml
-    # Monolith retired (W5, migration-batch-8): all routes served by
-    # services behind the gateway. k8s/app/ is removed from the build.
-    - survey/deployment.yaml
-    - survey/service.yaml
-    - survey/pdb.yaml
-    - survey/hpa.yaml
-    - referral/deployment.yaml
-    - referral/service.yaml
-    - referral/pdb.yaml
-    - referral/hpa.yaml
-    - supportticket/deployment.yaml
-    - supportticket/service.yaml
-    - supportticket/pdb.yaml
-    - supportticket/hpa.yaml
-    - restaurant/deployment.yaml
+  # Monolith retired (W5, migration-batch-8): all routes served by
+  # services behind the gateway. k8s/app/ is removed from the build.
+  - survey/deployment.yaml
+  - survey/service.yaml
+  - survey/pdb.yaml
+  - survey/hpa.yaml
+  - referral/deployment.yaml
+  - referral/service.yaml
+  - referral/pdb.yaml
+  - referral/hpa.yaml
+  - supportticket/deployment.yaml
+  - supportticket/service.yaml
+  - supportticket/pdb.yaml
+  - supportticket/hpa.yaml
+  - restaurant/deployment.yaml
   - restaurant/service.yaml
   - restaurant/pdb.yaml
   - restaurant/hpa.yaml

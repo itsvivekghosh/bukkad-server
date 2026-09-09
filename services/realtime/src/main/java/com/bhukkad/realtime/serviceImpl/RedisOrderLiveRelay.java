@@ -39,6 +39,15 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Consumer<OrderLiveUpdate>>> localConsumers = new ConcurrentHashMap<>();
 
+    /**
+     * One Redis listener per subscribed topic (the old per-call
+     * addMessageListener double-delivered to shared topics and was never
+     * removable). Torn down by {@link #unsubscribe} when the topic's last
+     * consumer leaves — the paired removal that stops {@code localConsumers}
+     * growing for the pod lifetime (audit V-07).
+     */
+    private final ConcurrentHashMap<String, MessageListener> topicListeners = new ConcurrentHashMap<>();
+
     @Override
     public void relay(LiveUpdateEvent event) {
         if (event == null || event.getPayload() == null) {
@@ -95,24 +104,55 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
 
     @Override
     public void subscribe(String topic, Consumer<OrderLiveUpdate> consumer) {
-        CopyOnWriteArrayList<Consumer<OrderLiveUpdate>> consumers = localConsumers.computeIfAbsent(topic, k -> new CopyOnWriteArrayList<>());
-        consumers.add(consumer);
-
-        String channel = CHANNEL_PREFIX + topic;
-        listenerContainer.addMessageListener((MessageListener) (message, pattern) -> {
-            try {
-                OrderLiveUpdate update = objectMapper.readValue(new String(message.getBody()), OrderLiveUpdate.class);
-                for (Consumer<OrderLiveUpdate> c : localConsumers.getOrDefault(topic, new CopyOnWriteArrayList<>())) {
-                    try {
-                        c.accept(update);
-                    } catch (Exception ex) {
-                        log.warn("Consumer error for topic {}: {}", topic, ex.getMessage());
+        localConsumers.computeIfAbsent(topic, k -> {
+            MessageListener listener = (message, pattern) -> {
+                try {
+                    OrderLiveUpdate update = objectMapper.readValue(new String(message.getBody()), OrderLiveUpdate.class);
+                    for (Consumer<OrderLiveUpdate> c : localConsumers.getOrDefault(k, new CopyOnWriteArrayList<>())) {
+                        try {
+                            c.accept(update);
+                        } catch (Exception ex) {
+                            log.warn("Consumer error for topic {}: {}", k, ex.getMessage());
+                        }
                     }
+                } catch (Exception ex) {
+                    log.warn("Failed to deserialize live update: {}", ex.getMessage());
                 }
-            } catch (Exception ex) {
-                log.warn("Failed to deserialize live update: {}", ex.getMessage());
+            };
+            topicListeners.put(k, listener);
+            listenerContainer.addMessageListener(listener, new ChannelTopic(CHANNEL_PREFIX + k));
+            return new CopyOnWriteArrayList<>();
+        }).add(consumer);
+    }
+
+    @Override
+    public void unsubscribe(String topic, Consumer<OrderLiveUpdate> consumer) {
+        if (topic == null || consumer == null) {
+            return;
+        }
+        localConsumers.compute(topic, (k, consumers) -> {
+            if (consumers == null) {
+                return null;
             }
-        }, new ChannelTopic(channel));
+            consumers.remove(consumer);
+            if (!consumers.isEmpty()) {
+                return consumers;
+            }
+            MessageListener listener = topicListeners.remove(k);
+            if (listener != null) {
+                try {
+                    listenerContainer.removeMessageListener(listener);
+                } catch (Exception ex) {
+                    log.warn("LIVE_RELAY_LISTENER_REMOVE_FAILED | topic={} | error={}", k, ex.getMessage());
+                }
+            }
+            return null;
+        });
+    }
+
+    /** Number of topics with live local consumers (test/maintenance observability). */
+    int localConsumerTopicCount() {
+        return localConsumers.size();
     }
 
     @Override

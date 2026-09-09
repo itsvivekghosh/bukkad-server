@@ -30,5 +30,16 @@ public interface OrderLiveRelay {
 
     void subscribe(String topic, java.util.function.Consumer<OrderLiveUpdate> consumer);
 
+    /**
+     * Removes a consumer registered via {@link #subscribe}. Callers MUST pair
+     * every subscribe with an unsubscribe when their stream ends (SSE
+     * completion/timeout/error callbacks), otherwise the relay's per-topic
+     * consumer lists grow for the pod lifetime (audit V-07 memory leak:
+     * {@code RedisOrderLiveRelay.localConsumers}). Removing the last consumer
+     * of a topic also tears down that topic's Redis listener.
+     */
+    default void unsubscribe(String topic, java.util.function.Consumer<OrderLiveUpdate> consumer) {
+    }
+
     List<OrderLiveUpdate> replayAfter(String streamKey, long lastEventId);
 }

@@ -2,10 +2,11 @@ package com.bhukkad.delivery.live;
 
 import com.bhukkad.common.error.SseCapacityExceededException;
 import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -16,23 +17,42 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.springframework.beans.factory.annotation.Qualifier;
-
+/**
+ * Pod-local SSE registry for rider/customer/kitchen live streams.
+ *
+ * <p>Runtime copy of the realtime service's {@code OrderSseStreamServiceImpl};
+ * semantics are intentionally identical (budgets, O(1) disconnect via the
+ * emitter index, evict-on-dispatch-rejection, the same metric names). The two
+ * copies were NOT merged into a shared helper: their update DTOs are different
+ * classes ({@code delivery.dto.response.OrderLiveUpdate} vs
+ * {@code realtime.dto.OrderLiveUpdate}) with no common type, so a shared
+ * implementation would be new abstraction across service boundaries, not a
+ * trivial extraction (batch note: align semantics — done — unify in PERF-5).</p>
+ */
 @Slf4j
 @Service
 public class OrderSseStreamService {
 
     private static final long DEFAULT_TIMEOUT = 300_000L;
+    static final String METRIC_CONNECTIONS = "sse_connections";
+    static final String METRIC_CAPACITY_REJECTED = "sse_capacity_rejected";
 
     private final OrderLiveReplayStore replayStore;
     private final Executor sseDispatchExecutor;
+    private final MeterRegistry meterRegistry;
 
     public OrderSseStreamService(OrderLiveReplayStore replayStore,
-                                 @Qualifier("sseDispatchExecutor") Executor sseDispatchExecutor) {
+                                 @Qualifier("sseDispatchExecutor") Executor sseDispatchExecutor,
+                                 MeterRegistry meterRegistry) {
         this.replayStore = replayStore;
         this.sseDispatchExecutor = sseDispatchExecutor;
+        this.meterRegistry = meterRegistry;
+        if (meterRegistry != null) {
+            meterRegistry.gauge(METRIC_CONNECTIONS, totalEmitters, AtomicInteger::doubleValue);
+        }
     }
 
     @Value("${app.live.sse.max-emitters-per-stream:50}")
@@ -46,6 +66,22 @@ public class OrderSseStreamService {
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> customerStreams = new ConcurrentHashMap<>();
+
+    /**
+     * emitter → (streams, key). Disconnect and send failures resolve through
+     * this index in O(1); without it every dead socket triggered an O(N)
+     * scan of all streams (audit V-06 finish).
+     */
+    private final Map<SseEmitter, StreamHandle> emitterIndex = new ConcurrentHashMap<>();
+
+    private record StreamHandle(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, Long key) {
+    }
+
+    private void recordCapacityRejected(String reason) {
+        if (meterRegistry != null) {
+            meterRegistry.counter(METRIC_CAPACITY_REJECTED, "reason", reason).increment();
+        }
+    }
 
     public SseEmitter subscribeKitchen(Long restaurantId, String lastEventId) {
         return subscribe(
@@ -102,14 +138,19 @@ public class OrderSseStreamService {
         synchronized (emitters) {
             if (emitters.size() >= maxEmittersPerStream) {
                 totalEmitters.decrementAndGet();
+                if (emitters.isEmpty()) {
+                    streams.remove(key, emitters);
+                }
                 log.warn("SSE_CAPACITY_EXCEEDED | channel={} | id={} | current={} | max={}",
                         channel, key, emitters.size(), maxEmittersPerStream);
+                recordCapacityRejected("stream");
                 throw new SseCapacityExceededException(
                         "Stream capacity reached for " + channel + " " + key
                                 + " (" + maxEmittersPerStream + " connections); retry shortly");
             }
             emitters.add(emitter);
         }
+        emitterIndex.put(emitter, new StreamHandle(streams, key));
 
         Runnable cleanup = () -> remove(streams, key, emitter);
         emitter.onCompletion(cleanup);
@@ -168,27 +209,23 @@ public class OrderSseStreamService {
                     try {
                         sendUpdate(emitter, update);
                     } catch (Exception e) {
-                        removeFromAllStreams(emitter);
-                        removeAndCompleteEmitter(emitter);
+                        evictEmitter(emitter);
                         log.debug("SSE emitter removed after send failure: {}", e.getMessage());
                     }
                 });
-            } catch (Exception ex) {
-                log.warn("SSE dispatch rejected, falling back to inline send | error={}", ex.getMessage());
-                try {
-                    sendUpdate(emitter, update);
-                } catch (Exception e) {
-                    removeFromAllStreams(emitter);
-                    removeAndCompleteEmitter(emitter);
-                }
+            } catch (RejectedExecutionException ex) {
+                // Never run the write on the caller thread: a saturated pool
+                // means the socket is behind, so drop it and count it.
+                log.warn("SSE_DISPATCH_REJECTED | error={}", ex.getMessage());
+                recordCapacityRejected("dispatch");
+                evictEmitter(emitter);
             }
         }
     }
 
-    private void removeFromAllStreams(SseEmitter emitter) {
-        remove(kitchenStreams, emitter);
-        remove(riderStreams, emitter);
-        remove(customerStreams, emitter);
+    private void evictEmitter(SseEmitter emitter) {
+        removeFromAllStreams(emitter);
+        removeAndCompleteEmitter(emitter);
     }
 
     private void sendUpdate(SseEmitter emitter, OrderLiveUpdate update) throws IOException {
@@ -199,6 +236,24 @@ public class OrderSseStreamService {
             event.id(String.valueOf(update.getEventId()));
         }
         emitter.send(event);
+    }
+
+    private void removeFromAllStreams(SseEmitter emitter) {
+        StreamHandle handle = emitterIndex.get(emitter);
+        if (handle != null) {
+            remove(handle.streams(), handle.key(), emitter);
+            return;
+        }
+        // Emitter unknown to the index (defensive): fall back to the scan.
+        remove(kitchenStreams, emitter);
+        remove(riderStreams, emitter);
+        remove(customerStreams, emitter);
+    }
+
+    private void sendHeartbeatToAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
+        for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
+            sendHeartbeat(emitters);
+        }
     }
 
     private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
@@ -214,6 +269,7 @@ public class OrderSseStreamService {
             totalEmitters.decrementAndGet();
             log.warn("SSE_GLOBAL_BUDGET_EXCEEDED | channel={} | id={} | total={} | max={}",
                     channel, key, reserved, maxTotalEmitters);
+            recordCapacityRejected("global");
             throw new SseCapacityExceededException(
                     "Server SSE connection budget reached (" + maxTotalEmitters + "); retry shortly");
         }
@@ -222,6 +278,7 @@ public class OrderSseStreamService {
     private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
                          Long key,
                          SseEmitter emitter) {
+        emitterIndex.remove(emitter);
         CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
         if (emitters != null) {
             if (emitters.remove(emitter)) {
@@ -252,14 +309,13 @@ public class OrderSseStreamService {
         return countStreams(kitchenStreams) + countStreams(riderStreams) + countStreams(customerStreams);
     }
 
-    private int countStreams(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        return streams.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
+    /** Index residency, observable for tests/maintenance assertions. */
+    int indexedEmitterCount() {
+        return emitterIndex.size();
     }
 
-    private void sendHeartbeatToAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
-            sendHeartbeat(emitters);
-        }
+    private int countStreams(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
+        return streams.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
     }
 
     private void sendHeartbeat(List<SseEmitter> emitters) {
@@ -272,17 +328,13 @@ public class OrderSseStreamService {
                     try {
                         emitter.send(SseEmitter.event().comment("heartbeat"));
                     } catch (IOException | IllegalStateException e) {
-                        removeFromAllStreams(emitter);
-                        removeAndCompleteEmitter(emitter);
+                        evictEmitter(emitter);
                     }
                 });
-            } catch (Exception ex) {
-                try {
-                    emitter.send(SseEmitter.event().comment("heartbeat"));
-                } catch (IOException | IllegalStateException e) {
-                    removeFromAllStreams(emitter);
-                    removeAndCompleteEmitter(emitter);
-                }
+            } catch (RejectedExecutionException ex) {
+                log.warn("SSE_HEARTBEAT_DISPATCH_REJECTED | error={}", ex.getMessage());
+                recordCapacityRejected("dispatch");
+                evictEmitter(emitter);
             }
         }
     }
@@ -292,6 +344,7 @@ public class OrderSseStreamService {
         closeAll(kitchenStreams);
         closeAll(riderStreams);
         closeAll(customerStreams);
+        emitterIndex.clear();
         log.info("SSE streams closed for graceful shutdown");
     }
 

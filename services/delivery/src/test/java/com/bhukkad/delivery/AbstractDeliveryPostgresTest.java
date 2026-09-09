@@ -13,7 +13,11 @@ public abstract class AbstractDeliveryPostgresTest {
     protected static final DockerImageName POSTGRES_IMAGE =
             DockerImageName.parse("postgres:16-alpine").asCompatibleSubstituteFor("postgres");
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withDatabaseName("delivery").withUsername("bhukkad").withPassword("bhukkad_test_pw");
+            .withDatabaseName("delivery").withUsername("bhukkad").withPassword("bhukkad_test_pw")
+            // Parallel audit batches keep this Docker daemon busy; the default
+            // 60 s readiness window becomes a flake under load (see payment
+            // twin). Three minutes absorbs contention without hiding breakage.
+            .withStartupTimeout(java.time.Duration.ofMinutes(3));
     static {
         if (!DockerClientFactory.instance().isDockerAvailable()) {
             throw new TestAbortedException("Docker not available; skipping Testcontainers integration tests");
