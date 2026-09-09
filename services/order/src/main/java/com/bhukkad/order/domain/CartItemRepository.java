@@ -27,6 +27,12 @@ public interface CartItemRepository extends JpaRepository<CartItem, Long> {
     @Query("DELETE FROM CartItem ci WHERE ci.cartId = :cartId")
     void deleteByCartId(@Param("cartId") Long cartId);
 
+    /** PERF-3: bulk line removal for one sweep batch (statement, not per-cart deletes). */
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM CartItem ci WHERE ci.cartId IN :cartIds")
+    int deleteByCartIdIn(@Param("cartIds") List<Long> cartIds);
+
     @Query("SELECT COUNT(ci) FROM CartItem ci WHERE ci.cartId = :cartId")
     long countByCartId(@Param("cartId") Long cartId);
 }

@@ -40,10 +40,20 @@ public class ApiKeyService {
                 .orElse(false);
     }
 
-    /** Safe listing: names and status only — hashes never leave the vault. */
+    /**
+     * Safe listing: names and status only — hashes never leave the vault.
+     * PERF-3: the vault was listed whole-table; bounded to the newest 200 keys
+     * with ORDER BY created_at DESC in SQL (bare-list shape kept, additively
+     * capped).
+     */
     @Transactional(readOnly = true)
     public java.util.List<ApiKeyView> list() {
-        return apiKeyRepository.findAll().stream()
+        return apiKeyRepository.findAll(org.springframework.data.domain.PageRequest.of(
+                        0, AdminQueryService.LIST_PAGE_CAP,
+                        org.springframework.data.domain.Sort.by(
+                                org.springframework.data.domain.Sort.Direction.DESC, "createdAt")))
+                .getContent()
+                .stream()
                 .map(k -> new ApiKeyView(k.getId(), k.getName(), k.getStatus(),
                         k.getCreatedAt(), k.getExpiresAt()))
                 .toList();

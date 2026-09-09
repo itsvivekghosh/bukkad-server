@@ -30,30 +30,50 @@ class AdminGrowthControllerTest {
     }
 
     @Test
-    void restaurantStats_returnsAllStats() {
-        when(statRepository.findAll()).thenReturn(List.of(stat(1L, 10)));
+    void restaurantStats_returnsBoundedPage() {
+        when(queryService.restaurantStats()).thenReturn(List.of(stat(1L, 10)));
 
         assertThat(controller.restaurantStats()).hasSize(1);
-        verify(statRepository).findAll();
+        // PERF-3: delegates to the bounded page (no whole-table findAll here).
+        verify(queryService).restaurantStats();
+        verify(statRepository, org.mockito.Mockito.never()).findAll();
     }
 
     @Test
-    void topRestaurants_sortsByOrderCountDescending() {
-        when(statRepository.findAll())
-                .thenReturn(List.of(stat(1L, 5), stat(2L, 50), stat(3L, 20)));
+    void topRestaurants_ordersByOrderCountDescInSql() {
+        when(statRepository.findAll(org.mockito.ArgumentMatchers
+                .any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(stat(2L, 50), stat(3L, 20), stat(1L, 5)),
+                        org.springframework.data.domain.PageRequest.of(0, 10), 3));
 
         List<RestaurantOrderStat> top = controller.topRestaurants(10);
 
         assertThat(top).extracting(RestaurantOrderStat::getRestaurantId)
                 .containsExactly(2L, 3L, 1L);
+        // The sort + limit must be expressed through the Pageable (SQL side).
+        var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(statRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getPageSize()).isEqualTo(10);
+        assertThat(captor.getValue().getSort().getOrderFor("orderCount")).isNotNull();
+        assertThat(captor.getValue().getSort().getOrderFor("orderCount").getDirection())
+                .isEqualTo(org.springframework.data.domain.Sort.Direction.DESC);
     }
 
     @Test
-    void topRestaurants_honorsLimit() {
-        when(statRepository.findAll())
-                .thenReturn(List.of(stat(1L, 5), stat(2L, 50), stat(3L, 20)));
+    void topRestaurants_honorsLimitAndPageCap() {
+        when(statRepository.findAll(org.mockito.ArgumentMatchers
+                .any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(
+                        List.of(stat(2L, 50), stat(3L, 20)),
+                        org.springframework.data.domain.PageRequest.of(0, 2), 5));
 
         assertThat(controller.topRestaurants(2)).hasSize(2);
+        // Over-cap requests clamp to 200 rows (list shape kept, additively capped).
+        var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        controller.topRestaurants(5_000);
+        verify(statRepository, org.mockito.Mockito.times(2)).findAll(captor.capture());
+        assertThat(captor.getAllValues().get(1).getPageSize()).isEqualTo(200);
     }
 
     @Test

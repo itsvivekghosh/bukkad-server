@@ -25,6 +25,8 @@ import java.util.Locale;
 @Service
 public class AffiliateServiceImpl implements AffiliateService {
 
+    static final int ADMIN_LIST_CAP = 200;
+
     private final AffiliateCodeRepository affiliateCodeRepository;
     private final AffiliateReferralRepository affiliateReferralRepository;
 
@@ -37,7 +39,13 @@ public class AffiliateServiceImpl implements AffiliateService {
     @Override
     @Transactional(readOnly = true)
     public List<AffiliateCodeResponse> listAll() {
-        return affiliateCodeRepository.findAll().stream().map(this::toResponse).toList();
+        // PERF-3: the affiliate registry was listed whole-table. The endpoint
+        // shape is unchanged (bare list); the read additively caps at the 200
+        // newest codes with ORDER BY created_at DESC in SQL. (Owner split ADR: R-04.)
+        return affiliateCodeRepository
+                .findAllByOrderByCreatedAtDesc(
+                        org.springframework.data.domain.PageRequest.of(0, ADMIN_LIST_CAP))
+                .stream().map(this::toResponse).toList();
     }
 
     @Override

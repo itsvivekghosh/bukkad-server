@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Port of the monolith {@code com.bhukkad.repository.AffiliateCodeRepository}
@@ -16,4 +17,7 @@ public interface AffiliateCodeRepository extends JpaRepository<AffiliateCode, Lo
     boolean existsByCodeIgnoreCase(String code);
 
     List<AffiliateCode> findByIsActiveTrueOrderByCreatedAtDesc();
+
+    /** PERF-3: bounded newest-first listing (SQL ORDER BY + page cap). */
+    List<AffiliateCode> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }

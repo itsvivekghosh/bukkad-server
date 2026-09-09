@@ -17,7 +17,10 @@ public abstract class AbstractRestaurantPostgresTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
             .withDatabaseName("restaurants")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw");
+            .withPassword("bhukkad_test_pw")
+            // Multi-suite local runs (parallel audit batches) can starve the
+            // Docker VM; the default 60 s init wait is too tight there.
+            .withStartupTimeout(java.time.Duration.ofMinutes(3));
 
     static {
         if (!DockerClientFactory.instance().isDockerAvailable()) {
