@@ -112,7 +112,9 @@ class GatewayConfigTest {
     @Test
     void edgeHardeningDefaultsAreConfigured() {
         // Audit batch A: bounded upstream latency, no hung-service pinning.
-        assertThat(httpClientProperties.getResponseTimeout()).isEqualTo(Duration.ofSeconds(30));
+        // PERF-0 lowered the response ceiling 30s -> 8s: no API SLO justifies
+        // parking gateway connections on a stuck upstream for 30s.
+        assertThat(httpClientProperties.getResponseTimeout()).isEqualTo(Duration.ofSeconds(8));
         assertThat(httpClientProperties.getConnectTimeout()).isEqualTo(5000);
 
         // Header hygiene + secure-cookie rewriting are global filters and run

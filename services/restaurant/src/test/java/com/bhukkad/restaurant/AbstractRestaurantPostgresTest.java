@@ -38,5 +38,10 @@ public abstract class AbstractRestaurantPostgresTest {
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
         registry.add("spring.flyway.locations", () -> "classpath:db/migration-pg");
+        // PERF-0 raises the default pool (minimum-idle 20); several cached
+        // contexts share one Testcontainers PG (max_connections 100) inside a
+        // single suite, so cap the test pool to keep the container solvent.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
+        registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
     }
 }
