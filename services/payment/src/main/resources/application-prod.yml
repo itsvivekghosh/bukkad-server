@@ -5,7 +5,8 @@ spring:
 
   datasource:
     hikari:
-      maximum-pool-size: 5
+      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:20}
+      minimum-idle: ${PAYMENT_DB_POOL_SIZE:20}
 
 app:
   environment: production

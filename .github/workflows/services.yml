@@ -5,15 +5,37 @@ on:
     branches: [main]
     paths:
       - 'services/**'
+      - 'k8s/**'
+      - 'scripts/ci/**'
   pull_request:
     branches: [main]
     paths:
       - 'services/**'
+      - 'k8s/**'
+      - 'scripts/ci/**'
 
 permissions:
   contents: read
 
 jobs:
+  pool-budget:
+    name: Connection pool budget guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Enforce §4.2 pool arithmetic (hpa x pool <= 0.8 x pgbouncer)
+        run: python3 scripts/ci/pool-budget-check.py
+
   build-service:
     name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
