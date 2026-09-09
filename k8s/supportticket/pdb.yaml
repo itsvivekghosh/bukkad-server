@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-supportticket-pdb
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: supportticket
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: supportticket

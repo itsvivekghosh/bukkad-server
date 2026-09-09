@@ -1,48 +1,17 @@
-# ============================================
-# Docker Ignore File
-# ============================================
-
-# Git
-.git/
-.gitignore
-
-# Build output
-target/
-build/
-*.jar
-*.war
-
-# IDE
-.idea/
-.vscode/
+# Keep the Docker build context lean: never copy build output, VCS, or tooling.
+.git
+**/target
+**/node_modules
+.idea
+.vscode
 *.iml
-*.iws
-*.ipr
-
-# Logs
-logs/
-*.log
-
-# OS
 .DS_Store
-Thumbs.db
+docs
+loadtest
 
-# Docker
-docker/mysql-data/
-docker/redis-data/
-
-# Documentation
-*.md
-docs/
-
-# Tests
-src/test/
-
-# Environment files
-.env
-.env.local
-docker/.env.prod
-
-# Temp
-tmp/
-temp/
+# Fresh-start cleanup exclusions
+wallet-old.bak
+.trash-rootowned
+.jqwik-database
+dump.rdb
+**/wallet-old.bak

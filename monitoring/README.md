@@ -31,7 +31,7 @@ Dashboard: `monitoring/grafana/bhukkad-slo-sli.json` (import into Grafana).
 | Availability | 99.9% | `1 - (5xx / total)` over 30d |
 | Latency (p95) | < 1s | `bhukkad_http_requests_seconds` histogram |
 | Latency (p99) | < 3s | `bhukkad_http_requests_seconds` histogram |
-| Error Budget | 0.1% | `bhukkad_http_errors_total` / `bhukkad_http_requests_total` |
+| Error Budget | 0.1% | `bhukkad_http_errors_total` / `bhukkad_http_requests_seconds_count` |
 
 ## Log correlation
 

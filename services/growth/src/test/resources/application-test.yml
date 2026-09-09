@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: growth-service-test
+  datasource:
+    url: jdbc:postgresql://localhost:5432/growth_test
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  growth:
+    loyalty:
+      points-per-rupee: 1
+      sign-up-bonus: 50
+      referral-bonus: 25
+      redemption-ratio: 100
+      min-redemption-points: 50
+    referral:
+      max-referrals-per-user: 5
+      referred-user-reward: 50
+      referrer-reward: 25
+    campaign:
+      max-discount-percent: 30
+      default-priority: 0

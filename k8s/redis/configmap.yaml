@@ -21,9 +21,16 @@ data:
     save 900 1
     save 300 10
     save 60 10000
-    maxmemory 384mb
-    maxmemory-policy allkeys-lru
+    maxmemory 512mb
+    # volatile-lru ensures only keys with TTL are evicted — locks, rate-limit
+    # counters and idempotency keys MUST have TTLs (see RedisCacheService +
+    # RateLimitService). Using allkeys-lru would evict those and cause duplicate
+    # orders / thundering herds under memory pressure.
+    maxmemory-policy volatile-lru
     maxmemory-samples 5
     lazyfree-lazy-eviction yes
     lazyfree-lazy-expire yes
     lazyfree-lazy-server-del yes
+    # Separate logical DBs: 0=cache, 1=locks/rate-limit/idempotency (see
+    # application.yml spring.data.redis.database). Eviction only affects DB 0.
+    # Requires clients to select DB explicitly; default stays 0 for cache.

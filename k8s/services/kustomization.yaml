@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Aggregates every microservice Deployment+Service (+PDB/HPA where present) as
+# the replacement for the monolith's k8s/app/ manifests. Each entry points at a
+# per-service directory with its own kustomization.yaml.
+#
+# NOTE: because the service dirs are siblings of this directory, build with the
+# relaxed loader:
+#   kustomize build --load-restrictor LoadRestrictionsNone k8s/services
+# (plain `kustomize build` / `kubectl apply -k` forbid `../` traversal by
+# default; alternatively reference this kustomization from the k8s/ root, which
+# already uses sibling paths and applies the bhukkad namespace itself).
+#
+# When adopted, drop the k8s/app/* entries from the root k8s/kustomization.yaml
+# and add this directory there (or list the service dirs directly) to complete
+# the monolith replacement.
+
+namespace: bhukkad
+
+resources:
+  - ../gateway
+  - ../identity
+  - ../search
+  - ../survey
+  - ../referral
+  - ../notification
+  - ../supportticket
+  - ../admin-analytics
+  - ../restaurant
+  - ../order
+  - ../payment
+  - ../delivery
+
+labels:
+  - includeSelectors: false
+    pairs:
+      managed-by: kustomize
+      project: bhukkad

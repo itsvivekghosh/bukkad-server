@@ -1,0 +1,117 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bhukkad-backup
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: backup
+spec:
+  schedule: "0 2 * * *"        # Daily at 02:00 local (Asia/Kolkata)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            fsGroup: 1001
+          containers:
+            # PostgreSQL dump — connects to the primary, streams to a gzipped file.
+            - name: postgres-backup
+              image: postgres:16-alpine
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/backup/backup-postgres.sh"]
+              env:
+                - name: DB_HOST
+                  value: "bhukkad-postgresql"
+                - name: DB_PORT
+                  value: "5432"
+                - name: DB_NAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: bhukkad-config
+                      key: DB_NAME
+                - name: DB_USERNAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: bhukkad-config
+                      key: DB_USERNAME
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: DB_PASSWORD
+                - name: BACKUP_DIR
+                  value: "/backup/postgres"
+                - name: RETENTION_DAYS
+                  value: "30"
+              volumeMounts:
+                - name: backup-scripts
+                  mountPath: /backup/backup-postgres.sh
+                  subPath: backup-postgres.sh
+                - name: backup-volume
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+
+            # Redis snapshot — triggers BGSAVE and archives dump.rdb.
+            - name: redis-backup
+              image: redis:7-alpine
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/backup/backup-redis.sh"]
+              env:
+                - name: REDIS_HOST
+                  value: "bhukkad-redis"
+                - name: REDIS_PORT
+                  value: "6379"
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: REDIS_PASSWORD
+                - name: REDIS_DATA_DIR
+                  value: "/redis-data"
+                - name: BACKUP_DIR
+                  value: "/backup/redis"
+                - name: RETENTION_DAYS
+                  value: "7"
+              volumeMounts:
+                - name: backup-scripts
+                  mountPath: /backup/backup-redis.sh
+                  subPath: backup-redis.sh
+                - name: backup-volume
+                  mountPath: /backup
+                - name: redis-data
+                  mountPath: /redis-data
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+
+          volumes:
+            - name: backup-scripts
+              configMap:
+                name: bhukkad-backup-scripts
+                defaultMode: 0755
+            - name: backup-volume
+              persistentVolumeClaim:
+                claimName: bhukkad-backups
+            - name: redis-data
+              persistentVolumeClaim:
+                claimName: bhukkad-redis-pvc
+                readOnly: true

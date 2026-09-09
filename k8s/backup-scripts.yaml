@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-backup-scripts
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: backup
+binaryData: {}
+data:
+  backup-postgres.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    DB_HOST="${DB_HOST:-postgres}"
+    DB_PORT="${DB_PORT:-5432}"
+    DB_USERNAME="${DB_USERNAME:-app}"
+    DB_PASSWORD="${DB_PASSWORD:?DB_PASSWORD is required}"
+    DB_NAME="${DB_NAME:-core}"
+    BACKUP_DIR="${BACKUP_DIR:-/backup}"
+    RETENTION_DAYS="${RETENTION_DAYS:-30}"
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    FILENAME="bhukkad_postgres_${TIMESTAMP}.sql.gz"
+    mkdir -p "${BACKUP_DIR}"
+    echo "[$(date)] Starting PostgreSQL backup: ${DB_NAME}@${DB_HOST}:${DB_PORT}"
+    PGPASSWORD="${DB_PASSWORD}" pg_dump \
+      --host="${DB_HOST}" --port="${DB_PORT}" \
+      --username="${DB_USERNAME}" --dbname="${DB_NAME}" \
+      --format=plain --no-owner --no-acl \
+      | gzip > "${BACKUP_DIR}/${FILENAME}"
+    echo "[$(date)] Backup created: ${BACKUP_DIR}/${FILENAME}"
+    find "${BACKUP_DIR}" -name "bhukkad_postgres_*.sql.gz" -mtime +${RETENTION_DAYS} -delete
+    if [ -n "${S3_BUCKET:-}" ]; then
+      aws s3 cp "${BACKUP_DIR}/${FILENAME}" "s3://${S3_BUCKET}/postgres/${FILENAME}" --no-progress
+    fi
+    echo "[$(date)] PostgreSQL backup finished successfully"
+
+  backup-redis.sh: |
+    #!/bin/sh
+    set -euo pipefail
+    REDIS_HOST="${REDIS_HOST:-redis}"
+    REDIS_PORT="${REDIS_PORT:-6379}"
+    REDIS_PASSWORD="${REDIS_PASSWORD:-}"
+    REDIS_DATA_DIR="${REDIS_DATA_DIR:-/data}"
+    BACKUP_DIR="${BACKUP_DIR:-/backup}"
+    RETENTION_DAYS="${RETENTION_DAYS:-7}"
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    mkdir -p "${BACKUP_DIR}"
+    echo "[$(date)] Starting Redis backup: ${REDIS_HOST}:${REDIS_PORT}"
+    AUTH_ARGS=""
+    if [ -n "${REDIS_PASSWORD}" ]; then
+      AUTH_ARGS="-a ${REDIS_PASSWORD}"
+    fi
+    # shellcheck disable=SC2086
+    redis-cli ${AUTH_ARGS} -h "${REDIS_HOST}" -p "${REDIS_PORT}" BGSAVE >/dev/null
+    echo "[$(date)] BGSAVE triggered, waiting..."
+    BEFORE=$(redis-cli ${AUTH_ARGS} -h "${REDIS_HOST}" -p "${REDIS_PORT}" LASTSAVE)
+    for _ in $(seq 1 60); do
+      AFTER=$(redis-cli ${AUTH_ARGS} -h "${REDIS_HOST}" -p "${REDIS_PORT}" LASTSAVE)
+      if [ -n "${AFTER}" ] && [ "${AFTER}" -gt "${BEFORE}" ]; then
+        break
+      fi
+      sleep 1
+    done
+    RDB_FILE="${REDIS_DATA_DIR}/dump.rdb"
+    if [ -f "${RDB_FILE}" ]; then
+      cp "${RDB_FILE}" "${BACKUP_DIR}/bhukkad_redis_${TIMESTAMP}.rdb"
+      echo "[$(date)] RDB archived: ${BACKUP_DIR}/bhukkad_redis_${TIMESTAMP}.rdb"
+    fi
+    find "${BACKUP_DIR}" \( -name "bhukkad_redis_*.rdb" -o -name "bhukkad_redis_*.aof" \) -mtime +${RETENTION_DAYS} -delete
+    if [ -n "${S3_BUCKET:-}" ]; then
+      aws s3 cp "${BACKUP_DIR}" "s3://${S3_BUCKET}/redis/${TIMESTAMP}/" --recursive --no-progress
+    fi
+    echo "[$(date)] Redis backup finished successfully"

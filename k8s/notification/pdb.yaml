@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-notification-pdb
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: notification
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: notification

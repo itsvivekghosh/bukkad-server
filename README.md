@@ -1,88 +1,138 @@
 # 🍔 Bhukkad - Food Delivery Platform
 
-A comprehensive food delivery platform built with Spring Boot, similar to Swiggy and Zomato.
+A comprehensive food delivery platform built with Spring Boot microservices, similar to Swiggy and Zomato.
 
 ![Java](https://img.shields.io/badge/Java-17-orange)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-green)
-![MySQL](https://img.shields.io/badge/MySQL-8.0-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.12-green)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)
 ![Redis](https://img.shields.io/badge/Redis-7.0-red)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-> **Documentation:** Full onboarding and runbooks live in **[docs/](./docs/README.md)** — getting started, Docker, Kubernetes, API usage, and operations.
+> **Architecture:** 17 independent microservices following the strangler-fig pattern. See **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** for details.
+
+> **Documentation:** Full onboarding and runbooks live in **[docs/](./docs/README.md)**.
 
 ## 📋 Table of Contents
 
 - [Documentation](./docs/README.md)
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
+- [Services](#-services)
 - [Architecture](#-architecture)
-- [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
-- [Docker Setup](#-docker-setup)
-- [API Documentation](#-api-documentation)
-- [API Endpoints](#-api-endpoints)
-- [Environment Configuration](#-environment-configuration)
-- [Logging](#-logging)
-- [Caching](#-caching)
+- [Development](#-development)
 - [Testing](#-testing)
 - [Contributing](#-contributing)
-- [License](#-license)
 
-## ✨ Features
+## � microservices
 
-### Customer Features
-- 🔐 User registration & JWT authentication
-- 🔍 Browse restaurants by cuisine, rating, location
-- 🍕 Search restaurants and menu items
-- 🛒 Cart with customization options
-- 🎫 Apply coupons and discounts
-- 💳 Multiple payment methods (COD, UPI, Card)
-- 📍 Real-time order tracking
-- 🏠 Multiple delivery address management
-- 📜 Order history and reordering
-- ⭐ Rate and review restaurants
-- 💰 Loyalty points and wallet
-
-### Restaurant Owner Features
-- 🏪 Restaurant profile management
-- 📝 Menu and category management
-- 🎨 Item customization options (Size, Toppings, etc.)
-- 📦 Order management and status updates
-- 📊 Restaurant analytics
-- 🔔 Real-time order notifications
-
-### Delivery Agent Features
-- 🚗 Accept/reject delivery requests
-- 📍 Real-time location tracking
-- 📋 Delivery status updates
-- 💵 Earnings tracking
-- 📜 Delivery history
-
-### Platform Features
-- 🔒 Role-based access control (Customer, Owner, Agent, Admin)
-- 📊 Comprehensive logging with JSON format
-- ⚡ Redis caching for optimal performance
-- 📝 Swagger/OpenAPI documentation
-- 🏥 Health check endpoints
-- 📈 Performance monitoring
-- 🐳 Docker support
-
-## 🛠 Tech Stack
-
-| Technology | Version | Purpose |
-|---|---|---|
-| Java | 17 | Language |
-| Spring Boot | 3.2.0 | Framework |
-| Spring Security | 6.x | Authentication & Authorization |
-| Spring Data JPA | 3.2.0 | Database ORM |
-| MySQL | 8.0 | Primary Database |
-| Redis | 7.0 | Caching Layer |
-| JWT (jjwt) | 0.11.5 | Token Authentication |
-| SpringDoc OpenAPI | 2.3.0 | API Documentation |
-| Logback | 1.4.x | Logging |
-| Logstash Encoder | 7.4 | JSON Log Format |
-| Maven | 3.9+ | Build Tool |
-| Docker | 24+ | Containerization |
-| Lombok | 1.18.x | Boilerplate Reduction |
+| Service | Port | Description |
+|---------|------|-------------|
+| gateway | 8080 | API Gateway (Spring Cloud Gateway) |
+| identity | 8081 | User authentication & authorization |
+| restaurant | 8082 | Restaurant & menu management |
+| order | 8083 | Order processing |
+| payment | 8084 | Payment handling & settlement |
+| delivery | 8085 | Delivery agent management |
+| notification | 8086 | Email/SMS push notifications |
+| search | 8087 | Restaurant & menu search |
+| admin-analytics | 8088 | Admin dashboard & analytics |
+| survey | 8089 | Customer feedback surveys |
+| referral | 8090 | Referral & loyalty program |
+| supportticket | 8091 | Customer support tickets |
+| realtime | 8092 | Real-time order tracking (SSE/WebSocket) |
+| personalization | 8093 | Recommendations engine |
+| growth | 8094 | Campaigns & promotions |
+| platform-lib | - | Shared utilities (not a running service) |
 
 ## 🏗 Architecture
+
+The platform follows a **microservices architecture** with:
+
+- **API Gateway**: Single entry point routing to per-service Kubernetes DNS names
+- **Service Communication**: HTTP REST + gRPC (for high-throughput paths)
+- **Database**: PostgreSQL per service with Flyway migrations
+- **Caching**: Redis for sessions, rate limiting, and热点 data
+- **Security**: JWT-based authentication with role-based access control
+- **Observability**: Structured JSON logging with request correlation IDs
+
+See **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** for detailed architecture documentation.
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Java 17+
+- Maven 3.9+
+- Docker & Docker Compose
+- PostgreSQL 15+
+- Redis 7+
+
+### Build All Services
+
+```bash
+cd services
+mvn clean install
+```
+
+### Run Individual Services
+
+```bash
+# Run with Spring Boot
+mvn spring-boot:run
+
+# Or use Docker Compose
+docker-compose up -d
+```
+
+### Run Tests
+
+```bash
+# All services
+mvn test -f services/pom.xml
+
+# Individual service
+mvn test -f services/<service-name>/pom.xml
+```
+
+## 🛠 Development
+
+### Adding a New Service
+
+1. Create directory in `services/`
+2. Add module entry to `services/pom.xml`
+3. Follow existing service structure:
+   - `src/main/java/com/bhukkad/<service>/`
+   - `src/main/resources/application.yml`
+   - `src/test/java/com/bhukkad/<service>/`
+   - `src/main/resources/db/migration/` for Flyway migrations
+
+### Database Migrations
+
+Each service manages its own migrations:
+
+```bash
+mvn flyway:migrate -f services/<service-name>/pom.xml
+```
+
+## 📈 Testing
+
+```bash
+# Unit tests
+mvn test -f services/pom.xml
+
+# Integration tests (requires Docker for Testcontainers)
+mvn verify -f services/pom.xml
+
+# Code coverage report
+mvn test jacoco:report -f services/pom.xml
+```
+
+## 📝 Documentation
+
+- **[API Documentation](./docs/DEVELOPER_API.md)**
+- **[Architecture](./docs/ARCHITECTURE.md)**
+- **[Operations](./docs/OPERATIONS.md)**
+- **[Migration Guide](./docs/migration-guide.md)**
+
+## 📄 License
+
+MIT License

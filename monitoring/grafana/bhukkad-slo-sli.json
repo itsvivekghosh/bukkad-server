@@ -11,11 +11,16 @@
     {
       "title": "API Availability (per endpoint)",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
-          "expr": "sum(rate(bhukkad_http_requests_total[5m])) by (uri) > 0",
-          "legendFormat": "{{uri}}"
+          "expr": "1 - (sum(rate(bhukkad_http_errors_total[5m])) by (uri) / clamp_min(sum(rate(bhukkad_http_requests_seconds_count[5m])) by (uri), 1e-6))",
+          "legendFormat": "{{uri}}",
+          "format": "percentunit",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -24,9 +29,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.99 },
-              { "color": "green", "value": 0.999 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.99
+              },
+              {
+                "color": "green",
+                "value": 0.999
+              }
             ]
           }
         }
@@ -35,7 +49,10 @@
     {
       "title": "Request Latency p95/p99 (per endpoint)",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(bhukkad_http_requests_seconds_bucket[5m])) by (le, uri))",
@@ -52,8 +69,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         }
@@ -62,10 +85,13 @@
     {
       "title": "Error Rate (5xx per endpoint)",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
-          "expr": "sum(rate(bhukkad_http_errors_total[5m])) by (uri) / clamp_min(sum(rate(bhukkad_http_requests_total[5m])) by (uri), 1e-6)",
+          "expr": "sum(rate(bhukkad_http_errors_total[5m])) by (uri) / clamp_min(sum(rate(bhukkad_http_requests_seconds_count[5m])) by (uri), 1e-6)",
           "legendFormat": "{{uri}}"
         }
       ],
@@ -75,8 +101,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 0.01 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
             ]
           }
         }
@@ -85,7 +117,10 @@
     {
       "title": "Orders per minute",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "expr": "sum(rate(bhukkad_orders_created_total[1m]))",
@@ -96,7 +131,10 @@
     {
       "title": "Conversion Funnel (cumulative)",
       "type": "bargauge",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "expr": "sum(bhukkad_funnel_search_total)",
@@ -127,9 +165,18 @@
   ],
   "refresh": "30s",
   "schemaVersion": 38,
-  "tags": ["bhukkad", "slo", "sli"],
-  "templating": { "list": [] },
-  "time": { "from": "now-6h", "to": "now" },
+  "tags": [
+    "bhukkad",
+    "slo",
+    "sli"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "Bhukkad SLO/SLI",

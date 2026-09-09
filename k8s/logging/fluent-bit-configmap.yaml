@@ -14,7 +14,7 @@ data:
 
     [INPUT]
         Name              tail
-        Path              /app/logs/*.log
+        Path              /tmp/logs/bhukkad/*.log
         Tag               bhukkad.app
         Refresh_Interval  5
 

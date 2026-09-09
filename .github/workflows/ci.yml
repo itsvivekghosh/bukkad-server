@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       service:
-        description: "Build only this service module (Phase 3 multi-module). Leave empty for the monolith build."
+        description: "Build only this service module (services/ reactor)."
         required: false
         type: string
         default: ""
@@ -39,16 +39,11 @@ jobs:
         run: chmod +x mvnw
 
       - name: Compile
-        run: |
-          if [ -n "${{ inputs.service }}" ]; then
-            ./mvnw -B -f multi-module/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
-          else
-            ./mvnw -B compile -DskipTests
-          fi
+        run: ./mvnw -B -f services/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
 
   # Phase 3: per-service build + test job, driven by the service matrix input.
   service-test:
-    name: Service ${{ inputs.service || 'monolith' }} Tests
+    name: Service ${{ inputs.service || 'all' }} Tests
     runs-on: ubuntu-latest
     if: ${{ inputs.service != '' }}
     steps:
@@ -68,14 +63,14 @@ jobs:
         run: chmod +x mvnw
 
       - name: Build and test service module
-        run: ./mvnw -B -f multi-module/pom.xml -pl ${{ inputs.service }} -am test
+        run: ./mvnw -B -f services/pom.xml -pl ${{ inputs.service }} -am test
 
       - name: Upload service test reports
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: service-${{ inputs.service }}-test-reports
-          path: multi-module/${{ inputs.service }}/target/surefire-reports/
+          path: services/${{ inputs.service }}/target/surefire-reports/
           retention-days: 14
 
   test:
@@ -99,18 +94,18 @@ jobs:
         run: chmod +x mvnw
 
       - name: Run unit tests
-        # "*Tests" also matches BackendServerApplicationTests (suffix-Tests class
-        # that the *Test glob alone would silently skip).
-        run: ./mvnw -B test -Dtest="*Test,*Tests,!*IntegrationTest,!*RegressionTest,!*PactTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B -f services/pom.xml test -Dtest="*Test,*Tests,!*IntegrationTest,!*RegressionTest,!*PactTest" -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Run integration tests
-        run: ./mvnw -B test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B -f services/pom.xml test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 
-      - name: Run regression suite
-        run: ./mvnw -B test -Dtest="com.bhukkad.regression.RegressionTestSuite"
+      # NOTE: the historical com.bhukkad.regression.RegressionTestSuite was a
+      # monolith artifact deleted in 49c63b4 (restructure to microservices);
+      # regression coverage now = unit + integration runs above plus the
+      # nightly-regression workflow (pytest API regression against staging).
 
       - name: Verify 85% code coverage (JaCoCo)
-        run: ./mvnw -B jacoco:check
+        run: ./mvnw -B -f services/pom.xml jacoco:check
 
       - name: Upload JaCoCo HTML report
         uses: actions/upload-artifact@v5

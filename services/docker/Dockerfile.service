@@ -1,0 +1,26 @@
+# Template Dockerfile used by all services (the compose file passes MODULE).
+# Runtime executes the executable Spring Boot jar; the build stage compiles the
+# module and its reactor dependencies in one go.
+ARG MODULE
+FROM eclipse-temurin:17-jdk AS build
+# Re-declare the ARG inside the stage: an ARG declared before the first FROM is
+# not automatically available to instructions after FROM.
+ARG MODULE
+WORKDIR /workspace
+COPY . .
+RUN ./mvnw -q -f services/pom.xml -pl "$MODULE" -am package -DskipTests
+
+FROM eclipse-temurin:17-jre
+# Re-declare for the runtime stage COPY path.
+ARG MODULE
+RUN useradd --system --uid 10001 bhukkad
+WORKDIR /app
+# Scope the glob to the module-named Spring Boot jar: target/ also contains
+# byte-buddy-agent.jar (copied by the reactor's dependency plugin at
+# process-test-classes), and a bare *.jar would copy that 366KB agent jar
+# instead of the ~58MB repackaged application jar.
+COPY --from=build /workspace/services/$MODULE/target/${MODULE}-*.jar app.jar
+USER bhukkad
+EXPOSE 8080
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/urandom"
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

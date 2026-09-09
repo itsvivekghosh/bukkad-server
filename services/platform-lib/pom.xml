@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.bhukkad</groupId>
+		<artifactId>bhukkad-microservices</artifactId>
+		<version>1.0.0</version>
+	</parent>
+
+	<artifactId>platform-lib</artifactId>
+	<name>Bhukkad Common Platform Library</name>
+	<description>Platform infrastructure shared by every microservice: outbox
+		client, saga coordinator, idempotency primitives, event envelope,
+		tracing and error model (architecture-microservices-postgresql.md §4).
+		No web layer, no datasource configuration, no business logic — business
+		code is never shared across services (contract/event boundaries).</description>
+
+	<!-- 1.18.38 fixes the javac TypeTag crash on JDK 21+ (parent still pins
+	     1.18.36 for the monolith). -->
+	<properties>
+		<lombok.version>1.18.38</lombok.version>
+	</properties>
+
+	<dependencies>
+		<!-- JPA entities + repositories for the per-service platform tables. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!-- AWS S3 for shared image/blob storage (menu presigned URLs). -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.25.27</version>
+		</dependency>
+
+		<!-- JSON (de)serialization of event payloads and envelopes. -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-databind</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+		</dependency>
+
+		<!-- Web-coupled platform infrastructure (GlobalExceptionHandler, request
+		     tracing filter, JWT verifier). Optional so the library stays lean:
+		     services that expose REST already bring spring-boot-starter-web. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- WebFlux for service-to-service communication (WebClient). Optional:
+		     services that call other services bring this in. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- Spring Cloud LoadBalancer for service-to-service calls (no Eureka needed). -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-loadbalancer</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- AOP for the platform aspects (RateLimitAspect, MetricsAspect, cache
+		     invalidation). Optional; services opt in with starter-aop. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aop</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- Security infrastructure shared by every service that opts in:
+		     PlatformJwtValidator (HS256/JWKS) and PlatformJwtAuthFilter.
+		     Optional so non-web services stay lean; services that expose REST
+		     add spring-boot-starter-security explicitly. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- Nimbus JOSE + JWT for signature verification (MACVerifier/HS256,
+		     RSASSAVerifier/RS256 + JWKS). Declared via spring-security-oauth2-jose
+		     so nimbus-jose-jwt resolves with a Spring-managed version (same
+		     convention as the identity service; no pinning). Non-optional:
+		     PlatformJwtValidator/PlatformJwtAuthFilter are @Component-scanned
+		     into every service, so every consumer needs nimbus on the
+		     classpath to load them. -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-oauth2-jose</artifactId>
+		</dependency>
+
+		<!-- JJWT for service-to-service JWT tokens. -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>${jwt.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>${jwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>${jwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- Caffeine L1 cache for the two-tier platform cache. -->
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+
+		<!-- Micrometer API for platform metrics (binding chosen by the service). -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-core</artifactId>
+		</dependency>
+
+		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger). -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+
+		<!-- Resilience4j for circuit breaker and retry in service-to-service calls. -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot3</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-micrometer</artifactId>
+		</dependency>
+
+		<!-- Kafka publisher/consumer support. Optional: only services that own a
+		     Kafka producer/consumer group declare spring-kafka. -->
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- SLF4J API only — binding is chosen by the consuming service. -->
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+		</dependency>
+
+		<!-- Redis for distributed rate limiting, caching, and pub/sub. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<!-- WebSocket support for real-time features (order tracking, live updates).
+		     Optional: only services that own WebSocket endpoints declare this. Keeping
+		     it optional prevents spring-webmvc (transitive of WebSocket) from leaking
+		     into reactive consumers (the gateway), where it would trigger
+		     GatewayClassPathWarningAutoConfiguration$SpringMvcFoundOnClasspathException. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- OpenAPI / Swagger UI for service API docs. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>2.2.0</version>
+			<optional>true</optional>
+		</dependency>
+
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- Testing: PG Testcontainers + Flyway validate the platform baseline and
+		     repository queries against a real PostgreSQL; ArchUnit guards the
+		     no-web/no-monolith boundary. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>postgresql</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<!-- Redpanda (Kafka-compatible) for the Kafka publisher integration test. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>redpanda</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- JDBC driver for the PG Testcontainers integration tests. Services add
+		     their own runtime driver; the library itself must not force one. -->
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.tngtech.archunit</groupId>
+			<artifactId>archunit-junit5</artifactId>
+			<version>${archunit.version}</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+</project>

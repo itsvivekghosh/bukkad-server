@@ -1,0 +1,360 @@
+# Full local dev/test stack for the microservices (plan §2.1/§11): one
+# PostgreSQL per service (created by initdb/00-create-databases.sql), Redis,
+# Redpanda (Kafka API) for events, nginx (optional profile "edge") as a second
+# router in front of the Spring Cloud Gateway.
+#
+# Bring up everything:        docker compose -f docker-compose.dev.yml up -d
+# Memory-tight staged bring-up (4 GB Docker VM): start with
+#   ... up -d postgres redis identity restaurant order payment gateway
+# and rotate additional services within the RAM budget (heap capped in
+# JAVA_OPTS below). App services do NOT publish host ports (developer stacks
+# commonly occupy 8080-8095 locally); all API traffic enters via the gateway.
+#
+# Build model: services use services/docker/Dockerfile.prebuilt — run
+#   ./mvnw -f services/pom.xml package -DskipTests && ./services/docker/stage-jars.sh
+# then `docker compose build <svc>` assembles runtime images in seconds.
+
+name: backend
+
+x-app-defaults: &app-defaults
+  # Restart on transient OOM/kill under test load (dev VM is memory-tight);
+  # "on-failure" avoids boot-looping on genuine config errors.
+  restart: on-failure
+  init: true
+  environment: &app-env
+    SPRING_PROFILES_ACTIVE: local
+    SERVER_PORT: "8080"
+    REDIS_HOST: redis
+    SPRING_DATA_REDIS_HOST: redis
+    # One JWT signing/verification secret across ALL services (identity mints,
+    # others validate via platform-lib PlatformJwtAuthFilter). Without this,
+    # identity signs with .env's strong secret while services verify with the
+    # yml fallback → every authenticated call 401s.
+    JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
+    # No Zipkin in dev: keep logs/meters off the tracing path.
+    TRACING_SAMPLE_PROBABILITY: "0.0"
+    # Events off unless the redpanda profile is brought up too
+    # (EVENTS_EXTERNAL_ENABLED=true docker compose up -d redpanda survey ...).
+    EVENTS_EXTERNAL_ENABLED: "${EVENTS_EXTERNAL_ENABLED:-false}"
+    # Service-mesh auth (order→restaurant stock reservation, order→payment
+    # charge, admin→identity user ops). Same secret as the user JWT secret in
+    # dev — in prod these are separate secrets.
+    SERVICE_JWT_SECRET: "${SERVICE_JWT_SECRET:?set SERVICE_JWT_SECRET in services/docker/.env}"
+    # Lean-avg dev JVM: SerialGC + C1 + capped metaspace/direct keeps the
+    # full 15-service stack inside a 4 GB Docker VM. The container-memory
+    # tuning bundle below is why:
+    #   MALLOC_ARENA_MAX=2      glibc otherwise reserves 8×CPU×64MB arenas
+    #                           (observed: 170 arena mappings, ~190 MB RSS
+    #                           of non-heap bloat per service)
+    #   -Xss256k                36+ threads × 1 MB default stacks
+    #   ReservedCodeCacheSize   C1-only needs ~30 MB, not the 160 MB default
+    #   Min/MaxHeapFreeRatio    return committed heap to the OS after test
+    #                           bursts instead of pinning it at Xmx
+    # Raise Xmx back to 256m+ on larger machines via JAVA_OPTS.
+    MALLOC_ARENA_MAX: "2"
+    JAVA_OPTS: >-
+      -Xms24m -Xmx112m -XX:MaxMetaspaceSize=112m -XX:MaxDirectMemorySize=10m
+      -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+      -XX:ReservedCodeCacheSize=48m
+      -Xss256k
+      -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=25
+      -XX:ActiveProcessorCount=1
+      -XX:MaxRAMPercentage=50
+    spring.datasource.hikari.maximum-pool-size: "6"
+  deploy:
+    resources:
+      limits:
+        # Suite-load profiling on the 4 GB dev VM showed peak RSS spikes to
+        # ~500M (CSV streaming + saga fan-out + SSE sessions). 448M limits
+        # OOM-killed order/admin-analytics/identity mid-run; 576M gives ~15%
+        # headroom over the observed peak. Limits are not reservations — the
+        # fleet's steady-state RSS (~3.2G) still fits the 4G VM.
+        memory: 576M
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: backend-postgres
+    environment:
+      POSTGRES_DB: core
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pass
+    ports: ["5432:5432"]
+    volumes:
+      - backend-pgdata:/var/lib/postgresql/data
+      - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d core"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: backend-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["6379:6379"]
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+  redpanda:
+    image: redpandadata/redpanda:v23.3.13
+    container_name: backend-redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 384M
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092
+      - --rpc-addr 0.0.0.0:33145
+      - --advertise-rpc-addr redpanda:33145
+    ports: ["29092:29092", "9644:9644"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q Healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  identity:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: identity}}
+    container_name: backend-identity
+    image: backend/identity:dev
+    environment:
+      <<: *app-env
+      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
+      # Dev bootstrap: seed the platform admin the API test suite logs in as
+      # (admin@bhukkad.dev / Admin@123456). Never enable outside dev.
+      APP_BOOTSTRAPADMIN_ENABLED: "true"
+      APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
+      APP_BOOTSTRAPADMIN_PASSWORD: "Admin@123456"
+      # Identity is the auth bottleneck under test load (mint/validate JWTs per
+      # request). Give it a larger heap than the lean default so it survives the
+      # bootstrap account-creation burst. Same container-memory tuning bundle
+      # as the app-defaults (MALLOC_ARENA_MAX is inherited from the anchor).
+      JAVA_OPTS: >-
+        -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=24m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+        -XX:ReservedCodeCacheSize=48m
+        -Xss256k
+        -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=25
+        -XX:ActiveProcessorCount=1
+        -XX:MaxRAMPercentage=50
+      spring.datasource.hikari.maximum-pool-size: "8"
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+
+  restaurant:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: restaurant}}
+    container_name: backend-restaurant
+    image: backend/restaurant:dev
+    environment:
+      <<: *app-env
+      RESTAURANT_DB_URL: jdbc:postgresql://postgres:5432/restaurants
+
+  order:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: order}}
+    container_name: backend-order
+    image: backend/order:dev
+    environment:
+      <<: *app-env
+      ORDER_DB_URL: jdbc:postgresql://postgres:5432/orders
+      RESTAURANT_SERVICE_URL: http://restaurant:8080
+      SUPPORTTICKET_SERVICE_URL: http://supportticket:8080
+
+  payment:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: payment}}
+    container_name: backend-payment
+    image: backend/payment:dev
+    environment:
+      <<: *app-env
+      PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/payments
+
+  delivery:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: delivery}}
+    container_name: backend-delivery
+    image: backend/delivery:dev
+    environment:
+      <<: *app-env
+      DELIVERY_DB_URL: jdbc:postgresql://postgres:5432/delivery
+      # Rider earnings proxy: PaymentServiceClient binds app.services.payment
+      # .url, which defaults to payment:8080 inside the mesh (correct here).
+      APP_SERVICES_PAYMENT_URL: http://payment:8080
+
+  notification:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: notification}}
+    container_name: backend-notification
+    image: backend/notification:dev
+    environment:
+      <<: *app-env
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/notification
+
+  admin-analytics:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: admin-analytics}}
+    container_name: backend-admin-analytics
+    image: backend/admin-analytics:dev
+    environment:
+      <<: *app-env
+      ADMIN_DB_URL: jdbc:postgresql://postgres:5432/admin
+      # Mesh proxies (admin console → identity/delivery internal endpoints).
+      IDENTITY_SERVICE_URL: http://identity:8080
+      DELIVERY_SERVICE_URL: http://delivery:8080
+      PAYMENT_SERVICE_URL: http://payment:8080
+
+  # Spring Cloud Gateway: owns the same route table as nginx and is the test
+  # entry point (host port 8095).
+  gateway:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: gateway}}
+    container_name: backend-gateway
+    image: backend/gateway:dev
+    ports: ["8095:8080"]
+    environment:
+      # Merge the shared app-env anchor (JWT secrets, MALLOC_ARENA_MAX, ...)
+      # and override only what the gateway needs differently.
+      <<: *app-env
+      # Gateway routes every request; give it more breathing room under test load.
+      JAVA_OPTS: >-
+        -Xms64m -Xmx256m -XX:MaxMetaspaceSize=140m -XX:MaxDirectMemorySize=32m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+        -XX:ReservedCodeCacheSize=64m
+        -Xss256k
+        -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=25
+        -XX:ActiveProcessorCount=1
+      RESTAURANT_SERVICE_URL: http://restaurant:8080
+      IDENTITY_SERVICE_URL: http://identity:8080
+      ORDER_SERVICE_URL: http://order:8080
+      PAYMENT_SERVICE_URL: http://payment:8080
+      DELIVERY_SERVICE_URL: http://delivery:8080
+      SEARCH_SERVICE_URL: http://search:8080
+      SURVEY_SERVICE_URL: http://survey:8080
+      REFERRAL_SERVICE_URL: http://referral:8080
+      SUPPORT_SERVICE_URL: http://supportticket:8080
+      NOTIFICATION_SERVICE_URL: http://notification:8080
+      ADMIN_ANALYTICS_SERVICE_URL: http://admin-analytics:8080
+      REALTIME_SERVICE_URL: http://realtime:8080
+      GROWTH_SERVICE_URL: http://growth:8080
+
+  search:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: search}}
+    container_name: backend-search
+    image: backend/search:dev
+    environment:
+      <<: *app-env
+      SEARCH_DB_URL: jdbc:postgresql://postgres:5432/search
+
+  survey:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: survey}}
+    container_name: backend-survey
+    image: backend/survey:dev
+    environment:
+      <<: *app-env
+      SURVEY_DB_URL: jdbc:postgresql://postgres:5432/survey
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
+      PLATFORM_EVENTS_TOPIC: bhukkad.platform.events
+      SURVEY_CONSUMER_GROUP: survey-platform-consumer
+      # Ownership oracle: survey yml default is order:8092 (a port that
+      # exists only in host-mode runs); the mesh must use the container port.
+      ORDER_SERVICE_URL: http://order:8080
+
+  referral:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: referral}}
+    container_name: backend-referral
+    image: backend/referral:dev
+    environment:
+      <<: *app-env
+      REFERRAL_DB_URL: jdbc:postgresql://postgres:5432/referral
+
+  supportticket:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: supportticket}}
+    container_name: backend-supportticket
+    image: backend/supportticket:dev
+    environment:
+      <<: *app-env
+      SUPPORT_DB_URL: jdbc:postgresql://postgres:5432/support
+      # Wallet credit client: yml default is payment:8093 (host-mode port);
+      # inside the compose network payment listens on 8080.
+      PAYMENT_SERVICE_URL: http://payment:8080
+
+  realtime:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: realtime}}
+    container_name: backend-realtime
+    image: backend/realtime:dev
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+
+  growth:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: growth}}
+    container_name: backend-growth
+    image: backend/growth:dev
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+
+  personalization:
+    <<: *app-defaults
+    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: personalization}}
+    container_name: backend-personalization
+    image: backend/personalization:dev
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+
+  # Optional profile "edge": nginx needs every upstream container resolvable at
+  # boot (static upstream blocks); keep it out of staged bring-ups.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: backend-edge-proxy
+    profiles: ["edge"]
+    ports: ["8088:80"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - identity
+      - restaurant
+      - order
+      - payment
+      - delivery
+      - notification
+      - admin-analytics
+      - search
+      - survey
+      - referral
+      - supportticket
+
+volumes:
+  backend-pgdata:
+    name: backend_pgdata_dev

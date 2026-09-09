@@ -1,0 +1,8 @@
+# Exclude build artifacts and local configs from the Docker build context.
+target/
+**/target/
+*.iml
+.idea/
+*.swp
+*.swo
+.DS_Store
