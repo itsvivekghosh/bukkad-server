@@ -29,10 +29,17 @@ public class RestaurantClient {
     private final WebClient webClient;
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
+        this(baseUrl, (org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>) null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
+                            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("restaurant", CircuitBreakerFilter.DEFAULT_CONFIG))
+                .filter(new CircuitBreakerFilter("restaurant", CircuitBreakerFilter.DEFAULT_CONFIG,
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 

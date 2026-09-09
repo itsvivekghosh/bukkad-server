@@ -1,5 +1,6 @@
 package com.bhukkad.common.security;
 
+import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.JWK;
@@ -7,31 +8,52 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import jakarta.annotation.Nullable;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Validates platform JWTs (HS256 shared secret or RS256 via JWKS).
  *
  * <p>Production hardening notes:
  * <ul>
- *   <li>The JWKS {@link RestClient} uses explicit connect/read timeouts — an
- *       unbounded fetch on the request path would let a slow IdP exhaust the
- *       servlet thread pool (latency/DoS).</li>
- *   <li>On an unknown {@code kid} (key rotation) the JWKS cache is refreshed
- *       once, rate-limited by {@link #UNKNOWN_KID_REFRESH_MIN_MILLIS}, so new
- *       keys are accepted within seconds instead of at cache TTL expiry.</li>
+ *   <li>The JWKS cache is STALE-WHILE-REFRESH (audit V-03): verify() never
+ *       performs blocking HTTP once warm. An expired entry is served while a
+ *       single-flight async refresh (one worker, {@link #refreshInProgress}
+ *       CAS gate) fetches the new key set; fetch failures back off for
+ *       {@link #FAILURE_BACKOFF_MILLIS} so a down IdP is not hammered every
+ *       request. Only a true cold start (no keys ever fetched) blocks — and
+ *       even that is bounded by the RestClient's connect 2 s / read 3 s.
+ *       The cache is pre-warmed on {@link ApplicationReadyEvent}.</li>
+ *   <li>On an unknown {@code kid} (key rotation) a refresh is scheduled —
+ *       rate-limited by {@link #UNKNOWN_KID_REFRESH_MIN_MILLIS} — so new keys
+ *       are picked up within seconds instead of at cache TTL expiry.</li>
  *   <li>A failed JWKS refresh keeps serving the last good key set (stale-read
  *       beats fail-closed for availability; signatures still verified).</li>
+ *   <li>The HMAC verifier is built ONCE at construction; in prod/staging a
+ *       configured-but-too-short secret fails the BOOT instead of turning the
+ *       first service-mesh token into a runtime 500 (audit V-15).</li>
  * </ul>
  */
 @Component
@@ -41,24 +63,94 @@ public class PlatformJwtValidator {
     private static final long JWKS_TTL_MILLIS = 60 * 60 * 1000L;
     /** Minimum spacing between refreshes triggered by unknown kids. */
     private static final long UNKNOWN_KID_REFRESH_MIN_MILLIS = 30 * 1000L;
+    /** A failed JWKS fetch is retried no sooner than this (V-03 failure backoff). */
+    private static final long FAILURE_BACKOFF_MILLIS = 30 * 1000L;
     private static final Duration JWKS_CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration JWKS_READ_TIMEOUT = Duration.ofSeconds(3);
 
+    /** jjwt/HS256 minimum: 256 bits of secret material (RFC 7518 §3.2). */
+    static final int MIN_HMAC_SECRET_BYTES = 32;
+
     private final PlatformJwtProperties properties;
     private final RestClient restClient;
+    @Nullable
+    private final MeterRegistry meterRegistry;
+    /** Pre-built HS256 verifier — NEVER per-request; null = secret absent/too short in a non-strict profile. */
+    @Nullable
+    private final MACVerifier macVerifier;
 
     private volatile JWKSet cachedJwks;
     private volatile long lastFetchMillis;
+    private volatile long lastFailedFetchMillis;
     private volatile long lastUnknownKidRefreshMillis;
 
+    /** Single-flight gate: at most one async JWKS refresh runs at a time. */
+    private final AtomicBoolean refreshInProgress = new AtomicBoolean();
+    /** Cold-start serialization: one blocking fetch for all waiting threads. */
+    private final Object initialFetchLock = new Object();
+    private final ExecutorService refreshExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread t = new Thread(runnable, "jwks-refresh");
+        t.setDaemon(true);
+        return t;
+    });
+
     @Autowired
-    public PlatformJwtValidator(PlatformJwtProperties properties) {
-        this(properties, defaultRestClient());
+    public PlatformJwtValidator(PlatformJwtProperties properties,
+                                Environment environment,
+                                ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this(properties, defaultRestClient(),
+                properties.requiredInProfile(environment), meterRegistryProvider.getIfAvailable());
     }
 
+    /** Convenience for non-Spring construction (tests): permissive profile, no metrics. */
+    public PlatformJwtValidator(PlatformJwtProperties properties) {
+        this(properties, defaultRestClient(), false, null);
+    }
+
+    /** Test seam: injected transport, permissive profile check, no metrics. */
     PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient) {
+        this(properties, restClient, false, null);
+    }
+
+    PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
+                         boolean requiredInProfile, @Nullable MeterRegistry meterRegistry) {
         this.properties = properties;
         this.restClient = restClient;
+        this.meterRegistry = meterRegistry;
+        byte[] secretBytes = properties.secret() == null
+                ? new byte[0] : properties.secret().getBytes(StandardCharsets.UTF_8);
+        this.macVerifier = buildMacVerifier(secretBytes, requiredInProfile);
+    }
+
+    /**
+     * V-15: build the HMAC key exactly once; a configured-but-weak secret in a
+     * strict profile is a boot failure, not a first-request runtime 500.
+     */
+    @Nullable
+    private static MACVerifier buildMacVerifier(byte[] secretBytes, boolean requiredInProfile) {
+        if (secretBytes.length == 0) {
+            return null; // JWKS-only configuration (or auth disabled) — nothing to build.
+        }
+        if (secretBytes.length < MIN_HMAC_SECRET_BYTES) {
+            if (requiredInProfile) {
+                throw new IllegalStateException("app.auth.jwt.secret must be at least "
+                        + MIN_HMAC_SECRET_BYTES + " UTF-8 bytes in prod/staging but is "
+                        + secretBytes.length + " (audit V-15)");
+            }
+            log.warn("Platform JWT HMAC secret is only {} bytes (<{}); HS256 tokens will be rejected "
+                    + "instead of risking a weak key (audit V-15)", secretBytes.length, MIN_HMAC_SECRET_BYTES);
+            return null;
+        }
+        try {
+            return new MACVerifier(secretBytes);
+        } catch (JOSEException e) {
+            if (requiredInProfile) {
+                throw new IllegalStateException("app.auth.jwt.secret is not usable as an HMAC key: "
+                        + e.getMessage(), e);
+            }
+            log.warn("Could not build platform JWT HMAC verifier: {}", e.getMessage());
+            return null;
+        }
     }
 
     static RestClient defaultRestClient() {
@@ -68,8 +160,21 @@ public class PlatformJwtValidator {
         return RestClient.builder().requestFactory(factory).build();
     }
 
+    @PreDestroy
+    void shutdownRefreshExecutor() {
+        refreshExecutor.shutdownNow();
+    }
+
     public boolean isEnabled() {
         return properties.enabled();
+    }
+
+    /** V-03 pre-warm: fetch the key set before the first authenticated request. */
+    @EventListener(ApplicationReadyEvent.class)
+    public void prewarmJwksCache() {
+        if (StringUtils.hasText(properties.jwksUrl()) && cachedJwks == null) {
+            scheduleRefresh();
+        }
     }
 
     public Optional<TokenPrincipal> validate(String token) {
@@ -124,8 +229,8 @@ public class PlatformJwtValidator {
         if (StringUtils.hasText(properties.jwksUrl())) {
             return verifyRsa(jwt);
         }
-        if (StringUtils.hasText(properties.secret())) {
-            return jwt.verify(new MACVerifier(properties.secret()));
+        if (macVerifier != null) {
+            return jwt.verify(macVerifier);
         }
         return false;
     }
@@ -135,11 +240,13 @@ public class PlatformJwtValidator {
         String kid = jwt.getHeader().getKeyID();
         JWK jwk = jwks.getKeyByKeyId(kid);
         if (!(jwk instanceof RSAKey rsaKey)) {
-            // Unknown kid usually means the IdP rotated keys; refresh once
-            // (rate-limited) before giving up so rotation causes seconds of
-            // rejection, not up to the full TTL.
+            // Unknown kid usually means the IdP rotated keys; trigger one
+            // (rate-limited) refresh so rotation converges in seconds instead
+            // of waiting for the cache TTL. The triggering request itself is
+            // rejected with the current keys — later requests see the swap.
             if (StringUtils.hasText(kid) && refreshOnUnknownKid()) {
-                jwk = jwksCache().getKeyByKeyId(kid);
+                scheduleRefresh();
+                jwk = cachedJwks == null ? null : cachedJwks.getKeyByKeyId(kid);
             }
             if (!(jwk instanceof RSAKey rsaKeyAfterRefresh)) {
                 log.debug("JWT rejected: no matching RSA key for kid={}", kid);
@@ -159,35 +266,103 @@ public class PlatformJwtValidator {
         return true;
     }
 
+    /**
+     * Stale-while-revalidate lookup (audit V-03). Never blocks once at least
+     * one key set is cached; blocking HTTP happens ONLY on a cold start.
+     */
     private JWKSet jwksCache() throws Exception {
         JWKSet current = cachedJwks;
         long now = System.currentTimeMillis();
         if (current != null && now - lastFetchMillis < JWKS_TTL_MILLIS) {
+            return current; // warm
+        }
+        if (current != null) {
+            if (now - lastFailedFetchMillis >= FAILURE_BACKOFF_MILLIS) {
+                scheduleRefresh(); // serve stale, refresh in the background
+            }
             return current;
         }
-        synchronized (this) {
-            if (cachedJwks != null && System.currentTimeMillis() - lastFetchMillis < JWKS_TTL_MILLIS) {
-                return cachedJwks;
+        return blockingInitialFetch(); // ONLY the cold path blocks
+    }
+
+    /**
+     * Cold start: concurrent verifiers queue on one monitor and the first
+     * performs a single bounded fetch; the rest find the cache populated.
+     */
+    private JWKSet blockingInitialFetch() throws Exception {
+        synchronized (initialFetchLock) {
+            JWKSet existing = cachedJwks;
+            if (existing != null) {
+                return existing;
             }
-            try {
-                String body = restClient.get().uri(properties.jwksUrl()).retrieve().body(String.class);
-                JWKSet parsed = JWKSet.parse(body);
-                if (parsed.getKeys().isEmpty()) {
-                    throw new IllegalStateException("JWKS endpoint returned an empty key set");
-                }
-                cachedJwks = parsed;
-                lastFetchMillis = System.currentTimeMillis();
-                return cachedJwks;
-            } catch (Exception e) {
-                if (cachedJwks != null) {
-                    // Serve the last good keys rather than rejecting every
-                    // request during an IdP hiccup; retry at the next expiry.
-                    log.warn("JWKS refresh failed, serving stale keys: {}", e.getMessage());
-                    lastFetchMillis = System.currentTimeMillis();
-                    return cachedJwks;
-                }
-                throw e;
-            }
+            // Propagates — the caller maps it to a validation rejection, and
+            // the next request retries (bounded by the RestClient timeouts).
+            fetchJwksBlocking();
+            return cachedJwks;
         }
+    }
+
+    /** Schedule a single-flight async refresh; a no-op while one is in flight. */
+    private void scheduleRefresh() {
+        if (!refreshInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        refreshExecutor.execute(() -> {
+            try {
+                fetchJwksBlocking();
+            } catch (Exception e) {
+                log.warn("Async JWKS refresh failed, serving stale keys: {}", e.getMessage());
+            } finally {
+                refreshInProgress.set(false);
+            }
+        });
+    }
+
+    /**
+     * Fetch, parse and swap; updates success/failure timestamps and metrics.
+     * On failure with a cached key set the stale set keeps being served;
+     * on a cold failure the exception propagates to the caller.
+     */
+    private void fetchJwksBlocking() throws Exception {
+        long startNanos = System.nanoTime();
+        String outcome = "success";
+        try {
+            String body = restClient.get().uri(properties.jwksUrl()).retrieve().body(String.class);
+            JWKSet parsed = JWKSet.parse(body);
+            if (parsed.getKeys().isEmpty()) {
+                throw new IllegalStateException("JWKS endpoint returned an empty key set");
+            }
+            cachedJwks = parsed;
+            lastFetchMillis = System.currentTimeMillis();
+        } catch (Exception e) {
+            outcome = "failure";
+            lastFailedFetchMillis = System.currentTimeMillis();
+            if (cachedJwks != null) {
+                // Serve the last good keys rather than rejecting every
+                // request during an IdP hiccup; the backoff gate throttles retries.
+                log.warn("JWKS refresh failed, serving stale keys: {}", e.getMessage());
+                return;
+            }
+            throw e;
+        } finally {
+            recordRefreshMetrics(outcome, System.nanoTime() - startNanos);
+        }
+    }
+
+    private void recordRefreshMetrics(String outcome, long durationNanos) {
+        if (meterRegistry == null) {
+            return;
+        }
+        Timer.builder("jwks_refresh_duration")
+                .description("Platform JWKS fetch duration (audit V-03)")
+                .register(meterRegistry)
+                .record(durationNanos, TimeUnit.NANOSECONDS);
+        meterRegistry.counter("jwks_refresh_outcome", "outcome", outcome).increment();
+    }
+
+    /** Test hook: force the cached key set to be treated as expired. */
+    void expireJwksCacheForTests() {
+        this.lastFetchMillis = 0L;
+        this.lastFailedFetchMillis = 0L;
     }
 }

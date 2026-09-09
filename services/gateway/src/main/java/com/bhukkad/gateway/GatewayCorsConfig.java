@@ -15,7 +15,9 @@ import java.util.List;
  * (comma-separated). Credentials mode only activates when an explicit origin
  * list is configured — wildcard origins combined with
  * {@code allowCredentials=true} would let any site make credentialed calls,
- * which is a credential-leak vector and is rejected at startup.</p>
+ * which is a credential-leak vector (audit V-14) and is rejected at startup:
+ * in prod/staging ANY wildcard — explicit or the unset empty-list fallback —
+ * fails the boot instead of silently shipping it.</p>
  */
 @Configuration
 public class GatewayCorsConfig {
@@ -28,10 +30,21 @@ public class GatewayCorsConfig {
                 .filter(o -> !o.isEmpty())
                 .toList();
 
+        // V-14 fail-fast: strict profiles must never serve credentialed
+        // CORS on a wildcard (explicit "*" or the permissive empty-list
+        // fallback below — behind a strict profile it is the same hole).
+        if (env.acceptsProfiles(org.springframework.core.env.Profiles.of("prod", "staging"))
+                && (origins.isEmpty() || origins.stream().anyMatch(o -> o.contains("*")))) {
+            throw new IllegalStateException(
+                    "app.cors.allowed-origins must be an explicit, non-wildcard origin list in "
+                            + "prod/staging (audit V-14)");
+        }
+
         CorsConfiguration config = new CorsConfiguration();
         if (origins.isEmpty()) {
-            // No configured origins: allow everything, but NEVER with
-            // credentials (matches a dev posture without leaking cookies).
+            // No configured origins (dev/local only — strict profiles threw above):
+            // allow everything, but NEVER with credentials (matches a dev
+            // posture without leaking cookies).
             config.addAllowedOriginPattern("*");
             config.setAllowCredentials(false);
         } else {

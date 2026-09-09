@@ -149,6 +149,13 @@
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-micrometer</artifactId>
 		</dependency>
+		<!-- Reactor adapter for the WebClient CircuitBreakerOperator (PERF-1/V-16:
+		     the breaker must DECORATE the exchange with transformDeferred).
+		     Version from the resilience4j-bom imported via the Spring Cloud BOM. -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-reactor</artifactId>
+		</dependency>
 
 		<!-- Kafka publisher/consumer support. Optional: only services that own a
 		     Kafka producer/consumer group declare spring-kafka. -->
@@ -201,6 +208,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- StepVerifier for the reactive WebClient filters (PERF-1/V-16). -->
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

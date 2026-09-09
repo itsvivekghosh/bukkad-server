@@ -21,6 +21,7 @@ import java.util.Date;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlatformJwtValidatorTest {
 
@@ -230,4 +231,132 @@ class PlatformJwtValidatorTest {
         assertThat(new PlatformJwtProperties(null, null, null, null).enabled()).isFalse();
         assertThat(new PlatformJwtProperties("", "", null, null).enabled()).isFalse();
     }
+
+    // ─── audit V-03: stale-while-revalidate, single-flight on expiry ───────────
+
+    @Test
+    void jwksMode_concurrentExpiry_triggersExactlyOneFetch() throws Exception {
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        String jwksJson = new JWKSet(signingKey.toPublicJWK()).toString();
+        java.util.concurrent.atomic.AtomicInteger hits = new java.util.concurrent.atomic.AtomicInteger();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        try {
+            server.createContext("/jwks", exchange -> {
+                hits.incrementAndGet();
+                byte[] body = jwksJson.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(body);
+                }
+            });
+            server.start();
+
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(null,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, null));
+            String token = rs256Token(signingKey, 99L, "rsa@b.com", "restaurant_owner",
+                    Date.from(Instant.now().plusSeconds(3600)));
+
+            // Cold start: exactly one blocking fetch.
+            assertThat(validator.validate(token)).isPresent();
+            assertThat(hits.get()).isEqualTo(1);
+
+            // Force expiry, then 10 CONCURRENT expiring verifies. The cache is
+            // stale-served while a single-flight async refresh runs: exactly
+            // ONE additional HTTP fetch, and the callers never block on it.
+            validator.expireJwksCacheForTests();
+            java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+            java.util.List<Thread> threads = new java.util.ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                Thread t = new Thread(() -> {
+                    try {
+                        start.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    validator.validate(token);
+                });
+                threads.add(t);
+                t.start();
+            }
+            start.countDown();
+            for (Thread t : threads) {
+                t.join(5000);
+            }
+
+            // The refresh is async — wait for it to land (bounded).
+            long deadline = System.currentTimeMillis() + 5000;
+            while (hits.get() < 2 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertThat(hits.get()).isEqualTo(2);
+            // ...and nothing after the back-off gate fires again within a short window.
+            Thread.sleep(400);
+            assertThat(hits.get()).isEqualTo(2);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void jwksMode_expiredCache_servesStaleImmediatelyWhileRefreshing() throws Exception {
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        String jwksJson = new JWKSet(signingKey.toPublicJWK()).toString();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        try {
+            server.createContext("/jwks", exchange -> {
+                byte[] body = jwksJson.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(body);
+                }
+            });
+            server.start();
+
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(null,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, null));
+            String token = rs256Token(signingKey, 7L, "a@b.com", "customer",
+                    Date.from(Instant.now().plusSeconds(3600)));
+            assertThat(validator.validate(token)).isPresent();
+
+            validator.expireJwksCacheForTests();
+            long t0 = System.nanoTime();
+            // Stale serve must return without waiting for the network.
+            assertThat(validator.validate(token)).isPresent();
+            assertThat((System.nanoTime() - t0) / 1_000_000).isLessThan(1000);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    // ─── audit V-15: HMAC key built once; weak secret fails boot in strict profiles
+
+    @Test
+    void hmacSecretTooShortInStrictProfile_failsBootWithIllegalState() {
+        assertThatThrownBy(() -> new PlatformJwtValidator(
+                new PlatformJwtProperties("short-secret", null, null, null),
+                PlatformJwtValidator.defaultRestClient(), true, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("at least 32");
+    }
+
+    @Test
+    void hmacSecretSufficientInStrictProfile_bootsAndValidates() throws Exception {
+        // Must NOT throw: a 32+ byte secret is legitimate in prod/staging.
+        PlatformJwtValidator validator = new PlatformJwtValidator(
+                new PlatformJwtProperties(SECRET, null, null, null),
+                PlatformJwtValidator.defaultRestClient(), true, null);
+
+        String token = hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600)));
+        assertThat(validator.validate(token)).isPresent();
+    }
+
 }

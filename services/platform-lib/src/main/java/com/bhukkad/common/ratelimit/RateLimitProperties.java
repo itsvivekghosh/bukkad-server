@@ -14,6 +14,15 @@ public class RateLimitProperties {
     private Map<String, Bucket> buckets = defaultBuckets();
 
     /**
+     * Availability posture when the rate-limit Redis is unreachable:
+     * {@code true} (default) lets traffic through and increments the
+     * {@code ratelimit_bypass_redis_error} counter (edge availability wins);
+     * {@code false} denies, trading availability for strict enforcement
+     * (audit V-18 — the bypass must be an explicit choice, never an accident).
+     */
+    private boolean failOpenOnRedisError = true;
+
+    /**
      * Tier multipliers applied on top of the base bucket limit. Premium users
      * get a higher ceiling than free users; the multiplier is applied as
      * {@code limit * multiplier} (rounded up).

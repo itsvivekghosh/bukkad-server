@@ -65,11 +65,13 @@ class RetryFilterTest {
     void retryableError_isRetriedWithBackoff_andExhaustsBoundedAttempts() {
         // Errors with backoff must terminate quickly (4 attempts × ~50ms), not
         // spin for minutes — this is the assertion that catches the static
-        // Retry.backoff(...) reinterpretation regression.
+        // Retry.backoff(...) reinterpretation regression. A refused
+        // connection surfaces as WebClientRequestException (transient by
+        // audit V-B5 classification) on an idempotent GET ⇒ retried.
         AtomicInteger attempts = new AtomicInteger();
         ExchangeFunction stub = request -> {
             attempts.incrementAndGet();
-            return Mono.error(new RuntimeException("connection refused"));
+            return Mono.error(webClientRequestException("connection refused"));
         };
         RetryFilter filter = new RetryFilter(3, Duration.ofMillis(50));
 
@@ -77,7 +79,6 @@ class RetryFilterTest {
         assertThatThrownBy(() -> filter.filter(getRequest(), stub).block(Duration.ofSeconds(10)))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Retries exhausted")
-                .hasCauseInstanceOf(RuntimeException.class)
                 .hasRootCauseMessage("connection refused");
         long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
 
@@ -85,6 +86,14 @@ class RetryFilterTest {
         // below the 10s block bound.
         assertThat(elapsedMs).isLessThan(5000);
         assertThat(attempts.get()).isEqualTo(4);
+    }
+
+    private static RuntimeException webClientRequestException(String message) {
+        return new org.springframework.web.reactive.function.client.WebClientRequestException(
+                new java.net.ConnectException(message),
+                org.springframework.http.HttpMethod.GET,
+                java.net.URI.create("http://upstream/x"),
+                org.springframework.http.HttpHeaders.EMPTY);
     }
 
     @Test
@@ -137,6 +146,112 @@ class RetryFilterTest {
 
         assertThat(response).isNotNull();
         assertThat(response.statusCode().value()).isEqualTo(200);
+        assertThat(attempts.get()).isEqualTo(1);
+    }
+
+    // ─── audit PERF-1/B5 predicate: transient errors AND idempotent methods only
+
+    private static org.springframework.web.reactive.function.client.WebClientResponseException
+            statusError(org.springframework.http.HttpStatus status) {
+        return org.springframework.web.reactive.function.client.WebClientResponseException
+                .create(status.value(), status.name() + " error", null, null, null);
+    }
+
+    @Test
+    void clientError4xx_isNeverRetried() {
+        AtomicInteger attempts = new AtomicInteger();
+        ExchangeFunction stub = request -> {
+            attempts.incrementAndGet();
+            return Mono.error(statusError(org.springframework.http.HttpStatus.BAD_REQUEST));
+        };
+        RetryFilter filter = new RetryFilter(3, Duration.ofMillis(50));
+
+        assertThatThrownBy(() -> filter.filter(getRequest(), stub).block(Duration.ofSeconds(5)))
+                .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.class);
+        assertThat(attempts.get()).isEqualTo(1); // zero retries
+    }
+
+    @Test
+    void postWith5xx_isNeverRetried_moneyMovingMethodsStayUnretried() {
+        AtomicInteger attempts = new AtomicInteger();
+        ExchangeFunction stub = request -> {
+            attempts.incrementAndGet();
+            return Mono.error(statusError(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR));
+        };
+        RetryFilter filter = new RetryFilter(3, Duration.ofMillis(50));
+        ClientRequest post = ClientRequest.create(
+                org.springframework.http.HttpMethod.POST, URI.create("http://upstream/charge"))
+                .build();
+
+        assertThatThrownBy(() -> filter.filter(post, stub).block(Duration.ofSeconds(5)))
+                .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.class);
+        assertThat(attempts.get()).isEqualTo(1); // POST is not idempotent ⇒ no retry storm
+    }
+
+    @Test
+    void postTransportTimeout_isNeverRetried() {
+        AtomicInteger attempts = new AtomicInteger();
+        ExchangeFunction stub = request -> {
+            attempts.incrementAndGet();
+            return Mono.error(new TimeoutException("attempt timeout"));
+        };
+        RetryFilter filter = new RetryFilter(3, Duration.ofMillis(50));
+        ClientRequest post = ClientRequest.create(
+                org.springframework.http.HttpMethod.POST, URI.create("http://upstream/orders"))
+                .build();
+
+        assertThatThrownBy(() -> filter.filter(post, stub).block(Duration.ofSeconds(5)))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(attempts.get()).isEqualTo(1);
+    }
+
+    @Test
+    void getWithTransientTimeout_isRetried_upToMax_withConfiguredBackoff() {
+        AtomicInteger attempts = new AtomicInteger();
+        ExchangeFunction stub = request -> {
+            attempts.incrementAndGet();
+            return Mono.error(new TimeoutException("attempt timeout"));
+        };
+        RetryFilter filter = new RetryFilter(3, Duration.ofMillis(200));
+
+        long t0 = System.nanoTime();
+        assertThatThrownBy(() -> filter.filter(getRequest(), stub).block(Duration.ofSeconds(15)))
+                .isInstanceOf(RuntimeException.class);
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
+
+        assertThat(attempts.get()).isLessThanOrEqualTo(4); // 1 + maxAttempts retries
+        assertThat(attempts.get()).isEqualTo(4);
+        // 200ms min-backoff ×3 retries (jittered, plus a 4× cap) must be visible.
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(200);
+    }
+
+    @Test
+    void get5xxStatusError_isRetried_becauseTransientAndIdempotent() {
+        AtomicInteger attempts = new AtomicInteger();
+        ExchangeFunction stub = request -> {
+            attempts.incrementAndGet();
+            return Mono.error(statusError(org.springframework.http.HttpStatus.BAD_GATEWAY));
+        };
+        RetryFilter filter = new RetryFilter(2, Duration.ofMillis(20));
+
+        assertThatThrownBy(() -> filter.filter(getRequest(), stub).block(Duration.ofSeconds(10)))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(attempts.get()).isEqualTo(3); // 1 + 2 retries
+    }
+
+    @Test
+    void genericRuntimeException_isNoLongerRetried() {
+        // B5: “retries any RuntimeException” amplified outages; only
+        // transient classes (see isTransient) may retry now.
+        AtomicInteger attempts = new AtomicInteger();
+        ExchangeFunction stub = request -> {
+            attempts.incrementAndGet();
+            return Mono.error(new IllegalStateException("bad business state"));
+        };
+        RetryFilter filter = new RetryFilter(3, Duration.ofMillis(50));
+
+        assertThatThrownBy(() -> filter.filter(getRequest(), stub).block(Duration.ofSeconds(5)))
+                .isInstanceOf(IllegalStateException.class);
         assertThat(attempts.get()).isEqualTo(1);
     }
 }

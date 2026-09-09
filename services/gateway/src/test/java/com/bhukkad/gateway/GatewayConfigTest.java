@@ -72,11 +72,12 @@ class GatewayConfigTest {
                 "inventory", "restaurant", "identity", "personalization",
                 "order", "payment", "delivery",
                 "admin-restaurant-stats", "admin-restaurants", "commission",
-                "admin-analytics", "not-found");
+                "admin-analytics", "unmatched", "not-found");
         // Count covers the route table as restored with the concurrent-session
         // overlay (analytics CSV exports + swagger aggregate + the explicit
-        // admin-restaurants/stats carve-out kept the analytics read model).
-        assertThat(routes.getRoutes().collectList().block()).hasSize(52);
+        // admin-restaurants/stats carve-out kept the analytics read model) plus
+        // the observable unmatched-/api 404 route (audit V-20).
+        assertThat(routes.getRoutes().collectList().block()).hasSize(53);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");
@@ -120,5 +121,24 @@ class GatewayConfigTest {
         assertThat(globalFilters)
                 .anyMatch(TransportHeaderHygieneFilter.class::isInstance)
                 .anyMatch(SecureCookieFilter.class::isInstance);
+        // Audit V-18/PERF-1.3: edge Redis bucket limiter mounted as a global
+        // filter; audit G-2 makes it greppable in the wired chain.
+        assertThat(globalFilters)
+                .anyMatch(EdgeRateLimitFilter.class::isInstance);
+    }
+
+    @Test
+    void unmatchedPathNormalization_boundsMetricCardinality() {
+        // Numeric and UUID segments collapse to {id}, everything else verbatim
+        // (audit V-20 normalized-path counter).
+        assertThat(GatewayConfig.normalizePath("/api/v1/customers/42/cart"))
+                .isEqualTo("/api/v1/customers/{id}/cart");
+        assertThat(GatewayConfig.normalizePath(
+                "/api/v1/orders/0f5f4a7c-7e0f-4b0b-8f4c-c5f0f7a55c0d/disputes"))
+                .isEqualTo("/api/v1/orders/{id}/disputes");
+        assertThat(GatewayConfig.normalizePath("/api/v1/inventory-system"))
+                .isEqualTo("/api/v1/inventory-system");
+        assertThat(GatewayConfig.normalizePath("/"))
+                .isEqualTo("/");
     }
 }
