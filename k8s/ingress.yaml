@@ -6,6 +6,9 @@ metadata:
   labels:
     app: bhukkad
   annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
@@ -15,6 +18,10 @@ metadata:
     nginx.ingress.kubernetes.io/limit-rps: "30"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.bhukkad.com
+      secretName: bhukkad-tls
   rules:
     - host: api.bhukkad.com
       http:
@@ -23,9 +30,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: bhukkad-nginx
+                name: bhukkad-gateway
                 port:
-                  number: 80
+                  number: 8080
     - host: localhost
       http:
         paths:
@@ -33,6 +40,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: bhukkad-nginx
+                name: bhukkad-gateway
                 port:
-                  number: 80
+                  number: 8080

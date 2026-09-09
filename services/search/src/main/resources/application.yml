@@ -1,0 +1,40 @@
+server: {port: 8082}
+spring:
+  application: {name: search}
+  datasource:
+    url: ${SEARCH_DB_URL:jdbc:postgresql://localhost:5432/search}
+    username: ${SEARCH_DB_USERNAME:app}
+    password: ${SEARCH_DB_PASSWORD:app_pass}
+    hikari: {maximum-pool-size: 5}
+  jpa: {hibernate: {ddl-auto: none}, open-in-view: false}
+  flyway: {enabled: true, locations: classpath:db/migration-pg, baseline-on-migrate: true}
+management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+  endpoints: {web: {exposure: {include: health,info,metrics,prometheus}}}
+  endpoint: {health: {probes: {enabled: true}}}
+logging: {level: {com.bhukkad: INFO}}
+
+app:
+  environment: production
+  auth:
+    jwt:
+      secret: ${JWT_SECRET:}
+      jwks-url: ${JWKS_URL:}
+      issuer: ${JWT_ISSUER:}
+      audience: ${JWT_AUDIENCE:}
+    service:
+      # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
+      # mesh secret; internal paths REQUIRE a valid service token when the
+      # secret is set. allowed-services is deny-by-default.
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
+      enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
+  service:
+    search-url: ${SEARCH_SERVICE_URL:http://localhost:8082}
+    restaurant-url: ${RESTAURANT_SERVICE_URL:http://localhost:8081}
+    menu-url: ${MENU_SERVICE_URL:http://localhost:8083}

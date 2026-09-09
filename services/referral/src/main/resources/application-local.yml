@@ -1,0 +1,51 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  datasource:
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 1
+      connection-timeout: 10000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      register-mbeans: false
+
+  jpa:
+    open-in-view: false
+    show-sql: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  main:
+    lazy-initialization: true
+
+management:
+  tracing:
+    sampling:
+      probability: 0.0
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+
+logging:
+  level:
+    com.bhukkad: WARN
+
+app:
+  environment: development
+  events:
+    external:
+      enabled: false

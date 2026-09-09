@@ -2,16 +2,48 @@
 
 Complete API testing package for the Bhukkad backend (`/api/v1`).
 
+**Synchronization:** the collection is generated from the backend source
+(`services/*` controllers, gateway routes) and cross-checked against the
+live-tested contract suite (`scripts/test-all-apis.py`). Regenerate with
+`python3 postman/generate_postman.py` after API changes.
+
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `Bhukkad-API.postman_collection.json` | All endpoints, tests, pre/post scripts |
+| `Bhukkad-API.postman_collection.json` | 261 requests / 20 folders / 616 assertions |
+| `Bhukkad-API.postman_environment.json` | Root E2E environment (`http://localhost:8080`) |
 | `environments/Bhukkad-Local.postman_environment.json` | `http://localhost:8080` |
 | `environments/Bhukkad-Docker.postman_environment.json` | Docker Compose stack |
 | `environments/Bhukkad-K8s.postman_environment.json` | K8s port-forward |
 | `CURL_REFERENCE.md` | cURL equivalents for every request |
 | `generate_postman.py` | Regenerate collection after API changes |
+
+## Test layers
+
+Every request carries test scripts covering three layers:
+
+1. **Functional (folders 01–16, 99)** — happy paths asserting the
+   `ApiResponse` envelope (`success:true`, `data`, `timestamp`, `traceId`),
+   field-type schemas (`data.id:number`, …), data-integrity invariants
+   (pagination caps, ledger ordering, non-negative money, order state-machine
+   codes, JWT shape) and response chaining (IDs auto-saved to the environment).
+2. **Edge & boundary (folder 17)** — empty payloads `{}`, boundary values
+   (quantity `0 / -1 / 100000`, rating `0 / 6`, page `-1`, size `0 / 10000`),
+   unusual data types (string where number expected), out-of-range geo,
+   SQL-meta-character and unicode/emoji inputs (must return 200/400, never 500).
+3. **Error handling (folders 18–19)** — missing/garbage/malformed tokens
+   (401), wrong-role access (403), unknown IDs and routes (404), missing
+   params (`400 MISSING_PARAM`), malformed JSON (`400 INVALID_BODY`), wrong
+   content type (400/415), oversized payloads (400/413), idempotency replay
+   (same key → same result or 409 — no double credit), unsigned webhook
+   rejection, and `/internal/**` protection.
+
+Error assertions match the platform contract: success responses use
+`ApiResponse{success, data, timestamp, traceId}`; failures use
+`ApiError{status, code, message, traceId, timestamp}` (codes like
+`VALIDATION_FAILED`, `INVALID_BODY`, `MISSING_PARAM`, `DATA_CONFLICT`,
+`UNAUTHORIZED`, `ACCESS_DENIED`, `RATE_LIMIT_EXCEEDED`).
 
 ## Quick start
 
@@ -31,8 +63,10 @@ Complete API testing package for the Bhukkad backend (`/api/v1`).
 ### Collection pre-request (runs before every request)
 
 - Injects `Authorization: Bearer {{accessToken}}` when a token exists
-- Skips auth when request sets `noAuth` (public endpoints)
+- Skips auth when request sets `noAuth` (public endpoints) or strips the
+  header itself (health paths)
 - Generates fresh `{{idempotencyKey}}` via `{{$guid}}` for order/wallet calls
+  (replay tests override it explicitly)
 
 ### Collection test (runs after every request)
 
@@ -96,7 +130,18 @@ newman run postman/Bhukkad-API.postman_collection.json \
 4. **04 - Customer** — address → cart → order
 5. **05 - Restaurant Owner** — accept → ready → assign agent
 6. **06 - Delivery Agent** — accept → picked up → delivered
-7. **99 - E2E Flow** — single-folder happy path
+7. **17–19 - Edge / Access / Transport** — negative suites (after Auth)
+8. **99 - E2E Flow** — single-folder happy path
+
+## Newman (CLI) — full suite including negative tests
+
+```bash
+newman run postman/Bhukkad-API.postman_collection.json \
+  -e postman/environments/Bhukkad-Local.postman_environment.json \
+  --folder "02 - Auth" --folder "17 - Edge & Boundary" \
+  --folder "18 - Auth & Access Errors" --folder "19 - Transport & Server Errors" \
+  --reporters cli
+```
 
 ## Environment variables
 

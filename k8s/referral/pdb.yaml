@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-referral-pdb
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: referral
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: referral

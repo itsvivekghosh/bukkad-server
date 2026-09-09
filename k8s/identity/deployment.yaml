@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-identity
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: identity
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: identity
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: identity
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8081"
+    spec:
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: bhukkad-identity
+          image: ghcr.io/bhukkad/identity:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              name: http
+          envFrom:
+            - configMapRef:
+                name: bhukkad-config
+          env:
+            - name: SERVER_PORT
+              value: "8081"
+            - name: WAIT_FOR_SERVICES
+              value: "false"
+            - name: HEALTH_PATH
+              value: /api/v1/health/ping
+            - name: IDENTITY_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: IDENTITY_DB_URL
+            - name: IDENTITY_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: IDENTITY_DB_USERNAME
+            - name: IDENTITY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: IDENTITY_DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: JWT_SECRET
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+UseG1GC
+                -XX:+UseStringDeduplication
+                -Djava.security.egd=file:/dev/./urandom
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1000m"
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60

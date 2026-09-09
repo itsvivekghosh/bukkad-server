@@ -1,0 +1,82 @@
+package com.bhukkad.support.config;
+
+import com.bhukkad.common.security.PlatformJwtAuthFilter;
+import com.bhukkad.common.security.PlatformJwtProperties;
+import com.bhukkad.common.security.ServiceAuthProperties;
+import com.bhukkad.common.security.ServiceJwtAuthFilter;
+import com.bhukkad.common.web.SecurityHeadersFilter;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.nio.charset.StandardCharsets;
+
+/**
+ * Support ticket service security: all routes are authenticated with the
+ * gateway-verified identity JWT; roles are enforced at the controller via
+ * {@code @PreAuthorize} (Track A — the dev-only in-memory basic-auth stub was
+ * removed per the migration execution plan §0.P4/§Phase0.3).
+ *
+ * <p>Service-mesh leg: order proxies dispute operations (file/list/resolve)
+ * onto this service. The mesh token filter authenticates those calls as
+ * {@code ROLE_SERVICE}; controllers mapping the mesh calls accept either the
+ * service principal or the matching user role.</p>
+ */
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@EnableConfigurationProperties({PlatformJwtProperties.class, ServiceAuthProperties.class})
+public class SupportSecurityConfig {
+
+    @Bean
+    public SecurityFilterChain supportSecurityFilterChain(HttpSecurity http,
+                                                          SecurityHeadersFilter securityHeadersFilter,
+                                                          ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
+                                                          ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter)
+            throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(supportAuthenticationEntryPoint()))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/**").permitAll()
+                        // Error dispatch (404/500 forwards) must keep its real status.
+                        .requestMatchers("/error").permitAll()
+                        .anyRequest().authenticated());
+
+        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+        ServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
+        if (serviceFilter != null) {
+            // Must run before the user JWT filter (service leg first).
+            http.addFilterBefore(serviceFilter, UsernamePasswordAuthenticationFilter.class);
+        }
+        PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
+        if (filter != null) {
+            http.addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);
+        }
+        return http.build();
+    }
+
+    @Bean
+    public AuthenticationEntryPoint supportAuthenticationEntryPoint() {
+        return (request, response, authException) -> {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            response.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");
+        };
+    }
+}

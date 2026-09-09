@@ -7,29 +7,88 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - secrets.yaml
-  - mysql/pvc.yaml
-  - mysql/configmap.yaml
-  - mysql/deployment.yaml
-  - mysql/service.yaml
-  # mysql-replica and redis-sentinel are kept as reference manifests but not
-  # applied: replica has no replication bootstrap and read-replica routing is
-  # disabled (DB_REPLICA_ENABLED=false); sentinel cannot monitor a password-
-  # protected Redis master and the app connects to bhukkad-redis directly.
+  - postgres/pvc.yaml
+  - postgres/configmap.yaml
+  - postgres/deployment.yaml
+  - postgres/service.yaml
+  # P8 read scale-out: read-replica StatefulSet + Service (streams from the
+  # primary via the `repl` role; read-only workloads route here).
+  - postgres/read-replica.yaml
+  # P8 connection pooler: pgbouncer caps per-app Hikari sockets to the primary.
+  - pgbouncer/deployment.yaml
+  - pgbouncer/service.yaml
   - redis/configmap.yaml
   - redis/pvc.yaml
   - redis/deployment.yaml
   - redis/service.yaml
+  # Redis Sentinel — enabled: the sentinel manifest now supports password auth
+  # (sentinel auth-pass via REDIS_PASSWORD secret) so the three-replica sentinel
+  # deployment can monitor the password-protected master. Requires the
+  # bhukkad-redis service and redis-sentinel ConfigMap/deployment to be present.
+  - redis/redis-sentinel.yaml
+  # Secrets from Vault: the ExternalSecret materializes bhukkad-secrets from the
+  # Vault SecretStore (see scripts/provision-vault.sh to seed the paths).
+  - secret-store.yaml
+  - external-secret.yaml
   - rabbitmq/deployment.yaml
-  - app/serviceaccount.yaml
-  - app/deployment.yaml
-  - app/service.yaml
-  - app/pdb.yaml
-  - app/hpa.yaml
+    # Monolith retired (W5, migration-batch-8): all routes served by
+    # services behind the gateway. k8s/app/ is removed from the build.
+    - survey/deployment.yaml
+    - survey/service.yaml
+    - survey/pdb.yaml
+    - survey/hpa.yaml
+    - referral/deployment.yaml
+    - referral/service.yaml
+    - referral/pdb.yaml
+    - referral/hpa.yaml
+    - supportticket/deployment.yaml
+    - supportticket/service.yaml
+    - supportticket/pdb.yaml
+    - supportticket/hpa.yaml
+    - restaurant/deployment.yaml
+  - restaurant/service.yaml
+  - restaurant/pdb.yaml
+  - restaurant/hpa.yaml
+  - identity/deployment.yaml
+  - identity/service.yaml
+  - identity/pdb.yaml
+  - identity/hpa.yaml
+  - order/deployment.yaml
+  - order/service.yaml
+  - order/pdb.yaml
+  - order/hpa.yaml
+  - payment/deployment.yaml
+  - payment/service.yaml
+  - payment/pdb.yaml
+  - payment/hpa.yaml
+  - delivery/deployment.yaml
+  - delivery/service.yaml
+  - delivery/pdb.yaml
+  - delivery/hpa.yaml
+  - notification/deployment.yaml
+  - notification/service.yaml
+  - notification/pdb.yaml
+  - notification/hpa.yaml
+  - search/deployment.yaml
+  - search/service.yaml
+  - search/pdb.yaml
+  - search/hpa.yaml
+  - admin-analytics/deployment.yaml
+  - admin-analytics/service.yaml
+  - admin-analytics/pdb.yaml
+  - admin-analytics/hpa.yaml
+  - gateway/deployment.yaml
+  - gateway/service.yaml
+  - gateway/pdb.yaml
+  - gateway/hpa.yaml
   - logging/fluent-bit-configmap.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml
   - ingress.yaml
+  - backup-scripts.yaml
+  - backup-pvc.yaml
+  - backup-cronjob.yaml
 
 labels:
   - includeSelectors: true

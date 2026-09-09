@@ -13,6 +13,7 @@ data:
     sentinel down-after-milliseconds bhukkad-master 5000
     sentinel failover-timeout bhukkad-master 10000
     sentinel parallel-syncs bhukkad-master 1
+    sentinel auth-pass bhukkad-master ${REDIS_PASSWORD}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -40,7 +41,13 @@ spec:
           command:
             - sh
             - -c
-            - cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf
+            - cp /etc/redis/sentinel.conf /tmp/sentinel.conf && sed -i "s|\${REDIS_PASSWORD}|${REDIS_PASSWORD}|g" /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
           ports:
             - containerPort: 26379
           volumeMounts:

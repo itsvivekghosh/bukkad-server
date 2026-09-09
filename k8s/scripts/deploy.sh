@@ -104,39 +104,45 @@ log "Applying manifests from ${KUSTOMIZE_DIR}..."
 apply_manifests
 
 log "Waiting for data stores..."
-kubectl rollout status deployment/bhukkad-mysql -n bhukkad --timeout=600s
+kubectl rollout status deployment/bhukkad-postgresql -n bhukkad --timeout=600s
 kubectl rollout status deployment/bhukkad-redis -n bhukkad --timeout=300s
 if [[ "$USE_MINIKUBE_PROFILE" != "true" ]]; then
   kubectl rollout status deployment/bhukkad-rabbitmq -n bhukkad --timeout=300s || true
 fi
 
-log "Rolling out API..."
-kubectl rollout status deployment/bhukkad-app -n bhukkad --timeout=900s
-kubectl rollout status deployment/bhukkad-nginx -n bhukkad --timeout=180s || true
+log "Rolling out services..."
+kubectl rollout status deployment/bhukkad-gateway -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-restaurant -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-identity -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-order -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-payment -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-delivery -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-notification -n bhukkad --timeout=900s
+kubectl rollout status deployment/bhukkad-admin-analytics -n bhukkad --timeout=900s
 
 log "Deployment status"
 kubectl get pods,svc,hpa -n bhukkad
 
 log "Health check via port-forward..."
-kubectl port-forward -n bhukkad svc/bhukkad-app 19090:8080 >/tmp/bhukkad-pf.log 2>&1 &
+kubectl port-forward -n bhukkad svc/bhukkad-gateway 19090:8080 >/tmp/bhukkad-pf.log 2>&1 &
 PF_PID=$!
 trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
 sleep 3
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:19090/api/v1/health/ping || echo "000")
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:19090/actuator/health/readiness || echo "000")
 kill ${PF_PID} 2>/dev/null || true
 trap - EXIT
 
 if [[ "$HTTP_CODE" == "200" ]]; then
   log "Health check passed"
 else
-  warn "Health check returned ${HTTP_CODE}. Inspect logs: kubectl logs -n bhukkad -l component=api --tail=50"
+  warn "Health check returned ${HTTP_CODE}. Inspect logs: kubectl logs -n bhukkad -l app=bhukkad --tail=50"
 fi
 
 cat <<EOF
 
 Access:
-  kubectl port-forward -n bhukkad svc/bhukkad-app 8080:8080
-  curl http://localhost:8080/api/v1/health/ping
+  kubectl port-forward -n bhukkad svc/bhukkad-gateway 8080:8080
+  curl http://localhost:8080/actuator/health/readiness
 
 Status:  ${K8S_DIR}/scripts/status.sh
 Destroy: ${K8S_DIR}/scripts/destroy.sh
