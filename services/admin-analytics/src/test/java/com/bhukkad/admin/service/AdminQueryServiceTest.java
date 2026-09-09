@@ -51,6 +51,9 @@ class AdminQueryServiceTest {
 
     @Test
     void fraudAlerts_nullStatus_returnsBoundedPage() {
+        when(fraudRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
         service.fraudAlerts(null);
 
         var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
