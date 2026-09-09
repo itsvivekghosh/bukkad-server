@@ -81,3 +81,10 @@ services/docker/images/
 
 # Local dev-stack runtime state (pid files written by scripts/local-up.sh)
 .local-stack.pids
+
+# Batch hygiene (audit PERF-4): stale maven staging trees, local backup dirs,
+# root-owned trash queues kept around for manual cleanup, and stray redis dumps.
+**/target-stale*/
+*.bak/
+.trash-rootowned/
+dump.rdb

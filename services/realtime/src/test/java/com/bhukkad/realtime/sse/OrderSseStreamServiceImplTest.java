@@ -40,13 +40,20 @@ class OrderSseStreamServiceImplTest {
     private OrderLiveReplayStore replayStore;
 
     private LiveProperties liveProperties;
+    private io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics;
     private OrderSseStreamServiceImpl service;
 
     @BeforeEach
     void initService() {
         Executor syncExecutor = Runnable::run;
         liveProperties = new LiveProperties();
-        service = new OrderSseStreamServiceImpl(replayStore, syncExecutor, liveProperties);
+        metrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        service = new OrderSseStreamServiceImpl(replayStore, syncExecutor, liveProperties, metrics);
+    }
+
+    private double rejectedCount(String reason) {
+        return metrics.find(OrderSseStreamServiceImpl.METRIC_CAPACITY_REJECTED)
+                .tag("reason", reason).counter().count();
     }
 
     @Test
@@ -166,6 +173,58 @@ class OrderSseStreamServiceImplTest {
         assertThrows(SseCapacityExceededException.class,
                 () -> service.subscribeCustomer(2L, null, null));
         assertEquals(1, service.activeConnectionCount());
+    }
+
+    @Test
+    void capacityRejectsAreCountedPerReason() {
+        liveProperties.setMaxEmittersPerStream(1);
+        service.subscribeKitchen(1L, null);
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeKitchen(1L, null));
+        assertEquals(1.0, rejectedCount("stream"));
+
+        liveProperties.setMaxTotalEmitters(1);
+        assertThrows(SseCapacityExceededException.class, () -> service.subscribeRider(2L, null));
+        assertEquals(1.0, rejectedCount("global"));
+    }
+
+    @Test
+    void connectionsGaugeTracksRegisteredEmitters() {
+        assertEquals(0.0, metrics.find(OrderSseStreamServiceImpl.METRIC_CONNECTIONS).gauge().value());
+
+        service.subscribeKitchen(1L, null);
+        service.subscribeRider(2L, null);
+        assertEquals(2.0, metrics.find(OrderSseStreamServiceImpl.METRIC_CONNECTIONS).gauge().value());
+    }
+
+    @Test
+    void dispatchSaturationEvictsEmitterNeverRunsInline() {
+        Executor rejecting = task -> {
+            throw new java.util.concurrent.RejectedExecutionException("saturated");
+        };
+        OrderSseStreamServiceImpl saturated = new OrderSseStreamServiceImpl(
+                replayStore, rejecting, liveProperties, metrics);
+        saturated.subscribeKitchen(1L, null);
+
+        saturated.broadcastKitchen(1L, new OrderLiveUpdate());
+
+        // Abort-policy semantics: the emitter is dropped + counted, the send
+        // never falls back to the caller thread.
+        assertEquals(0, saturated.activeConnectionCount());
+        assertEquals(0, saturated.indexedEmitterCount());
+        assertEquals(1.0, rejectedCount("dispatch"));
+    }
+
+    @Test
+    void sendFailureEvictsIndexedEmitterInO1() {
+        SseEmitter emitter = service.subscribeKitchen(4L, null);
+        emitter.complete(); // any later send raises IllegalStateException
+
+        service.broadcastKitchen(4L, new OrderLiveUpdate());
+
+        // Removal resolved through the emitter index: stream entry and the
+        // index entry both gone, no scan needed.
+        assertEquals(0, service.activeConnectionCount());
+        assertEquals(0, service.indexedEmitterCount());
     }
 
     @Test

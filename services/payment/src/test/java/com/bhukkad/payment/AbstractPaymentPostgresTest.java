@@ -17,7 +17,11 @@ public abstract class AbstractPaymentPostgresTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
             .withDatabaseName("payments")
             .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw");
+            .withPassword("bhukkad_test_pw")
+            // Parallel audit batches keep this Docker daemon busy; the default
+            // 60 s readiness window becomes a flake under load, not a product
+            // signal. Give the database three minutes to declare readiness.
+            .withStartupTimeout(java.time.Duration.ofMinutes(3));
 
     static {
         if (!DockerClientFactory.instance().isDockerAvailable()) {
