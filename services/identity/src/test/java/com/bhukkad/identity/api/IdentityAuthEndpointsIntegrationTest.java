@@ -31,6 +31,24 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
         return RestClient.builder().baseUrl("http://localhost:" + port).build();
     }
 
+    /** Mesh client: internal paths require the X-Service-Token header. */
+    private RestClient meshClient() {
+        return RestClient.builder().baseUrl("http://localhost:" + port)
+                .defaultHeader("X-Service-Token", meshToken())
+                .build();
+    }
+
+    private static String meshToken() {
+        return io.jsonwebtoken.Jwts.builder()
+                .subject("identity")
+                .expiration(java.util.Date.from(
+                        java.time.Instant.now().plusSeconds(600)))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        com.bhukkad.identity.AbstractIdentityPostgresTest.SERVICE_JWT_SECRET
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .compact();
+    }
+
     /** Registers a throwaway customer and returns the issued JWT. */
     private String registerAndGetToken(String email) throws Exception {
         String registerBody = "{\"email\":\"" + email + "\",\"phoneNumber\":\"999\","
@@ -162,7 +180,7 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
     void verify_returnsValidForGoodToken() throws Exception {
         String token = registerAndGetToken("verify@test.com");
 
-        var verify = client().post().uri("/api/v1/internal/verify")
+        var verify = meshClient().post().uri("/api/v1/internal/verify")
                 .header("Content-Type", "application/json")
                 .body("{\"token\":\"" + token + "\"}")
                 .retrieve()
@@ -174,7 +192,7 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
 
     @Test
     void verify_returnsValidFalseForBadToken() throws Exception {
-        var verify = client().post().uri("/api/v1/internal/verify")
+        var verify = meshClient().post().uri("/api/v1/internal/verify")
                 .header("Content-Type", "application/json")
                 .body("{\"token\":\"bogus\"}")
                 .retrieve()

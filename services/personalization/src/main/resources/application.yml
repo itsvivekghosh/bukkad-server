@@ -55,11 +55,16 @@ app:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty
       # secret = auth filter inactive in dev (protected endpoints then 401);
       # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
-      # to enable. Never commit a default secret.
+      # to enable. Never commit a default secret. jwks-url defaults to
+      # identity's well-known path — the ADR-004 RS256 cutover works with
+      # zero coordination across services.
       secret: ${JWT_SECRET:}
-      jwks-url: ${JWKS_URL:}
+      jwks-url: ${JWKS_URL:http://identity:8081/.well-known/jwks.json}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}
+      # ADR-004 dual-key grace: HS256 legacy tokens stay verifiable until
+      # this flag is flipped (default on during the cutover window).
+      hmac-grace-enabled: ${JWT_HMAC_GRACE:true}
     service:
       # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
       # mesh secret; internal paths REQUIRE a valid service token when the

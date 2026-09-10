@@ -31,6 +31,8 @@ public class IdentityController {
     private final AddressService addressService;
     private final com.bhukkad.identity.service.RefreshTokenService refreshTokens;
     private final JwtService jwtService;
+    private final com.bhukkad.identity.ratelimit.LoginLockoutService loginLockout;
+    private final com.bhukkad.identity.service.TotpService totpService;
 
     public record RegisterRequest(
             @NotBlank @Email String email,
@@ -44,7 +46,7 @@ public class IdentityController {
     }
 
     public record LoginRequest(@NotBlank @Email String email, @NotBlank String password,
-                               @Size(max = 64) String deviceId) {
+                               @Size(max = 64) String deviceId, String totpCode) {
     }
 
     /**
@@ -111,11 +113,21 @@ public class IdentityController {
     public AuthResponse register(
             @Valid @RequestBody RegisterRequest request,
             @org.springframework.web.bind.annotation.RequestHeader(
-                    value = "User-Agent", required = false) String userAgent) {
-        identityService.register(
-                request.email(), request.phoneNumber(), request.fullName(), request.password(), request.role(),
-                request.referralCode());
+                    value = "User-Agent", required = false) String userAgent,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
+        String ip = com.bhukkad.identity.ratelimit.LoginLockoutService.remoteIp(httpRequest);
+        loginLockout.assertAllowed(request.email(), ip);
+        try {
+            identityService.register(
+                    request.email(), request.phoneNumber(), request.fullName(), request.password(), request.role(),
+                    request.referralCode());
+        } catch (com.bhukkad.common.error.DuplicateRequestException e) {
+            // Duplicate-email probing counts toward the (email, IP) lockout.
+            loginLockout.recordFailure(request.email(), ip);
+            throw e;
+        }
         var login = identityService.login(request.email(), request.password(), null, userAgent);
+        loginLockout.recordSuccess(request.email(), ip);
         return toAuthResponse(login);
     }
 
@@ -125,10 +137,21 @@ public class IdentityController {
     public AuthResponse login(
             @Valid @RequestBody LoginRequest request,
             @org.springframework.web.bind.annotation.RequestHeader(
-                    value = "User-Agent", required = false) String userAgent) {
-        var login = identityService.login(request.email(), request.password(),
-                request.deviceId(), userAgent);
-        return toAuthResponse(login);
+                    value = "User-Agent", required = false) String userAgent,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
+        String ip = com.bhukkad.identity.ratelimit.LoginLockoutService.remoteIp(httpRequest);
+        // Per-(email, IP) brute-force lockout (feature #5): exponential
+        // window, cleared on success. 429 + Retry-After while locked.
+        loginLockout.assertAllowed(request.email(), ip);
+        try {
+            var login = identityService.login(request.email(), request.password(),
+                    request.deviceId(), userAgent, request.totpCode());
+            loginLockout.recordSuccess(request.email(), ip);
+            return toAuthResponse(login);
+        } catch (com.bhukkad.common.error.UnauthorizedException e) {
+            loginLockout.recordFailure(request.email(), ip);
+            throw e;
+        }
     }
 
     /**
@@ -259,6 +282,38 @@ public class IdentityController {
                 result.email(),
                 result.scope(),
                 result.expiresAt() == null ? null : result.expiresAt().toString());
+    }
+
+    /**
+     * TOTP enrollment (feature #5): generates a fresh secret, stores it on
+     * the caller's profile row and returns the otpauth:// provisioning URI
+     * ONCE — the client renders the QR from it. The secret itself is never
+     * logged and never returned again; re-enrolling rotates it.
+     */
+    @PostMapping("/auth/totp/enroll")
+    public TotpEnrollResponse enrollTotp(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.bhukkad.common.security.TokenPrincipal principal) {
+        com.bhukkad.common.security.PrincipalGuard.requireAuthenticated(principal);
+        var enrollment = totpService.enroll(principal.userId(), principal.email());
+        return new TotpEnrollResponse(enrollment.otpauthUri());
+    }
+
+    public record TotpEnrollResponse(String otpauthUri) {
+    }
+
+    public record TotpConfirmRequest(@jakarta.validation.constraints.NotBlank String code) {
+    }
+
+    /** Confirms TOTP enrollment with a live code; login now requires codes. */
+    @PostMapping("/auth/totp/confirm")
+    public java.util.Map<String, String> confirmTotp(
+            @org.springframework.security.core.annotation.AuthenticationPrincipal
+            com.bhukkad.common.security.TokenPrincipal principal,
+            @Valid @RequestBody TotpConfirmRequest request) {
+        com.bhukkad.common.security.PrincipalGuard.requireAuthenticated(principal);
+        totpService.confirm(principal.userId(), request.code());
+        return java.util.Map.of("message", "TOTP enabled");
     }
 
     @PostMapping("/customers/{customerId}/addresses")

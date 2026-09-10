@@ -3,6 +3,7 @@ package com.bhukkad.common.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -10,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
+import org.springframework.lang.Nullable;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -34,21 +36,31 @@ import java.util.Locale;
  *       {@code /internal/**}): REQUIRE a valid service token — requests
  *       without one are rejected with 401. This closes the hole where
  *       internal money/PII endpoints were reachable with any ordinary user
- *       JWT.</li>
+ *       JWT. When {@code app.auth.service.enforce-internal-paths} is true
+ *       (the default in every service yml) the reject happens even when no
+ *       shared secret is configured — a misconfigured deployment fails
+ *       CLOSED, never open (feature #5).</li>
  *   <li><b>All other paths</b>: a valid service token authenticates the
  *       caller as a service principal with {@code ROLE_SERVICE}; requests
  *       without the header continue to normal user-JWT/public handling.</li>
  * </ul>
  *
- * <p>When {@code app.auth.service.jwt-secret} is unset the filter passes
- * everything through (local development without the service mesh); in
- * production {@code SecretValidationConfig} requires the secret to be set.</p>
+ * <p>Every rejection increments {@code service_auth_rejected{reason}} with
+ * {@code reason} ∈ {absent, invalid, forbidden, weakkey} so auth failures are
+ * observable in production (audit V-15).</p>
  */
 public class ServiceJwtAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceJwtAuthFilter.class);
     public static final String ROLE_SERVICE = "ROLE_SERVICE";
     static final String HEADER = "X-Service-Token";
+
+    /** service_auth_rejected reason tags (audit V-15 observability contract). */
+    public static final String REASON_ABSENT = "absent";
+    public static final String REASON_INVALID = "invalid";
+    public static final String REASON_FORBIDDEN = "forbidden";
+    public static final String REASON_WEAK_KEY = "weakkey";
+
     private static final List<String> DEFAULT_INTERNAL_PATTERNS =
             List.of("/api/v1/internal/**", "/internal/**");
 
@@ -57,22 +69,34 @@ public class ServiceJwtAuthFilter extends OncePerRequestFilter {
     private final ServiceAuthProperties properties;
     private final List<String> internalPatterns;
     private final boolean enforceInternal;
+    @Nullable
+    private final MeterRegistry meterRegistry;
 
     public ServiceJwtAuthFilter(ServiceAuthProperties properties) {
-        this(properties, DEFAULT_INTERNAL_PATTERNS, true);
+        this(properties, (MeterRegistry) null);
+    }
+
+    public ServiceJwtAuthFilter(ServiceAuthProperties properties, @Nullable MeterRegistry meterRegistry) {
+        this(properties, DEFAULT_INTERNAL_PATTERNS, true, meterRegistry);
     }
 
     ServiceJwtAuthFilter(ServiceAuthProperties properties, List<String> internalPatterns,
-                         boolean enforceInternal) {
+                         boolean enforceInternal, @Nullable MeterRegistry meterRegistry) {
         this.properties = properties;
         this.internalPatterns = internalPatterns;
         this.enforceInternal = enforceInternal;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // Nothing to do when service auth is not configured at all.
-        return !StringUtils.hasText(properties.getJwtSecret());
+        if (StringUtils.hasText(properties.getJwtSecret())) {
+            return false; // secret configured: verify whenever a header is presented
+        }
+        // No secret configured: run ONLY to fail-closed on enforced internal
+        // paths (reject-absent-token); every other request passes through to
+        // normal user-JWT/public handling.
+        return !(enforceInternal && properties.isEnforceInternalPaths() && isInternalPath(request));
     }
 
     @Override
@@ -83,11 +107,20 @@ public class ServiceJwtAuthFilter extends OncePerRequestFilter {
 
         if (!StringUtils.hasText(serviceToken)) {
             if (enforceInternal && internalPath && properties.isEnforceInternalPaths()) {
+                recordRejection(REASON_ABSENT);
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Service token required");
                 return;
             }
             // No service token: continue to normal auth (user JWT or public endpoint)
             filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (!StringUtils.hasText(properties.getJwtSecret())) {
+            // Token presented but this side has no verification secret —
+            // fail closed instead of trusting an unverifiable header.
+            recordRejection(REASON_WEAK_KEY);
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Service token cannot be verified");
             return;
         }
 
@@ -102,6 +135,7 @@ public class ServiceJwtAuthFilter extends OncePerRequestFilter {
             String serviceId = claims.getSubject();
             if (serviceId == null || !isAllowedService(serviceId)) {
                 log.warn("Rejected service token from disallowed subject={}", serviceId);
+                recordRejection(REASON_FORBIDDEN);
                 response.sendError(HttpServletResponse.SC_FORBIDDEN, "Service not allowed");
                 return;
             }
@@ -113,10 +147,22 @@ public class ServiceJwtAuthFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(auth);
 
             filterChain.doFilter(request, response);
+        } catch (io.jsonwebtoken.security.WeakKeyException e) {
+            log.warn("Service JWT secret too weak to verify tokens | path={}", request.getRequestURI());
+            SecurityContextHolder.clearContext();
+            recordRejection(REASON_WEAK_KEY);
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid service token");
         } catch (Exception e) {
             log.warn("Invalid service token | path={} | error={}", request.getRequestURI(), e.getMessage());
             SecurityContextHolder.clearContext();
+            recordRejection(REASON_INVALID);
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid service token");
+        }
+    }
+
+    private void recordRejection(String reason) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("service_auth_rejected", "reason", reason).increment();
         }
     }
 

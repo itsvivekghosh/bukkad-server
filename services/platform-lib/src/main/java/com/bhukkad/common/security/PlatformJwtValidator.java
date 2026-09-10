@@ -1,6 +1,7 @@
 package com.bhukkad.common.security;
 
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.JWK;
@@ -54,6 +55,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>The HMAC verifier is built ONCE at construction; in prod/staging a
  *       configured-but-too-short secret fails the BOOT instead of turning the
  *       first service-mesh token into a runtime 500 (audit V-15).</li>
+ *   <li>ADR-004 dual-key grace: identity now issues RS256 and serves JWKS;
+ *       this validator prefers the JWKS path and STILL accepts legacy HS256
+ *       tokens signed with the shared secret while
+ *       {@code app.auth.jwt.hmac-grace-enabled} is true (default). Flipping
+ *       that property to false rejects HS256 outright. {@code alg=none} and
+ *       HS384/HS512 downgrade attempts are always rejected.</li>
  * </ul>
  */
 @Component
@@ -181,31 +188,37 @@ public class PlatformJwtValidator {
         try {
             SignedJWT jwt = SignedJWT.parse(token);
             if (!verifySignature(jwt)) {
+                recordRejection("signature");
                 log.debug("JWT rejected: invalid signature");
                 return Optional.empty();
             }
             JWTClaimsSet claims = jwt.getJWTClaimsSet();
             if (claims.getExpirationTime() == null
                     || claims.getExpirationTime().toInstant().isBefore(Instant.now())) {
+                recordRejection("expired");
                 log.debug("JWT rejected: missing or past expiration");
                 return Optional.empty();
             }
             if (claims.getNotBeforeTime() != null
                     && claims.getNotBeforeTime().toInstant().isAfter(Instant.now())) {
+                recordRejection("not_yet_valid");
                 log.debug("JWT rejected: not yet valid");
                 return Optional.empty();
             }
             if (StringUtils.hasText(properties.issuer())
                     && !properties.issuer().equals(claims.getIssuer())) {
+                recordRejection("issuer");
                 log.debug("JWT rejected: unexpected issuer");
                 return Optional.empty();
             }
             if (StringUtils.hasText(properties.audience())
                     && !claims.getAudience().contains(properties.audience())) {
+                recordRejection("audience");
                 log.debug("JWT rejected: unexpected audience");
                 return Optional.empty();
             }
             if (claims.getSubject() == null) {
+                recordRejection("subject");
                 log.debug("JWT rejected: missing subject");
                 return Optional.empty();
             }
@@ -213,25 +226,63 @@ public class PlatformJwtValidator {
             try {
                 userId = Long.parseLong(claims.getSubject());
             } catch (NumberFormatException e) {
+                recordRejection("subject");
                 log.debug("JWT rejected: subject is not numeric");
                 return Optional.empty();
             }
             return Optional.of(new TokenPrincipal(userId,
                     claims.getStringClaim("email"),
-                    claims.getStringClaim("scope")));
+                    scopeOf(claims)));
         } catch (Exception e) {
+            recordRejection("malformed");
             log.debug("JWT validation failed: {}", e.getMessage());
             return Optional.empty();
         }
     }
 
+    /**
+     * ADR-004: identity now stamps {@code role} alongside the legacy
+     * {@code scope} claim; validators prefer {@code scope} and fall back to
+     * {@code role} so a token carrying only the new claim still authenticates.
+     */
+    private static String scopeOf(JWTClaimsSet claims) throws java.text.ParseException {
+        String scope = claims.getStringClaim("scope");
+        if (scope == null) {
+            scope = claims.getStringClaim("role");
+        }
+        return scope;
+    }
+
+    /**
+     * Dual-key verification (ADR-004 step 2): RS256 tokens verify via the JWKS
+     * key set; legacy HS256 tokens verify against the shared secret while the
+     * HMAC grace window is open. Everything else — the unsigned
+     * {@code alg=none} and the HS384/HS512 downgrade attempts from the audit
+     * V-15 matrix included — is rejected without a fallback path.
+     */
     private boolean verifySignature(SignedJWT jwt) throws Exception {
-        if (StringUtils.hasText(properties.jwksUrl())) {
+        String algName = jwt.getHeader().getAlgorithm() == null
+                ? "" : jwt.getHeader().getAlgorithm().getName();
+        boolean jwksConfigured = StringUtils.hasText(properties.jwksUrl());
+        if (JWSAlgorithm.RS256.getName().equals(algName)) {
+            if (!jwksConfigured) {
+                log.debug("JWT rejected: RS256 token but no JWKS URL configured");
+                return false;
+            }
             return verifyRsa(jwt);
         }
-        if (macVerifier != null) {
-            return jwt.verify(macVerifier);
+        if (JWSAlgorithm.HS256.getName().equals(algName)) {
+            if (jwksConfigured && !properties.hmacGrace()) {
+                log.debug("JWT rejected: HS256 token after the HMAC grace window was closed");
+                return false;
+            }
+            if (macVerifier != null) {
+                return jwt.verify(macVerifier);
+            }
+            log.debug("JWT rejected: HS256 token without a shared secret (downgrade guard)");
+            return false;
         }
+        log.debug("JWT rejected: unsupported alg={} (downgrade guard)", algName);
         return false;
     }
 
@@ -358,6 +409,13 @@ public class PlatformJwtValidator {
                 .register(meterRegistry)
                 .record(durationNanos, TimeUnit.NANOSECONDS);
         meterRegistry.counter("jwks_refresh_outcome", "outcome", outcome).increment();
+    }
+
+    /** Every validation rejection is observable (audit V-15/G-2). */
+    private void recordRejection(String reason) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("service_auth_rejected", "reason", reason).increment();
+        }
     }
 
     /** Test hook: force the cached key set to be treated as expired. */

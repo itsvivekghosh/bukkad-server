@@ -359,4 +359,253 @@ class PlatformJwtValidatorTest {
         assertThat(validator.validate(token)).isPresent();
     }
 
+    // ─── ADR-004: RS256+JWKS cutover, dual-key HMAC grace window ───────────────
+
+    @Test
+    void dualMode_legacyHs256Token_acceptedDuringGrace() throws Exception {
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        String jwksJson = new JWKSet(signingKey.toPublicJWK()).toString();
+
+        HttpServer server = jwksServer(jwksJson);
+        try {
+            // Both JWKS and HMAC secret configured (the cutover posture).
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(SECRET,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, null, true));
+
+            String legacy = hs256Token(5L, "legacy@b.com", "customer",
+                    Date.from(Instant.now().plusSeconds(3600)));
+            Optional<TokenPrincipal> principal = validator.validate(legacy);
+            assertThat(principal).as("legacy HS256 token must verify during the grace window")
+                    .isPresent();
+            assertThat(principal.get().userId()).isEqualTo(5L);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void dualMode_hmacGraceDisabled_hs256Rejected_rs256Accepted() throws Exception {
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        String jwksJson = new JWKSet(signingKey.toPublicJWK()).toString();
+
+        HttpServer server = jwksServer(jwksJson);
+        try {
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(SECRET,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, null, false));
+
+            String legacy = hs256Token(5L, "legacy@b.com", "customer",
+                    Date.from(Instant.now().plusSeconds(3600)));
+            assertThat(validator.validate(legacy))
+                    .as("after the grace flag flips, HS256 tokens are rejected")
+                    .isEmpty();
+
+            String modern = rs256Token(signingKey, 6L, "modern@b.com", "customer",
+                    Date.from(Instant.now().plusSeconds(3600)));
+            assertThat(validator.validate(modern))
+                    .as("RS256 tokens keep working after the grace flag flips")
+                    .isPresent();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void rs256Token_withoutJwksUrl_rejected() throws Exception {
+        // An RS256 token cannot be trusted when the validator has no key source.
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        PlatformJwtValidator validator = new PlatformJwtValidator(
+                new PlatformJwtProperties(SECRET, null, null, null));
+
+        String token = rs256Token(signingKey, 7L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600)));
+        assertThat(validator.validate(token)).isEmpty();
+    }
+
+    @Test
+    void algNoneToken_rejected() {
+        // Unsigned (alg=none) JWT — must never authenticate.
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("9")
+                .claim("email", "none@b.com")
+                .claim("scope", "admin")
+                .issueTime(Date.from(Instant.now()))
+                .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                .build();
+        com.nimbusds.jwt.PlainJWT plain = new com.nimbusds.jwt.PlainJWT(claims);
+
+        PlatformJwtValidator validator = new PlatformJwtValidator(
+                new PlatformJwtProperties(SECRET, null, null, null));
+        assertThat(validator.validate(plain.serialize())).isEmpty();
+    }
+
+    @Test
+    void hs384DowngradeToken_rejected() throws Exception {
+        // V-15 verification matrix: HS384 is an algorithm downgrade → reject.
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("9")
+                .claim("email", "hs384@b.com")
+                .claim("scope", "customer")
+                .issueTime(Date.from(Instant.now()))
+                .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                .build();
+        // A 32-byte secret is valid for HS384 too — Nimbus's MACSigner only
+        // accepts HS256, so build the compact JWS by hand (base64url header
+        // declaring HS384 + payload + HMAC-SHA384 signature) and require the
+        // validator to reject the downgrade attempt.
+        java.util.Base64.Encoder url = java.util.Base64.getUrlEncoder().withoutPadding();
+        String header = url.encodeToString(
+                "{\"alg\":\"HS384\"}".getBytes(StandardCharsets.UTF_8));
+        String payload = url.encodeToString(claims.toJSONObject().toString()
+                .getBytes(StandardCharsets.UTF_8));
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA384");
+        mac.init(new javax.crypto.spec.SecretKeySpec(
+                SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA384"));
+        byte[] sig = mac.doFinal((header + "." + payload).getBytes(StandardCharsets.US_ASCII));
+        String forged = header + "." + payload + "." + url.encodeToString(sig);
+
+        PlatformJwtValidator validator = new PlatformJwtValidator(
+                new PlatformJwtProperties(SECRET, null, null, null));
+        assertThat(validator.validate(forged)).isEmpty();
+    }
+
+    @Test
+    void hs256Token_withoutSharedSecret_rejected() throws Exception {
+        // Downgrade guard: an HS256 token when only JWKS is configured (no
+        // secret) must be rejected, not silently trusted.
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        String jwksJson = new JWKSet(signingKey.toPublicJWK()).toString();
+
+        HttpServer server = jwksServer(jwksJson);
+        try {
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(null,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, null));
+
+            String token = hs256Token(8L, "nosecret@b.com", "customer",
+                    Date.from(Instant.now().plusSeconds(3600)));
+            assertThat(validator.validate(token)).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void jwksMode_wrongIssuer_rejected() throws Exception {
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        HttpServer server = jwksServer(new JWKSet(signingKey.toPublicJWK()).toString());
+        try {
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(null,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            "bhukkad-identity", null));
+
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .subject("11")
+                    .issuer("evil-issuer")
+                    .claim("email", "iss@b.com")
+                    .claim("scope", "customer")
+                    .issueTime(Date.from(Instant.now()))
+                    .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                    .build();
+            SignedJWT jwt = new SignedJWT(rs256Header(signingKey), claims);
+            jwt.sign(new RSASSASigner(signingKey));
+
+            assertThat(validator.validate(jwt.serialize())).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void jwksMode_wrongAudience_rejected() throws Exception {
+        RSAKey signingKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        HttpServer server = jwksServer(new JWKSet(signingKey.toPublicJWK()).toString());
+        try {
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(null,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, "bhukkad-api"));
+
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .subject("12")
+                    .audience("other-service")
+                    .claim("email", "aud@b.com")
+                    .claim("scope", "customer")
+                    .issueTime(Date.from(Instant.now()))
+                    .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                    .build();
+            SignedJWT jwt = new SignedJWT(rs256Header(signingKey), claims);
+            jwt.sign(new RSASSASigner(signingKey));
+
+            assertThat(validator.validate(jwt.serialize())).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void jwksMode_forgedSignatureByUnknownKey_rejected() throws Exception {
+        RSAKey trustedKey = new RSAKeyGenerator(2048).keyID("key-1").generate();
+        RSAKey attackerKey = new RSAKeyGenerator(2048).keyID("key-1").generate(); // same kid, wrong key
+        HttpServer server = jwksServer(new JWKSet(trustedKey.toPublicJWK()).toString());
+        try {
+            PlatformJwtValidator validator = new PlatformJwtValidator(
+                    new PlatformJwtProperties(null,
+                            "http://localhost:" + server.getAddress().getPort() + "/jwks",
+                            null, null));
+
+            String forged = rs256Token(attackerKey, 13L, "forge@b.com", "admin",
+                    Date.from(Instant.now().plusSeconds(3600)));
+            assertThat(validator.validate(forged)).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void roleClaimFallback_usedWhenScopeAbsent() throws Exception {
+        // ADR-004: tokens may carry only the new `role` claim.
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("14")
+                .claim("email", "role@b.com")
+                .claim("role", "ADMIN")
+                .issueTime(Date.from(Instant.now()))
+                .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+        jwt.sign(new MACSigner(SECRET));
+
+        PlatformJwtValidator validator = new PlatformJwtValidator(
+                new PlatformJwtProperties(SECRET, null, null, null));
+        Optional<TokenPrincipal> principal = validator.validate(jwt.serialize());
+        assertThat(principal).isPresent();
+        assertThat(principal.get().scope()).isEqualTo("ADMIN");
+    }
+
+    private static HttpServer jwksServer(String jwksJson) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/jwks", exchange -> {
+            byte[] body = jwksJson.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+        return server;
+    }
+
+    private static JWSHeader rs256Header(RSAKey signingKey) {
+        return new JWSHeader.Builder(JWSAlgorithm.RS256)
+                .type(JOSEObjectType.JWT)
+                .keyID(signingKey.getKeyID())
+                .build();
+    }
+
 }

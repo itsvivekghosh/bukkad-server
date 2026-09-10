@@ -39,6 +39,7 @@ class IdentityServiceArchTest {
                         "org.springframework.security..",
                         "org.springframework.stereotype..",
                         "org.springframework.boot.context.properties..",
+                        "org.slf4j..",
                         "java..",
                         "lombok..");
         rule.check(SERVICE_CLASSES);

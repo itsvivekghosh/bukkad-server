@@ -52,11 +52,23 @@ app:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty
       # secret = auth filter inactive in dev (protected endpoints then 401);
       # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
-      # to enable.
+      # to enable. jwks-url defaults to identity's own well-known path so the
+      # RS256 cutover works with zero coordination (ADR-004).
       secret: ${JWT_SECRET:}
-      jwks-url: ${JWKS_URL:}
+      jwks-url: ${JWKS_URL:http://localhost:8081/.well-known/jwks.json}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}
+      # ADR-004 dual-key grace: HS256 legacy tokens stay verifiable until this
+      # flag is flipped (default on during the cutover window).
+      hmac-grace-enabled: ${JWT_HMAC_GRACE:true}
+    # Brute-force lockout on the public credential endpoints (feature #5):
+    # per-(email, IP) counters with an exponentially escalating lock window.
+    lockout:
+      threshold: ${AUTH_LOCKOUT_THRESHOLD:5}
+      failure-window-seconds: ${AUTH_LOCKOUT_WINDOW:900}
+      base-lock-seconds: ${AUTH_LOCKOUT_BASE:300}
+      max-lock-seconds: ${AUTH_LOCKOUT_MAX:3600}
+      strikes-ttl-seconds: ${AUTH_LOCKOUT_STRIKES_TTL:86400}
     service:
       # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
       # mesh secret; internal paths REQUIRE a valid service token when the
@@ -65,9 +77,20 @@ app:
       allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
       enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
   jwt:
-    # HMAC secret for signing issued JWTs. In production this comes from a
-    # secret manager (plan §8: JWKS once extracted; HS512 intra-monolith only).
+    # HMAC secret for the ADR-004 grace window (legacy HS256 verification).
+    # New tokens are RS256; production must set the RSA key envs below.
     secret: ${JWT_SECRET:}
+    # RS256 signing key (ADR-004): env-provided PKCS#8 PEM first, then a PEM
+    # file path (k8s Secret volume), else auto-generated + persisted under
+    # key-dir (dev only — prod fails fast without env keys).
+    rsa:
+      private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
+      private-key-path: ${JWT_PRIVATE_KEY_PATH:}
+      key-dir: ${JWT_RSA_KEY_DIR:}
+      key-id: ${JWT_KEY_ID:}
+    # Issued claims: iss=bhukkad-identity (JwtService constant),
+    # aud defaults to bhukkad-api; override per deployment.
+    audience: ${JWT_AUDIENCE:bhukkad-api}
     # Legacy token horizon — kept only for backward compatibility; the bearer
     # path uses access-ttl-minutes below.
     ttl-minutes: ${JWT_TTL_MINUTES:1440}

@@ -112,4 +112,99 @@ class ServiceJwtAuthFilterTest {
         MockHttpServletResponse response = runFilter(filter(), "/api/v1/orders", null);
         assertThat(response.getStatus()).isEqualTo(200);
     }
+    // ─── feature #5: fail-closed without a secret + observability metrics ──────
+
+    @Test
+    void internalPath_noSecretConfigured_withoutToken_rejected401() throws Exception {
+        // The pass-through flip: enforce-internal-paths defaults true, so a
+        // misconfigured deployment (missing SERVICE_JWT_SECRET) must fail
+        // CLOSED on internal paths, never silently admit callers.
+        ServiceAuthProperties props = new ServiceAuthProperties();
+        props.setJwtSecret("");
+        props.setAllowedServices("order,payment");
+        ServiceJwtAuthFilter filter = new ServiceJwtAuthFilter(props);
+
+        MockHttpServletResponse response = runFilter(filter, "/api/v1/internal/wallet/credit", null);
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void internalPath_noSecretConfigured_withToken_rejected401() throws Exception {
+        // An unverifiable header must not be trusted — fail closed.
+        ServiceAuthProperties props = new ServiceAuthProperties();
+        props.setJwtSecret("");
+        props.setAllowedServices("order,payment");
+        ServiceJwtAuthFilter filter = new ServiceJwtAuthFilter(props);
+
+        MockHttpServletResponse response = runFilter(filter, "/api/v1/internal/wallet/credit",
+                serviceToken("order"));
+        assertThat(response.getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void nonInternalPath_noSecretConfigured_passesThrough() throws Exception {
+        ServiceAuthProperties props = new ServiceAuthProperties();
+        props.setJwtSecret("");
+        props.setAllowedServices("order,payment");
+        ServiceJwtAuthFilter filter = new ServiceJwtAuthFilter(props);
+
+        MockHttpServletResponse response = runFilter(filter, "/api/v1/orders", null);
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void rejects_incrementServiceAuthRejectedMetric_withReason() throws Exception {
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        ServiceAuthProperties props = new ServiceAuthProperties();
+        props.setJwtSecret(SECRET);
+        props.setAllowedServices("order,payment");
+        ServiceJwtAuthFilter filter = new ServiceJwtAuthFilter(props, registry);
+
+        // absent
+        runFilter(filter, "/api/v1/internal/wallet/credit", null);
+        // invalid signature
+        runFilter(filter, "/api/v1/internal/wallet/credit",
+                serviceToken("order").substring(0, 20) + "AAAA");
+        // disallowed subject
+        runFilter(filter, "/api/v1/internal/wallet/credit", serviceToken("rogue-service"));
+
+        assertThat(registry.get("service_auth_rejected").tag("reason", "absent")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("service_auth_rejected").tag("reason", "invalid")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("service_auth_rejected").tag("reason", "forbidden")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void weakSecret_rejectsWithWeakkeyReason() throws Exception {
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        ServiceAuthProperties props = new ServiceAuthProperties();
+        props.setJwtSecret("too-short");
+        props.setAllowedServices("order,payment");
+        ServiceJwtAuthFilter filter = new ServiceJwtAuthFilter(props, registry);
+
+        MockHttpServletResponse response = runFilter(filter, "/api/v1/internal/wallet/credit",
+                serviceToken("order"));
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(registry.get("service_auth_rejected").tag("reason", "weakkey")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void internalPath_withoutToken_metricAbsentReason() throws Exception {
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        ServiceAuthProperties props = new ServiceAuthProperties();
+        props.setJwtSecret("");
+        ServiceJwtAuthFilter filter = new ServiceJwtAuthFilter(props, registry);
+
+        runFilter(filter, "/api/v1/internal/jobs", null);
+        assertThat(registry.get("service_auth_rejected").tag("reason", "absent")
+                .counter().count()).isEqualTo(1.0);
+    }
 }
