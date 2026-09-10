@@ -137,6 +137,21 @@ jobs:
           PF_PID=$!
           trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
           sleep 3
-          curl -sf http://127.0.0.1:19090/actuator/health/readiness -o /dev/null || true
+          # Smoke gate (feature #16): bounded retry, hard failure — no `|| true`.
+          # Gateway readiness may lag the rollout by a few seconds while pods
+          # warm; 5 attempts x 5 s caps the wait before failing the deploy.
+          SMOKE_OK=0
+          for attempt in 1 2 3 4 5; do
+            if curl -sf http://127.0.0.1:19090/actuator/health/readiness -o /dev/null; then
+              SMOKE_OK=1
+              break
+            fi
+            echo "readiness probe attempt ${attempt}/5 failed; retrying in 5s"
+            sleep 5
+          done
           kill ${PF_PID} 2>/dev/null || true
           trap - EXIT
+          if [ "${SMOKE_OK}" -ne 1 ]; then
+            echo "::error::Gateway readiness smoke test failed after 5 attempts"
+            exit 1
+          fi

@@ -23,6 +23,13 @@ import jakarta.mail.internet.MimeMessage;
  * sender, the resulting exception trips the breaker and is swallowed by the
  * fallback rather than propagating to the caller.
  *
+ * <p>MIGRATION NOTE (P-05/G-13): this sender is SMTP-over-JMS
+ * ({@code JavaMailSender}), NOT an HTTP client — the platform WebClient
+ * factory does not apply. Its transport timeouts come from
+ * {@code spring.mail.properties.*} (smtp.timeout/smtp.connectiontimeout); if
+ * this sender is ever moved to an HTTP mail API it MUST migrate to
+ * {@code PlatformWebClientBuilderFactory} and drop off the G-13 allowlist.</p>
+ *
  * <p>Two shapes are supported:
  * <ul>
  *   <li>{@link #send(SimpleMailMessage)} for plain text notifications.</li>

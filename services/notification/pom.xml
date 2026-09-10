@@ -11,6 +11,10 @@
 	<dependencies>
 		<dependency><groupId>com.bhukkad</groupId><artifactId>platform-lib</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+		<!-- Twilio SMS/WhatsApp senders ride the platform WebClient factory
+		     (P-05): reactor-netty connector, bounded pool, 2s/3s timeouts,
+		     breaker per target. Optional in platform-lib, explicit here. -->
+		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webflux</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>

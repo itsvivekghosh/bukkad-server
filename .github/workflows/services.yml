@@ -36,12 +36,33 @@ jobs:
       - name: Enforce §4.2 pool arithmetic (hpa x pool <= 0.8 x pgbouncer)
         run: python3 scripts/ci/pool-budget-check.py
 
+  http-client-guard:
+    name: G-13 HTTP client guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Enforce G-13 (no hand-built WebClient/RestTemplate outside platform factory)
+        run: python3 scripts/ci/check-http-clients.py
+
   build-service:
     name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
+    needs: [pool-budget, http-client-guard]
     strategy:
       matrix:
         service: [identity, restaurant, order, payment, delivery, notification, admin-analytics, gateway, search, survey, referral, supportticket]
+    env:
+      # Scan/sign knobs (feature #16): severities that fail the build, and
+      # whether deploys consume the pushed digest instead of the sha tag.
+      TRIVY_SEVERITY: HIGH,CRITICAL
+      DEPLOY_BY_DIGEST: 'false'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -78,14 +99,62 @@ jobs:
           -t ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
           services/
 
+      - name: Trivy image scan (fail on HIGH/CRITICAL)
+        if: github.event_name == 'push'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: 'true'
+          severity: ${{ env.TRIVY_SEVERITY }}
+
       - name: Push Docker image
         if: github.event_name == 'push'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker push ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
 
+      - name: Capture pushed image digest
+        if: github.event_name == 'push'
+        run: |
+          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }})
+          echo "IMAGE_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
+          echo "Pushed ${DIGEST}"
+
+      - name: Syft SBOM (SPDX JSON)
+        if: github.event_name == 'push'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.service }}.spdx.json
+
+      # Signing is gated on the COSIGN_KEY secret: without it (local forks,
+      # PRs) the job passes without signing instead of failing.
+      - name: Install cosign
+        if: github.event_name == 'push'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (key-gated)
+        if: github.event_name == 'push'
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          if [ -z "${COSIGN_KEY}" ]; then
+            echo "COSIGN_KEY not set — skipping image signing (expected on forks/PRs)"
+            exit 0
+          fi
+          cosign sign --yes --key env://COSIGN_KEY "${IMAGE_DIGEST}"
+
       - name: Deploy to Kubernetes
         if: github.event_name == 'push'
         run: |
-          kubectl set image deployment/bhukkad-${{ matrix.service }} bhukkad-${{ matrix.service }}=ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }} -n bhukkad
+          REF="ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}"
+          if [ "${DEPLOY_BY_DIGEST}" = "true" ] && [ -n "${IMAGE_DIGEST}" ]; then
+            REF="${IMAGE_DIGEST}"
+          fi
+          echo "Deploying ${REF}"
+          kubectl set image deployment/bhukkad-${{ matrix.service }} bhukkad-${{ matrix.service }}="${REF}" -n bhukkad
           kubectl rollout status deployment/bhukkad-${{ matrix.service }} -n bhukkad --timeout=300s
