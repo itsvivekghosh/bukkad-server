@@ -20,6 +20,14 @@ public class GrowthProperties {
         private int referralBonus = 50;
         private int redemptionRatio = 100; // 100 points = 1 rupee
         private int minRedemptionPoints = 100;
+        /**
+         * Abuse ceiling (audit feature #4 / ADR-005): the maximum points a
+         * single customer can be granted per calendar day across all credit
+         * sources; an over-cap credit is rejected with 422.
+         */
+        private long dailyCreditCapPoints = 10_000;
+        /** Nightly ledger-reconciliation cron (ShedLock-locked). */
+        private String reconciliationCron = "0 30 3 * * *";
     }
 
     @Data
@@ -27,6 +35,9 @@ public class GrowthProperties {
         private int maxReferralsPerUser = 10;
         private int referredUserReward = 100;
         private int referrerReward = 50;
+        /** Abuse ceilings for POST /referral/apply (atomic limiter windows). */
+        private int applyPerCustomerPerDay = 5;
+        private int applyPerIpPerDay = 20;
     }
 
     @Data

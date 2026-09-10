@@ -8,8 +8,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.referral")
 public class ReferralServiceProperties {
 
-    /** Max code-generation attempts before falling back to the timestamp suffix. */
-    private int codeGenerationAttempts = 5;
+    /** Max collision-safe generation attempts before failing (no modulo fallback). */
+    private int codeGenerationAttempts = 25;
+
+    /** Reward (display ledger) credited to the referrer when a referral binds. */
+    private double applyBonusAmount = 50.0;
+
+    /** Reward (display ledger) credited to the referrer on referral completion. */
+    private double completionBonusAmount = 25.0;
 
     public int getCodeGenerationAttempts() {
         return codeGenerationAttempts;
@@ -17,5 +23,21 @@ public class ReferralServiceProperties {
 
     public void setCodeGenerationAttempts(int codeGenerationAttempts) {
         this.codeGenerationAttempts = codeGenerationAttempts;
+    }
+
+    public double getApplyBonusAmount() {
+        return applyBonusAmount;
+    }
+
+    public void setApplyBonusAmount(double applyBonusAmount) {
+        this.applyBonusAmount = applyBonusAmount;
+    }
+
+    public double getCompletionBonusAmount() {
+        return completionBonusAmount;
+    }
+
+    public void setCompletionBonusAmount(double completionBonusAmount) {
+        this.completionBonusAmount = completionBonusAmount;
     }
 }

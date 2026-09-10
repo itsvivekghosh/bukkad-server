@@ -52,14 +52,24 @@ app:
       referral-bonus: 50
       redemption-ratio: 100
       min-redemption-points: 100
+      # Abuse ceiling: max points grantable per customer per calendar day
+      # across all credit sources; over-cap credits are rejected with 422.
+      daily-credit-cap-points: ${LOYALTY_DAILY_CREDIT_CAP:10000}
+      # Nightly ledger->balance reconciliation (ShedLock-locked).
+      reconciliation-cron: ${LOYALTY_RECONCILIATION_CRON:0 30 3 * * *}
     referral:
       max-referrals-per-user: 10
       referred-user-reward: 100
       referrer-reward: 50
+      # Abuse ceilings for POST /referral/apply (atomic Redis limiter).
+      apply-per-customer-per-day: ${REFERRAL_APPLY_PER_CUSTOMER_PER_DAY:5}
+      apply-per-ip-per-day: ${REFERRAL_APPLY_PER_IP_PER_DAY:20}
     campaign:
       max-discount-percent: 50
       default-priority: 0
-
+  services:
+    referral:
+      url: ${REFERRAL_SERVICE_URL:http://referral:8084}
 
   auth:
     jwt:

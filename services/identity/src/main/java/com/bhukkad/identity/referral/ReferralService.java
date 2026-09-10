@@ -10,6 +10,7 @@ import com.bhukkad.identity.domain.CustomerRepository;
 import com.bhukkad.identity.dto.response.ReferralInfoResponse;
 import com.bhukkad.identity.service.ReferralProperties;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -19,15 +20,23 @@ import java.util.UUID;
 
 /**
  * Port of the monolith {@code com.bhukkad.referral.ReferralService} (WAVE 2).
- * Owns referral-code lifecycle on the identity-owned customer aggregate.
+ * Refers to identity-owned customer state only.
+ *
+ * <p>ADR-005 (audit feature #4): identity is NO LONGER a code generator —
+ * the "BK + id + modulo tail" local generation is deleted and code
+ * creation/binding is delegated to the referral module's internal API via
+ * {@link ReferralServiceClient} (service-JWT on the {@code X-Service-Token}
+ * header). The public identity contract is unchanged: {@link
+ * #initializeNewCustomer} still assigns {@code customer.referralCode} and
+ * still links {@code referredById} for display/IDOR checks.</p>
  *
  * <p>Wallet crediting (the monolith referrer/referee bonus) goes through the
  * narrow {@link WalletCreditPort}; the in-process
  * {@link DeferredWalletCreditAdapter} logs instead of crediting until the
- * wallet domain is extracted — the monolith working copy under
- * {@code com.bhukkad.referral.ReferralService} still performs the real
- * credits during the transition.</p>
+ * wallet domain is extracted — the referral module now owns the durable
+ * reward ledger (exactly-once) for its own bonuses.</p>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReferralService {
@@ -36,6 +45,7 @@ public class ReferralService {
     private final WalletCreditPort walletCreditPort;
     private final ReferralProperties referralProperties;
     private final RateLimitService rateLimitService;
+    private final ReferralServiceClient referralServiceClient;
 
     /**
      * Assigns a referral code to a new customer and, when enabled, links the
@@ -45,10 +55,15 @@ public class ReferralService {
      * persistence (registration already saved the customer and keeps the entity
      * managed inside its transaction, so these mutations are flushed with the
      * same commit). This avoids a redundant second INSERT/UPDATE round-trip.</p>
+     *
+     * <p>When the referral service is unreachable the registration flow still
+     * succeeds with a locally-issued display code (never persisted as the
+     * referral module's code of record); the next code call re-issues the
+     * canonical code idempotently.</p>
      */
     @Transactional
     public void initializeNewCustomer(Customer customer, String referralCodeInput) {
-        customer.setReferralCode(generateUniqueCode(customer));
+        customer.setReferralCode(generateCode(customer));
         if (referralProperties.isEnabled() && StringUtils.hasText(referralCodeInput)) {
             applyReferral(customer, referralCodeInput.trim().toUpperCase(Locale.ROOT));
         }
@@ -92,7 +107,7 @@ public class ReferralService {
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new BusinessException("Customer not found"));
         if (!StringUtils.hasText(customer.getReferralCode())) {
-            customer.setReferralCode(generateUniqueCode(customer));
+            customer.setReferralCode(generateCode(customer));
             customerRepository.save(customer);
         }
         return customer.getReferralCode();
@@ -104,16 +119,20 @@ public class ReferralService {
         if (referrer.getId().equals(newCustomer.getId())) {
             throw new BusinessException("Cannot use your own referral code");
         }
-        newCustomer.setReferredById(referrer.getId());
-        if (referralProperties.getBonusAmount() > 0) {
-            walletCreditPort.credit(
-                    referrer.getId(),
-                    referralProperties.getBonusAmount(),
-                    "REFERRAL_BONUS",
-                    null,
-                    "Referral bonus for inviting " + newCustomer.getEmail());
+        if (newCustomer.getReferredById() != null) {
+            // ADR-005 idempotent apply: an already-referred customer is never re-bound.
+            log.info("Referral apply ignored: customer {} already referred by {}",
+                    newCustomer.getId(), newCustomer.getReferredById());
+            return;
         }
-        if (referralProperties.getRefereeBonusAmount() > 0) {
+        newCustomer.setReferredById(referrer.getId());
+        // Binding + reward accounting is owned by the referral module
+        // (its reward ledger credits the referrer exactly once); identity
+        // only records the display binding and keeps the referee welcome
+        // bonus flow it already had.
+        boolean accepted = referralServiceClient.applyReferral(
+                newCustomer.getId(), newCustomer.getEmail(), referralCode);
+        if (accepted && referralProperties.getRefereeBonusAmount() > 0) {
             walletCreditPort.credit(
                     newCustomer.getId(),
                     referralProperties.getRefereeBonusAmount(),
@@ -123,14 +142,19 @@ public class ReferralService {
         }
     }
 
-    private String generateUniqueCode(Customer customer) {
-        for (int attempt = 0; attempt < 5; attempt++) {
-            String code = "BK" + customer.getId()
-                    + UUID.randomUUID().toString().substring(0, 4).toUpperCase(Locale.ROOT);
-            if (customerRepository.findByReferralCode(code).isEmpty()) {
-                return code;
-            }
+    /**
+     * Code generation via the referral module (single generator, ADR-005).
+     * Fallback: a collision-safe random code (unbounded alphabet tail, never
+     * id-modulo) so registration is never blocked by a referral outage.
+     */
+    private String generateCode(Customer customer) {
+        String delegated = referralServiceClient.generateCode(customer.getId());
+        if (StringUtils.hasText(delegated)) {
+            return delegated;
         }
-        return "BK" + customer.getId() + System.currentTimeMillis() % 10000;
+        log.warn("Referral service unavailable; issuing local display code customerId={}", customer.getId());
+        return "BK" + customer.getId()
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 8)
+                        .toUpperCase(Locale.ROOT);
     }
 }

@@ -1,13 +1,18 @@
 package com.bhukkad.growth.api;
 
+import com.bhukkad.common.ratelimit.RateLimitDecision;
+import com.bhukkad.common.ratelimit.RateLimitExceededException;
+import com.bhukkad.common.ratelimit.RateLimitService;
 import com.bhukkad.common.security.PrincipalGuard;
 import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.common.web.RequestUtils;
 import com.bhukkad.growth.dto.CampaignResponse;
 import com.bhukkad.growth.dto.LoyaltyPointsResponse;
 import com.bhukkad.growth.dto.ReferralStatsResponse;
 import com.bhukkad.growth.service.CampaignService;
 import com.bhukkad.growth.service.LoyaltyService;
 import com.bhukkad.growth.service.ReferralTrackingService;
+import com.bhukkad.growth.serviceImpl.LoyaltyCreditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -25,8 +30,11 @@ import java.util.Map;
 public class GrowthController {
 
     private final LoyaltyService loyaltyService;
+    private final LoyaltyCreditService loyaltyCreditService;
     private final CampaignService campaignService;
     private final ReferralTrackingService referralService;
+    private final RateLimitService rateLimitService;
+    private final com.bhukkad.growth.config.GrowthProperties growthProperties;
 
     // ============= Loyalty Endpoints =============
 
@@ -40,16 +48,21 @@ public class GrowthController {
     }
 
     /**
-     * Points credit is a back-office / service operation. Any authenticated
-     * caller previously minted unlimited points for any customer.
+     * Points credit is a back-office / mesh-service operation (ADR-005): the
+     * caller must be a service principal (ServiceJwtAuthFilter grants
+     * ROLE_SERVICE from the shared-mesh {@code X-Service-Token}) or an ADMIN
+     * user JWT, must present an {@code Idempotency-Key} (scope
+     * {@code LOYALTY_CREDIT}) and is subject to the per-customer daily credit
+     * cap (422 on breach).
      */
     @PostMapping("/customers/{customerId}/loyalty/credit")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('SERVICE') or hasRole('ADMIN')")
     public ResponseEntity<Void> creditPoints(
             @PathVariable Long customerId,
             @RequestParam int points,
-            @RequestParam String reason) {
-        loyaltyService.creditPoints(customerId, points, reason);
+            @RequestParam String reason,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        loyaltyCreditService.credit(customerId, points, reason, idempotencyKey);
         return ResponseEntity.ok().build();
     }
 
@@ -119,7 +132,9 @@ public class GrowthController {
 
     /**
      * Referral attribution: the referred user is the authenticated caller —
-     * a farmable free-form pair previously inflated referrer rewards.
+     * a farmable free-form pair previously inflated referrer rewards. Abuse
+     * ceilings (audit feature #4): per-customer and per-IP atomic rate limits
+     * plus the one-active-referral guard in the tracking service.
      */
     @PostMapping("/referral/apply")
     public ResponseEntity<Map<String, Boolean>> applyReferral(
@@ -129,7 +144,21 @@ public class GrowthController {
         if (referrerId.equals(principal.userId())) {
             return ResponseEntity.ok(Map.of("success", false));
         }
+        assertApplyNotRateLimited("customer:" + principal.userId(),
+                growthProperties.getReferral().getApplyPerCustomerPerDay());
+        assertApplyNotRateLimited("ip:" + RequestUtils.resolveClientIp(),
+                growthProperties.getReferral().getApplyPerIpPerDay());
         boolean success = referralService.applyReferralReward(referrerId, principal.userId());
         return ResponseEntity.ok(Map.of("success", success));
+    }
+
+    /** Atomic fixed-window per-day ceiling (RedisRateLimitService fail-open policy applies). */
+    private void assertApplyNotRateLimited(String identifier, long limit) {
+        RateLimitDecision decision = rateLimitService.check("referral-apply", identifier,
+                limit, 86_400);
+        if (!decision.allowed()) {
+            throw new RateLimitExceededException(
+                    "Too many referral applications. Try again later.", decision.retryAfterSeconds());
+        }
     }
 }
