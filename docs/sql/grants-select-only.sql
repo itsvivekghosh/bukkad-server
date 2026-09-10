@@ -15,7 +15,12 @@
 --   * supportticket READS: order / identity (customer, user) / payment
 --     (gift card) tables for display and dispute context. ADR-001: the write
 --     path was deleted; these grants make a reintroduction fail at the DB layer
---     even if the ArchUnit rule (SupportServiceArchTest) is bypassed.
+--     even if the ArchUnit rule is bypassed.
+--   * Reads are legal, writes are not — the same read-yes/write-no line the
+--     code layer enforces via SupportServiceArchTest
+--     (noWritesViaCrossDomainRepositories bans save*/delete*/remove* calls and
+--     @Modifying queries on any *Order*/*User*/*GiftCard*/*Wallet*/*Customer*/
+--     *Payment* Repository; find*/get*/count*/exists* stay legal).
 --
 -- Cross-database access in PostgreSQL requires foreign data wrappers: the
 -- foreign schemas are imported INTO the support database via postgres_fdw, and
