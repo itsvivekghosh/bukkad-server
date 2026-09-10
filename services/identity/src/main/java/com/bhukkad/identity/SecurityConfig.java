@@ -22,10 +22,20 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 import java.nio.charset.StandardCharsets;
 
+/**
+ * Identity security chain (feature #6): {@code /api/v1/internal/**} now
+ * REQUIRES {@code ROLE_SERVICE} — the {@link ServiceJwtAuthFilter} rejects
+ * absent/invalid {@code X-Service-Token} headers with 401 before this rule
+ * ever sees the request, so the rule backstops (defence in depth) rather
+ * than carrying the enforcement alone. The token-introspection oracle is
+ * therefore no longer callable by any ordinary customer JWT. Auth + actuator
+ * health + the JWKS distribution endpoint stay public.
+ */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({PlatformJwtProperties.class, ServiceAuthProperties.class})
+@EnableConfigurationProperties({PlatformJwtProperties.class, ServiceAuthProperties.class,
+        com.bhukkad.identity.ratelimit.LoginLockoutProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -50,10 +60,14 @@ public class SecurityConfig {
                         // Public platform endpoints (serve by identity)
                         .requestMatchers("/api/v1/platform/**").permitAll()
                         .requestMatchers("/api/v1/membership/**").permitAll()
-                        // Token introspection (/internal/verify) must be callable
-                        // WITHOUT a token — it reports whether a presented token is
-                        // valid, which is the whole point of introspection.
-                        .requestMatchers("/api/v1/internal/**").permitAll()
+                        // JWKS distribution — public keys only; every service's
+                        // PlatformJwtValidator fetches this to verify RS256 tokens.
+                        .requestMatchers("/.well-known/jwks.json", "/well-known/jwks.json").permitAll()
+                        // Service-to-service surface: ROLE_SERVICE only. The
+                        // ServiceJwtAuthFilter 401s anything without a valid
+                        // X-Service-Token first; this rule rejects whatever
+                        // else reaches it (e.g. a user JWT) with 403.
+                        .requestMatchers("/api/v1/internal/**").hasRole("SERVICE")
                         // Unauthenticated error forward (404s/401s to /error) must keep
                         // their real status — otherwise MVC "no handler" 404s surface as 401.
                         .requestMatchers("/error").permitAll()

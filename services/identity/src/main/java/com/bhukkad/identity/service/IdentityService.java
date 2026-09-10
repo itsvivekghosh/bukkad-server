@@ -13,6 +13,7 @@ import com.bhukkad.identity.referral.ReferralService;
 import com.bhukkad.identity.service.IdentityEventPublisher;
 import com.bhukkad.identity.security.JwtService;
 import com.bhukkad.identity.security.PasswordService;
+import org.springframework.util.StringUtils;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.security.MessageDigest;
@@ -48,6 +49,7 @@ public class IdentityService {
     private final AdminRepository adminRepository;
     private final ReferralService referralService;
     private final RefreshTokenService refreshTokens;
+    private final TotpService totpService;
 
     @PersistenceContext
     private EntityManager em;
@@ -114,7 +116,12 @@ public class IdentityService {
 
     @Transactional(readOnly = true)
     public LoginResult login(String email, String rawPassword) {
-        return login(email, rawPassword, null, null);
+        return login(email, rawPassword, null, null, null);
+    }
+
+    @Transactional
+    public LoginResult login(String email, String rawPassword, String deviceId, String userAgent) {
+        return login(email, rawPassword, deviceId, userAgent, null);
     }
 
     /**
@@ -122,14 +129,27 @@ public class IdentityService {
      * token is a rotating, server-side session (SHA-256 hash stored);
      * {@code deviceId}/{@code userAgent} are recorded (untrusted, length
      * capped) for later revocation tooling.
+     *
+     * <p>TOTP (feature #5): when {@code users.totp_enabled} is set for the
+     * account, a valid {@code totpCode} is required — a missing or wrong code
+     * rejects with 401 (and the controller's lockout counts the attempt).</p>
      */
     @Transactional
-    public LoginResult login(String email, String rawPassword, String deviceId, String userAgent) {
+    public LoginResult login(String email, String rawPassword, String deviceId, String userAgent,
+                             String totpCode) {
         Optional<Customer> customerOpt = customerRepository.findByEmailAndIsActiveTrue(email);
         if (customerOpt.isPresent()) {
             Customer customer = customerOpt.get();
             if (!passwordService.matches(rawPassword, customer.getPasswordHash())) {
                 throw new UnauthorizedException("Invalid email or password");
+            }
+            if (totpService.isRequired(customer.getId())) {
+                if (!StringUtils.hasText(totpCode)) {
+                    throw new UnauthorizedException("TOTP code required");
+                }
+                if (!totpService.verifyLoginCode(customer.getId(), totpCode)) {
+                    throw new UnauthorizedException("Invalid TOTP code");
+                }
             }
             String scope = resolveScope(customer.getId());
             String token = jwtService.issue(customer.getId(), customer.getEmail(), scope);

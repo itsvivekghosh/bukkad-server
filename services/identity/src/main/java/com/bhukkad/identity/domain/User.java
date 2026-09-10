@@ -72,6 +72,10 @@ public class User {
     @Column(name = "totp_enabled")
     private Boolean totpEnabled = false;
 
+    /** When TOTP enrollment was confirmed with a live code (feature #5). */
+    @Column(name = "totp_confirmed_at")
+    private LocalDateTime totpConfirmedAt;
+
     @BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "user_referral_codes", joinColumns = @JoinColumn(name = "user_id"))

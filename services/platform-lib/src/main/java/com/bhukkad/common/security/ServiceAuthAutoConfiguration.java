@@ -1,5 +1,7 @@
 package com.bhukkad.common.security;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,7 +22,8 @@ import org.springframework.context.annotation.Configuration;
 public class ServiceAuthAutoConfiguration {
 
     @Bean
-    public ServiceJwtAuthFilter serviceJwtAuthFilter(ServiceAuthProperties properties) {
-        return new ServiceJwtAuthFilter(properties);
+    public ServiceJwtAuthFilter serviceJwtAuthFilter(ServiceAuthProperties properties,
+                                                     ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return new ServiceJwtAuthFilter(properties, meterRegistryProvider.getIfAvailable());
     }
 }
