@@ -10,9 +10,15 @@
 # JAVA_OPTS below). App services do NOT publish host ports (developer stacks
 # commonly occupy 8080-8095 locally); all API traffic enters via the gateway.
 #
-# Build model: services use services/docker/Dockerfile.prebuilt — run
-#   ./mvnw -f services/pom.xml package -DskipTests && ./services/docker/stage-jars.sh
-# then `docker compose build <svc>` assembles runtime images in seconds.
+# Build model (R-02 consolidation): ALL service images build through the ONE
+# canonical recipe services/docker/Dockerfile.service (ARG MODULE + locked
+# dependency cache + non-root + healthcheck + §4.1 JAVA_OPTS baseline):
+#   docker buildx build -f services/docker/Dockerfile.service \
+#     --build-arg MODULE=<svc> services/
+# Compose below wires exactly that. The per-service Dockerfiles and the
+# prebuilt-jar variant (Dockerfile.prebuilt + stage-jars.sh) were removed —
+# if you need a fast no-compile loop, package once with Maven and point a
+# local override compose file at the jar (do not reintroduce rival recipes).
 
 name: backend
 
@@ -135,7 +141,7 @@ services:
 
   identity:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: identity}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: identity}}
     container_name: backend-identity
     image: backend/identity:dev
     environment:
@@ -166,7 +172,7 @@ services:
 
   restaurant:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: restaurant}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: restaurant}}
     container_name: backend-restaurant
     image: backend/restaurant:dev
     environment:
@@ -175,7 +181,7 @@ services:
 
   order:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: order}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: order}}
     container_name: backend-order
     image: backend/order:dev
     environment:
@@ -186,7 +192,7 @@ services:
 
   payment:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: payment}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: payment}}
     container_name: backend-payment
     image: backend/payment:dev
     environment:
@@ -195,7 +201,7 @@ services:
 
   delivery:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: delivery}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: delivery}}
     container_name: backend-delivery
     image: backend/delivery:dev
     environment:
@@ -207,7 +213,7 @@ services:
 
   notification:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: notification}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: notification}}
     container_name: backend-notification
     image: backend/notification:dev
     environment:
@@ -216,7 +222,7 @@ services:
 
   admin-analytics:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: admin-analytics}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: admin-analytics}}
     container_name: backend-admin-analytics
     image: backend/admin-analytics:dev
     environment:
@@ -231,7 +237,7 @@ services:
   # entry point (host port 8095).
   gateway:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: gateway}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: gateway}}
     container_name: backend-gateway
     image: backend/gateway:dev
     ports: ["8095:8080"]
@@ -263,7 +269,7 @@ services:
 
   search:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: search}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: search}}
     container_name: backend-search
     image: backend/search:dev
     environment:
@@ -272,7 +278,7 @@ services:
 
   survey:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: survey}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: survey}}
     container_name: backend-survey
     image: backend/survey:dev
     environment:
@@ -287,7 +293,7 @@ services:
 
   referral:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: referral}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: referral}}
     container_name: backend-referral
     image: backend/referral:dev
     environment:
@@ -296,7 +302,7 @@ services:
 
   supportticket:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: supportticket}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: supportticket}}
     container_name: backend-supportticket
     image: backend/supportticket:dev
     environment:
@@ -308,7 +314,7 @@ services:
 
   realtime:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: realtime}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: realtime}}
     container_name: backend-realtime
     image: backend/realtime:dev
     environment:
@@ -317,7 +323,7 @@ services:
 
   growth:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: growth}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: growth}}
     container_name: backend-growth
     image: backend/growth:dev
     environment:
@@ -326,7 +332,7 @@ services:
 
   personalization:
     <<: *app-defaults
-    build: {context: ../../, dockerfile: services/docker/Dockerfile.prebuilt, args: {MODULE: personalization}}
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: personalization}}
     container_name: backend-personalization
     image: backend/personalization:dev
     environment:

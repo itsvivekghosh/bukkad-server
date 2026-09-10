@@ -1,0 +1,91 @@
+# Topic seeding from docs/event-catalog.md (the binding topic catalog).
+# Idempotent: creates topics when missing, prints existing state, never alters
+# existing partitions. Runs on every base deployment (restartPolicy: OnFailure
+# + backoffLimit); harmless when topics already exist.
+#
+# Partitions follow the event-catalog ownership table:
+#   * order.events.v1 — primary order lifecycle stream (OrderEventPublisher.TOPIC)
+#     → 6 partitions (highest fan-out: notification, delivery, admin CQRS,
+#     search, survey consumers).
+#   * bhukkad.platform.events — default outbox topic for services without a
+#     dedicated one (identity/restaurant/payment/delivery/notification/survey
+#     fallback) → 6 partitions.
+#   * .dlt topics — dead-letter routes for the per-factory DefaultErrorHandler
+#     (V-10). Partitioned 1:1 with their source so retries preserve order.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-topics-init
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redpanda
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: redpanda
+    spec:
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+      initContainers:
+        - name: wait-for-brokers
+          image: redpandadata/redpanda:v23.3.13
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              for i in $(seq 1 60); do
+                if rpk cluster health \
+                  -X brokers redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092 \
+                  2>/dev/null | grep -q '"is_healthy": true'; then
+                  echo "cluster healthy"; exit 0
+                fi
+                echo "waiting for redpanda cluster health ($i/60)"; sleep 5
+              done
+              echo "cluster never became healthy"; exit 1
+      containers:
+        - name: create-topics
+          image: redpandadata/redpanda:v23.3.13
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              BROKERS=redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
+              # create <topic> <partitions> <replication-factor>
+              # docs/event-catalog.md Topics table + DLQ rule:
+              create() {  # topic partitions rf
+                if rpk topic describe "$1" -X brokers "$BROKERS" >/dev/null 2>&1; then
+                  echo "topic exists: $1"
+                else
+                  rpk topic create "$1" -p "$2" -r "$3" -X brokers "$BROKERS"
+                fi
+              }
+              # Primary catalog topics.
+              create order.events.v1           6 3
+              create bhukkad.platform.events   6 3
+              # DLT routes (G-9: every listener declares a dead-letter route;
+              # V-10 per-factory DefaultErrorHandler). 1:1 with sources.
+              create order.events.v1.dlt           6 3
+              create bhukkad.platform.events.dlt   6 3
+              echo "topic seeding complete:"
+              rpk topic list -X brokers "$BROKERS"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

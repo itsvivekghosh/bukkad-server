@@ -1,0 +1,27 @@
+# Headless Service: stable per-broker DNS for the Kafka bootstrap protocol.
+# Each broker advertises redpanda-<i>.redpanda-headless.bhukkad.svc.cluster.local:9092
+# (the value in k8s/configmap.yaml KAFKA_BOOTSTRAP_SERVERS) so clients resolve
+# individual brokers instead of a round-robin ClusterIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-headless
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redpanda
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: bhukkad
+    component: redpanda
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka
+      protocol: TCP
+    - name: admin
+      port: 9644
+      targetPort: admin
+      protocol: TCP

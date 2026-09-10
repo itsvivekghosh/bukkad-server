@@ -1,0 +1,127 @@
+# =============================================================================
+# Roadmap #14: FluentBit DaemonSet shipping container logs to Loki.
+# Completes the half-manifest: k8s/logging/fluent-bit-configmap.yaml existed
+# with a ${LOKI_HOST} loki output but nothing mounted or ran it.
+#
+# ${LOKI_HOST} wiring: the env var below comes from the cluster config
+# (bhukkad-config), so staging/prod point at different Loki endpoints without
+# touching this DaemonSet. Unset (default) = tail-only, no shipping (a logging
+# outage must never block serving — same fail-open posture as the edge); the
+# ABSENCE of Loki traffic is the observable signal (audit G-2), not a
+# crash-loop.
+#
+# TAIL INPUT: the ConfigMap tails /var/log/containers/*.log (CRI logs,
+# node-global — the only path a DaemonSet can see; the old /tmp/logs/bhukkad
+# in-pod tail could never work from a DaemonSet because services log to
+# pod-local volumes) and enriches with Kubernetes metadata so Loki labels carry
+# namespace/pod/service — see fluent-bit-configmap.yaml in this batch.
+# =============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: bhukkad-fluent-bit
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: logging
+spec:
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: logging
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: logging
+    spec:
+      serviceAccountName: bhukkad-fluent-bit
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: fluent-bit
+          # Pinned 3.x image: ships the out_loki plugin used by the ConfigMap.
+          image: fluent/fluent-bit:3.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # The loki output "Host ${LOKI_HOST}" line is resolved from this
+            # env var by the plugin (fluent-bit expands ${VAR} from its own
+            # process env for plugin options).
+            - name: LOKI_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: bhukkad-config
+                  key: LOKI_HOST
+                  optional: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              if [ -z "${LOKI_HOST}" ]; then
+                echo "LOKI_HOST not set — FluentBit idles (no ship target configured)."
+                # Keep the pod healthy-but-idle instead of crash-looping: a
+                # missing config is an ops signal, not a liveness fault.
+                sleep infinity
+              else
+                exec /fluent-bit/bin/fluent-bit -c /fluent-bit/etc/fluent-bit.conf
+              fi
+          ports:
+            - name: http
+              containerPort: 2020
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/fluent-bit.conf
+              subPath: fluent-bit.conf
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: podlogs
+              mountPath: /var/log/pods
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: bhukkad-fluent-bit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: containers
+          hostPath:
+            path: /var/log/containers
+        - name: podlogs
+          hostPath:
+            path: /var/log/pods
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule

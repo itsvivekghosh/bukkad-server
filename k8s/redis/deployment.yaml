@@ -20,6 +20,7 @@ spec:
         app: bhukkad
         component: redis
     spec:
+      terminationGracePeriodSeconds: 90
       containers:
         - name: redis
           image: redis:7-alpine

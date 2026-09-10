@@ -18,6 +18,7 @@ spec:
         app: bhukkad
         component: nginx
     spec:
+      terminationGracePeriodSeconds: 90
       containers:
         - name: nginx
           image: nginx:1.25-alpine

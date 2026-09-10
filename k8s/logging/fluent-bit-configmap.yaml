@@ -7,16 +7,47 @@ metadata:
     app: bhukkad
     component: logging
 data:
+  # -----------------------------------------------------------------------------
+  # Roadmap #14 — completed with the DaemonSet (k8s/logging/fluent-bit-
+  # daemonset.yaml). The previous half-manifest tailed /tmp/logs/bhukkad/*.log,
+  # a pod-local path no DaemonSet can read; this config tails the node's CRI
+  # container logs (every bhukkad pod on the node) and enriches records with
+  # Kubernetes metadata so Loki labels carry namespace/pod/service.
+  # Host ${LOKI_HOST} is resolved from the DaemonSet's env (bhukkad-config).
+  # -----------------------------------------------------------------------------
   fluent-bit.conf: |
     [SERVICE]
-        Flush        1
-        Log_Level    info
+        Flush         1
+        Log_Level     info
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+        Parsers_File  parsers.conf
 
+    # Node-wide CRI container logs (containerd/k8s convention:
+    # /var/log/containers/*.log -> symlink into /var/log/pods/...).
     [INPUT]
         Name              tail
-        Path              /tmp/logs/bhukkad/*.log
-        Tag               bhukkad.app
-        Refresh_Interval  5
+        Path              /var/log/containers/*.log
+        Exclude_Path      /var/log/containers/*fluent-bit*.log
+        Tag               bhukkad.*
+        Tag_Regex         (?<pod>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)_(?<namespace_name>[^_]+)_(?<container_name>.+)-
+        Parser            cri
+        DB                /var/log/flb_kube.db
+        Mem_Buf_Limit     10MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    # Kubernetes metadata enrichment (pod labels -> Loki labels via the
+    # plugin's auto_kubernetes_labels). Requires the pod-list RBAC in
+    # fluent-bit-rbac.yaml.
+    [FILTER]
+        Name                kubernetes
+        Match               bhukkad.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_Tag_Prefix     bhukkad.
+        Labels              On
+        Annotations         Off
 
     [OUTPUT]
         Name              loki
@@ -25,3 +56,12 @@ data:
         Port              3100
         Labels            app=bhukkad,env=production
         auto_kubernetes_labels on
+
+  parsers.conf: |
+    # CRI (containerd) log line format: <time> <stream> <flag> <message>
+    [PARSER]
+        Name   cri
+        Format regex
+        Regex  ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
