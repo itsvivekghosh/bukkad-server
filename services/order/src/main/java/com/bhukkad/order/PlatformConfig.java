@@ -23,7 +23,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 @Configuration
 @EnableAsync
 @EnableScheduling
-@EnableConfigurationProperties({ScheduledOrderProperties.class, SubscriptionProperties.class})
+@EnableConfigurationProperties({ScheduledOrderProperties.class, SubscriptionProperties.class,
+        OrderSagaProperties.class})
 public class PlatformConfig {
 
     @Bean

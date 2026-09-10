@@ -32,6 +32,10 @@ public class Order {
     public static final String STATUS_CREATED = "CREATED";
     public static final String STATUS_CONFIRMED = "CONFIRMED";
     public static final String STATUS_PLACED = "PLACED";
+    /** Async saga (feature #3): order created + stock reserved, waiting on the payment verdict. */
+    public static final String STATUS_AWAITING_PAYMENT = "AWAITING_PAYMENT";
+    /** Async saga (feature #3): payment verdict was FAILED; stock release is unwinding via outbox. */
+    public static final String STATUS_PAYMENT_FAILED = "PAYMENT_FAILED";
     public static final String STATUS_SCHEDULED = "SCHEDULED";
     public static final String STATUS_PREPARING = "PREPARING";
     public static final String STATUS_READY_FOR_PICKUP = "READY_FOR_PICKUP";

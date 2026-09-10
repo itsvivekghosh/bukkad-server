@@ -25,6 +25,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     List<Order> findByStatusAndScheduledAtLessThanEqual(String status, LocalDateTime scheduledAt, Pageable pageable);
 
+    /** Stuck-order sweep (feature #3 async saga): AWAITING_PAYMENT orders untouched since cutoff. */
+    List<Order> findByStatusAndUpdatedAtLessThanEqual(String status, LocalDateTime updatedAt, Pageable pageable);
+
     Optional<Order> findByOrderNumber(String orderNumber);
 
     long countByCustomerId(Long customerId);

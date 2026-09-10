@@ -74,8 +74,10 @@ class OrderSagaExecutionTest {
     @BeforeEach
     void wire() {
         SagaCoordinator coordinator = new SagaCoordinator(sagaInstanceRepository, sagaStepRepository);
+        // Gate OFF: this suite pins the synchronous batch-A saga semantics.
         service = new OrderService(orderRepository, orderItemRepository, timelineRepository,
-                coordinator, eventPublisher, restaurantClient, paymentServiceClient, tokenProvider);
+                coordinator, eventPublisher, restaurantClient, paymentServiceClient, tokenProvider,
+                new com.bhukkad.order.OrderSagaProperties());
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);

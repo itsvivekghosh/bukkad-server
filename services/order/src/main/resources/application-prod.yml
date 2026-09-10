@@ -10,3 +10,7 @@ spring:
 
 app:
   environment: production
+  order:
+    async-saga:
+      # Feature #3 exit criterion: prod opts into the outbox-driven saga.
+      enabled: true

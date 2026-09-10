@@ -21,6 +21,7 @@ public class RestaurantAdminService {
     private final RestaurantRepository restaurantRepository;
     private final RestaurantEventPublisher eventPublisher;
     private final com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
+    private final MenuEventsPublisher menuEventsPublisher;
 
     @Transactional
     public Restaurant create(String name, String description, Long cuisineId,
@@ -38,6 +39,8 @@ public class RestaurantAdminService {
         restaurant.setIsActive(true);
         Restaurant saved = restaurantRepository.save(restaurant);
         eventPublisher.restaurantCreated(saved.getId(), name);
+        // ADR-002 search sync: the created restaurant enters the search projection.
+        menuEventsPublisher.restaurantUpdated(saved);
         // PERF-3: a new restaurant enters the active feed projection.
         cacheInvalidator.invalidateFeed();
         return saved;
@@ -50,6 +53,9 @@ public class RestaurantAdminService {
         restaurant.setIsActive(active);
         restaurantRepository.save(restaurant);
         eventPublisher.availabilityChanged(restaurantId, active);
+        // ADR-002 search sync: isActive/isOpen drive the search projection's
+        // visibility flags.
+        menuEventsPublisher.restaurantUpdated(restaurant);
         // PERF-3: activation change alters the composite home feed projection.
         cacheInvalidator.invalidateFeed();
         return restaurant;

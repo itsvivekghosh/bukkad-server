@@ -76,6 +76,15 @@ app:
       url: ${PAYMENT_SERVICE_URL:http://localhost:8093}
     supportticket:
       url: ${SUPPORTTICKET_SERVICE_URL:http://localhost:8086}
+  order:
+    async-saga:
+      # Feature #3: outbox-driven payment step of the order saga. Default OFF —
+      # the synchronous SagaCoordinator path (batch A-2025) stays the default;
+      # the prod overlay opts in. Consumers: PaymentSagaEventConsumer (verdicts)
+      # + StuckOrderSweep (chaos recovery).
+      enabled: ${ORDER_ASYNC_SAGA_ENABLED:false}
+      stuck-order-minutes: ${ORDER_ASYNC_SAGA_STUCK_MINUTES:15}
+      sweep-interval-ms: ${ORDER_ASYNC_SAGA_SWEEP_INTERVAL_MS:60000}
   auth:
     jwt:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty

@@ -1,20 +1,14 @@
 package com.bhukkad.search.api;
 
-import com.bhukkad.search.dto.request.MenuItemIndexRequest;
 import com.bhukkad.search.dto.response.AutocompleteSuggestion;
 import com.bhukkad.search.dto.response.UnifiedSearchResponse;
 import com.bhukkad.search.service.SearchService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,16 +45,10 @@ public class SearchController {
         return ResponseEntity.ok(searchService.suggest(q, safeLimit));
     }
 
-    /**
-     * Internal index upsert (service-to-service): the index feed shapes what
-     * customers see, so it is gated to the SERVICE authority (service JWT via
-     * ServiceJwtAuthFilter) and never to ordinary user tokens.
-     */
-    @PostMapping("/internal/menu-items")
-    @Operation(summary = "Upsert a menu-item search document", description = "Service-to-service index feed")
-    @PreAuthorize("hasRole('SERVICE') or hasRole('ADMIN')")
-    public ResponseEntity<Void> indexMenuItem(@Valid @RequestBody MenuItemIndexRequest request) {
-        searchService.indexMenuItem(request);
-        return ResponseEntity.accepted().build();
-    }
+    // ADR-002: the old POST /api/v1/search/internal/menu-items push endpoint
+    // was removed with W2-ORDER-SEARCH. It had zero callers (grep-verified)
+    // and no client ever fed it; population now flows from the restaurant
+    // domain events (SearchSyncEventConsumer) plus the periodic
+    // reconciliation sweep. Delete propagation is event-driven too
+    // (menu_item_deleted).
 }

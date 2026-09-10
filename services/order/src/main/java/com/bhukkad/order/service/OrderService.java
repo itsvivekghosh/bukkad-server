@@ -21,6 +21,7 @@ import com.bhukkad.order.domain.OrderItemRepository;
 import com.bhukkad.order.domain.OrderRepository;
 import com.bhukkad.order.domain.OrderTimelineEvent;
 import com.bhukkad.order.domain.OrderTimelineEventRepository;
+import com.bhukkad.order.OrderSagaProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -65,6 +66,7 @@ public class OrderService {
     private final RestaurantClient restaurantClient;
     private final PaymentServiceClient paymentServiceClient;
     private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
+    private final com.bhukkad.order.OrderSagaProperties asyncSaga;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -103,10 +105,52 @@ public class OrderService {
         // compensation chain and leaves the order CANCELLED:
         //   - CHARGE_PAYMENT failure -> RESERVE_STOCK compensation (releaseStock)
         //   - a completed charge is compensated by refunding it.
+        //
+        // Feature #3 (async saga, app.order.async-saga.enabled=true): the
+        // CHARGE_PAYMENT step becomes outbox-driven. After the stock
+        // reservation succeeds the order flips to AWAITING_PAYMENT and a
+        // payment_requested event is enqueued in the SAME transaction; the
+        // payment service's consumer (W1-MONEY) settles/fails it and the
+        // PaymentSagaEventConsumer drives CONFIRMED/compensation from there.
         String serviceToken = serviceToken();
         List<StockReservationLine> reservationLines = request.items().stream()
                 .map(i -> StockReservationLine.of(i.menuItemId(), i.name(), i.quantity()))
                 .toList();
+
+        if (asyncSaga.isEnabled()) {
+            AtomicReference<Boolean> reserved = new AtomicReference<>(Boolean.FALSE);
+            try {
+                List<StockReservationLine> ack = blockQuietly(
+                        restaurantClient.reserveStock(reservationLines, serviceToken),
+                        "RESERVE_STOCK", orderId);
+                reserved.set(ack != null);
+            } catch (Exception ex) {
+                log.warn("SAGA_STEP_CALL_FAILED | step=RESERVE_STOCK | orderId={} | error={}",
+                        orderId, ex.getMessage());
+            }
+            if (!Boolean.TRUE.equals(reserved.get())) {
+                order.setStatus(Order.STATUS_CANCELLED);
+                orderRepository.save(order);
+                recordTimeline(orderId, "FAILED");
+                eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
+                eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
+                log.warn("ASYNC_ORDER_SAGA_RESERVE_FAILED | orderId={}", orderId);
+                return toResponse(order);
+            }
+            order.setStatus(Order.STATUS_AWAITING_PAYMENT);
+            orderRepository.save(order);
+            recordTimeline(orderId, "PAYMENT_REQUESTED");
+            eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
+            eventPublisher.orderItemsSnapshot(orderId, request.restaurantId(),
+                    request.items().stream()
+                            .map(i -> new OrderEventPublisher.SnapshotItem(i.menuItemId(), i.name(), i.quantity()))
+                            .toList());
+            // G-1: the payment request commits atomically with the order; the
+            // payment verdict comes back through payment.events.v1.
+            eventPublisher.paymentRequested(orderId, request.customerId(), total, order.getCurrency());
+            return toResponse(order);
+        }
+
         AtomicReference<Long> chargedPaymentId = new AtomicReference<>();
 
         SagaStepDefinition reserve = SagaStepDefinition.executionResult(
@@ -159,6 +203,12 @@ public class OrderService {
 
         eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
         eventPublisher.orderStatusChanged(orderId, Order.STATUS_CONFIRMED);
+        // Trending feed (survey OrderItemsSnapshotConsumer contract) — same tx
+        // as the order (deliverable 1).
+        eventPublisher.orderItemsSnapshot(orderId, request.restaurantId(),
+                request.items().stream()
+                        .map(i -> new OrderEventPublisher.SnapshotItem(i.menuItemId(), i.name(), i.quantity()))
+                        .toList());
 
         return toResponse(order);
     }

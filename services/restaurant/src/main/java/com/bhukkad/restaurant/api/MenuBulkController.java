@@ -29,6 +29,7 @@ public class MenuBulkController {
     private final MenuItemRepository menuItemRepository;
     private final RestaurantOwnerController ownerGuard;
     private final com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
+    private final com.bhukkad.restaurant.service.MenuEventsPublisher menuEventsPublisher;
 
     public record BulkItem(Long id, String name, BigDecimal price, Boolean available) {}
 
@@ -68,6 +69,9 @@ public class MenuBulkController {
         cacheInvalidator.invalidateMenu(restaurantId);
         for (MenuItem mi : saved) {
             cacheInvalidator.invalidateMenuItem(mi.getId());
+            // ADR-002 search sync: one menu_item_changed per upserted item,
+            // committed in this same transaction.
+            menuEventsPublisher.menuItemChanged(mi, null);
         }
         return saved;
     }
