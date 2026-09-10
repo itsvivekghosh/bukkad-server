@@ -104,19 +104,25 @@ jobs:
       # regression coverage now = unit + integration runs above plus the
       # nightly-regression workflow (pytest API regression against staging).
 
-      - name: Verify 85% code coverage (JaCoCo)
+      # Coverage gate matches the REAL pom thresholds (services/pom.xml:
+      # 50% line / 20% branch / 30% method per-module BUNDLE floor). The
+      # historical "85%" label lied about what was enforced; the gate itself
+      # is raised only as measured coverage grows (never today, per PERF-5).
+      - name: Verify JaCoCo coverage floor (50% line / 20% branch / 30% method)
         run: ./mvnw -B -f services/pom.xml jacoco:check
 
-      - name: Upload JaCoCo HTML report
+      - name: Upload JaCoCo HTML reports (per module)
+        if: always()
         uses: actions/upload-artifact@v5
         with:
           name: jacoco-report
-          path: target/site/jacoco/
+          path: services/*/target/site/jacoco/
           retention-days: 14
 
       - name: Upload test reports
+        if: always()
         uses: actions/upload-artifact@v5
         with:
           name: test-reports
-          path: target/surefire-reports/
+          path: services/*/target/surefire-reports/
           retention-days: 14
