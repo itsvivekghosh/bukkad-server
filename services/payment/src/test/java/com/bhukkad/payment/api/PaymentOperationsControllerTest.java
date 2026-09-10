@@ -5,7 +5,6 @@ import com.bhukkad.payment.domain.Payment;
 import com.bhukkad.payment.domain.RestaurantSettlement;
 import com.bhukkad.payment.service.AutoRefundService;
 import com.bhukkad.payment.service.CommissionTierService;
-import com.bhukkad.payment.service.DisputeService;
 import com.bhukkad.payment.service.DunningService;
 import com.bhukkad.payment.service.SettlementService;
 import com.bhukkad.payment.domain.SettlementRun;
@@ -30,7 +29,6 @@ class PaymentOperationsControllerTest {
     @Mock private AutoRefundService refundService;
     @Mock private DunningService dunningService;
     @Mock private CommissionTierService commissionTierService;
-    @Mock private DisputeService disputeService;
     @Mock private SettlementService settlementService;
     @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
     @Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();

@@ -91,6 +91,7 @@ public class WalletController {
             String reference) {}
 
     @PostMapping("/internal/wallet/credit")
+    @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
     public WalletResponse credit(@Valid @RequestBody InternalWalletRequest request) {
         // M-1: report/anchor on the balance the atomic update actually
         // persisted (the service returns it); re-reading the wallet here
@@ -101,6 +102,7 @@ public class WalletController {
     }
 
     @PostMapping("/internal/wallet/debit")
+    @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
     public WalletResponse debit(@Valid @RequestBody InternalWalletRequest request) {
         WalletBalance wallet = walletService.debit(request.customerId(), request.amount(),
                 "DEBIT:" + (request.reference() == null ? "" : request.reference()));
@@ -142,14 +144,23 @@ public class WalletController {
     }
 
     /**
-     * Razorpay-style wallet top-up. The dev build has no payment-gateway
-     * credentials configured, so the top-up is simulated as a direct credit
-     * (same ledger, same idempotency reference shape).
+     * Razorpay-style wallet top-up: routes through the idempotent charge path
+     * (feature #1) with the authenticated customer as owner, then reports the
+     * persisted balance. Previously a direct credit with no PSP behind it.
      */
     @PostMapping("/customers/wallet/top-up")
     public WalletResponse selfTopUp(@AuthenticationPrincipal TokenPrincipal principal,
-                                    @RequestParam BigDecimal amount) {
-        return selfAddMoney(principal, amount, "SELF-TOPUP");
+                                    @RequestParam BigDecimal amount,
+                                    @RequestHeader(value = "Idempotency-Key", required = false)
+                                    String idempotencyKey) {
+        Long customerId = requireCustomerId(principal);
+        if (amount == null || amount.signum() <= 0) {
+            throw new com.bhukkad.common.error.BusinessException("amount must be positive");
+        }
+        paymentService.processPayment(0L, customerId, amount, Payment.METHOD_WALLET,
+                idempotencyKey == null || idempotencyKey.isBlank()
+                        ? "self-topup:" + customerId + ":" + amount : idempotencyKey);
+        return paymentMapper.toWalletResponse(walletService.balance(customerId));
     }
 
     @GetMapping("/customers/wallet/transactions")

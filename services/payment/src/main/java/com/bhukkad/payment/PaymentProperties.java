@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.payment")
 public class PaymentProperties {
 
-    private String provider = "simulated";
+    /** Gateway strategy: {@code razorpay} or {@code simulated} (dev default). */
+    private String gateway = "simulated";
     private Razorpay razorpay = new Razorpay();
 
     @Data
@@ -17,5 +18,6 @@ public class PaymentProperties {
         private String keySecret = "";
         private String webhookSecret = "";
         private String currency = "INR";
+        private String baseUrl = "https://api.razorpay.com/v1";
     }
 }

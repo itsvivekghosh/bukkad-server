@@ -1,11 +1,9 @@
 package com.bhukkad.payment.mapper;
 
-import com.bhukkad.payment.api.DisputeResponse;
 import com.bhukkad.payment.api.PaymentResponse;
 import com.bhukkad.payment.api.RestaurantSettlementResponse;
 import com.bhukkad.payment.api.WalletResponse;
 import com.bhukkad.payment.api.WalletTransactionResponse;
-import com.bhukkad.payment.domain.Dispute;
 import com.bhukkad.payment.domain.Payment;
 import com.bhukkad.payment.domain.RestaurantSettlement;
 import com.bhukkad.payment.domain.WalletBalance;
@@ -77,20 +75,6 @@ public class PaymentMapper {
                 .netAmount(settlement.getNetAmount())
                 .status(settlement.getStatus())
                 .createdAt(formatTs(settlement.getCreatedAt()))
-                .build();
-    }
-
-    public DisputeResponse toDisputeResponse(Dispute dispute) {
-        if (dispute == null) return null;
-        return DisputeResponse.builder()
-                .id(dispute.getId())
-                .paymentId(dispute.getPaymentId())
-                .customerId(dispute.getCustomerId())
-                .orderId(dispute.getOrderId())
-                .status(dispute.getStatus())
-                .resolution(dispute.getResolution())
-                .refundAmount(dispute.getAmount())
-                .createdAt(formatTs(dispute.getCreatedAt()))
                 .build();
     }
 

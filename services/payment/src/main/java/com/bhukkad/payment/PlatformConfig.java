@@ -2,6 +2,7 @@ package com.bhukkad.payment;
 
 import com.bhukkad.common.outbox.OutboxClient;
 import com.bhukkad.common.outbox.OutboxEventRepository;
+import com.bhukkad.payment.service.PaymentService;
 import com.bhukkad.payment.settlement.SettlementAutomationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -19,11 +20,17 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @Configuration
 @EnableScheduling
-@EnableConfigurationProperties(SettlementAutomationProperties.class)
+@EnableConfigurationProperties({SettlementAutomationProperties.class, PaymentProperties.class})
 public class PlatformConfig {
 
     @Bean
     public OutboxClient outboxClient(OutboxEventRepository outboxEventRepository) {
         return new OutboxClient(outboxEventRepository);
+    }
+
+    /** Currency source for the charge path (keeps PaymentService decoupled from the full properties). */
+    @Bean
+    public PaymentService.PaymentPropertiesGateway paymentCurrencyGateway(PaymentProperties properties) {
+        return properties.getRazorpay()::getCurrency;
     }
 }

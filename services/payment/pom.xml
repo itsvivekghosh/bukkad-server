@@ -47,6 +47,19 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-aop</artifactId>
 		</dependency>
+		<!-- WebClient for the Razorpay PSP adapter (platform-lib WebClientConfig
+		     stack: RetryFilter + CircuitBreakerFilter). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+		</dependency>
+		<!-- Kafka consumers: dispute_resolved (ADR-001) + payment_requested
+		     (feature #3 pairing). Listener container factory comes from
+		     platform-lib KafkaPlatformConfig. -->
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+		</dependency>
 		<!-- OpenAPI docs (Swagger UI) -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

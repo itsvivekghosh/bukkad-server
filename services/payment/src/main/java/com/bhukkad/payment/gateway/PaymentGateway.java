@@ -13,9 +13,20 @@ public interface PaymentGateway {
 
     GatewayResult refund(Long paymentId, BigDecimal amount);
 
-    record GatewayResult(boolean success, String providerRef, String message) {
+    record GatewayResult(boolean success, String providerRef, String message, String gatewayOrderId) {
+
+        /** Back-compatible 3-field construction (no PSP order reference). */
+        public GatewayResult(boolean success, String providerRef, String message) {
+            this(success, providerRef, message, null);
+        }
+
         public static GatewayResult ok(String providerRef) {
             return new GatewayResult(true, providerRef, "OK");
+        }
+
+        /** Successful charge carrying both the PSP payment and PSP order references. */
+        public static GatewayResult ok(String providerRef, String gatewayOrderId) {
+            return new GatewayResult(true, providerRef, "OK", gatewayOrderId);
         }
 
         public static GatewayResult failed(String message) {

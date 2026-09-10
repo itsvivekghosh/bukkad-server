@@ -8,7 +8,6 @@ import com.bhukkad.payment.mapper.PaymentMapper;
 import com.bhukkad.payment.service.AutoRefundService;
 import com.bhukkad.payment.service.CommissionTierService;
 import com.bhukkad.payment.service.DunningService;
-import com.bhukkad.payment.service.DisputeService;
 import com.bhukkad.payment.service.SettlementService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +35,6 @@ public class PaymentOperationsController {
     private final AutoRefundService refundService;
     private final DunningService dunningService;
     private final CommissionTierService commissionTierService;
-    private final DisputeService disputeService;
     private final SettlementService settlementService;
     private final PaymentMapper paymentMapper;
     private final ObjectMapper objectMapper;

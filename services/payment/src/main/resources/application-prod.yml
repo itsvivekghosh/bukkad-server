@@ -10,3 +10,16 @@ spring:
 
 app:
   environment: production
+  # Feature #1: prod runs the real PSP. The adapter + webhook verifier are
+  # fail-closed: RAZORPAY_WEBHOOK_SECRET must be a real secret (the
+  # RazorpayWebhookPreflight refuses to boot on blank/dev-webhook-secret) and
+  # RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET must be present for the raw-HTTP
+  # charge/refund calls.
+  payment:
+    gateway: ${PAYMENT_GATEWAY:razorpay}
+    razorpay:
+      enabled: ${RAZORPAY_ENABLED:true}
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+      # No dev default here: an unset secret fails the preflight loudly.
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}

@@ -77,6 +77,9 @@ app:
     min-pending-amount: ${SETTLEMENT_MIN_PENDING_AMOUNT:100.00}
     batch-limit: ${SETTLEMENT_BATCH_LIMIT:500}
   payment:
+    # Gateway strategy (feature #1): razorpay | simulated. simulated stays the
+    # dev/test default; the prod overlay MUST set razorpay.
+    gateway: ${PAYMENT_GATEWAY:simulated}
     provider: ${PAYMENT_PROVIDER:simulated}
     razorpay:
       enabled: ${RAZORPAY_ENABLED:false}
@@ -85,6 +88,7 @@ app:
       # Test webhook secret; env-injected in any shared environment.
       webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:dev-webhook-secret}
       currency: INR
+      base-url: ${RAZORPAY_BASE_URL:https://api.razorpay.com/v1}
   auth:
     jwt:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty
