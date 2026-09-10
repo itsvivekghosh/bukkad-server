@@ -2,6 +2,8 @@ package com.bhukkad.referral.config;
 
 import com.bhukkad.common.security.PlatformJwtAuthFilter;
 import com.bhukkad.common.security.PlatformJwtProperties;
+import com.bhukkad.common.security.ServiceAuthProperties;
+import com.bhukkad.common.security.ServiceJwtAuthFilter;
 import com.bhukkad.common.web.SecurityHeadersFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
@@ -25,17 +27,25 @@ import java.nio.charset.StandardCharsets;
  * calls it before signup); everything else requires the gateway-verified JWT
  * (Track A — the dev-only in-memory basic-auth stub was removed per the
  * migration execution plan §0.P4/§Phase0.3).
+ *
+ * <p>The {@code ServiceJwtAuthFilter} (platform-lib) is registered when the
+ * shared mesh secret is configured: it enforces a valid {@code
+ * X-Service-Token} on {@code /api/v1/referrals/internal/**} (identity's
+ * apply/code calls) and grants {@code ROLE_SERVICE} to validated mesh
+ * callers.</p>
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties(PlatformJwtProperties.class)
+@EnableConfigurationProperties({PlatformJwtProperties.class, ServiceAuthProperties.class})
 public class ReferralSecurityConfig {
 
     @Bean
-    public SecurityFilterChain referralSecurityFilterChain(HttpSecurity http,
-                                                           SecurityHeadersFilter securityHeadersFilter,
-                                                           ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter)
+    public SecurityFilterChain referralSecurityFilterChain(
+            HttpSecurity http,
+            SecurityHeadersFilter securityHeadersFilter,
+            ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
+            ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter)
             throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -52,6 +62,11 @@ public class ReferralSecurityConfig {
                         .anyRequest().authenticated());
 
         http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+
+        ServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
+        if (serviceFilter != null) {
+            http.addFilterBefore(serviceFilter, UsernamePasswordAuthenticationFilter.class);
+        }
         PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
         if (filter != null) {
             http.addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);

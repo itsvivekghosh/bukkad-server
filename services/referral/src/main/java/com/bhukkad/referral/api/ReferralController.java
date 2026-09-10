@@ -3,6 +3,7 @@ package com.bhukkad.referral.api;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.referral.dto.request.AffiliateSignupRequest;
 import com.bhukkad.referral.dto.request.ApplyReferralRequest;
+import com.bhukkad.referral.dto.request.InternalCodeRequest;
 import com.bhukkad.referral.dto.request.ReferralValidateRequest;
 import com.bhukkad.referral.dto.response.AffiliateCodeResponse;
 import com.bhukkad.referral.dto.response.AffiliateStatsResponse;
@@ -121,15 +122,37 @@ public class ReferralController {
 
     /**
      * Internal: called by the registration flow to link a new customer to a
-     * referrer and bump the referrer's counters.
+     * referrer and bump the referrer's counters. Idempotent (ADR-005): a
+     * customer already carrying {@code referredBy} is never re-bound and the
+     * reward is credited exactly once.
      */
     @PostMapping("/internal/apply")
     @Operation(summary = "Apply a referral code to a new signup", description = "Service-to-service")
     @PreAuthorize("hasRole('SERVICE') or hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> applyReferral(@Valid @RequestBody ApplyReferralRequest request) {
-        referralService.applyReferral(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> applyReferral(@Valid @RequestBody ApplyReferralRequest request) {
+        ReferralService.ApplyReferralOutcome outcome = referralService.applyReferral(
                 request.customerId(), request.customerEmail(), request.referralCode());
-        return ResponseEntity.accepted().body(ApiResponse.success("Referral applied", null));
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("applied", outcome.applied());
+        body.put("firstBinding", outcome.firstBinding());
+        if (outcome.referrerCustomerId() != null) {
+            body.put("referrerCustomerId", outcome.referrerCustomerId());
+        }
+        return ResponseEntity.accepted().body(ApiResponse.success("Referral processed", body));
+    }
+
+    /**
+     * Internal: single code generator (ADR-005) — identity/growth call this
+     * instead of generating codes themselves. Idempotent per customer.
+     */
+    @PostMapping("/internal/code")
+    @Operation(summary = "Generate (or fetch) a customer's referral code", description = "Service-to-service")
+    @PreAuthorize("hasRole('SERVICE') or hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, String>>> generateCodeInternal(
+            @Valid @RequestBody InternalCodeRequest request) {
+        String referralCode = referralService.generateAndSaveReferralCode(request.customerId());
+        return ResponseEntity.ok(ApiResponse.success("Referral code ready",
+                Map.of("referralCode", referralCode)));
     }
 
     /**
