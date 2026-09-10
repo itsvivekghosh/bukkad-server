@@ -1,6 +1,7 @@
 package com.bhukkad.payment.consumer;
 
 import com.bhukkad.common.event.PlatformEventMessage;
+import com.bhukkad.common.kafka.PoisonEventException;
 import com.bhukkad.payment.AbstractPaymentPostgresTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,10 +20,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ADR-001 replay drill against REAL PostgreSQL: a duplicate
- * {@code dispute_resolved} (same OR different provider eventId, same dispute)
- * → exactly ONE wallet credit. The (DISPUTE_CREDIT, disputeId) idempotency row
- * and the wallet credit commit in one transaction through the module's shared
- * Testcontainers harness.
+ * {@code dispute_resolved} (same dispute) → exactly ONE wallet credit. The
+ * (DISPUTE_CREDIT, disputeId) idempotency row and the wallet credit commit in
+ * one transaction through the module's shared Testcontainers harness. The
+ * listener sees the SERIALIZED envelope (String) exactly as Kafka delivers it.
  */
 @SpringBootTest
 class DisputeResolvedCreditPostgresIntegrationTest extends AbstractPaymentPostgresTest {
@@ -44,21 +45,20 @@ class DisputeResolvedCreditPostgresIntegrationTest extends AbstractPaymentPostgr
         jdbcTemplate.update("DELETE FROM idempotency_records");
     }
 
+    private static String envelope(String payload) {
+        return PlatformEventMessage.of("dispute_resolved", "7", payload).toJson();
+    }
+
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @Test
     void replayDrill_duplicateDisputeResolved_singleCredit() {
         // First delivery credits the wallet.
-        tx.executeWithoutResult(s ->
-                consumer.onDisputeResolved(PlatformEventMessage.of(
-                        "dispute_resolved", "7", PAYLOAD)));
+        tx.executeWithoutResult(s -> consumer.onDisputeResolved(envelope(PAYLOAD)));
 
         // Provider redelivery of the SAME event (same or new eventId).
+        tx.executeWithoutResult(s -> consumer.onDisputeResolved(envelope(PAYLOAD)));
         tx.executeWithoutResult(s ->
-                consumer.onDisputeResolved(PlatformEventMessage.of(
-                        "dispute_resolved", "7", PAYLOAD)));
-        tx.executeWithoutResult(s ->
-                consumer.onDisputeResolved(PlatformEventMessage.of(
-                        "dispute_resolved", "7", PAYLOAD.replace("150.00", "999.00"))));
+                consumer.onDisputeResolved(envelope(PAYLOAD.replace("150.00", "999.00"))));
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM wallet_transactions WHERE reference = 'DISPUTE-7'", Long.class))
@@ -78,9 +78,8 @@ class DisputeResolvedCreditPostgresIntegrationTest extends AbstractPaymentPostgr
         String badPayload = "{\"disputeId\":0,\"orderId\":30,\"customerId\":42,\"refundAmount\":\"150.00\"}";
 
         assertThatThrownBy(() -> tx.executeWithoutResult(s ->
-                consumer.onDisputeResolved(PlatformEventMessage.of(
-                        "dispute_resolved", "0", badPayload))))
-                .isInstanceOf(com.bhukkad.common.kafka.PoisonEventException.class);
+                consumer.onDisputeResolved(envelope(badPayload))))
+                .isInstanceOf(PoisonEventException.class);
 
         // The claim must NOT be burned: a fixed event stays replayable.
         assertThat(jdbcTemplate.queryForObject(

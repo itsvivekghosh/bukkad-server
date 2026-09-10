@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -56,8 +57,10 @@ class DisputeResolvedConsumerTest {
                 isNull(), any())).thenReturn(1);
     }
 
-    private PlatformEventMessage event(String payload) {
-        return PlatformEventMessage.of("dispute_resolved", "7", payload);
+    private String event(String payload) {
+        // The listener consumes the SERIALIZED envelope (String), exactly as
+        // the Kafka record/value deserializer delivers it.
+        return PlatformEventMessage.of("dispute_resolved", "7", payload).toJson();
     }
 
     @Test
@@ -82,10 +85,10 @@ class DisputeResolvedConsumerTest {
 
     @Test
     void otherEventTypes_areDeliberatelySkipped() {
-        PlatformEventMessage orderEvent = PlatformEventMessage.of(
+        var orderEvent = PlatformEventMessage.of(
                 "OrderStatusChanged", "30", "{\"orderId\":30}");
 
-        consumer.onDisputeResolved(orderEvent);
+        consumer.onDisputeResolved(orderEvent.toJson());
 
         verify(walletService, never()).credit(anyLong(), any(), anyString());
         verify(idempotencyRecords, never()).insertIfAbsent(

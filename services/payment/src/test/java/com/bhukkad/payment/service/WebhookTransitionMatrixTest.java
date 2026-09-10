@@ -24,6 +24,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -101,7 +102,10 @@ class WebhookTransitionMatrixTest {
             assertThat(payment).isNotNull();
             assertThat(payment.getStatus()).isEqualTo(c.to());
             verify(paymentRepository).transitionStatus(1L, c.from(), c.to());
+            // Each legal transition enqueues exactly the settled event once;
+            // reset the invocation ledger so verify(...) means THIS case.
             verify(outboxClient).enqueue(any(PlatformEventMessage.class), eq(1L));
+            org.mockito.Mockito.clearInvocations(paymentRepository, outboxClient);
             assertThat(meterRegistry.counter("payment.webhook.illegal.transitions").count())
                     .as("no illegal metric for %s → %s", c.from(), c.to())
                     .isEqualTo(before);

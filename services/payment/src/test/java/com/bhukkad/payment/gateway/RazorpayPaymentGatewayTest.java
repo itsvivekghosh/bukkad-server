@@ -45,6 +45,7 @@ class RazorpayPaymentGatewayTest {
         properties.getRazorpay().setKeyId("key_test");
         properties.getRazorpay().setKeySecret("secret_test");
         WebClient webClient = WebClient.builder()
+                .baseUrl(properties.getRazorpay().getBaseUrl())
                 .filter(new com.bhukkad.common.web.client.RetryFilter(3, java.time.Duration.ofMillis(50)))
                 .build();
         gateway = new RazorpayPaymentGateway(webClient, properties,

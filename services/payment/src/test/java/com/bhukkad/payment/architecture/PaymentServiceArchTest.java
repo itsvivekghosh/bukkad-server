@@ -28,7 +28,11 @@ class PaymentServiceArchTest {
     @Test
     void moneyPathSingleWriter_domainOnlyHasEntityOwners() {
         classes().that().haveSimpleNameEndingWith("Repository")
-                .should().resideInAPackage("com.bhukkad.payment.domain..")
+                .should().resideInAnyPackage(
+                        "com.bhukkad.payment.domain..",
+                        // The shared idempotency_claims adapter is
+                        // infrastructure — it never owns a money-path table.
+                        "com.bhukkad.payment.idempotency..")
                 .check(SERVICE_CLASSES);
     }
 
