@@ -43,6 +43,7 @@ public class MenuOpsController {
     private final com.bhukkad.restaurant.service.DynamicPricingService pricingService;
     private final InventoryAlertRepository inventoryAlertRepository;
     private final com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
+    private final com.bhukkad.restaurant.service.MenuEventsPublisher menuEventsPublisher;
 
     // ------------------------------------------------------------------
     // Menu item CRUD
@@ -103,6 +104,8 @@ public class MenuOpsController {
         MenuItem saved = menuItemRepository.save(item);
         cacheInvalidator.invalidateMenu(saved.getRestaurantId());
         cacheInvalidator.invalidateMenuItem(saved.getId());
+        // ADR-002 search sync: item create/update feeds the menu_item_search projection.
+        menuEventsPublisher.menuItemChanged(saved, restaurantName(saved.getRestaurantId()));
         return saved;
     }
 
@@ -163,6 +166,8 @@ public class MenuOpsController {
         MenuItem saved = menuItemRepository.save(item);
         cacheInvalidator.invalidateMenu(saved.getRestaurantId());
         cacheInvalidator.invalidateMenuItem(saved.getId());
+        // ADR-002 search sync (update path).
+        menuEventsPublisher.menuItemChanged(saved, restaurantName(saved.getRestaurantId()));
         return saved;
     }
 
@@ -179,6 +184,9 @@ public class MenuOpsController {
         menuItemRepository.delete(item);
         cacheInvalidator.invalidateMenu(restaurantId);
         cacheInvalidator.invalidateMenuItem(id);
+        // ADR-002 delete propagation: the search projection removes the row
+        // (no orphan hits).
+        menuEventsPublisher.menuItemDeleted(id);
         return Map.of("message", "Menu item deleted", "id", id);
     }
 
@@ -194,6 +202,8 @@ public class MenuOpsController {
         MenuItem saved = menuItemRepository.save(item);
         cacheInvalidator.invalidateMenu(saved.getRestaurantId());
         cacheInvalidator.invalidateMenuItem(saved.getId());
+        // ADR-002 search sync (availability toggle).
+        menuEventsPublisher.menuItemChanged(saved, restaurantName(saved.getRestaurantId()));
         return saved;
     }
 
@@ -405,6 +415,13 @@ public class MenuOpsController {
     private com.bhukkad.restaurant.domain.MenuCategory menuCategory(Long categoryId) {
         return menuCategoryRepository.findById(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found: " + categoryId));
+    }
+
+    /** Restaurant display name for the search-sync payload (null-safe: item upserts COALESCE). */
+    private String restaurantName(Long restaurantId) {
+        return restaurantRepository.findById(restaurantId)
+                .map(Restaurant::getName)
+                .orElse(null);
     }
 
     private final com.bhukkad.restaurant.domain.MenuCategoryRepository menuCategoryRepository;

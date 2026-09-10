@@ -62,3 +62,21 @@ app:
     search-url: ${SEARCH_SERVICE_URL:http://localhost:8082}
     restaurant-url: ${RESTAURANT_SERVICE_URL:http://localhost:8081}
     menu-url: ${MENU_SERVICE_URL:http://localhost:8083}
+  events:
+    external:
+      # ADR-002 search sync: when enabled+type=kafka the restaurant outbox
+      # stream drives the search projections (SearchSyncEventConsumer). With
+      # the gate off the periodic reconciliation sweep is the only sync path.
+      enabled: false
+      type: log
+      kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        consumer-group: ${KAFKA_CONSUMER_GROUP:search-sync-consumer}
+        platform-topic: ${PLATFORM_EVENTS_TOPIC:search.events.v1}
+        dlq-topic: ${PLATFORM_EVENTS_DLQ_TOPIC:search.events.v1.dlt}
+  search:
+    sync:
+      # Periodic reconciliation sweep (source-of-truth re-read, bounded).
+      enabled: ${SEARCH_SYNC_RECONCILIATION_ENABLED:true}
+      interval-ms: ${SEARCH_SYNC_SWEEP_INTERVAL_MS:300000}
+      restaurants-per-cycle: ${SEARCH_SYNC_RESTAURANTS_PER_CYCLE:20}

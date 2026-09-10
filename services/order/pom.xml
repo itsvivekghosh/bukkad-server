@@ -64,6 +64,12 @@
 			<artifactId>shedlock-spring</artifactId>
 			<version>5.16.0</version>
 		</dependency>
+		<!-- Feature #3 async saga: consumes the payment verdicts (payment.events.v1)
+		     via platform-lib's KafkaPlatformConfig. -->
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+		</dependency>
 
 		<!-- SpringDoc OpenAPI. -->
 		<dependency>

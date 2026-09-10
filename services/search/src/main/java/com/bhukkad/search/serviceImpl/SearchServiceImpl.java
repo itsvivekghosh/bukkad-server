@@ -1,6 +1,5 @@
 package com.bhukkad.search.serviceImpl;
 
-import com.bhukkad.search.dto.request.MenuItemIndexRequest;
 import com.bhukkad.search.dto.response.AutocompleteSuggestion;
 import com.bhukkad.search.dto.response.MenuItemSearchResult;
 import com.bhukkad.search.dto.response.RestaurantSearchResult;
@@ -10,7 +9,6 @@ import com.bhukkad.search.entity.RestaurantSearchEntity;
 import com.bhukkad.search.repository.MenuItemSearchRepository;
 import com.bhukkad.search.repository.RestaurantSearchRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,63 +27,6 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
                              MenuItemSearchRepository menuItemSearchRepository) {
         this.restaurantSearchRepository = restaurantSearchRepository;
         this.menuItemSearchRepository = menuItemSearchRepository;
-    }
-
-    /**
-     * Upserts a menu-item search document, fed by the monolith on menu-item
-     * create/update. Preserves enrichment fields (e.g. restaurantName) that
-     * this lightweight payload does not carry.
-     */
-    @Override
-    @Transactional
-    public void indexMenuItem(MenuItemIndexRequest request) {
-        if (request == null || request.id() == null) {
-            return;
-        }
-        MenuItemSearchEntity entity = menuItemSearchRepository.findById(request.id())
-                .orElseGet(() -> {
-                    MenuItemSearchEntity fresh = new MenuItemSearchEntity();
-                    fresh.setId(request.id());
-                    return fresh;
-                });
-        entity.setName(request.name());
-        if (request.description() != null) {
-            entity.setDescription(request.description());
-        }
-        if (request.categoryName() != null) {
-            entity.setCategoryName(request.categoryName());
-        }
-        if (request.price() != null) {
-            entity.setPrice(request.price());
-        }
-        if (request.originalPrice() != null) {
-            entity.setOriginalPrice(request.originalPrice());
-        }
-        if (request.discountPercentage() != null) {
-            entity.setDiscountPercentage(request.discountPercentage());
-        }
-        if (request.available() != null) {
-            entity.setAvailable(request.available());
-        }
-        if (request.foodType() != null) {
-            entity.setFoodType(request.foodType());
-        }
-        if (request.isVeg() != null) {
-            entity.setIsVeg(request.isVeg());
-        }
-        if (request.imageUrl() != null) {
-            entity.setImageUrl(request.imageUrl());
-        }
-        if (request.preparationTime() != null) {
-            entity.setPreparationTime(request.preparationTime());
-        }
-        if (request.bestseller() != null) {
-            entity.setBestseller(request.bestseller());
-        }
-        if (request.restaurantName() != null) {
-            entity.setRestaurantName(request.restaurantName());
-        }
-        menuItemSearchRepository.save(entity);
     }
 
     @Override

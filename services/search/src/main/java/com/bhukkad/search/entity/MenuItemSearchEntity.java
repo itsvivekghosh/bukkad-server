@@ -13,6 +13,8 @@ public class MenuItemSearchEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    /** Owning restaurant (search-sync V10; reconciliation sweep scoping). */
+    private Long restaurantId;
     private String name;
     private String description;
     private String categoryName;
@@ -35,6 +37,14 @@ public class MenuItemSearchEntity {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getRestaurantId() {
+        return restaurantId;
+    }
+
+    public void setRestaurantId(Long restaurantId) {
+        this.restaurantId = restaurantId;
     }
 
     public String getName() {
