@@ -49,21 +49,26 @@ public class EdgeFeatureFlags {
     private static final Logger log = LoggerFactory.getLogger(EdgeFeatureFlags.class);
 
     private final ObjectProvider<ReactiveStringRedisTemplate> redisProvider;
+    /** Dedicated relay provider (G-2 isolation: subscribe must NOT hit the shared pool). */
+    private final ObjectProvider<ReactiveStringRedisTemplate> relayProvider;
     private final FeatureFlagProperties properties;
 
     private final Map<String, String> overrides = new ConcurrentHashMap<>();
     private final AtomicLong lastLoadNanos = new AtomicLong(0);
     private Disposable subscription;
 
-    public EdgeFeatureFlags(ObjectProvider<ReactiveStringRedisTemplate> redisProvider,
-                            FeatureFlagProperties properties) {
+    public EdgeFeatureFlags(
+            @org.springframework.beans.factory.annotation.Qualifier("reactiveStringRedisTemplate") ObjectProvider<ReactiveStringRedisTemplate> redisProvider,
+            @org.springframework.beans.factory.annotation.Qualifier("sseRelayReactiveStringRedisTemplate") ObjectProvider<ReactiveStringRedisTemplate> relayProvider,
+            FeatureFlagProperties properties) {
         this.redisProvider = redisProvider;
+        this.relayProvider = relayProvider;
         this.properties = properties;
     }
 
     @PostConstruct
     void subscribeInvalidations() {
-        ReactiveStringRedisTemplate redis = redisProvider.getIfAvailable();
+        ReactiveStringRedisTemplate redis = relayProvider.getIfAvailable();
         if (redis == null) {
             log.info("EDGE_FLAGS_REDIS_ABSENT | kill-switch operates on configured defaults only");
             return;
