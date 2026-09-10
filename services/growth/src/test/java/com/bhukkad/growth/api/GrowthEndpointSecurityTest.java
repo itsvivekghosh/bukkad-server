@@ -48,6 +48,8 @@ class GrowthEndpointSecurityTest {
     @Mock private CampaignService campaignService;
     @Mock private ReferralTrackingService referralService;
     @Mock private RateLimitService rateLimitService;
+    /** Real defaults (reward/cap numbers) — W1-LOYALTY wired this into the controller. */
+    @org.mockito.Spy private GrowthProperties growthProperties = new GrowthProperties();
 
     @InjectMocks
     private GrowthController controller;

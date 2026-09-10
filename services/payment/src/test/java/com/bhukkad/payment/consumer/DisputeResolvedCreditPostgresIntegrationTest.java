@@ -1,7 +1,7 @@
 package com.bhukkad.payment.consumer;
 
 import com.bhukkad.common.event.PlatformEventMessage;
-import com.bhukkad.payment.DisputeResolvedConsumer;
+import com.bhukkad.payment.AbstractPaymentPostgresTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

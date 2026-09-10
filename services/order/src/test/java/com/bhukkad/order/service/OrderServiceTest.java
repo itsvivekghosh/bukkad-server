@@ -45,6 +45,8 @@ class OrderServiceTest {
     @Mock private RestaurantClient restaurantClient;
     @Mock private PaymentServiceClient paymentServiceClient;
     @Mock private ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
+    /** Real defaults (async-saga OFF → synchronous path, the property-gate contract). */
+    @org.mockito.Spy private com.bhukkad.order.OrderSagaProperties asyncSaga = new com.bhukkad.order.OrderSagaProperties();
 
     @InjectMocks private OrderService service;
 

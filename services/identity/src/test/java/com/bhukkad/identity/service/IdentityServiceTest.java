@@ -52,6 +52,9 @@ class IdentityServiceTest {
     private ReferralService referralService;
     @Mock
     private com.bhukkad.identity.service.RefreshTokenService refreshTokens;
+    /** TOTP challenge hook wired into login (W1-AUTH); default unstubbed = not required. */
+    @Mock
+    private TotpService totpService;
 
     @InjectMocks
     private IdentityService service;

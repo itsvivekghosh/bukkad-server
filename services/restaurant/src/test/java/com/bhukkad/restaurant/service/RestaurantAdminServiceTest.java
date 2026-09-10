@@ -27,6 +27,7 @@ class RestaurantAdminServiceTest {
 
     @Mock private RestaurantRepository restaurantRepository;
     @Mock private RestaurantEventPublisher eventPublisher;
+    @Mock private com.bhukkad.restaurant.service.MenuEventsPublisher menuEventsPublisher;
     @Mock private com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
     @InjectMocks private RestaurantAdminService service;
 

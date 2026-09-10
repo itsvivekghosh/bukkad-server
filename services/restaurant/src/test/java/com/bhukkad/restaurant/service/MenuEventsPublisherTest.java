@@ -91,7 +91,7 @@ class MenuEventsPublisherTest {
         assertThat(node.path("id").asLong()).isEqualTo(42L);
         assertThat(node.path("restaurantId").asLong()).isEqualTo(7L);
         assertThat(node.path("name").asText()).isEqualTo("Butter Chicken");
-        assertThat(node.path("price").asText()).isEqualTo("289.50");
+        assertThat(node.path("price").decimalValue()).isEqualByComparingTo("289.50");
         assertThat(node.path("available").asBoolean()).isTrue();
         assertThat(node.path("isVeg").asBoolean()).isFalse();
         assertThat(node.path("bestseller").asBoolean()).isTrue();

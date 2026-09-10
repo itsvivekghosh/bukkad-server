@@ -1,6 +1,7 @@
 package com.bhukkad.common.security;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.core.env.Environment;
 
 /**
@@ -29,6 +30,16 @@ public record PlatformJwtProperties(
     String audience,
     Boolean hmacGraceEnabled
 ) {
+    /**
+     * Explicit canonical constructor: with two constructors present, Boot
+     * cannot infer the bind target and falls back to JavaBean binding ("No
+     * default constructor found") — declaring this one makes the choice
+     * unambiguous (canonical = binding).
+     */
+    @ConstructorBinding
+    public PlatformJwtProperties {
+    }
+
     /** Grace defaults ON (the cutover window is the default state now). */
     public boolean hmacGrace() {
         return hmacGraceEnabled == null || hmacGraceEnabled;
