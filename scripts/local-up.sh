@@ -9,6 +9,11 @@ cd "$(dirname "$0")/.."
 
 export APP_AUTH_JWT_SECRET="$(grep -m1 '^JWT_SECRET=' services/docker/.env | cut -d= -f2-)"
 export APP_AUTH_SERVICE_JWT_SECRET="${APP_AUTH_JWT_SECRET}"
+# P0 secret-hygiene: application-local.yml now reads ${JWT_SECRET:}/${SERVICE_JWT_SECRET:}
+# (no committed dev secret). identity's JwtProperties hard-fails below 32 chars,
+# so the local profile must receive the canonical variable names too.
+export JWT_SECRET="${APP_AUTH_JWT_SECRET}"
+export SERVICE_JWT_SECRET="${APP_AUTH_SERVICE_JWT_SECRET}"
 export SPRING_PROFILES_ACTIVE=local
 export TRACING_SAMPLE_PROBABILITY=0.0
 export EVENTS_EXTERNAL_ENABLED=false
