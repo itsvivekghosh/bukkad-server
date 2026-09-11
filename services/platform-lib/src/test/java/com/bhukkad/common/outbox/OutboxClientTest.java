@@ -8,13 +8,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class OutboxClientTest {
@@ -95,5 +99,68 @@ class OutboxClientTest {
         assertThatThrownBy(() -> client().enqueue("OrderCreated", 1L, "{}"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("db down");
+    }
+
+    // ── P-06 wake channel ────────────────────────────────────────────────────
+
+    @Test
+    void enqueue_withWakePublisher_wakesOnlyAfterCommit() {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            OutboxWakePublisher wake = mock(OutboxWakePublisher.class);
+            OutboxClient c = client();
+            c.wakePublisher = wake;
+
+            c.enqueue("OrderCreated", 42L, "{}");
+
+            // Before commit: no wake — the row is not durable yet, so waking
+            // the relay would race the insert.
+            verify(wake, never()).publishAfterCommit(any());
+
+            fireAfterCommit();
+
+            verify(wake).publishAfterCommit("OrderCreated");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void enqueue_withWakePublisher_rolledBackTransaction_neverWakes() {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            OutboxWakePublisher wake = mock(OutboxWakePublisher.class);
+            OutboxClient c = client();
+            c.wakePublisher = wake;
+
+            c.enqueue("OrderCreated", 42L, "{}");
+            // Rollback path: only afterCompletion(ROLLED_BACK) fires — no wake
+            // for an event whose row was never committed (phantom-event guard).
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+
+            verifyNoInteractions(wake);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void enqueue_wakeDisabled_registersNoSynchronization() {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            // wakePublisher stays null — the disabled-by-default gate
+            // (app.outbox.wake.enabled=false) means no bean and no registration.
+            client().enqueue("OrderCreated", 42L, "{}");
+
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    private static void fireAfterCommit() {
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(TransactionSynchronization::afterCommit);
     }
 }

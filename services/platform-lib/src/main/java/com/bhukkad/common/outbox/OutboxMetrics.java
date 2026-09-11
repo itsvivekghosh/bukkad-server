@@ -15,11 +15,28 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>The counts are refreshed on a fixed schedule (not per scrape) so Prometheus
  * scraping never fires a DB query — a {@code COUNT(*) WHERE status=...} on the
  * indexed status column is cheap even on a large outbox, but there is no reason
- * to run it at scrape frequency on a hot fleet.
+ * to run it at scrape frequency on a hot fleet.</p>
+ *
+ * <p>Metrics owned by the outbox pipeline (consistent {@code bhukkad.outbox.*}
+ * naming; Prometheus renders dots as underscores):</p>
+ * <ul>
+ *   <li>{@code bhukkad.outbox.pending} — poller backlog gauge (here);</li>
+ *   <li>{@code bhukkad.outbox.dead_letter} — DLQ depth gauge (here);</li>
+ *   <li>{@code bhukkad.outbox.publish.lag} — publish-lag histogram in ms
+ *       (P-06: now minus row createdAt at successful publish; recorded by
+ *       {@link OutboxPollPublisher} at ack time, Prometheus
+ *       {@code bhukkad_outbox_publish_lag_ms_*}). With the P-06 wake channel
+ *       enabled this is the evidence for the E2E p99 &lt;2s gate.</li>
+ *   <li>{@code outbox.dlq} — legacy dead-letter counter (PERF-2 alert metric,
+ *       kept for dashboard continuity).</li>
+ * </ul>
  */
 @Slf4j
 @Component
 public class OutboxMetrics {
+
+    /** Publish-lag histogram name (P-06); base unit ms, recorded at publish ack. */
+    public static final String PUBLISH_LAG_METRIC_NAME = "bhukkad.outbox.publish.lag";
 
     private final OutboxEventRepository outboxEventRepository;
     private final DeadLetterEventService deadLetterEventService;

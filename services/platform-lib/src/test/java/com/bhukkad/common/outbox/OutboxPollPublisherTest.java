@@ -2,6 +2,7 @@ package com.bhukkad.common.outbox;
 
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -186,9 +187,52 @@ class OutboxPollPublisherTest {
         verify(repository, never()).save(any(OutboxEvent.class));
     }
 
+    // ── P-06 publish-lag metric ──────────────────────────────────────────────
+
     @Test
-    void claim_skipsRowsDeferredByBackoff_repositoryFilter() {
-        // The relay defers the next_attempt_at filter to the claim query; a row
+    void drainBatch_publishAck_recordsPublishLagInMs() {
+        OutboxEvent e = event(1L, PlatformEventMessage.of("OrderCreated", "1", "{\"id\":1}"));
+        e.setCreatedAt(LocalDateTime.now().minusSeconds(2));
+        stubClaim(e);
+        when(publisher.publishForResult(any(PlatformEventMessage.class))).thenReturn(true);
+
+        relay.drainBatch();
+
+        DistributionSummary lag = meterRegistry.get(OutboxMetrics.PUBLISH_LAG_METRIC_NAME).summary();
+        assertThat(lag.count()).as("one successful publish = one lag sample").isEqualTo(1);
+        assertThat(lag.totalAmount())
+                .as("lag ≈ the 2s between createdAt and publish, in ms")
+                .isBetween(1_000.0, 60_000.0);
+    }
+
+    @Test
+    void drainBatch_rowWithoutCreatedAt_skipsLagSample() {
+        OutboxEvent e = event(1L, PlatformEventMessage.of("OrderCreated", "1", "{\"id\":1}"));
+        // no createdAt (unit-test fixture without auditing)
+        stubClaim(e);
+        when(publisher.publishForResult(any(PlatformEventMessage.class))).thenReturn(true);
+
+        relay.drainBatch();
+
+        // The summary is registered eagerly (like the OutboxMetrics gauges);
+        // a skipped row must not add a sample.
+        assertThat(meterRegistry.get(OutboxMetrics.PUBLISH_LAG_METRIC_NAME).summary().count()).isZero();
+    }
+
+    @Test
+    void drainBatch_publishFailure_recordsNoLagSample() {
+        OutboxEvent e = event(1L, PlatformEventMessage.of("OrderCreated", "1", "{\"id\":1}"));
+        e.setCreatedAt(LocalDateTime.now().minusSeconds(2));
+        stubClaim(e);
+        when(publisher.publishForResult(any(PlatformEventMessage.class))).thenReturn(false);
+
+        relay.drainBatch();
+
+        assertThat(meterRegistry.get(OutboxMetrics.PUBLISH_LAG_METRIC_NAME).summary().count()).isZero();
+    }
+
+    @Test
+    void claim_skipsRowsDeferredByBackoff_repositoryFilter() {        // The relay defers the next_attempt_at filter to the claim query; a row
         // claiming at a future next_attempt_at is simply not selected.
         when(repository.findPendingForProcessing(eq("PENDING"), anyInt(), any(LocalDateTime.class)))
                 .thenReturn(List.of());
