@@ -22,6 +22,11 @@ public interface ReferralRewardLedgerRepository extends JpaRepository<ReferralRe
      * {@code order:<orderId>}) and the one-reward-per-referee cap. Returns
      * 1 when the ledger row was appended, 0 when it already existed (never a
      * constraint violation, so a concurrent duplicate cannot poison the tx).
+     * {@code ON CONFLICT DO NOTHING} closes the check-then-insert race: two
+     * workers can both pass the NOT EXISTS probes before either commits, and
+     * the unique constraints (uq_referral_rewards_event,
+     * uq_referral_rewards_per_referee) turn the loser into a 0-row insert
+     * instead of an aborted transaction.
      */
     @Modifying
     @Query(value = """
@@ -33,6 +38,7 @@ public interface ReferralRewardLedgerRepository extends JpaRepository<ReferralRe
                               WHERE event_type = :eventType AND event_id = :eventId)
               AND NOT EXISTS (SELECT 1 FROM referral_rewards_ledger
                               WHERE referred_customer_id = :referredId AND reward_type = :rewardType)
+            ON CONFLICT DO NOTHING
             """, nativeQuery = true)
     int insertRewardIfAbsent(@Param("receiverId") Long receiverId, @Param("referredId") Long referredId,
                              @Param("rewardType") String rewardType, @Param("amount") double amount,

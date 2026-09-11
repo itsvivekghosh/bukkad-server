@@ -155,7 +155,7 @@ API_CATALOG = [
         "auth": None,
         "body_key": "register_customer",
         "expected": [200],
-        "extract": {"customer_token": "data.token", "customer_id": "data.userId"},
+        "extract": {"customer_token": "token", "customer_id": "customerId"},
         "phase": "setup",
     },
     {
@@ -167,7 +167,7 @@ API_CATALOG = [
         "auth": None,
         "body_key": "register_owner",
         "expected": [200],
-        "extract": {"owner_token": "data.token", "owner_id": "data.userId"},
+        "extract": {"owner_token": "token", "owner_id": "customerId"},
         "phase": "setup",
     },
     {
@@ -179,7 +179,7 @@ API_CATALOG = [
         "auth": None,
         "body_key": "register_agent",
         "expected": [200],
-        "extract": {"agent_token": "data.token", "agent_id": "data.userId"},
+        "extract": {"agent_token": "token", "agent_id": "customerId"},
         "phase": "setup",
     },
     {
@@ -191,7 +191,7 @@ API_CATALOG = [
         "auth": None,
         "body_key": "login_customer",
         "expected": [200],
-        "extract": {"customer_token": "data.token"},
+        "extract": {"customer_token": "token"},
         "phase": "setup",
     },
     {
@@ -203,7 +203,7 @@ API_CATALOG = [
         "auth": None,
         "body_key": "login_owner",
         "expected": [200],
-        "extract": {"owner_token": "data.token"},
+        "extract": {"owner_token": "token"},
         "phase": "setup",
     },
     {
@@ -215,7 +215,7 @@ API_CATALOG = [
         "auth": None,
         "body_key": "login_agent",
         "expected": [200],
-        "extract": {"agent_token": "data.token"},
+        "extract": {"agent_token": "token"},
         "phase": "setup",
     },
     {
@@ -412,7 +412,7 @@ API_CATALOG = [
         "auth": "customer",
         "body_key": "address",
         "expected": [200],
-        "extract": {"address_id": "data.id"},
+        "extract": {"address_id": "id"},
     },
     {
         "group": "Customer",
@@ -441,7 +441,7 @@ API_CATALOG = [
         "path": "/api/v1/customers/referral",
         "auth": "customer",
         "expected": [200],
-        "extract": {"referral_code": "data.referralCode"},
+        "extract": {"referral_code": "referralCode"},
     },
     {
         "group": "Referral",
@@ -521,7 +521,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["order_id"],
         "optional": True,
-        "extract": {"tracking_token": "data.trackingToken"},
+        "extract": {"tracking_token": "trackingToken"},
     },
     {
         "group": "Customer",
@@ -572,7 +572,7 @@ API_CATALOG = [
         "auth": "owner",
         "body_key": "restaurant",
         "expected": [200],
-        "extract": {"restaurant_id": "data.id"},
+        "extract": {"restaurant_id": "id"},
     },
     {
         "group": "Restaurant",
@@ -708,7 +708,7 @@ API_CATALOG = [
         "body_key": "category",
         "expected": [200],
         "requires": ["restaurant_id"],
-        "extract": {"category_id": "data.id"},
+        "extract": {"category_id": "id"},
     },
     {
         "group": "Menu",
@@ -730,7 +730,7 @@ API_CATALOG = [
         "body_key": "menu_item",
         "expected": [200],
         "requires": ["category_id"],
-        "extract": {"menu_item_id": "data.id"},
+        "extract": {"menu_item_id": "id"},
     },
     {
         "group": "Menu",
@@ -820,7 +820,7 @@ API_CATALOG = [
         "body_key": "cart_add",
         "expected": [200],
         "requires": ["menu_item_id"],
-        "extract": {"cart_item_id": "data.items.0.id"},
+        "extract": {"cart_item_id": "items.0.id"},
     },
     {
         "group": "Cart",
@@ -883,7 +883,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["restaurant_id", "address_id"],
         "headers": {"Idempotency-Key": "{idempotency_key}"},
-        "extract": {"order_id": "data.id", "order_number": "data.orderNumber"},
+        "extract": {"order_id": "id", "order_number": "orderNumber"},
     },
     {
         "group": "Orders",
@@ -947,7 +947,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["restaurant_id", "address_id"],
         "headers": {"Idempotency-Key": "{idempotency_key}"},
-        "extract": {"scheduled_order_id": "data.id", "scheduled_order_status": "data.status"},
+        "extract": {"scheduled_order_id": "id", "scheduled_order_status": "status"},
         "optional": True,
     },
     {
@@ -960,7 +960,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["order_id"],
         "optional": True,
-        "extract": {"order_id": "data.id"},
+        "extract": {"order_id": "id"},
     },
     {
         "group": "Orders",
@@ -1128,7 +1128,7 @@ API_CATALOG = [
         "body_key": "coupon",
         "expected": [200],
         "requires": ["restaurant_id"],
-        "extract": {"coupon_id": "data.id", "coupon_code": "data.code"},
+        "extract": {"coupon_id": "id", "coupon_code": "code"},
     },
     # ── Disputes ───────────────────────────────────────────────────────────────
     {
@@ -1142,7 +1142,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["order_id"],
         "optional": True,
-        "extract": {"dispute_id": "data.id"},
+        "extract": {"dispute_id": "id"},
     },
     {
         "group": "Disputes",
@@ -1209,7 +1209,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["order_id"],
         "optional": True,
-        "extract": {"review_id": "data.id"},
+        "extract": {"review_id": "id"},
     },
     {
         "group": "Reviews",
@@ -1385,7 +1385,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["admin_token"],
         "optional": True,
-        "extract": {"affiliate_id": "data.id"},
+        "extract": {"affiliate_id": "id"},
     },
     {
         "group": "Admin",
@@ -1443,7 +1443,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["admin_token"],
         "optional": True,
-        "extract": {"tenant_id": "data.id"},
+        "extract": {"tenant_id": "id"},
     },
     {
         "group": "Admin",
@@ -2061,7 +2061,7 @@ API_CATALOG = [
         "expected": [200],
         "requires": ["address_id"],
         "headers": {"Idempotency-Key": "{idempotency_key}"},
-        "extract": {"order_id": "data.0.id"}
+        "extract": {"order_id": "0.id"}
     },
     {
         "group": "Orders",
@@ -2357,7 +2357,7 @@ API_CATALOG = [
         "auth": "agent",
         "body_key": "delivery_batch",
         "expected": [200, 400],
-        "extract": {"batch_id": "data.batchId"},
+        "extract": {"batch_id": "batchId"},
     },
     {
         "group": "Delivery",
@@ -2441,7 +2441,7 @@ API_CATALOG = [
         "auth": "customer",
         "body_key": "gift_card_purchase",
         "expected": [200],
-        "extract": {"gift_card_code": "data.code"},
+        "extract": {"gift_card_code": "code"},
     },
     {
         "group": "Gift Cards",
@@ -2500,7 +2500,7 @@ API_CATALOG = [
         "auth": "customer",
         "body_key": "support_ticket",
         "expected": [200],
-        "extract": {"ticket_id": "data.id"},
+        "extract": {"ticket_id": "id"},
     },
     {
         "group": "Growth & Operations",
@@ -2519,7 +2519,7 @@ API_CATALOG = [
         "path": "/api/v1/customers/membership/plans",
         "auth": "customer",
         "expected": [200],
-        "extract": {"plan_id": "data.0.id"},
+        "extract": {"plan_id": "0.id"},
     },
     {
         "group": "Growth & Operations",
@@ -2573,7 +2573,7 @@ API_CATALOG = [
         "body_key": "pricing_rule",
         "expected": [200],
         "requires": ["restaurant_id"],
-        "extract": {"pricing_rule_id": "data.id"},
+        "extract": {"pricing_rule_id": "id"},
     },
     {
         "group": "Growth & Operations",
@@ -2626,7 +2626,7 @@ API_CATALOG = [
         "auth": "owner",
         "expected": [200],
         "requires": ["restaurant_id"],
-        "extract": {"alert_id": "data.0.id"},
+        "extract": {"alert_id": "0.id"},
     },
     {
         "group": "Inventory",
@@ -2679,7 +2679,7 @@ API_CATALOG = [
         "body_key": "delivery_zone",
         "expected": [200],
         "requires": ["admin_token"],
-        "extract": {"zone_id": "data.id"},
+        "extract": {"zone_id": "id"},
     },
     {
         "group": "Admin",
@@ -2723,7 +2723,7 @@ API_CATALOG = [
         "body_key": "promotion_campaign",
         "expected": [201],
         "requires": ["admin_token"],
-        "extract": {"campaign_id": "data.id"},
+        "extract": {"campaign_id": "id"},
     },
     {
         "group": "Admin",
@@ -2766,7 +2766,7 @@ API_CATALOG = [
         "body_key": "promo_banner",
         "expected": [201],
         "requires": ["admin_token"],
-        "extract": {"banner_id": "data.id"},
+        "extract": {"banner_id": "id"},
     },
     {
         "group": "Admin",
@@ -3498,7 +3498,7 @@ API_CATALOG = [
         },
         "auth": "customer",
         "extract": {
-            "group_order_id": "data.id"
+            "group_order_id": "id"
         }
     },
     {
@@ -3764,7 +3764,7 @@ API_CATALOG = [
         ],
         "auth": "customer",
         "extract": {
-            "tenant_id": "data.id"
+            "tenant_id": "id"
         }
     },
     {
@@ -4019,7 +4019,7 @@ API_CATALOG = [
         },
         "auth": "admin",
         "extract": {
-            "city_id": "data.id"
+            "city_id": "id"
         }
     },
     {
@@ -4183,7 +4183,7 @@ API_CATALOG = [
         },
         "auth": "admin",
         "extract": {
-            "api_key_id": "data.id"
+            "api_key_id": "id"
         }
     },
     {
@@ -4215,7 +4215,7 @@ API_CATALOG = [
         },
         "auth": "owner",
         "extract": {
-            "menu_version_id": "data.id"
+            "menu_version_id": "id"
         }
     },
     {
@@ -4255,7 +4255,7 @@ API_CATALOG = [
         },
         "auth": "customer",
         "extract": {
-            "subscription_id": "data.id"
+            "subscription_id": "id"
         }
     },
     {

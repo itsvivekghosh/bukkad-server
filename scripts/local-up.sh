@@ -7,8 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export JWT_SECRET="$(grep -m1 '^JWT_SECRET=' services/docker/.env | cut -d= -f2-)"
-export SERVICE_JWT_SECRET="$JWT_SECRET"
+export APP_AUTH_JWT_SECRET="$(grep -m1 '^JWT_SECRET=' services/docker/.env | cut -d= -f2-)"
+export APP_AUTH_SERVICE_JWT_SECRET="${APP_AUTH_JWT_SECRET}"
 export SPRING_PROFILES_ACTIVE=local
 export TRACING_SAMPLE_PROBABILITY=0.0
 export EVENTS_EXTERNAL_ENABLED=false

@@ -65,7 +65,9 @@ public class IdempotencyRecord {
         /** Kafka consumer event-id dedupe (PERF-2/V-10: poison-safe replay). */
         KAFKA_CONSUME,
         /** Admin CQRS projection dedupe (PERF-2/V-12: replay must not double count). */
-        ADMIN_PROJECTION
+        ADMIN_PROJECTION,
+        /** Growth loyalty points credit (ADR-005 / audit feature #4). */
+        LOYALTY_CREDIT
     }
 
     public enum IdempotencyStatus {

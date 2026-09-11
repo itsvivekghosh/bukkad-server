@@ -42,6 +42,7 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
     @Autowired private PaymentService paymentService;
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private OutboxClient outboxClient;
+    @Autowired private org.springframework.context.ApplicationContext applicationContext;
 
     private StubGateway stubGateway;
     private Object previousGatewayBean;
@@ -130,23 +131,36 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
     @Test
     void declinedCharge_claimMarkedFailed_retryRecharges() {
         String key = "replay-decline-1";
-        // First attempt: PSP declines (PENDING row created, then FAILED).
+        // Swap the PSP for a stub so the first authorize declines (the
+        // simulated gateway would approve a 60.00 charge), then restore.
+        stubGateway = new StubGateway();
+        stubGateway.next = PaymentGateway.GatewayResult.failed("Simulated decline: card rejected");
+        previousGatewayBean = applicationContext.getBean(PaymentGateway.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(paymentService, "paymentGateway", stubGateway);
         try {
-            paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key);
-            throw new AssertionError("expected PaymentGatewayException");
-        } catch (PaymentGatewayException expected) {
-            // terminal outcome surfaced to the caller
-        }
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT status FROM payments WHERE idempotency_key = ?", String.class, key))
-                .isEqualTo("FAILED");
+            // First attempt: PSP declines (PENDING row created, then FAILED).
+            try {
+                paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key);
+                throw new AssertionError("expected PaymentGatewayException");
+            } catch (PaymentGatewayException expected) {
+                // terminal outcome surfaced to the caller
+            }
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT status FROM payments WHERE idempotency_key = ?", String.class, key))
+                    .isEqualTo("FAILED");
 
-        // Second attempt re-runs the unit (claim released, no residue).
-        Payment retry = paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key);
-        assertThat(retry.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
-        assertThat(countOutbox("payment_settled")).isEqualTo(1);
-        assertThat(count("payments", "status = 'FAILED'")).isEqualTo(1);
-        assertThat(count("payments", "status = 'SETTLED'")).isEqualTo(1);
+            // Second attempt re-runs the unit (claim released, no residue);
+            // the PSP approves this time (transient decline, retry settles).
+            stubGateway.next = PaymentGateway.GatewayResult.ok("SIM-PROV-RETRY");
+            Payment retry = paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key);
+            assertThat(retry.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
+            assertThat(countOutbox("payment_settled")).isEqualTo(1);
+            assertThat(count("payments", "status = 'FAILED'")).isEqualTo(1);
+            assertThat(count("payments", "status = 'SETTLED'")).isEqualTo(1);
+        } finally {
+            org.springframework.test.util.ReflectionTestUtils.setField(
+                    paymentService, "paymentGateway", previousGatewayBean);
+        }
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

@@ -228,6 +228,13 @@ public class ReferralServiceImpl implements ReferralService {
             if (referralCodeRepository.insertReferralRow(customerId, newCode(tailLengthFor(attempt)), null) == 1) {
                 return;
             }
+            // 0 rows: either this code is taken (draw a new one) or a
+            // concurrent twin already created this customer's row
+            // (uq_user_referral_codes_customer_id + ON CONFLICT DO NOTHING,
+            // V11) — a twin row means creation is done, not a failure.
+            if (referralCodeRepository.findByCustomerId(customerId).isPresent()) {
+                return;
+            }
             log.debug("Referral code collision on create, retrying | customerId={} | attempt={}", customerId, attempt);
         }
         throw new BusinessException("Could not generate a unique referral code");

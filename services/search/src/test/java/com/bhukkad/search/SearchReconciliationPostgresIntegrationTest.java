@@ -5,14 +5,21 @@ import com.bhukkad.search.repository.MenuItemSearchRepository;
 import com.bhukkad.search.sync.SearchReconciliationSweep;
 import com.bhukkad.search.sync.SearchSourceClient;
 import com.bhukkad.search.sync.SearchSyncProjectionService;
+import net.javacrumbs.shedlock.core.LockConfiguration;
+import net.javacrumbs.shedlock.core.LockProvider;
+import net.javacrumbs.shedlock.core.SimpleLock;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -23,6 +30,16 @@ import static org.mockito.Mockito.when;
  * rows the source no longer contains (delete propagation). The source HTTP
  * client is mocked at the boundary — the sweep logic, SQL upserts and the
  * per-restaurant transaction boundary run against real PostgreSQL.
+ *
+ * <p>The sweep is also guarded by ShedLock ({@code @SchedulerLock}). The
+ * {@code @Scheduled} fixedDelay run fires once at context startup and holds
+ * the shedlock row for {@code lockAtLeastFor}, which would silently SKIP the
+ * direct {@code sweep.sweep()} invocation under test. The {@link LockProvider}
+ * is therefore mocked to always grant, which both neutralises the startup run
+ * (unstubbed {@code lock()} returns null → skip) and lets each test execute
+ * the sweep synchronously. Isolation is handled explicitly: the projection
+ * table is cleared before/after every test because the sweep commits each
+ * restaurant's repair in its own transaction.</p>
  */
 @SpringBootTest(properties = "app.search.sync.interval-ms=3600000")
 class SearchReconciliationPostgresIntegrationTest extends AbstractSearchPostgresTest {
@@ -38,6 +55,21 @@ class SearchReconciliationPostgresIntegrationTest extends AbstractSearchPostgres
 
     @MockBean
     private SearchSourceClient sourceClient;
+
+    @MockBean
+    private LockProvider lockProvider;
+
+    @BeforeEach
+    void isolateProjectionTableAndGrantSweepLock() {
+        menuItemSearchRepository.deleteAllInBatch();
+        SimpleLock alwaysGrant = () -> { };
+        when(lockProvider.lock(any(LockConfiguration.class))).thenReturn(Optional.of(alwaysGrant));
+    }
+
+    @AfterEach
+    void cleanProjectionTable() {
+        menuItemSearchRepository.deleteAllInBatch();
+    }
 
     @Test
     void sweep_repairsDriftedRows_andRemovesStaleOnes() {

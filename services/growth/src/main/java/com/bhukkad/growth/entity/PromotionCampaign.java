@@ -75,9 +75,9 @@ public class PromotionCampaign {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
         }
+        updatedAt = LocalDateTime.now();
     }
 
-    @PrePersist
     @PreUpdate
     void stampUpdated() {
         updatedAt = LocalDateTime.now();

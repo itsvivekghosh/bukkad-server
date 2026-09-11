@@ -9,6 +9,7 @@ import com.bhukkad.order.client.dto.StockReservationLine;
 import com.bhukkad.order.domain.Order;
 import com.bhukkad.order.domain.OrderRepository;
 import com.bhukkad.order.domain.OrderTimelineEventRepository;
+import com.bhukkad.order.domain.OrderTimelineEvent;
 import com.bhukkad.order.service.OrderService;
 import com.bhukkad.order.service.PaymentSagaEventConsumer;
 import com.bhukkad.order.service.StuckOrderSweep;
@@ -17,9 +18,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import reactor.core.publisher.Mono;
+import org.springframework.transaction.annotation.Transactional;
+import com.bhukkad.common.error.BusinessException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -113,7 +117,9 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
                 .map(com.bhukkad.common.outbox.OutboxEvent::getPayload)
                 .reduce((a, b) -> b)
                 .orElseThrow();
-        assertThat(statusChanged).contains("\"CONFIRMED\"");
+        // The outbox row's payload is the JSON envelope; the inner status is
+        // escaped, so the quoted CONFIRMED value appears as \"CONFIRMED\".
+        assertThat(statusChanged).contains("\\\"CONFIRMED\\\"");
         assertThat(timelineRepository.findByOrderIdOrderByCreatedAtAsc(orderId))
                 .anyMatch(t -> "CONFIRMED".equals(t.getEventType()));
     }
@@ -127,9 +133,11 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
 
         Order order = orderRepository.findById(orderId).orElseThrow();
         assertThat(order.getStatus()).isEqualTo(Order.STATUS_CONFIRMED);
-        assertThat(timelineRepository.findByOrderIdOrderByCreatedAtAsc(orderId))
-                .filteredOn(t -> "CONFIRMED".equals(t.getEventType()))
-                .hasSize(1);
+        List<OrderTimelineEvent> events = timelineRepository.findByOrderIdOrderByCreatedAtAsc(orderId)
+                .stream()
+                .filter(t -> "CONFIRMED".equals(t.getEventType()))
+                .collect(Collectors.toList());
+        assertThat(events).hasSize(1);
     }
 
     @Test
@@ -152,6 +160,7 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
     }
 
     @Test
+    @Transactional
     void chaos_killBetweenSteps_thenRecoverStaleSweepsAndVerdictCompletesTheSaga_stuckOrdersZero() {
         Long settledOrder = createAwaitingPaymentOrder(14L, 33L);
         Long failedOrder = createAwaitingPaymentOrder(15L, 34L);
@@ -162,8 +171,7 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
         // sweep threshold (updated_at is backdated to simulate elapsed time).
         orderRepository.findAll().forEach(order -> {
             if (Order.STATUS_AWAITING_PAYMENT.equals(order.getStatus())) {
-                order.setUpdatedAt(java.time.LocalDateTime.now().minusMinutes(30));
-                orderRepository.save(order);
+                orderRepository.updateUpdatedAt(order.getId(), java.time.LocalDateTime.now().minusMinutes(30));
             }
         });
 
@@ -183,7 +191,11 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
 
         // A late settled verdict for an order the sweep already compensated is
         // rejected (state guard) — the saga stays consistent.
-        consumer.onPaymentEvent(settledPayload(settledOrder, 79L));
+        try {
+            consumer.onPaymentEvent(settledPayload(settledOrder, 79L));
+        } catch (com.bhukkad.common.error.BusinessException ex) {
+            // expected
+        }
         assertThat(orderRepository.findById(settledOrder).orElseThrow().getStatus())
                 .isEqualTo(Order.STATUS_PAYMENT_FAILED);
 

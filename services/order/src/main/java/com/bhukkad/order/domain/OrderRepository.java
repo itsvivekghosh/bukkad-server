@@ -65,4 +65,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             DELETE FROM orders WHERE id IN (SELECT id FROM moved)
             """, nativeQuery = true)
     int archiveOldOrders(@Param("cutoff") LocalDate cutoff, @Param("limit") int limit);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Order o SET o.updatedAt = :updatedAt WHERE o.id = :id")
+    void updateUpdatedAt(@Param("id") Long id, @Param("updatedAt") LocalDateTime updatedAt);
 }

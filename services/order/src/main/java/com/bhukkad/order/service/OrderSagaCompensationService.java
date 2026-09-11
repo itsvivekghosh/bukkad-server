@@ -6,6 +6,8 @@ import com.bhukkad.order.client.dto.StockReservationLine;
 import com.bhukkad.order.domain.Order;
 import com.bhukkad.order.domain.OrderItemRepository;
 import com.bhukkad.order.domain.OrderRepository;
+import com.bhukkad.order.domain.OrderTimelineEvent;
+import com.bhukkad.order.domain.OrderTimelineEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,7 @@ public class OrderSagaCompensationService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderTimelineEventRepository timelineRepository;
     private final OrderEventPublisher eventPublisher;
 
     /**
@@ -62,7 +65,9 @@ public class OrderSagaCompensationService {
     /**
      * Confirms the order on {@code payment_settled} and emits the dispatch
      * signal (an {@code OrderStatusChanged → CONFIRMED} outbox event, which
-     * delivery/notification already consume). Idempotent via the status guard.
+     * delivery/notification already consume). Records the CONFIRMED timeline
+     * entry so the async confirmation is observable like the synchronous saga
+     * path. Idempotent via the status guard.
      */
     @Transactional
     public void confirmOnPaymentSettled(Long orderId, Long paymentId) {
@@ -78,6 +83,10 @@ public class OrderSagaCompensationService {
         }
         order.setStatus(Order.STATUS_CONFIRMED);
         orderRepository.save(order);
+        OrderTimelineEvent timeline = new OrderTimelineEvent();
+        timeline.setOrderId(orderId);
+        timeline.setEventType(Order.STATUS_CONFIRMED);
+        timelineRepository.save(timeline);
         eventPublisher.orderStatusChanged(orderId, Order.STATUS_CONFIRMED);
         log.info("ORDER_SAGA_CONFIRMED | orderId={} | paymentId={}", orderId, paymentId);
     }

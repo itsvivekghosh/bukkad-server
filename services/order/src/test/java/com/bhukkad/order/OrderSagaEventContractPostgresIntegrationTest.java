@@ -153,6 +153,8 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
             // W1-MONEY consumer contract — EXACT shape.
             assertThat(payload.path("orderId").asLong()).isEqualTo(response.id());
             assertThat(payload.path("customerId").asLong()).isEqualTo(2L);
+            // Server-computed money is canonical scale-2 (createOrder re-prices
+            // from the menu snapshot and setScale(2, HALF_UP) the total).
             assertThat(payload.path("amount").asText()).isEqualTo("12.50");
             assertThat(payload.path("currency").asText()).isEqualTo("INR");
             assertThat(payload.path("idempotencyKey").asText()).isEqualTo("ORDER-" + response.id());

@@ -24,6 +24,10 @@ public interface UserReferralCodeRepository extends JpaRepository<UserReferralCo
      * {@code WHERE NOT EXISTS} makes the insert a no-op (0 rows) when the
      * code is taken, instead of a constraint violation that would poison the
      * transaction. {@code uk_referral_code} remains the hard backstop.
+     * {@code ON CONFLICT (customer_id) DO NOTHING} makes a concurrent first
+     * apply for the same customer a benign 0-row insert as well
+     * (uq_user_referral_codes_customer_id, V11): the caller re-reads the
+     * winner's row instead of erroring.
      */
     @Modifying
     @Query(value = """
@@ -31,6 +35,7 @@ public interface UserReferralCodeRepository extends JpaRepository<UserReferralCo
                 (customer_id, referral_code, referred_by, referrals_count, referral_bonus_earned, created_at)
             SELECT :customerId, :code, :referredBy, 0, 0, CURRENT_TIMESTAMP
             WHERE NOT EXISTS (SELECT 1 FROM user_referral_codes WHERE referral_code = :code)
+            ON CONFLICT (customer_id) DO NOTHING
             """, nativeQuery = true)
     int insertReferralRow(@Param("customerId") Long customerId, @Param("code") String code,
                           @Param("referredBy") Long referredBy);
