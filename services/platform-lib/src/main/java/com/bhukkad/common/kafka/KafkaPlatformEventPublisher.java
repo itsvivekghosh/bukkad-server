@@ -15,9 +15,14 @@ import java.util.concurrent.TimeUnit;
 /**
  * Publishes a {@link PlatformEventMessage} envelope to Kafka when the
  * platform is enabled and a {@link KafkaTemplate} is available (plan §6.2).
- * When gated off, {@link #publish} is a no-op and {@link #publishForResult}
+ * Events are written to the service's single BASE platform topic — consumers
+ * subscribe to that topic and dispatch on the {@code eventType} inside the
+ * envelope (producer→consumer topic parity is pinned by
+ * {@code KafkaTopicParityTest}).
+ *
+ * <p>When gated off, {@link #publish} is a no-op and {@link #publishForResult}
  * reports failure ({@code false}) — it must never claim success for a message
- * it will not send (PERF-2/B2 blackhole fix).
+ * it will not send (PERF-2/B2 blackhole fix).</p>
  *
  * <p>Two publish modes:
  * <ul>
@@ -58,7 +63,10 @@ public class KafkaPlatformEventPublisher {
             log.debug("KAFKA_DISABLED | eventType={} | eventId={}", message.eventType(), message.eventId());
             return;
         }
-        String topic = properties.topicPrefix() + message.eventType().toLowerCase();
+        // Base platform topic only (see KafkaPlatformConfig): consumers
+        // subscribe to the base topic and switch on eventType — a per-type
+        // suffixed topic would be consumed by nobody and seeded by nothing.
+        String topic = properties.topic();
         try {
             kafkaTemplate.send(topic, message.aggregateId(), message.toJson());
             log.info("KAFKA_PUBLISHED | topic={} | eventId={} | eventType={}", topic, message.eventId(), message.eventType());
@@ -87,7 +95,9 @@ public class KafkaPlatformEventPublisher {
             log.debug("KAFKA_DISABLED | eventType={} | eventId={}", message.eventType(), message.eventId());
             return false;
         }
-        String topic = properties.topicPrefix() + message.eventType().toLowerCase();
+        // Base platform topic only (see publish) — must match the topics the
+        // @KafkaListener consumers subscribe to.
+        String topic = properties.topic();
         try {
             CompletableFuture<SendResult<String, String>> future =
                     kafkaTemplate.send(topic, message.aggregateId(), message.toJson());

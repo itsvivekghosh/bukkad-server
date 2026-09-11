@@ -61,7 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest {
 
     private static final RedpandaContainer REDPANDA;
-    private static final String TOPIC = "bhukkad.ordercreated";
+    private static final String TOPIC = "bhukkad.platform.events";
 
     static {
         if (!DockerClientFactory.instance().isDockerAvailable()) {
@@ -177,7 +177,7 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
                 new DeadLetterEventService(deadLetterRepository, repository);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         if (withBroker) {
-            KafkaProperties props = new KafkaProperties(true, "bhukkad.", "it-group");
+            KafkaProperties props = new KafkaProperties(true, TOPIC, "it-group");
             Map<String, Object> cfg = Map.of(
                     ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, REDPANDA.getBootstrapServers(),
                     ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -194,7 +194,7 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
         // Enabled publisher pointed at a dead port: the real send attempt times
         // out / errors, so publishForResult returns false and the row is
         // re-queued PENDING with backoff (or dead-lettered at maxRetries).
-        KafkaProperties props = new KafkaProperties(true, "bhukkad.", "it-dead-group");
+        KafkaProperties props = new KafkaProperties(true, TOPIC, "it-dead-group");
         Map<String, Object> cfg = Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:1",
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
