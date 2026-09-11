@@ -29,6 +29,10 @@ public record PlatformJwtProperties(
     String audience,
     Boolean hmacGraceEnabled
 ) {
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
+    public PlatformJwtProperties {
+    }
+
     /** Grace defaults ON (the cutover window is the default state now). */
     public boolean hmacGrace() {
         return hmacGraceEnabled == null || hmacGraceEnabled;
