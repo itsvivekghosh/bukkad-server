@@ -22,10 +22,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class RestaurantAdminServiceCacheHookTest {
 
-    @Mock private RestaurantRepository restaurantRepository;
-    @Mock private RestaurantEventPublisher eventPublisher;
-    @Mock private MenuCacheInvalidator cacheInvalidator;
-    @InjectMocks private RestaurantAdminService service;
+@Mock private RestaurantRepository restaurantRepository;
+@Mock private RestaurantEventPublisher eventPublisher;
+@Mock private MenuCacheInvalidator cacheInvalidator;
+@Mock private MenuEventsPublisher menuEventsPublisher;
+@InjectMocks private RestaurantAdminService service;
 
     @Test
     void updateAvailability_invalidatesFeedCache() {

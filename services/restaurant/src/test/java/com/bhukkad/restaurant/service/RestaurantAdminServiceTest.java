@@ -25,10 +25,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class RestaurantAdminServiceTest {
 
-    @Mock private RestaurantRepository restaurantRepository;
-    @Mock private RestaurantEventPublisher eventPublisher;
-    @Mock private com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
-    @InjectMocks private RestaurantAdminService service;
+@Mock private RestaurantRepository restaurantRepository;
+@Mock private RestaurantEventPublisher eventPublisher;
+@Mock private com.bhukkad.restaurant.service.cache.MenuCacheInvalidator cacheInvalidator;
+@Mock private com.bhukkad.restaurant.service.MenuEventsPublisher menuEventsPublisher;
+@InjectMocks private RestaurantAdminService service;
 
     @Test
     void create_savesAndPublishes() {

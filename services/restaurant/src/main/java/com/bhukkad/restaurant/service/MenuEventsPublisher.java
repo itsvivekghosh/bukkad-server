@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -57,7 +58,7 @@ public class MenuEventsPublisher {
         payload.put("restaurantId", item.getRestaurantId());
         payload.put("name", item.getName());
         payload.put("description", item.getDescription());
-        payload.put("price", item.getPrice());
+        payload.put("price", item.getPrice() == null ? null : item.getPrice().setScale(2, RoundingMode.HALF_UP).toPlainString());
         payload.put("originalPrice", item.getOriginalPrice());
         payload.put("discountPercentage", item.getDiscountPercentage());
         payload.put("available", Boolean.TRUE.equals(item.getIsAvailable()));

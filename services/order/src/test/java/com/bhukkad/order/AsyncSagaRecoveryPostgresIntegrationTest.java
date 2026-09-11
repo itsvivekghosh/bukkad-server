@@ -107,7 +107,7 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
                 .map(com.bhukkad.common.outbox.OutboxEvent::getPayload)
                 .reduce((a, b) -> b)
                 .orElseThrow();
-        assertThat(statusChanged).contains("\"CONFIRMED\"");
+        assertThat(statusChanged).contains("\"status\":\"CONFIRMED\"");
         assertThat(timelineRepository.findByOrderIdOrderByCreatedAtAsc(orderId))
                 .anyMatch(t -> "CONFIRMED".equals(t.getEventType()));
     }
