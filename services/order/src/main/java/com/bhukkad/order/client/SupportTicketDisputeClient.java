@@ -1,11 +1,12 @@
 package com.bhukkad.order.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
@@ -16,15 +17,21 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the SupportTicket service (dispute operations).
  *
- * <p>Uses WebClient with built-in resilience: retry (3 attempts, 1s backoff),
- * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).
- * Every call carries the mesh service token on {@code X-Service-Token} —
- * supportticket authorizes dispute surfaces behind role guards, so tokenless
- * mesh legs used to be rejected with 401 and silently swallowed into empty
- * responses (the admin dispute console appeared to return no data).</p>
+ * <p>The WebClient comes from the platform factory ({@link
+ * PlatformWebClientBuilderFactory}, audit G-13/P-05): the bounded JVM-wide
+ * connection pool, 2 s connect / 5 s response timeouts, transient-only
+ * idempotent retry (3 attempts, 1s backoff) and a per-target circuit breaker
+ * ({@code supportticket}). Every call carries the mesh service token on
+ * {@code X-Service-Token} — supportticket authorizes dispute surfaces behind
+ * role guards, so tokenless mesh legs used to be rejected with 401 and
+ * silently swallowed into empty responses (the admin dispute console appeared
+ * to return no data).</p>
  */
 @Component
 public class SupportTicketDisputeClient {
+
+    /** Breaker/metric target name — one breaker for all supportticket calls. */
+    private static final String TARGET = "supportticket";
 
     private final WebClient webClient;
     private final org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider;
@@ -32,20 +39,19 @@ public class SupportTicketDisputeClient {
     public SupportTicketDisputeClient(
             @Value("${app.services.supportticket.url}") String baseUrl,
             org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
-            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
+            org.springframework.beans.factory.ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.authTokenProvider = authTokenProvider;
-        this.webClient = WebClient.builder()
+        // Mesh auth: stamp X-Service-Token when service auth is enabled;
+        // supportticket rejects tokenless dispute calls.
+        this.webClient = PlatformWebClientBuilderFactory.forTarget(TARGET,
+                        meterRegistryProvider.getIfAvailable())
+                .build()
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("supportticket", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
-                // Mesh auth: stamp X-Service-Token when service auth is
-                // enabled; supportticket rejects tokenless dispute calls.
                 .filter((request, next) -> {
                     String token = meshToken();
                     return next.exchange(token == null ? request
-                            : org.springframework.web.reactive.function.client.ClientRequest
-                                    .from(request).header("X-Service-Token", token).build());
+                            : ClientRequest.from(request).header("X-Service-Token", token).build());
                 })
                 .build();
     }

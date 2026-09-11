@@ -29,6 +29,16 @@ public class AgentCodWallet {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal balance = BigDecimal.ZERO;
 
+    /**
+     * Optimistic lock (audit V-02 finish, runbook step 2). The money path
+     * keeps its pessimistic FOR UPDATE read as the primary serialization; the
+     * version is the second fence: a stale managed write outside the lock
+     * window fails loudly instead of clobbering the row.
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version = 0L;
+
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();

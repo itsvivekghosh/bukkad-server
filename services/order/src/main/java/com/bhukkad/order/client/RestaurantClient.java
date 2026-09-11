@@ -1,11 +1,11 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
-import com.bhukkad.order.client.dto.MenuItemDto;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
 import com.bhukkad.order.client.dto.StockReservationLine;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -20,26 +20,36 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the Restaurant service.
  *
- * <p>Uses WebClient with built-in resilience: retry (3 attempts, 1s backoff),
- * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).</p>
+ * <p>The WebClient comes from the platform factory ({@link
+ * PlatformWebClientBuilderFactory}, audit G-13/P-05): the bounded JVM-wide
+ * connection pool, 2 s connect / 5 s response timeouts, transient-only
+ * idempotent retry (3 attempts, 1s backoff), and a per-target circuit breaker
+ * ({@code restaurant}, 50% failure threshold, 10s open state). Per-call
+ * timeouts on the read surface are kept.</p>
  */
 @Component
 public class RestaurantClient {
 
+    /** Breaker/metric target name — one breaker for all restaurant calls. */
+    private static final String TARGET = "restaurant";
+
     private final WebClient webClient;
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
-        this(baseUrl, (org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>) null);
+        this(baseUrl, (MeterRegistry) null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
-                            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
-        this.webClient = WebClient.builder()
+                            org.springframework.beans.factory.ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this(baseUrl, meterRegistryProvider.getIfAvailable());
+    }
+
+    RestaurantClient(String baseUrl, MeterRegistry meterRegistry) {
+        this.webClient = PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
+                .build()
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("restaurant", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 
