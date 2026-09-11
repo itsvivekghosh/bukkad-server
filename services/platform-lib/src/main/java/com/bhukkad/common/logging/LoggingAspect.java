@@ -31,13 +31,19 @@ public class LoggingAspect {
         this.objectMapper = new ObjectMapper();
     }
 
-    @Pointcut("within(com.bhukkad.controller..*)")
+    // P3 structural: the reactor layout has no top-level com.bhukkad.controller
+    // / ...repository packages (those were monolith paths — the pointcuts below
+    // the old names matched zero beans, silently disabling all timing logs).
+    // Retargeted to the actual per-service package conventions under services/:
+    // <service>.api (controllers), <service>.serviceImpl (services),
+    // <service>.domain / <service>.repository (Spring Data repos).
+    @Pointcut("within(com.bhukkad..api..*)")
     public void controllerMethods() {}
 
-    @Pointcut("within(com.bhukkad.serviceImpl..*)")
+    @Pointcut("within(com.bhukkad..serviceImpl..*)")
     public void serviceImplMethods() {}
 
-    @Pointcut("within(com.bhukkad.repository..*)")
+    @Pointcut("within(com.bhukkad..domain..*) || within(com.bhukkad..repository..*)")
     public void repositoryMethods() {}
 
     // ==================== CONTROLLER - DEBUG ONLY (dev only) ====================

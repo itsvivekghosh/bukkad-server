@@ -44,7 +44,12 @@ management:
 logging: {level: {com.bhukkad: INFO}}
 
 app:
-  environment: production
+  # P3 dead-config sweep (grep-verified, services tree): removed
+  # app.environment (zero consumers; every env value is injected via the
+  # spring profiles), app.service.search-url and app.service.menu-url
+  # (self/menu URLs were never referenced — the only outbound call is the
+  # restaurant sync below). Survey's app.service.{order,customer}-url lives
+  # in the SURVEY module and is owned by another batch — not touched here.
   auth:
     jwt:
       secret: ${JWT_SECRET:}
@@ -59,9 +64,8 @@ app:
       allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
       enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
   service:
-    search-url: ${SEARCH_SERVICE_URL:http://localhost:8082}
+    # Only restaurant-url has a consumer today (SearchSourceClient sync).
     restaurant-url: ${RESTAURANT_SERVICE_URL:http://localhost:8081}
-    menu-url: ${MENU_SERVICE_URL:http://localhost:8083}
   events:
     external:
       # ADR-002 search sync: when enabled+type=kafka the restaurant outbox
@@ -75,6 +79,14 @@ app:
         platform-topic: ${PLATFORM_EVENTS_TOPIC:search.events.v1}
         dlq-topic: ${PLATFORM_EVENTS_DLQ_TOPIC:search.events.v1.dlt}
   search:
+    fuzzy:
+      # P-08 open product decision, shipped OFF. When true, /api/v1/search
+      # ranks via word_similarity() over the V11 pg_trgm ground work (typo
+      # tolerant). The default escaped LIKE path + V9 varchar_pattern_ops
+      # prefix indexes stay authoritative until product flips this flag.
+      enabled: ${SEARCH_FUZZY_ENABLED:false}
+      # word_similarity() cutoff used by the fuzzy queries (pg_trgm default).
+      similarity-threshold: ${SEARCH_FUZZY_SIMILARITY_THRESHOLD:0.3}
     sync:
       # Periodic reconciliation sweep (source-of-truth re-read, bounded).
       enabled: ${SEARCH_SYNC_RECONCILIATION_ENABLED:true}

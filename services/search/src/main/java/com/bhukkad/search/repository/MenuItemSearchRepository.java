@@ -35,6 +35,28 @@ public interface MenuItemSearchRepository extends JpaRepository<MenuItemSearchEn
     List<MenuItemSearchEntity> searchNamePrefix(@Param("prefix") String lowercasedEscapedPrefix, Pageable pageable);
 
     /**
+     * P-08 OPTION (P3), off by default: word-similarity ranking over the same
+     * columns as {@link #searchText} (see
+     * {@code RestaurantSearchRepository#searchTextFuzzy} for gate and
+     * ranking semantics); {@code term} is plain lowercased text, no LIKE
+     * escaping applies.
+     */
+    @Query(value = """
+            SELECT m.* FROM menu_item_search m
+            WHERE word_similarity(:term, m.name) > :threshold
+               OR word_similarity(:term, m.description) > :threshold
+               OR word_similarity(:term, m.category_name) > :threshold
+               OR word_similarity(:term, m.food_type) > :threshold
+            ORDER BY GREATEST(word_similarity(:term, m.name),
+                              word_similarity(:term, m.description),
+                              word_similarity(:term, m.category_name),
+                              word_similarity(:term, m.food_type)) DESC
+            """, nativeQuery = true)
+    List<MenuItemSearchEntity> searchTextFuzzy(@Param("term") String lowercasedTerm,
+                                               @Param("threshold") double threshold,
+                                               Pageable pageable);
+
+    /**
      * ADR-002 search sync: idempotent upsert of the full document keyed by
      * the menu-item id (the projection PK IS the source id). {@code COALESCE}
      * preserves enrichment columns the event payload does not carry

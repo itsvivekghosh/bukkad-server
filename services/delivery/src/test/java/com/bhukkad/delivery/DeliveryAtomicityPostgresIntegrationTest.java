@@ -42,7 +42,10 @@ import static org.mockito.Mockito.doAnswer;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(DeliveryService.class)
+// RiderProximityMatcher is required by DeliveryService's constructor; with
+// app.delivery.geo-matching.enabled left false it always defers to the legacy
+// findFirst pick exercised by these tests.
+@Import({DeliveryService.class, com.bhukkad.delivery.service.RiderProximityMatcher.class})
 class DeliveryAtomicityPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
 
     @Autowired private DeliveryService deliveryService;

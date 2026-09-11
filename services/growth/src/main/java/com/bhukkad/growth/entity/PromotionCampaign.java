@@ -64,6 +64,18 @@ public class PromotionCampaign {
     @Column(name = "ends_at")
     private LocalDateTime endsAt;
 
+    @Column(name = "buy_quantity")
+    private Integer buyQuantity;
+
+    @Column(name = "get_quantity")
+    private Integer getQuantity;
+
+    @Column(name = "get_discount_percent")
+    private Integer getDiscountPercent;
+
+    @Column(name = "target_segment", length = 50)
+    private String targetSegment;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

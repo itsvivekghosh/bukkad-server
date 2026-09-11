@@ -1,5 +1,6 @@
 package com.bhukkad.search.serviceImpl;
 
+import com.bhukkad.search.config.SearchFuzzyProperties;
 import com.bhukkad.search.dto.response.AutocompleteSuggestion;
 import com.bhukkad.search.dto.response.MenuItemSearchResult;
 import com.bhukkad.search.dto.response.RestaurantSearchResult;
@@ -22,11 +23,14 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
 
     private final RestaurantSearchRepository restaurantSearchRepository;
     private final MenuItemSearchRepository menuItemSearchRepository;
+    private final SearchFuzzyProperties fuzzyProperties;
 
     public SearchServiceImpl(RestaurantSearchRepository restaurantSearchRepository,
-                             MenuItemSearchRepository menuItemSearchRepository) {
+                             MenuItemSearchRepository menuItemSearchRepository,
+                             SearchFuzzyProperties fuzzyProperties) {
         this.restaurantSearchRepository = restaurantSearchRepository;
         this.menuItemSearchRepository = menuItemSearchRepository;
+        this.fuzzyProperties = fuzzyProperties;
     }
 
     @Override
@@ -35,19 +39,32 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
             return new UnifiedSearchResponse(new ArrayList<>(), new ArrayList<>(), 0, 0);
         }
 
-        String searchTerm = like(escapeLike(keyword.trim()));
         var page = org.springframework.data.domain.PageRequest.of(0, UNIFIED_RESULT_LIMIT);
-
-        // Bounded DB-side text search (previously findAll() loaded both
-        // projection tables per public request).
-        List<RestaurantSearchResult> restaurantResults =
-                restaurantSearchRepository.searchText(searchTerm, page).stream()
-                        .map(this::convertToRestaurantSearchResult)
-                        .collect(Collectors.toList());
-        List<MenuItemSearchResult> menuItemResults =
-                menuItemSearchRepository.searchText(searchTerm, page).stream()
-                        .map(this::convertToMenuItemSearchResult)
-                        .collect(Collectors.toList());
+        List<RestaurantSearchResult> restaurantResults;
+        List<MenuItemSearchResult> menuItemResults;
+        if (fuzzyProperties.isEnabled()) {
+            // P-08 OPTION (default off): similarity()-ranked trigram search.
+            // Raw lowercased term — trigram matching has no LIKE pattern.
+            String term = keyword.trim().toLowerCase(java.util.Locale.ROOT);
+            double threshold = fuzzyProperties.getSimilarityThreshold();
+            restaurantResults = restaurantSearchRepository.searchTextFuzzy(term, threshold, page).stream()
+                    .map(this::convertToRestaurantSearchResult)
+                    .collect(Collectors.toList());
+            menuItemResults = menuItemSearchRepository.searchTextFuzzy(term, threshold, page).stream()
+                    .map(this::convertToMenuItemSearchResult)
+                    .collect(Collectors.toList());
+        } else {
+            // Default (and previously the only) path: bounded, escaped LIKE.
+            String searchTerm = like(escapeLike(keyword.trim()));
+            restaurantResults =
+                    restaurantSearchRepository.searchText(searchTerm, page).stream()
+                            .map(this::convertToRestaurantSearchResult)
+                            .collect(Collectors.toList());
+            menuItemResults =
+                    menuItemSearchRepository.searchText(searchTerm, page).stream()
+                            .map(this::convertToMenuItemSearchResult)
+                            .collect(Collectors.toList());
+        }
 
         return new UnifiedSearchResponse(
                 restaurantResults,

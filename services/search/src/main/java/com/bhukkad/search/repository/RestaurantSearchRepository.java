@@ -35,6 +35,32 @@ public interface RestaurantSearchRepository extends JpaRepository<RestaurantSear
     List<RestaurantSearchEntity> searchNamePrefix(@Param("prefix") String lowercasedEscapedPrefix, Pageable pageable);
 
     /**
+     * P-08 OPTION (P3), off by default: word-similarity ranking over the same
+     * columns as {@link #searchText} (<code>word_similarity</code> — the
+     * per-word trigram measure pg_trgm added for exactly this search use case;
+     * plain {@code similarity()} collapses on long columns and the GUC-bound
+     * {@code %} operator is not per-query tunable). {@code threshold} mirrors
+     * {@code app.search.fuzzy.similarity-threshold}. Only reached when
+     * {@code app.search.fuzzy.enabled=true} — the LIKE path above stays the
+     * shipped default per the V11 decision note. {@code term} is NOT
+     * LIKE-escaped here (no pattern semantics apply to trigram matching).
+     * GIN trigram indexes (V11) stay available for operator forms once
+     * product tunes GUCs.
+     */
+    @Query(value = """
+            SELECT r.* FROM restaurant_search r
+            WHERE word_similarity(:term, r.name) > :threshold
+               OR word_similarity(:term, r.description) > :threshold
+               OR word_similarity(:term, r.cuisine_summary) > :threshold
+            ORDER BY GREATEST(word_similarity(:term, r.name),
+                              word_similarity(:term, r.description),
+                              word_similarity(:term, r.cuisine_summary)) DESC
+            """, nativeQuery = true)
+    List<RestaurantSearchEntity> searchTextFuzzy(@Param("term") String lowercasedTerm,
+                                                 @Param("threshold") double threshold,
+                                                 Pageable pageable);
+
+    /**
      * ADR-002 search sync: idempotent upsert of the restaurant projection,
      * keyed by the restaurant id (the projection PK IS the source id).
      */

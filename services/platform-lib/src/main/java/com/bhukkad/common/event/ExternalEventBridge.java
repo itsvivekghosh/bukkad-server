@@ -20,7 +20,22 @@ import org.springframework.stereotype.Component;
  * poller can flip the row to PUBLISHED only on a confirmed receipt. In
  * the non-Kafka path it falls back to the fire-and-forget
  * {@link #forward(OutboxEvent)} call.</p>
+ *
+ * @deprecated V-09 residue cleared in P3. The production event relay is the
+ *             outbox poller ({@code OutboxPollPublisher →
+ *             KafkaPlatformEventPublisher.publishForResult}, ack-before-flip —
+ *             two-phase per PERF-2/B2); this bridge has ZERO callers in
+ *             services/ (grep-verified after deleting the last direct
+ *             fire-and-forget {@code PlatformEventPublisher.publish()} call
+ *             sites — the {@code order/saga/OrderSaga} demo stub). Kept one
+ *             release for API compatibility of downstream wiring, and BOTH
+ *             {@link #forward(OutboxEvent)}'s Kafka branch (no ack wait) is
+ *             exactly the fire-and-forget pattern V-09 flagged. New code must
+ *             not call it; removal is scheduled with the next platform
+ *             breaking batch.
  */
+@SuppressWarnings("DeprecatedIsStillUsed") // zero usage — see @deprecated note
+@Deprecated(forRemoval = true)
 @Slf4j
 @Component
 @RequiredArgsConstructor

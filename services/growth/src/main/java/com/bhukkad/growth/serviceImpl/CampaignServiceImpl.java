@@ -2,51 +2,44 @@ package com.bhukkad.growth.serviceImpl;
 
 import com.bhukkad.growth.config.GrowthProperties;
 import com.bhukkad.growth.dto.CampaignResponse;
+import com.bhukkad.growth.entity.PromotionCampaign;
+import com.bhukkad.growth.repository.PromotionCampaignRepository;
 import com.bhukkad.growth.service.CampaignService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
+/**
+ * Campaigns are served straight from the {@code promotion_campaigns} table
+ * (the campaign back-office is the writer; P-08 left no Redis projection and
+ * this module contains no writer for the old {@code growth:campaign*} keys —
+ * reading them in P0 always produced an empty list).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CampaignServiceImpl implements CampaignService {
 
-    private static final String CAMPAIGNS_KEY = "growth:campaigns:active";
-
-    private final StringRedisTemplate redisTemplate;
+    private final PromotionCampaignRepository campaignRepository;
     private final GrowthProperties growthProperties;
 
     @Override
+    @Transactional(readOnly = true)
     public List<CampaignResponse> getActiveCampaigns() {
-        List<CampaignResponse> campaigns = new ArrayList<>();
-
-        // Get campaigns from Redis sorted set (sorted by priority descending)
-        var campaignIds = redisTemplate.opsForZSet().reverseRange(CAMPAIGNS_KEY, 0, -1);
-
-        if (campaignIds == null || campaignIds.isEmpty()) {
-            return campaigns;
-        }
-
-        for (String campaignId : campaignIds) {
-            String campaignJson = (String) redisTemplate.opsForHash().get("growth:campaign:" + campaignId, "data");
-            if (campaignJson != null) {
-                // In real implementation, deserialize JSON to CampaignResponse
-                // For now, return basic structure
-            }
-        }
-
-        return campaigns;
+        return campaignRepository.findActiveCampaigns(LocalDateTime.now()).stream()
+                .map(CampaignServiceImpl::toResponse)
+                .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public double calculateBestDiscount(double subtotal) {
         List<CampaignResponse> activeCampaigns = getActiveCampaigns();
 
@@ -68,10 +61,13 @@ public class CampaignServiceImpl implements CampaignService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public CampaignResponse getCampaignById(Long campaignId) {
-        String campaignJson = (String) redisTemplate.opsForHash().get("growth:campaign:" + campaignId, "data");
-        // Deserialize and return
-        return null;
+        Optional<PromotionCampaign> campaign =
+                campaignRepository.findActiveCampaign(campaignId, LocalDateTime.now());
+        // Not found AND deactivated/expired campaigns both keep the 404 path
+        // the controller exposes for null.
+        return campaign.map(CampaignServiceImpl::toResponse).orElse(null);
     }
 
     private double calculateDiscountForCampaign(double subtotal, CampaignResponse campaign) {
@@ -94,5 +90,32 @@ public class CampaignServiceImpl implements CampaignService {
         }
 
         return discount;
+    }
+
+    /** Entity → API DTO. Decimal money/percent columns widen to Double. */
+    static CampaignResponse toResponse(PromotionCampaign c) {
+        return CampaignResponse.builder()
+                .id(c.getId())
+                .name(c.getName())
+                .campaignType(c.getCampaignType())
+                .description(c.getDescription())
+                .discountPercent(toDouble(c.getDiscountPercent()))
+                .flatDiscountAmount(toDouble(c.getFlatDiscountAmount()))
+                .minOrderAmount(toDouble(c.getMinOrderAmount()))
+                .maxDiscountAmount(toDouble(c.getMaxDiscountAmount()))
+                .freeDelivery(c.isFreeDelivery())
+                .priority(c.getPriority())
+                .isActive(c.isActive())
+                .startsAt(c.getStartsAt())
+                .endsAt(c.getEndsAt())
+                .buyQuantity(c.getBuyQuantity())
+                .getQuantity(c.getGetQuantity())
+                .getDiscountPercent(c.getGetDiscountPercent())
+                .targetSegment(c.getTargetSegment())
+                .build();
+    }
+
+    private static Double toDouble(BigDecimal value) {
+        return value == null ? null : value.doubleValue();
     }
 }

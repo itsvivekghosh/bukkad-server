@@ -75,3 +75,25 @@ app:
         consumer-group: ${KAFKA_CONSUMER_GROUP:delivery-platform-consumer}
         platform-topic: delivery.events.v1
         dlq-topic: delivery.events.v1.dlt
+  # P3 / ADR-003 gates. Both default OFF, mirroring the property classes —
+  # explicit here so ops see the knobs (flipping either needs the soak note
+  # in docs/adr/ADR-003-geo-delivery.md honoured first).
+  road-distance:
+    # Second gate for the ETA chain: OSRM routing via OsrmClient. Until an
+    # OSRM deployment exists this must stay false (ETA degrades to haversine,
+    # which is numerically the same input RoadDistanceService already
+    # produced — ADR-003 "wire or delete": wired).
+    enabled: false
+  delivery:
+    eta:
+      # Registers EtaService (unit-tested POJO since the split) and lets
+      # DefaultEtaPort answer with live/ heuristic EtaSnapshots instead of
+      # the always-empty pre-P3 behavior.
+      enabled: ${DELIVERY_ETA_ENABLED:false}
+    geo-matching:
+      # Nearest ACTIVE rider (fresh rider_location_updates + active-assignment
+      # cap) in assign() when the caller supplies an anchor;
+      # findFirstByIsActiveTrue remains the documented fallback.
+      enabled: ${DELIVERY_GEO_MATCHING_ENABLED:false}
+      location-freshness-minutes: ${DELIVERY_GEO_FRESHNESS_MINUTES:10}
+      max-active-assignments: ${DELIVERY_GEO_MAX_ACTIVE:3}

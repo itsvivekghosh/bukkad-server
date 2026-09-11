@@ -16,6 +16,22 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
     java.util.List<DeliveryAssignment> findByAgentIdAndStatusIgnoreCase(Long agentId, String status);
 
     /**
+     * ADR-003 capacity check: per-agent count of still-open assignments, in
+     * one grouped query (no N+1) executed in the same transaction as the
+     * conditional insert below — the {@code UPPER(status)}<> DELIVERED
+     * predicate mirrors {@link #markDeliveredIfOpen}. The legacy schema has no
+     * {@code active_load} column (a counter would need its own lifecycle
+     * decrement), so the count IS the load — best-effort at pick time, with
+     * the INSERT...ON CONFLICT (order_id) guard remaining the real double-claim
+     * arbiter.
+     */
+    @Query("SELECT new com.bhukkad.delivery.domain.AgentActiveLoad(a.agentId, COUNT(a)) "
+            + "FROM DeliveryAssignment a WHERE a.agentId IN :agentIds "
+            + "AND UPPER(a.status) <> 'DELIVERED' GROUP BY a.agentId")
+    java.util.List<AgentActiveLoad> countActiveLoadByAgentIds(
+            @Param("agentIds") java.util.Collection<Long> agentIds);
+
+    /**
      * Atomic insert guard (audit B10): the {@code uq_delivery_assignments_order}
      * constraint from migration V8 decides the winner between racing
      * {@code assign()} callers — 1 row inserted means this transaction owns the
