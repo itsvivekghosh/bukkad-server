@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.time.Duration;
@@ -20,6 +21,13 @@ import java.util.concurrent.ScheduledFuture;
  *       so PROCESSING rows stranded by a crashed replica are re-queued on a
  *       bounded horizon (they were previously only recoverable by manual
  *       invocation, i.e. never in production).</li>
+ *   <li>P-06 wake channel → when a wake {@link RedisMessageListenerContainer}
+ *       is wired (opt-in via {@code app.outbox.wake.enabled=true}, default
+ *       FALSE), subscribes to {@code bhukkad:outbox:wake:<service>} and
+ *       triggers an immediate, coalesced relay drain on each wake (see
+ *       {@link OutboxWakeDrainListener}), cutting publish latency from up to
+ *       {@code pollInterval} down to milliseconds so the E2E p99 &lt;2s gate
+ *       is reachable.</li>
  * </ul>
  *
  * <p>Because the whole {@link OutboxPlatformConfig} class is gated by the same
@@ -33,6 +41,9 @@ public class OutboxRelayBootstrap {
     private final OutboxPollPublisher relay;
     private final OutboxProperties properties;
     private final ThreadPoolTaskScheduler scheduler;
+    /** Null unless the P-06 wake channel is enabled and Redis is configured. */
+    private final RedisMessageListenerContainer wakeContainer;
+    private final String wakeChannel;
 
     private volatile ScheduledFuture<?> pollHandle;
     private volatile ScheduledFuture<?> recoveryHandle;
@@ -40,9 +51,19 @@ public class OutboxRelayBootstrap {
     public OutboxRelayBootstrap(OutboxPollPublisher relay,
                                 OutboxProperties properties,
                                 ThreadPoolTaskScheduler scheduler) {
+        this(relay, properties, scheduler, null, null);
+    }
+
+    OutboxRelayBootstrap(OutboxPollPublisher relay,
+                         OutboxProperties properties,
+                         ThreadPoolTaskScheduler scheduler,
+                         RedisMessageListenerContainer wakeContainer,
+                         String wakeChannel) {
         this.relay = relay;
         this.properties = properties;
         this.scheduler = scheduler;
+        this.wakeContainer = wakeContainer;
+        this.wakeChannel = wakeChannel;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -56,6 +77,11 @@ public class OutboxRelayBootstrap {
         // finish, so a slow broker never stacks overlapping drains on a replica.
         this.pollHandle = scheduler.scheduleWithFixedDelay(relay::poll, pollInterval);
         this.recoveryHandle = scheduler.scheduleWithFixedDelay(relay::recoverStale, recoveryInterval);
+        if (wakeContainer != null) {
+            wakeContainer.afterPropertiesSet();
+            wakeContainer.start();
+            log.info("OUTBOX_WAKE_SUBSCRIBED | channel={}", wakeChannel);
+        }
         log.info("OUTBOX_RELAY_STARTED | pollInterval={} | recoveryInterval={} | pool=relay-",
                 pollInterval, recoveryInterval);
     }
@@ -69,6 +95,14 @@ public class OutboxRelayBootstrap {
         if (recoveryHandle != null) {
             recoveryHandle.cancel(false);
             recoveryHandle = null;
+        }
+        if (wakeContainer != null) {
+            try {
+                wakeContainer.stop();
+                wakeContainer.destroy();
+            } catch (Exception ex) {
+                log.warn("OUTBOX_WAKE_SUBSCRIPTION_STOP_FAILED | error={}", ex.getMessage());
+            }
         }
     }
 }

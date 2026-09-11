@@ -2,10 +2,12 @@ package com.bhukkad.common.outbox;
 
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -69,6 +71,7 @@ public class OutboxPollPublisher {
     private final TransactionTemplate transactionTemplate;
     private final DeadLetterEventService deadLetterEvents;
     private final io.micrometer.core.instrument.Counter dlqCounter;
+    private final DistributionSummary publishLag;
 
     public OutboxPollPublisher(OutboxEventRepository repository,
                                KafkaPlatformEventPublisher publisher,
@@ -83,6 +86,12 @@ public class OutboxPollPublisher {
         this.deadLetterEvents = deadLetterEvents;
         // Prometheus surfaces this as outbox_dlq_total (PERF-2 alert metric).
         this.dlqCounter = meterRegistry.counter("outbox.dlq");
+        // P-06: ms histogram of now - createdAt at successful publish; with the
+        // wake channel enabled this is the E2E p99 <2s budget evidence.
+        this.publishLag = DistributionSummary.builder(OutboxMetrics.PUBLISH_LAG_METRIC_NAME)
+                .baseUnit("ms")
+                .description("Outbox publish lag: ms between row createdAt and successful Kafka publish")
+                .register(meterRegistry);
     }
 
     /**
@@ -159,6 +168,7 @@ public class OutboxPollPublisher {
             }
             if (acked) {
                 outcome.published.add(event.getId());
+                recordPublishLag(event);
                 log.debug("OUTBOX_PUBLISHED | id={} | eventId={} | type={}",
                         event.getId(), message.eventId(), message.eventType());
                 continue;
@@ -172,6 +182,21 @@ public class OutboxPollPublisher {
             }
         }
         return outcome;
+    }
+
+    /**
+     * P-06: records {@code now - createdAt} in ms for a successfully published
+     * row. Rows without an audit timestamp (unit-test fixtures) are skipped;
+     * a negative value (clock skew) is never recorded.
+     */
+    private void recordPublishLag(OutboxEvent event) {
+        if (event.getCreatedAt() == null) {
+            return;
+        }
+        long lagMs = Duration.between(event.getCreatedAt(), LocalDateTime.now()).toMillis();
+        if (lagMs >= 0) {
+            publishLag.record(lagMs);
+        }
     }
 
     // ── Phase 3: state flip (short transaction, batched updates) ─────────────

@@ -1,12 +1,19 @@
 package com.bhukkad.common.outbox;
 
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -72,12 +79,56 @@ public class OutboxPlatformConfig {
                 outboxRelayTransactionTemplate, deadLetterEvents, meterRegistry);
     }
 
-    /** Starts the relay loops on the dedicated scheduler once the app is ready. */
+    /**
+     * Starts the relay loops on the dedicated scheduler once the app is ready.
+     *
+     * <p>P-06 wake channel: when {@code app.outbox.wake.enabled=true}
+     * (default FALSE — poll-only behaviour unchanged) AND a Redis connection
+     * factory is configured, the bootstrap also subscribes to
+     * {@code bhukkad:outbox:wake:<service>} and triggers an immediate,
+     * coalesced relay drain on each wake. Without the property or without
+     * Redis, the bootstrap degrades to the poll-only loop.</p>
+     */
     @Bean
     @ConditionalOnBean(OutboxPollPublisher.class)
     public OutboxRelayBootstrap outboxRelayBootstrap(OutboxPollPublisher relay,
                                                      OutboxProperties properties,
-                                                     ThreadPoolTaskScheduler outboxRelayScheduler) {
-        return new OutboxRelayBootstrap(relay, properties, outboxRelayScheduler);
+                                                     ThreadPoolTaskScheduler outboxRelayScheduler,
+                                                     ObjectProvider<RedisConnectionFactory> connectionFactories,
+                                                     @Value("${app.outbox.wake.enabled:false}") boolean wakeEnabled,
+                                                     @Value("${spring.application.name:unknown}") String serviceName) {
+        RedisMessageListenerContainer wakeContainer = null;
+        if (wakeEnabled) {
+            RedisConnectionFactory redis = connectionFactories.getIfAvailable();
+            if (redis != null) {
+                OutboxWakeDrainListener wakeListener = new OutboxWakeDrainListener(
+                        relay::poll, outboxRelayScheduler, properties.pollInterval().dividedBy(4));
+                wakeContainer = new RedisMessageListenerContainer();
+                wakeContainer.setConnectionFactory(redis);
+                wakeContainer.addMessageListener(wakeListener, new ChannelTopic(
+                        OutboxWakePublisher.WAKE_CHANNEL_PREFIX + serviceName));
+            }
+        }
+        return new OutboxRelayBootstrap(relay, properties, outboxRelayScheduler, wakeContainer,
+                OutboxWakePublisher.WAKE_CHANNEL_PREFIX + serviceName);
+    }
+
+    /**
+     * P-06 wake publisher injected into {@link OutboxClient} (optional-bean
+     * pattern): Redis-backed when a {@link StringRedisTemplate} is configured,
+     * otherwise a shared no-op that keeps the enqueue path identical to the
+     * poll-only relay. Only created when {@code app.outbox.wake.enabled=true} —
+     * disabled (the default) means no bean and therefore no wake registration
+     * at all.
+     */
+    @Bean
+    @ConditionalOnMissingBean(OutboxWakePublisher.class)
+    @ConditionalOnProperty(name = "app.outbox.wake.enabled", havingValue = "true")
+    public OutboxWakePublisher outboxWakePublisher(ObjectProvider<StringRedisTemplate> stringRedisTemplates,
+                                                   @Value("${spring.application.name:unknown}") String serviceName) {
+        StringRedisTemplate redis = stringRedisTemplates.getIfAvailable();
+        return redis == null
+                ? OutboxWakePublisher.noop()
+                : new RedisOutboxWakePublisher(redis, serviceName);
     }
 }
