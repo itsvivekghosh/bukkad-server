@@ -56,6 +56,7 @@ class DisputeResolutionServiceImplTest {
         request.setType("ORDER_NOT_RECEIVED");
         request.setCustomerEvidence("Photo of empty box");
 
+        when(orderServiceClient.getOrderCustomerId(100L)).thenReturn(1L); // filer owns the order
         when(disputeRepository.existsByOrderId(100L)).thenReturn(false);
         when(disputeRepository.save(any(Dispute.class))).thenAnswer(inv -> inv.getArgument(0));
         when(orderServiceClient.getOrderDetails(100L)).thenReturn(null); // Auto-resolution will fail
@@ -75,6 +76,7 @@ class DisputeResolutionServiceImplTest {
         request.setType("ORDER_NOT_RECEIVED");
         request.setCustomerEvidence("Evidence");
 
+        when(orderServiceClient.getOrderCustomerId(100L)).thenReturn(1L); // ownership guard passes
         when(disputeRepository.existsByOrderId(100L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.fileDispute(1L, 100L, request))
@@ -88,6 +90,7 @@ class DisputeResolutionServiceImplTest {
         request.setType("INVALID_TYPE");
         request.setCustomerEvidence("Evidence");
 
+        when(orderServiceClient.getOrderCustomerId(100L)).thenReturn(1L); // ownership guard passes
         when(disputeRepository.existsByOrderId(100L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.fileDispute(1L, 100L, request))
