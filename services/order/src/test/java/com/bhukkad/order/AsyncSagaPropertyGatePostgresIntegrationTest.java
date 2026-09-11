@@ -45,8 +45,24 @@ class AsyncSagaPropertyGatePostgresIntegrationTest extends AbstractOrderPostgres
     @MockBean
     private PaymentServiceClient paymentServiceClient;
 
+    /**
+     * Menu snapshot the mocked restaurant service returns for item 100. The
+     * price mirrors OrderSagaEventContractPostgresIntegrationTest (which
+     * shares this cached Spring context and therefore the 60 s resolver
+     * cache — item ids must resolve to the SAME price in both classes).
+     */
+    private static Mono<List<java.util.Map<String, Object>>> menuSnapshot() {
+        java.util.Map<String, Object> burger = new java.util.LinkedHashMap<>();
+        burger.put("id", 100L);
+        burger.put("restaurantId", 20L);
+        burger.put("name", "Burger");
+        burger.put("price", new BigDecimal("12.50"));
+        return Mono.just(List.of(burger));
+    }
+
     @Test
     void gateOff_createOrder_runsSynchronousSagaAndNeverRequestsPaymentViaOutbox() {
+        when(restaurantClient.getMenuItems(any())).thenReturn(menuSnapshot());
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
@@ -66,6 +82,7 @@ class AsyncSagaPropertyGatePostgresIntegrationTest extends AbstractOrderPostgres
 
     @Test
     void gateOff_failedCharge_stillCompensatesSynchronouslyAndCancels() {
+        when(restaurantClient.getMenuItems(any())).thenReturn(menuSnapshot());
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         when(restaurantClient.releaseStock(any(), any()))

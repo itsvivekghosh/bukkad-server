@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+
 /**
  * Identity-side adapter for the wallet domain's balance synchronisation.
  * Mandatory propagation: the wallet service calls this inside its own
@@ -22,9 +24,13 @@ public class CustomerWalletSyncAdapter implements CustomerWalletSyncPort {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void syncWalletBalance(Long customerId, double newBalance) {
+    public void syncWalletBalance(Long customerId, BigDecimal newBalance) {
+        if (newBalance == null || newBalance.signum() < 0) {
+            throw new IllegalArgumentException(
+                    "Wallet balance must be a non-negative amount: " + newBalance);
+        }
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
-        customer.setWalletBalance(newBalance);
+        customer.setWalletBalance(newBalance.setScale(2, java.math.RoundingMode.HALF_UP));
     }
 }

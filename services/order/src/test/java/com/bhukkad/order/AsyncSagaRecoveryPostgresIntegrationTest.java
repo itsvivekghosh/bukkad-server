@@ -70,6 +70,12 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
 
 
     private Long createAwaitingPaymentOrder(long customerId, long restaurantId) {
+        // Server-side re-pricing (money-integrity #3) resolves the menu
+        // snapshot before the write; stub the batch endpoint for item 100.
+        when(restaurantClient.getMenuItems(any()))
+                .thenReturn(Mono.just(List.of(java.util.Map.<String, Object>of(
+                        "id", 100L, "restaurantId", restaurantId,
+                        "name", "Burger", "price", new BigDecimal("10.00")))));
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         var response = orderService.createOrder(new CreateOrderRequest(

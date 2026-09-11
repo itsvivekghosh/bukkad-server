@@ -68,8 +68,24 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** Menu snapshot the mocked restaurant service returns for items 100/101. */
+    private static Mono<List<java.util.Map<String, Object>>> menuSnapshot() {
+        java.util.Map<String, Object> burger = new java.util.LinkedHashMap<>();
+        burger.put("id", 100L);
+        burger.put("restaurantId", 10L);
+        burger.put("name", "Burger");
+        burger.put("price", new BigDecimal("12.50"));
+        java.util.Map<String, Object> fries = new java.util.LinkedHashMap<>();
+        fries.put("id", 101L);
+        fries.put("restaurantId", 10L);
+        fries.put("name", "Fries");
+        fries.put("price", new BigDecimal("4.00"));
+        return Mono.just(List.of(burger, fries));
+    }
+
     @Test
     void orderCreate_enqueuesOrderItemsSnapshotOutboxRow() throws Exception {
+        when(restaurantClient.getMenuItems(any())).thenReturn(menuSnapshot());
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
@@ -109,6 +125,7 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
 
     @Test
     void asyncSagaEnabled_orderCreate_enqueuesPaymentRequestedInsteadOfCharging() throws Exception {
+        when(restaurantClient.getMenuItems(any())).thenReturn(menuSnapshot());
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
 
@@ -146,6 +163,7 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
 
     @Test
     void compensation_enqueuesReverseStockReleaseEvent() throws Exception {
+        when(restaurantClient.getMenuItems(any())).thenReturn(menuSnapshot());
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 2))));
 

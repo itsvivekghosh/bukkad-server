@@ -14,7 +14,9 @@ public interface CustomerWalletSyncPort {
     /**
      * @param customerId identity-owned customer id
      * @param newBalance the wallet domain's authoritative new balance
+     *                   (money is {@code BigDecimal}, matching the wallet
+     *                   ledger's {@code wallet_balances.balance numeric(12,2)})
      * @throws com.bhukkad.common.error.ResourceNotFoundException when missing
      */
-    void syncWalletBalance(Long customerId, double newBalance);
+    void syncWalletBalance(Long customerId, java.math.BigDecimal newBalance);
 }
