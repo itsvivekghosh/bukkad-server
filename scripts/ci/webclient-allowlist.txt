@@ -11,19 +11,8 @@
 # batch removes its lines when it migrates the file onto the platform
 # WebClient factory (com.bhukkad.common.web.client.PlatformWebClientBuilderFactory).
 #
-# ── order service: 3 hand-built S2S clients (owner: W2-ORDER batch) ─────────
-services/order/src/main/java/com/bhukkad/order/client/RestaurantClient.java
-services/order/src/main/java/com/bhukkad/order/client/PaymentServiceClient.java
-services/order/src/main/java/com/bhukkad/order/client/SupportTicketDisputeClient.java
-#
 # ── delivery service: OsrmRestTemplate bean (owner: W3-DELIVERY batch) ──────
 services/delivery/src/main/java/com/bhukkad/delivery/OsrmHttpConfig.java
-#
-# ── realtime service: ownership probe against order (owner: W2-ORDER batch) ─
-services/realtime/src/main/java/com/bhukkad/realtime/client/OrderOwnershipClient.java
-#
-# ── survey service: ownership probe against order (owner: W2-ORDER batch) ───
-services/survey/src/main/java/com/bhukkad/survey/client/OrderOwnershipClient.java
 #
 # ── platform-lib security (NOT web/client): JWKS fetch via RestClient ───────
 # Owner: the security-package batch (W3-RESTRUCTURE owns security packaging).

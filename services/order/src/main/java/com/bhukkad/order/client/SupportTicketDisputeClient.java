@@ -1,11 +1,13 @@
 package com.bhukkad.order.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
@@ -16,36 +18,46 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the SupportTicket service (dispute operations).
  *
- * <p>Uses WebClient with built-in resilience: retry (3 attempts, 1s backoff),
- * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).
- * Every call carries the mesh service token on {@code X-Service-Token} —
- * supportticket authorizes dispute surfaces behind role guards, so tokenless
- * mesh legs used to be rejected with 401 and silently swallowed into empty
- * responses (the admin dispute console appeared to return no data).</p>
+ * <p>HTTP stack comes from the platform {@link PlatformWebClientBuilderFactory}
+ * (G-13/P-05): shared pool, 2 s connect + 5 s response timeouts, retry
+ * (3 attempts, 1s backoff) and the per-target circuit breaker
+ * ({@value #TARGET}). Every call carries the mesh service token on
+ * {@code X-Service-Token} — supportticket authorizes dispute surfaces behind
+ * role guards, so tokenless mesh legs used to be rejected with 401 and
+ * silently swallowed into empty responses (the admin dispute console appeared
+ * to return no data).</p>
  */
 @Component
 public class SupportTicketDisputeClient {
 
+    /** Breaker/metric target name — unchanged so breaker state survives the migration. */
+    static final String TARGET = "supportticket";
+
     private final WebClient webClient;
-    private final org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider;
+    private final ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider;
 
     public SupportTicketDisputeClient(
             @Value("${app.services.supportticket.url}") String baseUrl,
-            org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
-            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
+            ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
+            ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.authTokenProvider = authTokenProvider;
-        this.webClient = WebClient.builder()
+        this.webClient = buildWebClient(baseUrl, meterRegistryProvider);
+    }
+
+    private WebClient buildWebClient(String baseUrl, ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        MeterRegistry meterRegistry = meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable();
+        return PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
+                .build()
+                // The factory ships no baseUrl; mutate() preserves the platform
+                // connector/filters and only pins the mesh base URL.
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("supportticket", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 // Mesh auth: stamp X-Service-Token when service auth is
                 // enabled; supportticket rejects tokenless dispute calls.
                 .filter((request, next) -> {
                     String token = meshToken();
                     return next.exchange(token == null ? request
-                            : org.springframework.web.reactive.function.client.ClientRequest
-                                    .from(request).header("X-Service-Token", token).build());
+                            : ClientRequest.from(request).header("X-Service-Token", token).build());
                 })
                 .build();
     }

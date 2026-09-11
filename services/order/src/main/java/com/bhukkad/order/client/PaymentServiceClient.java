@@ -1,10 +1,12 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import com.bhukkad.order.client.dto.ChargeRequest;
 import com.bhukkad.order.client.dto.ChargeResponse;
 import com.bhukkad.order.client.dto.RefundResponse;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -19,10 +21,12 @@ import java.util.Map;
  * Reactive client for the Payment service's internal charge surface, used by
  * the order-creation saga CHARGE_PAYMENT step (audit batch A).
  *
- * <p>Mirrors {@link RestaurantClient}: retry (3 attempts, 1s backoff), circuit
- * breaker and per-call timeout. The charge carries a stable
- * {@code reference} (e.g. {@code ORDER-<id>}) so retries are idempotent
- * server-side.</p>
+ * <p>Mirrors {@link RestaurantClient}: the HTTP stack comes from the platform
+ * {@link PlatformWebClientBuilderFactory} (G-13/P-05) — shared pool, 2 s
+ * connect + 5 s response timeouts, retry (3 attempts, 1s backoff) and the
+ * per-target circuit breaker ({@value #TARGET}); per-call timeouts bound each
+ * call chain. The charge carries a stable {@code reference} (e.g.
+ * {@code ORDER-<id>}) so retries are idempotent server-side.</p>
  *
  * <p>Server contract (owned by the payment service):
  * {@code POST /api/v1/internal/payments/charge} with body
@@ -38,21 +42,29 @@ public class PaymentServiceClient {
 
     static final String CHARGE_STATUS = "CHARGED";
     static final String REFUND_STATUS = "REFUNDED";
+    /** Breaker/metric target name — unchanged so breaker state survives the migration. */
+    static final String TARGET = "payment";
 
     private final WebClient webClient;
 
     public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl) {
-        this(baseUrl, (org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>) null);
+        this(baseUrl, (ObjectProvider<MeterRegistry>) null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl,
-                                org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
-        this.webClient = WebClient.builder()
+                                ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this.webClient = buildWebClient(baseUrl, meterRegistryProvider);
+    }
+
+    private static WebClient buildWebClient(String baseUrl, ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        MeterRegistry meterRegistry = meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable();
+        return PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
+                .build()
+                // The factory ships no baseUrl; mutate() preserves the platform
+                // connector/filters and only pins the mesh base URL.
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("payment", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 
