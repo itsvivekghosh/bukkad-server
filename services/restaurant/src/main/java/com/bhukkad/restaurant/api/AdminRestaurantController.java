@@ -2,6 +2,7 @@ package com.bhukkad.restaurant.api;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.restaurant.domain.Restaurant;
 import com.bhukkad.restaurant.domain.RestaurantRepository;
@@ -59,6 +60,7 @@ public class AdminRestaurantController {
 
     @GetMapping("/api/v1/admin/restaurants")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: paged — page/size clamped to (0..) x 1..100 before the query")
     public Page<Restaurant> list(@RequestParam(defaultValue = "0") int page,
                                  @RequestParam(defaultValue = "20") int size) {
         return restaurantRepository.findAll(PageRequest.of(Math.max(page, 0),

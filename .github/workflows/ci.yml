@@ -117,10 +117,12 @@ jobs:
       # nightly-regression workflow (pytest API regression against staging).
 
       # Coverage gate matches the REAL pom thresholds (services/pom.xml:
-      # 50% line / 20% branch / 30% method per-module BUNDLE floor). The
-      # historical "85%" label lied about what was enforced; the gate itself
-      # is raised only as measured coverage grows (never today, per PERF-5).
-      - name: Verify JaCoCo coverage floor (50% line / 20% branch / 30% method)
+      # 34% line / 23% branch / 35% method per-module BUNDLE floor — the
+      # highest uniform floor the reactor passes, raised from measured
+      # coverage as the Part IV ramp proceeds; gaps listed in the pom).
+      # `jacoco:check` at the reactor root runs per module and fails the job
+      # on the first module below its floor.
+      - name: Verify JaCoCo coverage floor (34% line / 23% branch / 35% method)
         run: ./mvnw -B -f services/pom.xml jacoco:check
 
       - name: Upload JaCoCo HTML reports (per module)

@@ -2,6 +2,7 @@ package com.bhukkad.delivery.api;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.delivery.domain.CityConfig;
 import com.bhukkad.delivery.domain.CityConfigRepository;
 import com.bhukkad.delivery.domain.DeliveryZone;
@@ -45,6 +46,7 @@ public class AdminZoneController {
 
     @GetMapping("/zones")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: delivery zones are a small bounded reference table (single-digit rows, admin-managed)")
     public List<DeliveryZone> zones() {
         return zoneRepository.findAll();
     }
@@ -100,6 +102,7 @@ public class AdminZoneController {
 
     @GetMapping("/cities")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: city registry is a small bounded reference table (admin-managed)")
     public List<CityConfig> cities() {
         return cityConfigRepository.findAll();
     }

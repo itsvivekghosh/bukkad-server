@@ -6,6 +6,7 @@ import com.bhukkad.admin.domain.FraudEvent;
 import com.bhukkad.admin.domain.FraudEventRepository;
 import com.bhukkad.admin.domain.RestaurantOrderStat;
 import com.bhukkad.admin.domain.RestaurantOrderStatRepository;
+import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -42,6 +43,7 @@ public class AdminQueryService {
      * needs a paging contract change and is not requested).
      */
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: SQL-side page of LIST_PAGE_CAP newest rows; status filter narrows further")
     public List<FraudEvent> fraudAlerts(String status) {
         var page = PageRequest.of(0, LIST_PAGE_CAP, Sort.by(Sort.Direction.DESC, "createdAt"));
         return status != null
@@ -51,6 +53,7 @@ public class AdminQueryService {
 
     /** PERF-3: bounded, deterministically ordered stats page (cap kept at {@value #LIST_PAGE_CAP}). */
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: SQL-side page of LIST_PAGE_CAP rows ordered by restaurantId")
     public List<RestaurantOrderStat> restaurantStats() {
         return statRepository.findAll(
                 PageRequest.of(0, LIST_PAGE_CAP, Sort.by("restaurantId"))).getContent();

@@ -2,6 +2,7 @@ package com.bhukkad.admin.service;
 
 import com.bhukkad.admin.domain.ApiKey;
 import com.bhukkad.admin.domain.ApiKeyRepository;
+import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +48,7 @@ public class ApiKeyService {
      * capped).
      */
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: SQL-side page of LIST_PAGE_CAP newest keys, ordered by createdAt")
     public java.util.List<ApiKeyView> list() {
         return apiKeyRepository.findAll(org.springframework.data.domain.PageRequest.of(
                         0, AdminQueryService.LIST_PAGE_CAP,

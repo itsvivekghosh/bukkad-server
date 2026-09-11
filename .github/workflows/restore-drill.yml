@@ -1,0 +1,93 @@
+name: Restore Drill
+
+# Roadmap #15 / P2: prove the backups are RESTORABLE, not merely present.
+# Wraps scripts/ci/restore-drill.sh (see that script and
+# docs/backup-and-restore-runbook.md for the mechanics): pulls the latest
+# per-service pg_dump set, restores it into a throwaway namespace with an
+# ephemeral PostgreSQL, verifies schema + Flyway history + row counts, then
+# tears everything down.
+#
+# SAFE NO-OP WITHOUT CLUSTER SECRETS: when STAGING_KUBECONFIG is not
+# configured, the drill job skips itself instead of failing — the workflow
+# still ships, and the weekly schedule stays harmless on forks.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Backup source (s3 | dir | pvc)"
+        required: false
+        default: s3
+        type: choice
+        options:
+          - s3
+          - dir
+          - pvc
+      bucket:
+        description: "S3 backup bucket (required when source = s3; else S3_BUCKET secret)"
+        required: false
+        default: ""
+      prefix:
+        description: "Prefix under the bucket (s3 source only)"
+        required: false
+        default: "backups"
+
+  # Weekly drill (P2): Monday 04:00 UTC.
+  schedule:
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+jobs:
+  restore-drill:
+    name: Weekly restore drill (#15)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # Belt-and-braces no-op guard: schedule/dispatch runs without the
+      # cluster secret skip cleanly instead of failing red every week.
+      - name: Check cluster secret presence
+        id: guard
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          if [ -z "${KUBECONFIG_SECRET}" ]; then
+            echo "STAGING_KUBECONFIG not configured — restore drill skipped (safe no-op)."
+            echo "Configure the secret (a kubeconfig for the drill-capable cluster) to enable the drill."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore drill
+        if: steps.guard.outputs.run == 'true'
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          SOURCE: ${{ github.event.inputs.source || 's3' }}
+          BUCKET: ${{ github.event.inputs.bucket || '' }}
+          PREFIX: ${{ github.event.inputs.prefix || 'backups' }}
+        run: |
+          set -euo pipefail
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-drill-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl cluster-info
+
+          ARGS=(--source "${SOURCE}")
+          if [ -n "${BUCKET}" ]; then ARGS+=(--bucket "${BUCKET}");
+          elif [ "${SOURCE}" = "s3" ]; then ARGS+=(--bucket "${S3_BUCKET}"); fi
+          if [ "${SOURCE}" = "s3" ] && [ -n "${PREFIX}" ]; then ARGS+=(--prefix "${PREFIX}"); fi
+
+          ./scripts/ci/restore-drill.sh "${ARGS[@]}"

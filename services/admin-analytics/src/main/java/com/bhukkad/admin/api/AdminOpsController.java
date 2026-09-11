@@ -5,6 +5,7 @@ import com.bhukkad.admin.domain.ApiKeyRepository;
 import com.bhukkad.admin.domain.AuditEventRepository;
 import com.bhukkad.admin.domain.FraudEvent;
 import com.bhukkad.admin.domain.FraudEventRepository;
+import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
@@ -104,12 +105,14 @@ public class AdminOpsController {
     /** Monolith-parity alias of the fraud events listing. */
     @GetMapping("/fraud-events")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: monolith-parity alias fixed to the newest 100 fraud events (PageRequest.of(0, 100))")
     public List<FraudEvent> fraudEventsAlias() {
         return fraudEventRepository.findAll(PageRequest.of(0, 100)).getContent();
     }
 
     @GetMapping("/fraud/events")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: paged — page/size clamped to (0..) x 1..100 before the query")
     public List<FraudEvent> fraudEvents(@org.springframework.web.bind.annotation.RequestParam(
             defaultValue = "0") int page,
             @org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size) {
