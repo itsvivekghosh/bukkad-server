@@ -71,6 +71,19 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: JWT_SECRET
+            # Service-mesh (inter-service) HMAC secret
+            # (app.auth.service.jwt-secret) — provisioned in
+            # k8s/external-secret.yaml (Vault bhukkad/prod/auth); without the
+            # mapping it would vanish on ExternalSecret sync.
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            # RS256 verification: identity's JWKS via the ClusterIP Service
+            # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
             # Kafka consumer stays off until a broker is deployed; flip this and
             # set KAFKA_BOOTSTRAP_SERVERS (non-secret, inline) when enabled.
             - name: EVENTS_EXTERNAL_ENABLED

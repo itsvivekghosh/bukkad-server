@@ -104,6 +104,12 @@ resources:
   - backup-scripts.yaml
   - backup-pvc.yaml
   - backup-cronjob.yaml
+  # Roadmap #14 observability: fleet ServiceMonitor (scrapes every service's
+  # /actuator/prometheus) + the actionable PrometheusRule alert set. Both are
+  # Prometheus-Operator CRDs — they only take effect where the operator (and
+  # the release: bhukkad-prometheus rule selector) is present.
+  - monitoring/service-monitors.yaml
+  - monitoring/prometheus-rules.yaml
 
 # ---------------------------------------------------------------------------
 # Feature flag: Redpanda (Kafka API) cluster — SPOF #8 bring-up.

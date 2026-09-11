@@ -20,10 +20,12 @@ spec:
       rules:
         # Outbox backlog > 1000 for 5m (V-02/G-1): the transactional outbox is
         # the only publish path — a growing backlog means lost delivery
-        # guarantees. Metric: gauge exported by OutboxEventProcessor
-        # (outbox_events_pending / outbox.publish.lag_ms family).
+        # guarantees. Metric: bhukkad_outbox_pending gauge from OutboxMetrics
+        # (platform-lib; micrometer name bhukkad.outbox.pending → Prometheus
+        # bhukkad_outbox_pending). The audited outbox_events_pending name is
+        # exported by nothing.
         - alert: OutboxBacklogHigh
-          expr: max(outbox_events_pending) > 1000
+          expr: max(bhukkad_outbox_pending) > 1000
           for: 5m
           labels:
             severity: critical
@@ -116,22 +118,31 @@ spec:
     - name: bhukkad.realtime
       rules:
         # SSE global budget rejects (V-06/V-07): the SSE connection budget is
-        # being hit — new subscribers are rejected and frames dropped.
+        # being hit — new subscribers are rejected. Metric:
+        # sse_capacity_rejected_total{reason="global"} (OrderSseStreamServiceImpl
+        # and its delivery twin record counter sse_capacity_rejected with
+        # reason=stream|global|dispatch; the audited
+        # sse_global_budget_exhausted_total is exported by nothing).
         - alert: SseBudgetExhausted
-          expr: increase(sse_global_budget_exhausted_total[5m]) > 0
+          expr: increase(sse_capacity_rejected_total{reason="global"}[5m]) > 0
           labels:
             severity: warning
             domain: realtime
           annotations:
             summary: "SSE global connection budget exhausted in the last 5m"
 
+        # SSE frames dropped by dispatch rejections: the async dispatch
+        # executor rejected the frame send (evict-on-dispatch-rejection).
+        # Retargeted (P0 config audit): sse_dropped_frames_total is exported
+        # by nothing; reason="dispatch" on sse_capacity_rejected_total is the
+        # exported dropped-frame signal.
         - alert: SseDroppedFrames
-          expr: increase(sse_dropped_frames_total[5m]) > 0
+          expr: increase(sse_capacity_rejected_total{reason="dispatch"}[5m]) > 0
           labels:
             severity: warning
             domain: realtime
           annotations:
-            summary: "SSE frames dropped in the last 5m"
+            summary: "SSE frames dropped (dispatch rejections) in the last 5m"
 
     - name: bhukkad.backup
       rules:
@@ -156,6 +167,12 @@ spec:
 
         # Freshness: .last_success_epoch exported by the metrics sidecar;
         # >25h without a successful dump set = RPO breach.
+        # TODO(metrics sidecar): backup_last_success_epoch_seconds is exported
+        # by NO sidecar today (P0 config audit — k8s/backup-cronjob.yaml ships
+        # none). Until the backup sidecar emits this gauge the alert is inert
+        # (absent data never fires); BackupJobFailed/BackupJobMissing above
+        # are the live tripwires. Wire the sidecar metric before relying on
+        # this RPO alert.
         - alert: BackupStale
           expr: time() - backup_last_success_epoch_seconds > 90000
           labels:
@@ -164,6 +181,10 @@ spec:
           annotations:
             summary: "No successful backup in >25h (RPO breach)"
 
+        # TODO(metrics sidecar): restore_drill_last_success_timestamp_seconds
+        # is exported by NO sidecar today (P0 config audit). Inert until the
+        # sidecar (or the restore-drill script) emits the gauge; kept here so
+        # the RPO/DR tripwire exists once the metric lands.
         - alert: RestoreDrillStale
           expr: time() - restore_drill_last_success_timestamp_seconds > 2678400  # 31d
           labels:

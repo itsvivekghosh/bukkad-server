@@ -71,6 +71,30 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: JWT_SECRET
+            # RS256 signing key (ADR-004): RsaSigningKeys fail-fasts in
+            # prod/staging without PEM env or file — mount the shared key from
+            # bhukkad-secrets (JWT_PRIVATE_KEY_PEM, Vault bhukkad/prod/auth)
+            # as a read-only volume and point the app at the file.
+            - name: JWT_PRIVATE_KEY_PATH
+              value: /etc/bhukkad/jwt/private-key.pem
+            # Stable kid override so the JWKS entry is predictable across key
+            # rotations; defaults to the RFC 7638 thumbprint when unset.
+            - name: JWT_KEY_ID
+              value: bhukkad-identity-rs256-1
+            # Service-mesh (inter-service) HMAC secret
+            # (app.auth.service.jwt-secret). Provisioned in
+            # k8s/external-secret.yaml (Vault bhukkad/prod/auth) — without the
+            # mapping it would vanish on ExternalSecret sync.
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            # RS256 verification source for PlatformJwtValidator: identity's
+            # own JWKS via the ClusterIP Service (port 80 → targetPort 8081;
+            # see k8s/identity/service.yaml — the Service does NOT expose 8081).
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
             # P-09 JVM<->container contract: Guaranteed QoS (memory
             # requests==limits), CPU requests with NO limit (a limit throttles
             # GC threads), and the canonical -XX flag set (perf guide §4.1).
@@ -89,6 +113,13 @@ spec:
               memory: 1024Mi
             limits:
               memory: 1024Mi
+          volumeMounts:
+            # RS256 private key (PKCS#8 PEM) from bhukkad-secrets. Group-
+            # readable (0440 + fsGroup 1001) so the non-root app user can
+            # read it without exposing it cluster-wide.
+            - name: jwt-private-key
+              mountPath: /etc/bhukkad/jwt
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
@@ -112,3 +143,15 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
+      volumes:
+        # Single shared RS256 signing key across all replicas (per-replica
+        # ephemeral keys would break fleet-wide JWKS verification). Key is
+        # provisioned by k8s/external-secret.yaml (Vault bhukkad/prod/auth)
+        # or out-of-band per the k8s/secrets.yaml header.
+        - name: jwt-private-key
+          secret:
+            secretName: bhukkad-secrets
+            items:
+              - key: JWT_PRIVATE_KEY_PEM
+                path: private-key.pem
+            defaultMode: 0440
