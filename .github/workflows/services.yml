@@ -92,10 +92,15 @@ jobs:
 
       - name: Build Docker image
         if: github.event_name == 'push'
+        # Canonical image path (audit G-13 / R-02): services/docker/Dockerfile.service
+        # is the ONLY service image recipe — the per-service Dockerfiles were
+        # deleted. Build from the reactor root services/ (context must contain
+        # pom.xml, platform-lib/ and the module sources) and select the module
+        # via the Dockerfile's MODULE build-arg.
         run: >
           docker build
-          --build-arg SERVICE=${{ matrix.service }}
-          -f services/${{ matrix.service }}/Dockerfile
+          --build-arg MODULE=${{ matrix.service }}
+          -f services/docker/Dockerfile.service
           -t ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
           services/
 

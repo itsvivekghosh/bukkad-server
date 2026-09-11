@@ -1,15 +1,19 @@
 name: CI
 
 # Reusable build + test pipeline.
-# Called by: pull-request.yml, feature-ci.yml, staging.yml, production.yml.
+# Called by: feature-ci.yml, staging.yml, production.yml.
 # A calling job that uses this workflow completes successfully only when every
 # job in this workflow succeeds, so deployment jobs can gate on it with `needs:`.
+#
+# Microservices migration: the root monolith pom.xml and multi-module/ reactor
+# are gone — the only buildable code is the services/ reactor
+# (services/pom.xml), so every job builds against it.
 
 on:
   workflow_call:
     inputs:
       service:
-        description: "Build only this service module (services/ reactor)."
+        description: "Build only this service module from the services reactor. Leave empty for the full reactor."
         required: false
         type: string
         default: ""
@@ -39,7 +43,15 @@ jobs:
         run: chmod +x mvnw
 
       - name: Compile
-        run: ./mvnw -B -f services/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
+        # `-pl` with an empty module hard-fails Maven, and the deploy workflows
+        # call this reusable workflow WITHOUT a service input — so only add
+        # -pl/-am when a single service was requested.
+        run: |
+          if [ -n "${{ inputs.service }}" ]; then
+            ./mvnw -B -f services/pom.xml -pl ${{ inputs.service }} -am compile -DskipTests
+          else
+            ./mvnw -B -f services/pom.xml compile -DskipTests
+          fi
 
   # Phase 3: per-service build + test job, driven by the service matrix input.
   service-test:
