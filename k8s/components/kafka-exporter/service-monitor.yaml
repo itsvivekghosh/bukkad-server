@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bhukkad-kafka-exporter
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: kafka-exporter
+    # 'release' label selects which Prometheus (Prometheus Operator rule
+    # selector) picks this monitor — same convention as the fleet monitors.
+    release: bhukkad-prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - bhukkad
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: kafka-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace

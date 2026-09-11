@@ -1,0 +1,16 @@
+# Expose 443 on the LoadBalancer Service (k8s/components/tls).
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-nginx
+  namespace: bhukkad
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+    - port: 443
+      targetPort: 443
+      protocol: TCP
+      name: https

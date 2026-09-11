@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# Kafka consumer-lag exporter (P2) — danielqsj/kafka-exporter, the exporter the
+# Prometheus community builds the canonical kafka_* metrics from (the
+# prometheuscommunity/kafka-exporter image does not exist on Docker Hub; the
+# source repo prometheus-community points at is danielqsj/kafka_exporter).
+#
+# Exports the metric names every lag alert reads:
+#   kafka_consumergroup_lag{consumergroup,topic,partition}
+#   kafka_consumergroup_current_offset{consumergroup,topic,partition}
+#   kafka_topic_partition_current_offset{topic,partition}
+#   kafka_topic_partition_oldest_offset{topic,partition}
+#   kafka_brokers
+#
+# Consumers of these metrics: k8s/monitoring/kafka-lag-rules.yaml (DLT parking,
+# stalled groups, exporter watchdog) and the pre-existing MoneyTopicDltLag /
+# KafkaConsumerLagHigh rules in k8s/monitoring/prometheus-rules.yaml (which
+# were inert until this exporter existed — G-2 "no inert safety devices").
+#
+# Target: the redpanda headless Service DNS names already used by
+# KAFKA_BOOTSTRAP_SERVERS in k8s/configmap.yaml. TLS/SASL flags are
+# commented-ready for the components/tls flip (k8s/README-TLS.md).
+# =============================================================================
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - service-monitor.yaml

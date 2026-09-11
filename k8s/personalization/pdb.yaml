@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-personalization-pdb
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: personalization
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: personalization

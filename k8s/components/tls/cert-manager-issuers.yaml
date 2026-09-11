@@ -1,0 +1,44 @@
+# In-cluster TLS (P2, k8s/components/tls): cert-manager internal CA chain.
+# 1) selfsigned bootstrap issuer signs the CA certificate (step 2);
+# 2) the CA certificate (10y) backs the real issuer (step 3);
+# 3) bhukkad-internal-ca issues every workload leaf certificate
+#    (certificates.yaml). Clients trust it via the bhukkad-internal-ca
+#    Secret (ca.crt) — used by sslrootcert / verify-full and commented
+#    client env blocks in k8s/configmap.yaml.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: bhukkad-selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-internal-ca
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  isCA: true
+  secretName: bhukkad-internal-ca
+  # 10 years: the CA is the fleet trust anchor; rotate deliberately
+  # (re-issue + full client rollout), not accidentally.
+  duration: 87600h
+  commonName: bhukkad-internal-ca
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: bhukkad-selfsigned-bootstrap
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: bhukkad-internal-ca
+spec:
+  ca:
+    secretName: bhukkad-internal-ca

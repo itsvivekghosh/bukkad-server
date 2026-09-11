@@ -1,0 +1,27 @@
+# In-cluster TLS (P2, k8s/components/tls): postgres server TLS config, mounted
+# by the postgres-deployment patch at /etc/postgresql/conf.d/postgresql-tls.conf
+# and pulled into the main config via include_if_exists (k8s/postgres/
+# configmap.yaml). sslmode=disable clients keep working — the client flip is
+# DB_SSL_ENABLED in k8s/configmap.yaml (default false, k8s/README-TLS.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-postgres-tls-conf
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: postgres
+data:
+  postgresql-tls.conf: |
+    # Server-side TLS (components/tls). Key material is the cert-manager
+    # bhukkad-postgres-tls Secret (tls.crt/tls.key/ca.crt) mounted at
+    # /etc/postgresql/tls with defaultMode 0440 + pod fsGroup 70: the file is
+    # root:70 0440, which postgres accepts (root-owned key, group-readable by
+    # the postgres uid 70) while refusing world-readable private keys.
+    ssl = on
+    ssl_cert_file = '/etc/postgresql/tls/tls.crt'
+    ssl_key_file = '/etc/postgresql/tls/tls.key'
+    ssl_ca_file = '/etc/postgresql/tls/ca.crt'
+    ssl_min_protocol_version = 'TLSv1.2'
+    # Host-based auth stays unchanged; sslmode is enforced client-side via
+    # DB_SSL_ENABLED / the JDBC URLs (k8s/README-TLS.md flip stages A/B).

@@ -21,6 +21,43 @@ spec:
         component: postgres
     spec:
       terminationGracePeriodSeconds: 90
+      # fsGroup 70 (postgres uid/gid in the alpine image) gives the shared
+      # wal-spool emptyDir group ownership so both the postgres process and
+      # the (uid-70) wal-g sidecar can write it. OnRootMismatch avoids a full
+      # recursive chown of the data PVC on every restart.
+      securityContext:
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        # PITR (k8s/README-PITR.md): install the pinned wal-g binary into a
+        # shared emptyDir. WAL-G publishes no official Docker image (verified;
+        # its README's documented install path IS the GitHub release binary),
+        # so the release artifact is fetched + sha256-verified at pod start.
+        # Swap for a prebuilt internal image (FROM ubuntu:22.04 + COPY wal-g)
+        # for air-gapped clusters — keep the pin.
+        - name: wal-g-installer
+          image: busybox:1.36
+          command:
+            - sh
+            - -ec
+            - |
+              WVER=v3.0.9
+              WURL="https://github.com/wal-g/wal-g/releases/download/${WVER}/wal-g-pg-22.04-amd64.tar.gz"
+              wget -q -O /tmp/walg.tar.gz "${WURL}"
+              wget -q -O /tmp/walg.sha256 "${WURL}.sha256"
+              WANT=$(head -c 64 /tmp/walg.sha256 | tr -d ' ')
+              GOT=$(sha256sum /tmp/walg.tar.gz | cut -d' ' -f1)
+              if [ "${WANT}" != "${GOT}" ]; then
+                echo "wal-g checksum mismatch: want ${WANT} got ${GOT}"; exit 1
+              fi
+              tar -xzf /tmp/walg.tar.gz -C /walg-bin
+              BIN=$(find /walg-bin -type f -name 'wal-g*' | head -1)
+              mv "${BIN}" /walg-bin/wal-g
+              chmod +x /walg-bin/wal-g
+              /walg-bin/wal-g --version
+          volumeMounts:
+            - name: walg-bin
+              mountPath: /walg-bin
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -48,6 +85,9 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: POSTGRES_REPLICATION_PASSWORD
+            # PITR: explicit for the wal-g sidecar (shares the same PGDATA).
+            - name: PGDATA
+              value: /var/lib/postgresql/data
           args:
             - -c
             - config_file=/etc/postgresql/postgresql.conf
@@ -66,6 +106,10 @@ spec:
             - name: postgres-config
               mountPath: /etc/postgresql/postgresql.conf
               subPath: postgresql.conf
+            # WAL spool written by archive_command (postgres/configmap.yaml);
+            # drained by the wal-g sidecar below.
+            - name: wal-spool
+              mountPath: /wal-spool
           startupProbe:
             exec:
               command:
@@ -93,6 +137,100 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+        # PITR (k8s/README-PITR.md): uploads spooled WAL segments + takes the
+        # periodic wal-g base backup. Credentials follow the existing
+        # secretKeyRef pattern (bhukkad-secrets; Vault bhukkad/prod/database +
+        # bhukkad/prod/backup). Runs as postgres uid 70 so it can read PGDATA
+        # and write the spool (fsGroup 70).
+        - name: wal-g
+          image: ubuntu:22.04
+          command: ["/bin/bash", "/scripts/walg-sidecar.sh"]
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data
+            - name: PGHOST
+              value: 127.0.0.1
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: postgres
+            # Localhost loopback inside the pod: never negotiate TLS for the
+            # wal-g libpq connection (deterministic regardless of server ssl).
+            - name: PGSSLMODE
+              value: disable
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: DB_PASSWORD
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: bhukkad-config
+                  key: S3_BUCKET
+            - name: WALG_S3_PREFIX
+              value: s3://$(S3_BUCKET)/pitr
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: bhukkad-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: WALG_BIN_DIR
+              value: /walg-bin
+          volumeMounts:
+            - name: wal-spool
+              mountPath: /wal-spool
+            # Read-only: wal-g backup-push only READS PGDATA (the server
+            # itself writes the backup_label via the libpq connection).
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+              readOnly: true
+            - name: walg-scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: walg-bin
+              mountPath: /walg-bin
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            allowPrivilegeEscalation: false
+          livenessProbe:
+            # No procps in ubuntu:22.04 — the script heartbeats a file in the
+            # spool dir every loop (~POLL_SECONDS) and the probe checks its
+            # age. Dotfile: skipped by the spool drain glob.
+            exec:
+              command:
+                - bash
+                - -c
+                - test $(( $(date +%s) - $(stat -c %Y /wal-spool/.heartbeat 2>/dev/null || echo 0) )) -lt 180
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
@@ -106,3 +244,20 @@ spec:
         - name: postgres-config
           configMap:
             name: bhukkad-postgres-config
+            items:
+              - key: postgresql.conf
+                path: postgresql.conf
+        # WAL spool: postgres writes closed segments, wal-g drains them.
+        # Size = the S3-outage budget (~2GiB ≈ hours of WAL at fleet volume;
+        # archive_command backpressure + pg_wal retention take over after).
+        - name: wal-spool
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: walg-scripts
+          configMap:
+            name: bhukkad-postgres-walg
+            items:
+              - key: walg-sidecar.sh
+                path: walg-sidecar.sh
+        - name: walg-bin
+          emptyDir: {}

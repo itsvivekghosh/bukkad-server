@@ -1,0 +1,91 @@
+# In-cluster TLS (P2, k8s/components/tls): server leaf certificates issued by
+# the bhukkad-internal-ca ClusterIssuer. Each secret is <name>-tls with keys
+# tls.crt / tls.key / ca.crt (cert-manager convention). Short-lived (default
+# 90d) with automatic renewal — k8s TLS Secret consumers (volume mounts) pick
+# up renewed material on pod restart.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-postgres-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  secretName: bhukkad-postgres-tls
+  dnsNames:
+    - bhukkad-postgresql
+    - bhukkad-postgresql.bhukkad
+    - bhukkad-postgresql.bhukkad.svc
+    - bhukkad-postgresql.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-redis-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  secretName: bhukkad-redis-tls
+  dnsNames:
+    - bhukkad-redis
+    - bhukkad-redis.bhukkad
+    - bhukkad-redis.bhukkad.svc
+    - bhukkad-redis.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# One wildcard certificate for all three brokers: every broker advertises
+# redpanda-<i>.redpanda-headless.bhukkad.svc.cluster.local; a single secret
+# (bhukkad-redpanda-tls) keeps the StatefulSet template mountable without
+# per-pod cert plumbing.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-redpanda-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  secretName: bhukkad-redpanda-tls
+  dnsNames:
+    - redpanda-headless
+    - redpanda-headless.bhukkad
+    - redpanda-headless.bhukkad.svc
+    - redpanda-headless.bhukkad.svc.cluster.local
+    - redpanda-0.redpanda-headless.bhukkad.svc.cluster.local
+    - redpanda-1.redpanda-headless.bhukkad.svc.cluster.local
+    - redpanda-2.redpanda-headless.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-nginx-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  secretName: bhukkad-nginx-tls
+  dnsNames:
+    - bhukkad-nginx
+    - bhukkad-nginx.bhukkad
+    - bhukkad-nginx.bhukkad.svc
+    - bhukkad-nginx.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca
+    kind: ClusterIssuer
+    group: cert-manager.io

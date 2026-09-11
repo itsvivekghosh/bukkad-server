@@ -1,0 +1,90 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bhukkad-kafka-lag-alerts
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    # 'release' label selects which Prometheus (Prometheus Operator rule
+    # selector) picks this rule set — same convention as the fleet alerts.
+    release: bhukkad-prometheus
+spec:
+  groups:
+    # =========================================================================
+    # P2 Kafka consumer-lag tripwires.
+    #
+    # Every expression uses ONLY metrics the danielqsj/kafka-exporter actually
+    # exports (k8s/components/kafka-exporter): kafka_consumergroup_lag,
+    # kafka_consumergroup_current_offset, kafka_topic_partition_current_offset,
+    # kafka_topic_partition_oldest_offset, kafka_brokers — G-2 "no inert
+    # safety devices". This rule set COMPLEMENTS (does not duplicate) the
+    # bhukkad.events group in prometheus-rules.yaml:
+    #   * MoneyTopicDltLag / KafkaConsumerLagHigh — money-DLT and generic lag,
+    #     live now that the exporter scrapes consumer groups.
+    #   * OutboxBacklogHigh — app-side outbox metric, unrelated to the broker.
+    # Alert names here are collision-checked against that file.
+    # =========================================================================
+    - name: bhukkad.kafka.lag
+      rules:
+        # Watchdog: without the exporter every lag tripwire goes blind.
+        - alert: KafkaExporterDown
+          expr: absent(up{job=~".*kafka-exporter.*"}) or max(up{job=~".*kafka-exporter.*"}) == 0
+          for: 5m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "kafka-exporter is down or not being scraped — consumer-lag alerting is blind"
+
+        # A broker left the cluster (3-broker redpanda fleet).
+        - alert: KafkaBrokerCountLow
+          expr: min(kafka_brokers) < 3
+          for: 5m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Redpanda cluster has {{ $value }} broker(s) — below the 3-broker fleet"
+
+        # Stalled consumer group: the topic is still producing but the group
+        # has not advanced any offset for 15m. Catches hung consumers that
+        # never surface as lag thresholds (e.g. deadlock, poisoned shutdown).
+        # Left side keeps {consumergroup, topic}; `and on(topic)` requires the
+        # topic to be actively receiving records.
+        - alert: ConsumerGroupStalled
+          expr: >-
+            sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset[10m])) == 0
+            and on (topic)
+            sum by (topic) (rate(kafka_topic_partition_current_offset[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+            domain: events
+          annotations:
+            summary: "Consumer group {{ $labels.consumergroup }} is stalled on {{ $labels.topic }} while the topic keeps producing"
+
+        # DLT topics with parked records but NO active consumer group (such
+        # topics never appear in kafka_consumergroup_lag — nothing consumes
+        # them). The money-topic DLTs are additionally covered by the
+        # critical MoneyTopicDltLag rule; this is the catch-all for any other
+        # *.dlt dead-letter parking.
+        - alert: DltTopicUnconsumed
+          expr: sum by (topic) (kafka_topic_partition_current_offset{topic=~".*\\.dlt"} - kafka_topic_partition_oldest_offset{topic=~".*\\.dlt"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+            domain: events
+          annotations:
+            summary: "Dead-letter topic {{ $labels.topic }} holds unconsumed records and has no active consumer group"
+
+        # Escalation tier over KafkaConsumerLagHigh (>5000 for 10m, warning):
+        # sustained six-figure lag on any group means the event backbone is
+        # falling behind faster than it can drain.
+        - alert: ConsumerLagCritical
+          expr: kafka_consumergroup_lag > 50000
+          for: 15m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Consumer group {{ $labels.consumergroup }} lagging {{ $value }} on {{ $labels.topic }} — event backbone falling behind"

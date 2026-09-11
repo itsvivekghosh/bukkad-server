@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# In-cluster TLS (P2) — flag component, OFF by default.
+#
+# Enable by uncommenting `- components/tls` in k8s/kustomization.yaml (same
+# one-line toggle pattern as components/redpanda). REQUIRES cert-manager
+# (CRDs + operator) in the cluster: applying without it fails on the
+# Issuer/Certificate CRs.
+#
+# What this component ships:
+#   * cert-manager internal CA: selfsigned bootstrap ClusterIssuer →
+#     10y CA Certificate → bhukkad-internal-ca ClusterIssuer;
+#   * server leaf certificates: postgres (+CA trust variant), redis,
+#     redpanda (wildcard over the headless DNS), nginx;
+#   * server-side wiring via patches: postgres ssl=on (include_if_exists
+#     conf + cert mount), redis tls-port 6380, redpanda TLS:// listener,
+#     nginx 443 secondary router (80 stays up until the cutover);
+#   * SASL bootstrap Job for the redpanda superuser (from bhukkad-secrets).
+#
+# What stays OFF / commented-ready (flip order: k8s/README-TLS.md):
+#   * client TLS — DB_SSL_ENABLED in configmap.yaml (default false) and the
+#     commented client env blocks (redpanda/redis) live there;
+#   * redpanda SASL enforcement flags (chicken-and-egg with SCRAM user
+#     creation — bootstrap Job runs first, then ops enables);
+#   * pgbouncer TLS (apps currently bypass pgbouncer; see README-TLS).
+#
+# The base build remains dev-boot-compatible: without this component nothing
+# TLS is deployed, every include_if_exists / include-glob is inert, and no
+# client changes are needed.
+# =============================================================================
+
+resources:
+  - cert-manager-issuers.yaml
+  - certificates.yaml
+  - postgres-tls-conf.yaml
+  - redpanda-sasl-bootstrap.yaml
+  - nginx-tls-conf.yaml
+
+patches:
+  - path: patches/postgres-deployment.yaml
+  - path: patches/redis-deployment.yaml
+  - path: patches/redpanda-statefulset.yaml
+  - path: patches/nginx-deployment.yaml
+  - path: patches/nginx-service.yaml

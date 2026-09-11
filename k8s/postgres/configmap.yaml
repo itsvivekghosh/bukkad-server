@@ -28,6 +28,25 @@ data:
     random_page_cost = 1.1
     effective_io_concurrency = 200
     default_statistics_target = 200
+    # --- PITR / WAL archiving (k8s/README-PITR.md) --------------------------
+    # archive_command spools each closed WAL segment into the shared
+    # `wal-spool` emptyDir (k8s/postgres/deployment.yaml) and returns fast;
+    # the wal-g sidecar uploads spooled segments to S3 (WALG_S3_PREFIX) and
+    # removes them. Keeping the network OUT of archive_command matters: a
+    # slow/hanging archive_command makes pg_wal accumulate segments, which
+    # eventually blocks checkpoint recycling (data-loss exposure).
+    archive_mode = on
+    archive_command = 'test -d /wal-spool && cp %p /wal-spool/%f'
+    # Force a segment switch at most every 60s so the archive lag (and thus
+    # the achievable RPO) stays bounded even in low-traffic hours — without
+    # this, an idle cluster archives nothing until 16MB fills.
+    archive_timeout = 60s
+    # --- In-cluster TLS (k8s/components/tls + k8s/README-TLS.md) ------------
+    # The TLS component mounts a `postgresql-tls.conf` (ssl=on + cert paths)
+    # at /etc/postgresql/conf.d/postgresql-tls.conf, pulled in here. Inert in
+    # the base build: the include target does not exist until the component
+    # adds the mount, and Postgres skips missing include_if_exists files.
+    include_if_exists = '/etc/postgresql/conf.d/postgresql-tls.conf'
 ---
 # -----------------------------------------------------------------------------
 # PostgreSQL bootstrap, mounted at /docker-entrypoint-initdb.d/01-init.sql.
@@ -48,3 +67,82 @@ data:
     -- Replication user for the read replica StatefulSet.
     CREATE ROLE repl REPLICATION LOGIN PASSWORD '$POSTGRES_REPLICATION_PASSWORD';
     SELECT 'Database initialized!' AS status;
+---
+# -----------------------------------------------------------------------------
+# PITR (k8s/README-PITR.md): wal-g sidecar script. The sidecar runs next to
+# postgres (k8s/postgres/deployment.yaml) and does two jobs:
+#   1. WAL spool uploader — pushes every segment postgres's archive_command
+#      dropped into the shared /wal-spool emptyDir to $WALG_S3_PREFIX and
+#      deletes it on success. Spool capacity (emptyDir sizeLimit) is the S3
+#      outage budget: if S3 is unreachable longer than the spool takes to
+#      fill, archive_command fails, pg_wal retains segments (postgres slows
+#      but no data loss) — the backup job's verify-wal.sh check + alerts are
+#      the tripwire.
+#   2. Base backups — `wal-g backup-push` (delta-capable) every
+#      BACKUP_PUSH_INTERVAL_SECONDS. The first successful base backup is the
+#      restore anchor; WAL replay has nothing to replay without it.
+#
+# The wal-g binary itself is installed by the `wal-g-installer` initContainer
+# (pinned official release + sha256 verify) into a shared emptyDir — WAL-G
+# publishes no official Docker image (verified; its README's documented
+# install path IS the GitHub release binary), so the image choice is
+# `ubuntu:22.04` + the pinned binary. See k8s/README-PITR.md §"wal-g image".
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-postgres-walg
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: postgres
+data:
+  walg-sidecar.sh: |
+    #!/bin/bash
+    set -u
+    SPOOL_DIR="${SPOOL_DIR:-/wal-spool}"
+    PGDATA_DIR="${PGDATA:-/var/lib/postgresql/data}"
+    POLL_SECONDS="${WAL_SPOOL_POLL_SECONDS:-10}"
+    BACKUP_INTERVAL="${BACKUP_PUSH_INTERVAL_SECONDS:-86400}"
+    export PATH="${WALG_BIN_DIR:-/walg-bin}:${PATH}"
+    LOG_PREFIX="[walg-sidecar $(date '+%Y-%m-%dT%H:%M:%S%z')]"
+
+    echo "${LOG_PREFIX} waiting for postgres PGDATA marker ${PGDATA_DIR}/PG_VERSION"
+    for _ in $(seq 1 120); do
+      [ -f "${PGDATA_DIR}/PG_VERSION" ] && break
+      sleep 5
+    done
+    if [ ! -f "${PGDATA_DIR}/PG_VERSION" ]; then
+      echo "${LOG_PREFIX} postgres PGDATA never appeared; exiting for pod restart" >&2
+      exit 1
+    fi
+
+    LAST_BACKUP=0
+    while true; do
+      # Liveness heartbeat (no procps in ubuntu:22.04 — the deployment probe
+      # stats this file; dotfiles are skipped by the drain glob below).
+      touch "${SPOOL_DIR}/.heartbeat"
+      # 1. Drain the WAL spool (preserve order: stop at the first failure so
+      #    a stuck segment never lets later ones overtake it).
+      for seg in "${SPOOL_DIR}"/*; do
+        [ -f "${seg}" ] || break   # empty glob
+        if wal-g wal-push "${seg}"; then
+          echo "${LOG_PREFIX} uploaded WAL $(basename "${seg}")"
+          rm -f "${seg}"
+        else
+          echo "${LOG_PREFIX} WARN wal-push failed for $(basename "${seg}"); will retry" >&2
+          break
+        fi
+      done
+      # 2. Periodic base backup (wal-g reuses prior backups as deltas).
+      NOW=$(date +%s)
+      if [ $((NOW - LAST_BACKUP)) -ge "${BACKUP_INTERVAL}" ]; then
+        if wal-g backup-push "${PGDATA_DIR}"; then
+          echo "${LOG_PREFIX} base backup completed"
+          LAST_BACKUP=${NOW}
+        else
+          echo "${LOG_PREFIX} WARN backup-push failed; will retry next interval" >&2
+        fi
+      fi
+      sleep "${POLL_SECONDS}"
+    done

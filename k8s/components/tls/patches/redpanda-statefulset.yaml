@@ -1,0 +1,87 @@
+# Redpanda TLS listener wiring (k8s/components/tls).
+#
+# The args list is REPLACED wholesale (strategic-merge atomic list), so this
+# patch restates the full original list from k8s/components/redpanda/
+# statefulset.yaml and ADDS:
+#   * a second Kafka listener  TLS://0.0.0.0:9093 advertising the stable
+#     headless DNS — PLAINTEXT 9092 stays up for the staged cutover;
+#   * redpanda.tls[0] bound to that listener name via --set (cert/key/
+#     truststore from the wildcard bhukkad-redpanda-tls secret mounted at
+#     /etc/redpanda/tls).
+#
+# SASL ENFORCEMENT IS DELIBERATELY NOT HERE (flip step 3 in k8s/README-TLS.md):
+# with enable_sasl=true and no SCRAM credential yet, every client — including
+# the topics-init Job — is locked out (chicken-and-egg). The
+# redpanda-sasl-bootstrap Job creates the superuser over PLAINTEXT first;
+# ops then appends these two args in a follow-up patch:
+#     - --set redpanda.enable_sasl=true
+#     - --set redpanda.superusers=[bhukkad-admin]
+# After SASL is on, update --kafka-addr/--advertise-kafka-addr for TLS as the
+# primary listener per README-TLS step 4 and uncomment the client env blocks
+# in k8s/configmap.yaml.
+#
+# KEEP IN SYNC: the PLAINTEXT lines below must mirror the redpanda component.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: redpanda
+          args:
+            - redpanda
+            - start
+            # One broker per pod; tune --smp with the CPU request if raised.
+            - --smp=1
+            - --memory=1G
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --node-id=$(POD_ORDINAL)
+            # Kafka listener on every interface; each broker ADVERTISES its
+            # stable headless DNS so clients across the mesh re-resolve
+            # correctly after pod rescheduling (this is the SPOF #8 fix over a
+            # single bootstrap IP).
+            - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+            - --advertise-kafka-addr=PLAINTEXT://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9092
+            # TLS listener (P2 components/tls): same DNS, port 9093, TLS
+            # settings bound below by the redpanda.tls[0].name match.
+            - --kafka-addr=TLS://0.0.0.0:9093
+            - --advertise-kafka-addr=TLS://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9093
+            # SASL enforcement (flip step 3, see header):
+            # - --set redpanda.enable_sasl=true
+            # - --set redpanda.superusers=[bhukkad-admin]
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:33145
+            - --controller-addr=0.0.0.0:33146
+            # TLS config bound to the TLS:// listener name; truststore is the
+            # CA so broker-to-broker and rpk TLS clients can verify.
+            - --set redpanda.tls[0].name=TLS
+            - --set redpanda.tls[0].enabled=true
+            - --set redpanda.tls[0].cert_file=/etc/redpanda/tls/tls.crt
+            - --set redpanda.tls[0].key_file=/etc/redpanda/tls/tls.key
+            - --set redpanda.tls[0].truststore_file=/etc/redpanda/tls/ca.crt
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: kafka-tls
+              containerPort: 9093
+            - name: admin
+              containerPort: 9644
+            - name: rpc
+              containerPort: 33145
+            - name: controller
+              containerPort: 33146
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+            - name: redpanda-tls
+              mountPath: /etc/redpanda/tls
+              readOnly: true
+      volumes:
+        - name: redpanda-tls
+          secret:
+            secretName: bhukkad-redpanda-tls
+            defaultMode: 0440

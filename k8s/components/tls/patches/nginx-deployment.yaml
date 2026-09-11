@@ -1,0 +1,51 @@
+# Nginx 443 secondary router wiring (k8s/components/tls): expose the port and
+# mount the TLS drop-in + server cert. Port 80 stays untouched (the 80→443
+# redirect is flip step 6 in k8s/README-TLS.md).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-nginx
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx
+          ports:
+            - containerPort: 80
+              name: http
+            - containerPort: 443
+              name: https
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: nginx-tls-conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+            - name: nginx-tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: bhukkad-nginx-config
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+        - name: nginx-tls-conf
+          configMap:
+            name: bhukkad-nginx-tls-conf
+            items:
+              - key: tls-server.conf
+                path: tls-server.conf
+        - name: nginx-tls
+          secret:
+            secretName: bhukkad-nginx-tls

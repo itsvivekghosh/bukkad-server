@@ -27,6 +27,13 @@ data:
     payments = host=bhukkad-postgresql port=5432 dbname=payments pool_size=300
     restaurants = host=bhukkad-postgresql port=5432 dbname=restaurants pool_size=300
     identity = host=bhukkad-postgresql port=5432 dbname=identity pool_size=225
+    # P2 fleet completion: realtime/personalization/growth ship hpa.yaml
+    # (maxReplicas 12) with DB_POOL_SIZE 20 → demand 12×20=240 per DB, so each
+    # gets the smallest pool_size satisfying the §4.2 rule (240 ≤ 0.8×300),
+    # same tier as orders/payments/restaurants.
+    realtime = host=bhukkad-postgresql port=5432 dbname=realtime pool_size=300
+    personalization = host=bhukkad-postgresql port=5432 dbname=personalization pool_size=300
+    growth = host=bhukkad-postgresql port=5432 dbname=growth pool_size=300
     * = host=bhukkad-postgresql port=5432
 
     [pgbouncer]
@@ -49,5 +56,23 @@ data:
     log_connections = 1
     log_disconnections = 1
     stats_period = 60
-  userlist.txt: |
-    "app" "CHANGE_ME_DB_PASSWORD"
+  # ---------------------------------------------------------------------------
+  # userlist.txt (auth_file) — DELIBERATELY NOT SHIPPED AS A CONFIGMAP VALUE
+  # (P2 fix: it used to carry a hardcoded "CHANGE_ME_DB_PASSWORD" line).
+  #
+  # The pgbouncer Deployment (k8s/pgbouncer/deployment.yaml) does not mount
+  # this ConfigMap at all: the edoburu/pgbouncer image entrypoint generates
+  # userlist.txt at container start from the DB_USER / DB_PASSWORD environment
+  # variables, which the deployment already injects via the standard
+  # secretKeyRef pattern (bhukkad-secrets, Vault-owned via external-secret.yaml
+  # — creationPolicy: Owner). There is no credential in any manifest.
+  #
+  # Rotation note: rotate by (1) updating the Postgres role password
+  # (ALTER ROLE ... PASSWORD) in the DB, (2) updating bhukkad/prod/database in
+  # Vault (property password) — the ExternalSecret refreshes bhukkad-secrets
+  # within refreshInterval 1h, (3) `kubectl -n bhukkad rollout restart
+  # deployment/pgbouncer` plus every per-service deployment, so containers
+  # regenerate their userlist / Hikari connections with the new secret.
+  # pgbouncer accepts the plain or md5-hashed form; the entrypoint writes the
+  # md5 form (md5<md5(password+user)>).
+  # ---------------------------------------------------------------------------
