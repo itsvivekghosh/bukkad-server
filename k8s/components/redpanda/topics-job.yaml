@@ -6,7 +6,9 @@
 # Partitions follow the event-catalog ownership table:
 #   * order.events.v1 — primary order lifecycle stream (OrderEventPublisher.TOPIC)
 #     → 6 partitions (highest fan-out: notification, delivery, admin CQRS,
-#     search, survey consumers).
+#     realtime, search, survey consumers).
+#   * payment.events.v1 / restaurant.events.v1 — dedicated producer topics with
+#     live listeners (payment saga/dispute consumers, search sync).
 #   * bhukkad.platform.events — default outbox topic for services without a
 #     dedicated one (identity/restaurant/payment/delivery/notification/survey
 #     fallback) → 6 partitions.
@@ -61,8 +63,16 @@ spec:
             - |
               set -euo pipefail
               BROKERS=redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
-              # create <topic> <partitions> <replication-factor>
-              # docs/event-catalog.md Topics table + DLQ rule:
+              # Catalog topics. Every @KafkaListener in the reactor subscribes
+              # to a BASE platform topic (producers route all their event types
+              # through the single per-service platform-topic — publisher/
+              # consumer topic parity, pinned by KafkaTopicParityTest in
+              # platform-lib), so each live listener stream is seeded here:
+              #   order.events.v1     ← notification / realtime / admin CQRS /
+              #                         survey snapshot / order saga consumers
+              #   payment.events.v1   ← payment saga + dispute consumers
+              #   restaurant.events.v1 ← search sync consumer
+              #   bhukkad.platform.events ← default/fallback producer topic
               create() {  # topic partitions rf
                 if rpk topic describe "$1" -X brokers "$BROKERS" >/dev/null 2>&1; then
                   echo "topic exists: $1"
@@ -73,10 +83,15 @@ spec:
               # Primary catalog topics.
               create order.events.v1           6 3
               create bhukkad.platform.events   6 3
+              # Live listener streams (see the routing comment above).
+              create payment.events.v1         6 3
+              create restaurant.events.v1      6 3
               # DLT routes (G-9: every listener declares a dead-letter route;
               # V-10 per-factory DefaultErrorHandler). 1:1 with sources.
               create order.events.v1.dlt           6 3
               create bhukkad.platform.events.dlt   6 3
+              create payment.events.v1.dlt         6 3
+              create restaurant.events.v1.dlt      6 3
               echo "topic seeding complete:"
               rpk topic list -X brokers "$BROKERS"
           resources:

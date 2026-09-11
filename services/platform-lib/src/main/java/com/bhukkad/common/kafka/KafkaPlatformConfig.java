@@ -95,10 +95,17 @@ public class KafkaPlatformConfig {
     public KafkaPlatformEventPublisher kafkaPlatformEventPublisher(KafkaTemplate<String, String> kafkaTemplate,
                                                                    KafkaPlatformProperties properties) {
         KafkaPlatformProperties.Kafka kafka = properties.kafka();
-        String topicPrefix = kafka.platformTopic() + ".";
+        // Publisher/consumer topic parity (audit-critical): every event goes to
+        // the service's single BASE platform topic. Consumers subscribe to that
+        // base topic (order.events.v1, payment.events.v1, …) and dispatch on
+        // the eventType inside the envelope, so the previous per-type suffix
+        // ("<topic>.<eventType-lowercase>") produced topics no listener
+        // consumes and the Redpanda topics-job never seeds. See
+        // KafkaTopicParityTest, which pins this producer→consumer contract.
+        String topic = kafka.platformTopic();
         String groupId = kafka.consumerGroup();
         return new KafkaPlatformEventPublisher(kafkaTemplate,
-                new KafkaProperties(properties.isKafkaEnabled(), topicPrefix, groupId));
+                new KafkaProperties(properties.isKafkaEnabled(), topic, groupId));
     }
 
     // ── Consumer infrastructure ──────────────────────────────────────────────

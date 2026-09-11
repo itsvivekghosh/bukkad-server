@@ -49,7 +49,9 @@ class KafkaPlatformEventPublisherRedpandaIntegrationTest {
 
     @Test
     void publishesAndConsumesEnvelope() throws Exception {
-        String topic = "bhukkad.ordercreated";
+        // Base platform topic (publisher/consumer parity): the publisher must
+        // write the topic exactly as configured, without any per-type suffix.
+        String topic = "bhukkad.platform.events";
         createTopic(topic);
 
         Map<String, Object> producerConfig = Map.of(
@@ -60,7 +62,7 @@ class KafkaPlatformEventPublisherRedpandaIntegrationTest {
                 new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(producerConfig));
 
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "redpanda-it-group"));
+                kafkaTemplate, new KafkaProperties(true, topic, "redpanda-it-group"));
 
         PlatformEventMessage message = PlatformEventMessage.of("OrderCreated", "42", "{\"status\":\"PLACED\"}");
         publisher.publish(message);

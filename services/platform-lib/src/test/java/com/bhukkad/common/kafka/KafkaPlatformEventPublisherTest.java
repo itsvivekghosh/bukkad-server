@@ -12,23 +12,32 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 class KafkaPlatformEventPublisherTest {
 
+    private static final String BASE_TOPIC = "bhukkad.platform.events";
+
     @SuppressWarnings("unchecked")
     private final KafkaTemplate<String, String> kafkaTemplate = mock(KafkaTemplate.class);
 
     @Test
     void disabled_publishesNothing() {
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(false, "bhukkad.", "test-group"));
+                kafkaTemplate, new KafkaProperties(false, BASE_TOPIC, "test-group"));
 
         publisher.publish(PlatformEventMessage.of("OrderCreated", "42", "{}"));
 
         verifyNoInteractions(kafkaTemplate);
     }
 
+    /**
+     * Publisher/consumer topic parity (audit-critical): the publisher writes to
+     * the single BASE platform topic — consumers subscribe to the same base
+     * topic and dispatch on the eventType inside the envelope. The previous
+     * per-type suffix ("&lt;base&gt;.&lt;eventType-lowercase&gt;") produced
+     * topics no listener consumes and the Redpanda topics-job never seeds.
+     */
     @Test
-    void enabled_publishesToPrefixedTopic() {
+    void enabled_publishesToBaseTopicWithoutPerTypeSuffix() {
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "test-group"));
+                kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"));
 
         publisher.publish(PlatformEventMessage.of("OrderCreated", "42", "{}"));
 
@@ -38,15 +47,41 @@ class KafkaPlatformEventPublisherTest {
         ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
         verify(kafkaTemplate).send(topic.capture(), key.capture(), value.capture());
 
-        assertThat(topic.getValue()).isEqualTo("bhukkad.ordercreated");
+        assertThat(topic.getValue()).isEqualTo("bhukkad.platform.events");
+        assertThat(topic.getValue()).doesNotContain("ordercreated");
         assertThat(key.getValue()).isEqualTo("42");
         assertThat(value.getValue()).contains("\"eventType\":\"OrderCreated\"");
     }
 
     @Test
+    void publishForResult_writesSameBaseTopicAsPublish() {
+        org.apache.kafka.clients.producer.RecordMetadata meta =
+                new org.apache.kafka.clients.producer.RecordMetadata(
+                        new org.apache.kafka.common.TopicPartition(BASE_TOPIC, 0),
+                        0L, 0, 0L, 0, 0);
+        org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
+                        new org.springframework.kafka.support.SendResult<>(null, meta)));
+
+        KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
+                kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"),
+                java.time.Duration.ofSeconds(10));
+
+        assertThat(publisher.publishForResult(PlatformEventMessage.of("OrderStatusChanged", "42", "{}")))
+                .isTrue();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<String> topic = ArgumentCaptor.forClass(String.class);
+        verify(kafkaTemplate).send(topic.capture(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString());
+        assertThat(topic.getValue()).isEqualTo(BASE_TOPIC);
+    }
+
+    @Test
     void publishFailure_isSwallowed() {
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "test-group"));
+                kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"));
         org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
                 .thenThrow(new IllegalStateException("broker down"));
@@ -64,7 +99,7 @@ class KafkaPlatformEventPublisherTest {
     @Test
     void publishForResult_disabled_returnsFalse() {
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(false, "bhukkad.", "test-group"));
+                kafkaTemplate, new KafkaProperties(false, BASE_TOPIC, "test-group"));
 
         boolean result = publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}"));
 
@@ -72,14 +107,13 @@ class KafkaPlatformEventPublisherTest {
         verifyNoInteractions(kafkaTemplate);
     }
 
-    @SuppressWarnings("unchecked")
     @Test
     void publishForResult_ackedByBroker_returnsTrue() {
         // kafka-clients 3.6.x: RecordMetadata(TopicPartition, offset, batchLength(int),
         // lastRecordValue, keySize, valueSize) — partition/key come from the TopicPartition.
         org.apache.kafka.clients.producer.RecordMetadata meta =
                 new org.apache.kafka.clients.producer.RecordMetadata(
-                        new org.apache.kafka.common.TopicPartition("bhukkad.ordercreated", 0),
+                        new org.apache.kafka.common.TopicPartition(BASE_TOPIC, 0),
                         0L, 0, 0L, 0, 0);
         org.springframework.kafka.support.SendResult<String, String> sendResult =
                 new org.springframework.kafka.support.SendResult<>(null, meta);
@@ -88,14 +122,13 @@ class KafkaPlatformEventPublisherTest {
                 .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(sendResult));
 
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "test-group"),
+                kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"),
                 java.time.Duration.ofSeconds(10));
 
         assertThat(publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}")))
                 .isTrue();
     }
 
-    @SuppressWarnings("unchecked")
     @Test
     void publishForResult_brokerException_returnsFalse() {
         org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
@@ -103,7 +136,7 @@ class KafkaPlatformEventPublisherTest {
                 .thenThrow(new IllegalStateException("broker down"));
 
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                kafkaTemplate, new KafkaProperties(true, "bhukkad.", "test-group"),
+                kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"),
                 java.time.Duration.ofSeconds(10));
 
         boolean result = publisher.publishForResult(PlatformEventMessage.of("OrderCreated", "42", "{}"));
