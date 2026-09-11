@@ -1,0 +1,151 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-realtime
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: realtime
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: realtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: realtime
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8077"
+    spec:
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: bhukkad-realtime
+          image: ghcr.io/bhukkad/realtime:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8077
+              name: http
+          envFrom:
+            - configMapRef:
+                name: bhukkad-config
+          env:
+            - name: SERVER_PORT
+              value: "8077"
+            - name: WAIT_FOR_SERVICES
+              value: "false"
+            - name: HEALTH_PATH
+              value: /api/v1/health/ping
+            # Datasource: services/realtime reads POSTGRES_HOST/PORT/DB
+            # (database-per-service: `realtime`, created by the postgres
+            # initdb/00-create-databases.sql bootstrap) and the per-service
+            # credentials from bhukkad-secrets (mapped in
+            # k8s/external-secret.yaml — creationPolicy: Owner replaces the
+            # target secret, so every referenced key must be mapped there).
+            - name: POSTGRES_HOST
+              value: bhukkad-postgresql
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: realtime
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REALTIME_DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REALTIME_DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: JWT_SECRET
+            # Service-mesh (inter-service) HMAC secret
+            # (app.auth.service.jwt-secret) — provisioned in
+            # k8s/external-secret.yaml (Vault bhukkad/prod/auth); without the
+            # mapping it would vanish on ExternalSecret sync.
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            # RS256 verification: identity's JWKS via the ClusterIP Service
+            # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
+            # SSE stream authz: order ownership-oracle base URL
+            # (app.live.order-base-url). The code default (http://order:8092)
+            # is not a valid in-cluster DNS name — point it at the order
+            # ClusterIP Service (port 80 → targetPort 8092,
+            # k8s/order/service.yaml).
+            - name: ORDER_SERVICE_URL
+              value: http://bhukkad-order
+            # Kafka consumer: realtime is the SSE relay feed
+            # (OrderLiveEventConsumer on order.events.v1, group
+            # realtime-platform-consumer). APP_EVENTS_EXTERNAL_ENABLED=true +
+            # APP_EVENTS_EXTERNAL_TYPE=kafka + KAFKA_BOOTSTRAP_SERVERS arrive
+            # via envFrom (bhukkad-config) and override the application.yml
+            # defaults — no per-deployment override needed.
+            # P-09 JVM<->container contract: Guaranteed QoS (memory
+            # requests==limits), CPU requests with NO limit (a limit throttles
+            # GC threads), and the canonical -XX flag set (perf guide §4.1).
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+UseG1GC
+                -XX:MaxGCPauseMillis=200
+                -XX:+ExitOnOutOfMemoryError
+                -XX:+UseStringDeduplication
+                -Djava.security.egd=file:/dev/./urandom
+          resources:
+            requests:
+              cpu: 750m
+              memory: 1024Mi
+            limits:
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

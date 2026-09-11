@@ -1,0 +1,25 @@
+# Adds the 443 server block (the TLS secondary router) to the nginx
+# ConfigMap. Includes the SHARED bhukkad-routes.conf, so the location rules
+# exist in exactly one place (k8s/nginx/configmap.yaml layout note).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-nginx-config
+  namespace: bhukkad
+data:
+  bhukkad-api-tls.conf: |
+    server {
+        listen 443 ssl;
+        server_name _;
+
+        # Internal-CA leaf cert (bhukkad-nginx-tls secret, mounted by
+        # patch-nginx-deployment-tls.yaml). TLS 1.2+ only.
+        ssl_certificate /etc/nginx/tls/tls.crt;
+        ssl_certificate_key /etc/nginx/tls/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        include /etc/nginx/bhukkad/bhukkad-routes.conf;
+    }

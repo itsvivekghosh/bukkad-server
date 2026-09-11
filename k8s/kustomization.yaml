@@ -88,6 +88,20 @@ resources:
   - admin-analytics/service.yaml
   - admin-analytics/pdb.yaml
   - admin-analytics/hpa.yaml
+  # P2 fleet completion: realtime (SSE relay, port 8077), personalization
+  # (8088) and growth (8089) — modeled on the survey base.
+  - realtime/deployment.yaml
+  - realtime/service.yaml
+  - realtime/pdb.yaml
+  - realtime/hpa.yaml
+  - personalization/deployment.yaml
+  - personalization/service.yaml
+  - personalization/pdb.yaml
+  - personalization/hpa.yaml
+  - growth/deployment.yaml
+  - growth/service.yaml
+  - growth/pdb.yaml
+  - growth/hpa.yaml
   - gateway/deployment.yaml
   - gateway/service.yaml
   - gateway/pdb.yaml
@@ -110,7 +124,28 @@ resources:
   # the release: bhukkad-prometheus rule selector) is present.
   - monitoring/service-monitors.yaml
   - monitoring/prometheus-rules.yaml
+  # P2 Kafka consumer-lag: DLT + consumer-group lag alerts. Metric source is
+  # the kafka-exporter component below — remove BOTH together (G-2: no inert
+  # safety devices). The exporter also makes MoneyTopicDltLag /
+  # KafkaConsumerLagHigh (above) live.
+  - monitoring/kafka-lag-rules.yaml
 
+# ---------------------------------------------------------------------------
+# FLAG: in-cluster TLS (P2) — OFF by default. To enable, add the line below
+# to the `components:` list at the bottom of this file (next to the redpanda
+# component). The TLS stack builds: cert-manager internal CA + leaf certs for
+# postgres/redpanda/redis/nginx, a TLS Kafka listener on redpanda:9095
+# (plaintext :9092 stays up), the nginx 443 secondary router, and the
+# client-side flip (DB_SSL_ENABLED=true + sslmode JDBC URLs). Breaking steps
+# (redis TLS-only, SASL enforcement, 80→443 redirect) are sequenced in
+# k8s/README-TLS.md. PREREQUISITES: cert-manager installed; Vault
+# bhukkad/prod/redpanda provisioned (superuser); follow README-TLS in order.
+#
+#   components:
+#     - components/redpanda
+#     - components/tls-internal     # ← uncomment this line to enable TLS
+#
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Feature flag: Redpanda (Kafka API) cluster — SPOF #8 bring-up.
 #
@@ -129,6 +164,11 @@ resources:
 # ---------------------------------------------------------------------------
 components:
   - components/redpanda
+  # P2 Kafka consumer-lag exporter + ServiceMonitor (alerts live in
+  # monitoring/kafka-lag-rules.yaml, registered above). Toggle TOGETHER with
+  # that rules file. Connects to PLAINTEXT :9092 — unchanged when the
+  # tls-internal component is enabled.
+  - components/kafka-exporter
 
 labels:
   - includeSelectors: true

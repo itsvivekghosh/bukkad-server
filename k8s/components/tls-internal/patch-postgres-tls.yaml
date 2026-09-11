@@ -1,0 +1,34 @@
+# PostgreSQL server TLS (tls-internal component). ssl=on makes PostgreSQL
+# OFFER TLS on 5432 while still accepting plaintext — the breaking flip is
+# the client side (DB_SSL_ENABLED + sslmode URLs, patch-configmap-db-ssl.yaml).
+# Key permission rule: postgres requires the private key to be owned by root
+# or the server user and not group/world accessible; the secret mounts with
+# defaultMode 0440 root:fsGroup(999) → root-owned 0640-equivalent, accepted.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-postgresql
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgres
+          args:
+            - -c
+            - config_file=/etc/postgresql/postgresql.conf
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/etc/postgresql/tls/tls.crt
+            - -c
+            - ssl_key_file=/etc/postgresql/tls/tls.key
+          volumeMounts:
+            - name: postgres-tls
+              mountPath: /etc/postgresql/tls
+              readOnly: true
+      volumes:
+        - name: postgres-tls
+          secret:
+            secretName: bhukkad-postgres-tls
+            defaultMode: 0440

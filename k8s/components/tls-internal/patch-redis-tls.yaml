@@ -1,0 +1,25 @@
+# Redis TLS cert mount (tls-internal component) — INERT by design: the
+# bhukkad-redis-config TLS directives are COMMENTED-READY (see
+# k8s/redis/configmap.yaml) and stay off until the documented flip
+# (k8s/README-TLS.md). This patch only pre-positions the cert files at
+# /etc/redis-tls so the flip is an edit + rollout restart, not a manifest
+# change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-redis
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: redis
+          volumeMounts:
+            - name: redis-tls
+              mountPath: /etc/redis-tls
+              readOnly: true
+      volumes:
+        - name: redis-tls
+          secret:
+            secretName: bhukkad-redis-tls
+            defaultMode: 0440

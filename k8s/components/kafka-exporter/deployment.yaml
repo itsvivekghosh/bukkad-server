@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-kafka-exporter
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: kafka-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: kafka-exporter
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: kafka-exporter
+    spec:
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534   # nobody — image ships no dedicated uid
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: kafka-exporter
+          # Canonical upstream of the prometheus-community-track exporter
+          # (danielqsj/kafka_exporter). Pin bumped only after a smoke test —
+          # metric names here are contract for k8s/monitoring/kafka-lag-rules.yaml.
+          image: danielqsj/kafka-exporter:v1.10.0
+          imagePullPolicy: IfNotPresent
+          args:
+            # All three brokers: exporter survives single-broker loss and
+            # sees every partition replica (offsets/lag are cluster-wide).
+            - --kafka.server=redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092
+            - --kafka.server=redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092
+            - --kafka.server=redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
+            # Contract for the alert rules: consumergroup + topic + partition
+            # labels on kafka_consumergroup_lag / kafka_consumergroup_current_offset.
+            - --topic-filter=.*
+            - --group-filter=.*
+            - --log.level=info
+          ports:
+            - containerPort: 9308
+              name: metrics
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /              # exporter serves / as a landing page
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

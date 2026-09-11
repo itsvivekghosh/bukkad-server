@@ -28,6 +28,23 @@ data:
     random_page_cost = 1.1
     effective_io_concurrency = 200
     default_statistics_target = 200
+
+    # --- PITR (WAL archiving, k8s/README-PITR.md) --------------------------
+    # wal_level=replica (default) already streams to the read replica; these
+    # settings additionally archive every completed WAL segment to a shared
+    # emptyDir spool, where the wal-g sidecar (k8s/postgres/deployment.yaml)
+    # uploads it to S3 (WALG_S3_PREFIX). Idempotent form: `test -f` returns 0
+    # when the segment is already spooled (crash between cp and the archive
+    # status update) so archiving never wedges on a retry loop; a FAILED cp
+    # (spool full / pod restarting) returns non-zero and PostgreSQL retries —
+    # pg_wal then grows, so the nightly wal-verify (k8s/backup-cronjob.yaml)
+    # and the S3-freshness guardrails in README-PITR are the tripwires.
+    archive_mode = on
+    archive_command = 'test -f /wal-spool/pending/%f || cp %p /wal-spool/pending/%f'
+    # Force a segment switch every 60s: a quiet primary otherwise waits for a
+    # full 16MB segment, stretching the WAL RPO to hours. 60s bounds the
+    # archive-upload RPO to roughly the sidecar poll interval + 60s.
+    archive_timeout = 60s
 ---
 # -----------------------------------------------------------------------------
 # PostgreSQL bootstrap, mounted at /docker-entrypoint-initdb.d/01-init.sql.

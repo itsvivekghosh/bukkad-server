@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# Kafka consumer-lag exporter (P2). Ships prometheuscommunity-track
+# kafka-exporter (danielqsj/kafka-exporter — the canonical upstream; NOTE:
+# there is no `prometheuscommunity/kafka-exporter` image on any registry, so
+# the ticket's name resolves to this one) + Service + ServiceMonitor, and the
+# DLT / consumer-group lag alert set lives in
+# k8s/monitoring/kafka-lag-rules.yaml (registered as a root resource).
+#
+# TOGGLE COUPLING (G-2: no inert safety devices): remove this component ONLY
+# together with monitoring/kafka-lag-rules.yaml from k8s/kustomization.yaml —
+# the alerts there are dead weight without this exporter.
+#
+# The exporter connects to the brokers' PLAINTEXT :9092 listener (works
+# unchanged when the tls-internal component is enabled — that listener stays
+# up; migrating the exporter to :9095 + SCRAM is part of the Redpanda client
+# TLS flip, k8s/README-TLS.md §6).
+# =============================================================================
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - servicemonitor.yaml
+
+labels:
+  - includeSelectors: true
+    pairs:
+      managed-by: kustomize
+      project: bhukkad
