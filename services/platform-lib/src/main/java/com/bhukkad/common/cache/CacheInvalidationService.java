@@ -55,7 +55,18 @@ public class CacheInvalidationService implements MessageListener {
 
     @Bean
     public RedisMessageListenerContainer localCacheInvalidationListenerContainer() {
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        // Never start during context refresh: container.start() subscribes
+        // synchronously, so a transient Redis failure at boot (15-JVM startup
+        // storm) would cancel the whole context refresh and kill the service.
+        // CacheInvalidationListenerStarter starts it after ApplicationReady
+        // and retries until Redis is reachable — invalidation is best-effort.
+        // (isAutoStartup override — this Spring Data version has no setter.)
+        RedisMessageListenerContainer container = new RedisMessageListenerContainer() {
+            @Override
+            public boolean isAutoStartup() {
+                return false;
+            }
+        };
         container.setConnectionFactory(connectionFactory);
         container.addMessageListener(this, new ChannelTopic(channel));
         return container;
