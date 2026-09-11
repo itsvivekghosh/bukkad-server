@@ -227,6 +227,16 @@
 			<artifactId>reactor-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- BlockHound (P1): proves the JWT warm path and reactive filters never
+		     perform blocking calls on non-blocking threads. Test scope only.
+		     1.0.8.RELEASE is the JDK 17-compatible line (not managed by the
+		     Boot/Reactor BOM). -->
+		<dependency>
+			<groupId>io.projectreactor.tools</groupId>
+			<artifactId>blockhound</artifactId>
+			<version>1.0.8.RELEASE</version>
+			<scope>test</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>junit-jupiter</artifactId>
@@ -265,4 +275,47 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
+
+	<build>
+		<plugins>
+			<!-- Pre-load BlockHound as a -javaagent: dynamic self-attach is
+			     disabled by the parent surefire argLine, and an agent-loaded
+			     BlockHound is the CI-stable integration path. The tests
+			     activate it with BlockHound.install(). -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>copy-blockhound-agent</id>
+						<phase>process-test-classes</phase>
+						<goals>
+							<goal>copy</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.directory}</outputDirectory>
+							<artifactItems>
+								<artifactItem>
+									<groupId>io.projectreactor.tools</groupId>
+									<artifactId>blockhound</artifactId>
+									<version>1.0.8.RELEASE</version>
+									<type>jar</type>
+									<destFileName>blockhound.jar</destFileName>
+								</artifactItem>
+							</artifactItems>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!-- Parent argLine (jacoco @{argLine} + byte-buddy agent)
+					     plus the preloaded BlockHound agent. -->
+					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -javaagent:${project.build.directory}/blockhound.jar</argLine>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
 </project>

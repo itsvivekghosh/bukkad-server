@@ -1,6 +1,7 @@
 package com.bhukkad.identity.service;
 
 import com.bhukkad.common.error.UnauthorizedException;
+import com.bhukkad.common.security.JwtRevocationService;
 import com.bhukkad.identity.domain.RefreshToken;
 import com.bhukkad.identity.domain.RefreshTokenRepository;
 import com.bhukkad.identity.security.JwtProperties;
@@ -45,6 +46,10 @@ public class RefreshTokenService {
 
     private final RefreshTokenRepository repository;
     private final JwtProperties jwtProperties;
+    /** P1: advances the access-token revocation epoch on logout so validators
+     *  reject pre-logout access tokens immediately instead of for up to the
+     *  access TTL (fixes "access tokens live up to 15 min after logout"). */
+    private final JwtRevocationService revocationService;
 
     /** Outcome of a successful rotation: who, and the new raw refresh token. */
     public record Rotation(Long customerId, String refreshToken, String deviceId, Instant expiresAt) {
@@ -129,13 +134,20 @@ public class RefreshTokenService {
             return;
         }
         repository.findByTokenHash(sha256Hex(presentedRaw))
-                .ifPresent(row -> repository.revokeIfLive(row.getTokenHash(), Instant.now()));
+                .ifPresent(row -> {
+                    repository.revokeIfLive(row.getTokenHash(), Instant.now());
+                    // P1 revocation epoch: kill every pre-logout ACCESS token too.
+                    revocationService.revokeTokensIssuedBefore(row.getCustomerId());
+                });
     }
 
-    /** Kills every live session of a principal (password change / reset). */
+    /** Kills every live session of a principal (password change / reset / logout-all). */
     @Transactional
     public int revokeAllForCustomer(Long customerId) {
         int killed = repository.revokeAllByCustomer(customerId, Instant.now());
+        // P1 revocation epoch: this path also backs password change and reset —
+        // issued access tokens must die here, not at access-TTL expiry.
+        revocationService.revokeTokensIssuedBefore(customerId);
         if (killed > 0) {
             log.info("REFRESH_TOKENS_REVOKED_ALL customerId={} revokedRows={}", customerId, killed);
         }

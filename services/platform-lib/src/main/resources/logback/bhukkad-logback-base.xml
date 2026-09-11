@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Canonical Bhukkad service logging template (P1 PII-masking rollout).
+
+  Every service's logback-spring.xml <include>s this fragment so all services
+  share ONE definition of the appender stack. The only service-specific
+  tuning belongs in the including file (extra appenders or loggers) — never
+  by redefining the console appender or the root level.
+
+  PII masking (task: PII log masking registration): the `pii` conversion word
+  is com.bhukkad.common.logging.PiiMaskingConverter, a MessageConverter that
+  redacts email addresses (***@***) and bare 10-digit phone numbers
+  (**********) from every message. The pattern therefore uses %pii instead of
+  %m/%msg.
+
+  Included files must use <included> as their root element.
+-->
+<included>
+    <!-- Register the masking converter as %pii (platform-lib ships the class). -->
+    <conversionRule conversionWord="pii"
+                    converterClass="com.bhukkad.common.logging.PiiMaskingConverter"/>
+
+    <!-- Console appender: k8s + docker log drivers collect stdout; the
+         pattern keeps traceId (MDC, LoggingConstants.TRACE_ID) for tracing. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX, UTC} %-5level [%thread] [traceId=%X{traceId:-}] %logger{36} - %pii%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</included>

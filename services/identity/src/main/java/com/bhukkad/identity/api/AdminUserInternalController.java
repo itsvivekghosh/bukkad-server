@@ -2,6 +2,7 @@ package com.bhukkad.identity.api;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.security.JwtRevocationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,8 @@ import java.util.Map;
 public class AdminUserInternalController {
 
     private final JdbcTemplate jdbcTemplate;
+    /** P1: deactivation must invalidate already-issued access tokens immediately. */
+    private final JwtRevocationService revocationService;
 
     /** Paged user registry for the admin console (safe columns only). */
     @GetMapping("/users")
@@ -95,6 +98,7 @@ public class AdminUserInternalController {
     public Map<String, Object> deactivate(@PathVariable Long userId) {
         loadUser(userId);
         jdbcTemplate.update("UPDATE users SET active = FALSE, updated_at = NOW() WHERE id = ?", userId);
+        revocationService.revokeTokensIssuedBefore(userId);
         return Map.of("userId", userId, "active", false);
     }
 
@@ -125,6 +129,7 @@ public class AdminUserInternalController {
                         + "full_name = 'Deleted User', phone_number = CONCAT('X', ABS((? * 7919) % 1000000000)), "
                         + "verified = FALSE WHERE id = ?",
                 "-del-" + userId, userId, userId);
+        revocationService.revokeTokensIssuedBefore(userId);
         return Map.of("userId", userId, "erased", true);
     }
 
