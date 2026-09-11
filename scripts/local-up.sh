@@ -17,8 +17,8 @@ export SERVICE_JWT_SECRET="${APP_AUTH_SERVICE_JWT_SECRET}"
 export SPRING_PROFILES_ACTIVE=local
 export TRACING_SAMPLE_PROBABILITY=0.0
 export EVENTS_EXTERNAL_ENABLED=false
-export REDIS_HOST=localhost
-export SPRING_DATA_REDIS_HOST=localhost
+export REDIS_HOST=127.0.0.1
+export SPRING_DATA_REDIS_HOST=127.0.0.1
 
 # identity needs the dev admin bootstrap the e2e suite logs in with
 export APP_BOOTSTRAPADMIN_ENABLED=true
