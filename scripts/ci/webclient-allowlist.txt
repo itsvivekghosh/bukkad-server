@@ -12,18 +12,13 @@
 # WebClient factory (com.bhukkad.common.web.client.PlatformWebClientBuilderFactory).
 #
 # ── order service: 3 hand-built S2S clients (owner: W2-ORDER batch) ─────────
-services/order/src/main/java/com/bhukkad/order/client/RestaurantClient.java
-services/order/src/main/java/com/bhukkad/order/client/PaymentServiceClient.java
-services/order/src/main/java/com/bhukkad/order/client/SupportTicketDisputeClient.java
+# MIGRATED to PlatformWebClientBuilderFactory by the P1-MONEY-LEDGERS batch.
 #
 # ── delivery service: OsrmRestTemplate bean (owner: W3-DELIVERY batch) ──────
 services/delivery/src/main/java/com/bhukkad/delivery/OsrmHttpConfig.java
 #
-# ── realtime service: ownership probe against order (owner: W2-ORDER batch) ─
-services/realtime/src/main/java/com/bhukkad/realtime/client/OrderOwnershipClient.java
-#
-# ── survey service: ownership probe against order (owner: W2-ORDER batch) ───
-services/survey/src/main/java/com/bhukkad/survey/client/OrderOwnershipClient.java
+# ── realtime + survey ownership probes (owner: W2-ORDER batch) ──────────────
+# MIGRATED to PlatformWebClientBuilderFactory by the P1-MONEY-LEDGERS batch.
 #
 # ── platform-lib security (NOT web/client): JWKS fetch via RestClient ───────
 # Owner: the security-package batch (W3-RESTRUCTURE owns security packaging).

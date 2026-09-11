@@ -1,8 +1,7 @@
 package com.bhukkad.order.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -16,8 +15,11 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the SupportTicket service (dispute operations).
  *
- * <p>Uses WebClient with built-in resilience: retry (3 attempts, 1s backoff),
- * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).
+ * <p>Runs on the platform WebClient factory (audit G-13/P-05): shared bounded
+ * pool, platform timeouts, retry (3 attempts, 1s backoff on transient
+ * idempotent failures), the {@code supportticket} circuit breaker
+ * (50% failure threshold, 10s open state) and metrics; the service base URL
+ * and mesh-token stamping are applied on the copied builder.
  * Every call carries the mesh service token on {@code X-Service-Token} —
  * supportticket authorizes dispute surfaces behind role guards, so tokenless
  * mesh legs used to be rejected with 401 and silently swallowed into empty
@@ -34,11 +36,12 @@ public class SupportTicketDisputeClient {
             org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
             org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
         this.authTokenProvider = authTokenProvider;
-        this.webClient = WebClient.builder()
+        this.webClient = PlatformWebClientBuilderFactory
+                .forTarget("supportticket",
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
+                .build()
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("supportticket", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 // Mesh auth: stamp X-Service-Token when service auth is
                 // enabled; supportticket rejects tokenless dispute calls.
                 .filter((request, next) -> {

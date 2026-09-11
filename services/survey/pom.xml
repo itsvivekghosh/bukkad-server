@@ -15,6 +15,10 @@
 	<dependencies>
 		<dependency><groupId>com.bhukkad</groupId><artifactId>platform-lib</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+		<!-- G-13/P-05: WebClient for OrderOwnershipClient via the platform
+		     factory (app type stays SERVLET; webmvc wins the web-app-type
+		     deduction). Same dependency order/payment/notification carry. -->
+		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webflux</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>

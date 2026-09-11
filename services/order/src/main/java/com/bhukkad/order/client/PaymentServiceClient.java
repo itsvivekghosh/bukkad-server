@@ -1,7 +1,6 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import com.bhukkad.order.client.dto.ChargeRequest;
 import com.bhukkad.order.client.dto.ChargeResponse;
 import com.bhukkad.order.client.dto.RefundResponse;
@@ -19,8 +18,11 @@ import java.util.Map;
  * Reactive client for the Payment service's internal charge surface, used by
  * the order-creation saga CHARGE_PAYMENT step (audit batch A).
  *
- * <p>Mirrors {@link RestaurantClient}: retry (3 attempts, 1s backoff), circuit
- * breaker and per-call timeout. The charge carries a stable
+ * <p>Mirrors {@link RestaurantClient} on the platform WebClient factory
+ * (audit G-13/P-05): shared bounded pool, platform timeouts, retry
+ * (3 attempts, 1s backoff on transient idempotent failures), the
+ * {@code payment} circuit breaker and metrics; the service base URL is
+ * applied on the copied builder. The charge carries a stable
  * {@code reference} (e.g. {@code ORDER-<id>}) so retries are idempotent
  * server-side.</p>
  *
@@ -48,11 +50,12 @@ public class PaymentServiceClient {
     @org.springframework.beans.factory.annotation.Autowired
     public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl,
                                 org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
-        this.webClient = WebClient.builder()
+        this.webClient = PlatformWebClientBuilderFactory
+                .forTarget("payment",
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
+                .build()
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("payment", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 

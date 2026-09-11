@@ -1,7 +1,6 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.common.web.client.CircuitBreakerFilter;
-import com.bhukkad.common.web.client.RetryFilter;
+import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import com.bhukkad.order.client.dto.MenuItemDto;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
@@ -20,8 +19,12 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the Restaurant service.
  *
- * <p>Uses WebClient with built-in resilience: retry (3 attempts, 1s backoff),
- * circuit breaker (50% failure threshold, 10s open state), and timeout (3s).</p>
+ * <p>Runs on the platform WebClient factory (audit G-13/P-05): bounded shared
+ * connection pool, explicit connect/response timeouts, retry (3 attempts,
+ * 1s backoff on transient idempotent failures), circuit breaker
+ * ({@code restaurant} target, 50% failure threshold, 10s open state) and
+ * metrics — with the service base URL added on the copied builder
+ * (Spring 6.1 {@code mutate()} preserves connector + filters).</p>
  */
 @Component
 public class RestaurantClient {
@@ -35,11 +38,12 @@ public class RestaurantClient {
     @org.springframework.beans.factory.annotation.Autowired
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
                             org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
-        this.webClient = WebClient.builder()
+        this.webClient = PlatformWebClientBuilderFactory
+                .forTarget("restaurant",
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
+                .build()
+                .mutate()
                 .baseUrl(baseUrl)
-                .filter(new RetryFilter(3, Duration.ofSeconds(1)))
-                .filter(new CircuitBreakerFilter("restaurant", CircuitBreakerFilter.DEFAULT_CONFIG,
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable()))
                 .build();
     }
 
