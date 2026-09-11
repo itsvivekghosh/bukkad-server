@@ -24,14 +24,16 @@ public class OrderCreateJobService {
     public static final String STATUS_FAILED = "FAILED";
 
     private static final String KEY_PREFIX = "order-create-job:";
+    private static final String OWNER_KEY_PREFIX = "order-create-job-owner:";
     private static final Duration JOB_TTL = Duration.ofHours(24);
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
-    public String createJob(String idempotencyKey) {
+    public String createJob(Long customerId, String idempotencyKey) {
         String jobId = StringUtils.hasText(idempotencyKey) ? idempotencyKey : UUID.randomUUID().toString();
         save(jobId, processing(jobId));
+        saveOwner(jobId, customerId);
         return jobId;
     }
 
@@ -57,7 +59,18 @@ public class OrderCreateJobService {
                 .build());
     }
 
-    public OrderCreateJobResponse getJob(String jobId) {
+    /**
+     * Returns the job only to the customer who created it (audit LOW-IDOR-5).
+     * The job id doubles as the client-supplied idempotency key, so job ids
+     * are guessable between customers; the creating customer id is recorded at
+     * {@link #createJob} time and re-checked here. A missing owner binding
+     * (expired or written by an older deployment) and a mismatched owner both
+     * answer the same 404 the unknown-job case produces, so polling cannot be
+     * used to probe other customers' jobs. {@code customerId == null} is the
+     * privileged (ADMIN) path and skips the match.
+     */
+    public OrderCreateJobResponse getJob(Long customerId, String jobId) {
+        requireOwner(customerId, jobId);
         String payload = stringRedisTemplate.opsForValue().get(KEY_PREFIX + jobId);
         if (!StringUtils.hasText(payload)) {
             throw new ResourceNotFoundException("Order create job not found");
@@ -67,6 +80,23 @@ public class OrderCreateJobService {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to read order create job", e);
         }
+    }
+
+    private void requireOwner(Long customerId, String jobId) {
+        if (customerId == null) {
+            return; // privileged caller (admin override at the controller)
+        }
+        String owner = stringRedisTemplate.opsForValue().get(OWNER_KEY_PREFIX + jobId);
+        if (!StringUtils.hasText(owner) || !owner.equals(String.valueOf(customerId))) {
+            throw new ResourceNotFoundException("Order create job not found");
+        }
+    }
+
+    private void saveOwner(String jobId, Long customerId) {
+        stringRedisTemplate.opsForValue().set(
+                OWNER_KEY_PREFIX + jobId,
+                String.valueOf(customerId),
+                JOB_TTL);
     }
 
     private OrderCreateJobResponse processing(String jobId) {

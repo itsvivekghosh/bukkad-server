@@ -34,7 +34,7 @@ class LiveStreamAuthzTest {
     @Mock private OrderLiveRelay relay;
     @InjectMocks private LiveStreamController controller;
 
-    private TokenPrincipal principal(long id, String scope) {
+    private TokenPrincipal principal(Long id, String scope) {
         return new TokenPrincipal(id, "u@t", scope);
     }
 
@@ -87,5 +87,51 @@ class LiveStreamAuthzTest {
         verify(relay).publish(update);
         assertThat(update.getOrderId()).isEqualTo(42L);
         verify(streamService, never()).broadcastCustomer(any(), any());
+    }
+
+    // ------------------------------------------------------------------
+    // Rider stream self-match (audit HIGH-IDOR-4)
+    // ------------------------------------------------------------------
+
+    @Test
+    void rider_getsOwnStream() {
+        when(streamService.subscribeRider(eq(9L), any())).thenReturn(new SseEmitter());
+
+        assertThat(controller.subscribeRider(principal(9L, "DELIVERY_AGENT"), 9L, null))
+                .isNotNull();
+    }
+
+    @Test
+    void rider_cannotOpenAnotherRidersStream() {
+        assertThatThrownBy(() -> controller.subscribeRider(principal(9L, "DELIVERY_AGENT"), 12L, null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(streamService, never()).subscribeRider(any(), any());
+    }
+
+    @Test
+    void admin_opensAnyRiderStream() {
+        when(streamService.subscribeRider(eq(12L), any())).thenReturn(new SseEmitter());
+
+        assertThat(controller.subscribeRider(principal(1L, "ADMIN"), 12L, null)).isNotNull();
+    }
+
+    @Test
+    void service_opensAnyRiderStream() {
+        when(streamService.subscribeRider(eq(12L), any())).thenReturn(new SseEmitter());
+
+        assertThat(controller.subscribeRider(principal(null, "SERVICE"), 12L, null)).isNotNull();
+    }
+
+    @Test
+    void nonRiderScope_deniedFromRiderStream() {
+        assertThatThrownBy(() -> controller.subscribeRider(principal(7L, "CUSTOMER"), 9L, null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(streamService, never()).subscribeRider(any(), any());
+    }
+
+    @Test
+    void riderStream_unauthenticated_denied() {
+        assertThatThrownBy(() -> controller.subscribeRider(null, 9L, null))
+                .isInstanceOf(AccessDeniedException.class);
     }
 }

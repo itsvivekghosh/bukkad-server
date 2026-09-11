@@ -106,7 +106,7 @@ public class LegacyOrderCompatController {
             throw new com.bhukkad.common.error.BusinessException(
                     "Order requires at least one item");
         }
-        String jobId = orderCreateJobService.createJob(idempotencyKey);
+        String jobId = orderCreateJobService.createJob(customerId, idempotencyKey);
         CreateOrderRequest scoped =
                 new CreateOrderRequest(customerId, request.restaurantId(), items);
         asyncOrderCreateService.processOrderCreate(jobId, scoped);
@@ -119,11 +119,18 @@ public class LegacyOrderCompatController {
                         "pollUrl", "/api/v1/orders/customer/create/jobs/" + jobId));
     }
 
-    /** Async order-create job status (mobile batch checkout polling). */
+    /**
+     * Async order-create job status (mobile batch checkout polling). The job
+     * payload carries the created order, so only the creating customer (or an
+     * admin) may read it — the strict owner match lives in the job service,
+     * keyed to the customer recorded at create time (audit LOW-IDOR-5).
+     */
     @GetMapping("/create/jobs/{jobId}")
     public Object orderCreateJob(@AuthenticationPrincipal TokenPrincipal principal,
                                  @PathVariable String jobId) {
-        return orderCreateJobService.getJob(jobId);
+        Long customerId = subjectId(principal);
+        boolean admin = SCOPE_ADMIN.equalsIgnoreCase(String.valueOf(principal.scope()));
+        return orderCreateJobService.getJob(admin ? null : customerId, jobId);
     }
 
     @GetMapping("/my-orders")

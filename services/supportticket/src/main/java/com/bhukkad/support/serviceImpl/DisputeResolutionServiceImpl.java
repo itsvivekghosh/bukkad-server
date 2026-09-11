@@ -40,6 +40,19 @@ public class DisputeResolutionServiceImpl {
 
     @Transactional
     public DisputeResponse fileDispute(Long customerId, Long orderId, DisputeRequest request) {
+      // CRITICAL (audit IDOR-1): the filer must own the order. The oracle is
+      // consulted BEFORE any state is touched so a non-owner cannot even learn
+      // whether a dispute already exists for someone else's order. A null
+      // ownerId means the order does not exist (404 from the oracle); oracle
+      // unavailability fails closed inside the client (503, never a pass).
+      Long ownerId = orderServiceClient.getOrderCustomerId(orderId);
+      if (ownerId == null) {
+        throw new ResourceNotFoundException("Order not found: " + orderId);
+      }
+      if (!ownerId.equals(customerId)) {
+        throw new org.springframework.security.access.AccessDeniedException(
+                "Order does not belong to this customer");
+      }
       Dispute.DisputeType type;
       if (this.disputeRepository.existsByOrderId(orderId)) {
         throw new BusinessException("A dispute already exists for this order");
@@ -135,6 +148,18 @@ public class DisputeResolutionServiceImpl {
       OrderDetailDto order = orderServiceClient.getOrderDetails(dispute.getOrderId());
       if (order == null) {
         // If we cannot fetch the order, we cannot auto-resolve; leave as OPEN for manual review.
+        return false;
+      }
+      // Defense in depth (audit IDOR-1): a refund may only reach the verified
+      // order owner. The dispute's customerId was verified against the
+      // ownership oracle at filing time; if the detail feed disagrees (order
+      // transferred, or a pre-hardening row), no money moves and the dispute
+      // stays in the manual queue.
+      if (order.getCustomerId() != null
+              && !order.getCustomerId().equals(dispute.getCustomerId())) {
+        log.warn("Auto-resolution blocked: dispute customerId={} does not own orderId={}",
+                dispute.getCustomerId(), dispute.getOrderId());
+        dispute.setStatus(Dispute.DisputeStatus.UNDER_REVIEW);
         return false;
       }
 

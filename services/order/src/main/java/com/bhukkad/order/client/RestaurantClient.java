@@ -167,6 +167,30 @@ public class RestaurantClient {
     }
 
     /**
+     * Restaurant ownership oracle read (audit HIGH-IDOR-3): resolves the owner
+     * user of a restaurant via the internal contract
+     * {@code GET /api/v1/internal/restaurants/{restaurantId}/owner} so the
+     * owner-facing order surface can verify that a RESTAURANT_OWNER principal
+     * actually owns the addressed restaurant.
+     *
+     * <p>Error contract: a genuine 404 from restaurant resolves to an EMPTY
+     * Mono ("restaurant does not exist"); every other failure — timeout,
+     * connection refused, 5xx — propagates as an error signal so callers fail
+     * closed on the authorization decision instead of mistaking a mesh outage
+     * for a missing restaurant.</p>
+     */
+    public Mono<Long> getRestaurantOwnerId(Long restaurantId) {
+        return webClient.get()
+                .uri("/api/v1/internal/restaurants/{restaurantId}/owner", restaurantId)
+                .retrieve()
+                .bodyToMono(java.util.Map.class)
+                .map(body -> Long.valueOf(String.valueOf(body.get("ownerId"))))
+                .timeout(Duration.ofSeconds(3))
+                .onErrorResume(WebClientResponseException.NotFound.class,
+                        e -> Mono.empty());
+    }
+
+    /**
      * Reserve stock for order lines (saga RESERVE_STOCK step). Targets the
      * restaurant service's internal inventory surface
      * {@code POST /api/v1/inventory/stock-reservation/reserve} with a
