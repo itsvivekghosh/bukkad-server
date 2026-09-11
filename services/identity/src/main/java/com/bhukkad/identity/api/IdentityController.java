@@ -291,11 +291,12 @@ public class IdentityController {
      * logged and never returned again; re-enrolling rotates it.
      */
     @PostMapping("/auth/totp/enroll")
-    public TotpEnrollResponse enrollTotp(
-            @org.springframework.security.core.annotation.AuthenticationPrincipal
-            com.bhukkad.common.security.TokenPrincipal principal) {
-        com.bhukkad.common.security.PrincipalGuard.requireAuthenticated(principal);
-        var enrollment = totpService.enroll(principal.userId(), principal.email());
+    public TotpEnrollResponse enrollTotp() {
+        // Shared platform accessor: no principal → UnauthorizedException → 401.
+        var caller = com.bhukkad.common.security.SecurityUtils.currentPrincipal()
+                .orElseThrow(() -> new com.bhukkad.common.error.UnauthorizedException(
+                        "Authentication required"));
+        var enrollment = totpService.enroll(caller.userId(), caller.email());
         return new TotpEnrollResponse(enrollment.otpauthUri());
     }
 
@@ -307,12 +308,11 @@ public class IdentityController {
 
     /** Confirms TOTP enrollment with a live code; login now requires codes. */
     @PostMapping("/auth/totp/confirm")
-    public java.util.Map<String, String> confirmTotp(
-            @org.springframework.security.core.annotation.AuthenticationPrincipal
-            com.bhukkad.common.security.TokenPrincipal principal,
-            @Valid @RequestBody TotpConfirmRequest request) {
-        com.bhukkad.common.security.PrincipalGuard.requireAuthenticated(principal);
-        totpService.confirm(principal.userId(), request.code());
+    public java.util.Map<String, String> confirmTotp(@Valid @RequestBody TotpConfirmRequest request) {
+        var caller = com.bhukkad.common.security.SecurityUtils.currentPrincipal()
+                .orElseThrow(() -> new com.bhukkad.common.error.UnauthorizedException(
+                        "Authentication required"));
+        totpService.confirm(caller.userId(), request.code());
         return java.util.Map.of("message", "TOTP enabled");
     }
 
