@@ -52,6 +52,8 @@ class IdentityServiceTest {
     private ReferralService referralService;
     @Mock
     private com.bhukkad.identity.service.RefreshTokenService refreshTokens;
+    @Mock
+    private com.bhukkad.identity.service.TotpService totpService;
 
     @InjectMocks
     private IdentityService service;
