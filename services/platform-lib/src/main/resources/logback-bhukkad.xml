@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bhukkad platform logging (P1 PII-LOGS).
+
+  Single console layout for every service, wiring previously-dormant
+  PiiMaskingConverter (security/PII audit: phone numbers and email addresses
+  leaking into logs) onto the message pattern via the %pii conversion word.
+  Every service's src/main/resources/logback-spring.xml includes THIS file —
+  change it here once, fleet-wide.
+
+  Deliberately plain Logback (no springProfile/springProperty) so it parses
+  both under Spring Boot and in a bare LoggerContext (platform-lib
+  PiiMaskingLogbackConfigTest). Per-environment levels stay in the services'
+  own configuration (logging.level.* in application[-<profile>].yml), which
+  Spring Boot applies on top of these defaults.
+
+  Trace correlation: the platform filters seed MDC traceId/spanId
+  (com.bhukkad.common.logging.LoggingConstants / TraceContext) — rendered in
+  the bracket segment so every line is joinable with the tracing backend.
+-->
+<configuration>
+
+    <!-- The redactor: %pii formats the message exactly like %msg, then masks
+         emails (***@***) and bare phone digits (**********). Exceptions are
+         appended by the layout as usual and are NOT message-masked — stack
+         traces never carry user phone/email formatting. -->
+    <conversionRule conversionWord="pii"
+                    converterClass="com.bhukkad.common.logging.PiiMaskingConverter"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [traceId=%X{traceId:-}, spanId=%X{spanId:-}] %logger{40} - %pii%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Sane default floor: application + framework INFO, noisy integration
+         stacks kept at WARN so dev runs stay readable without per-service
+         config. Override anywhere via logging.level.*. -->
+    <logger name="com.bhukkad" level="INFO"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="io.lettuce" level="WARN"/>
+    <logger name="reactor.netty" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="org.testcontainers" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

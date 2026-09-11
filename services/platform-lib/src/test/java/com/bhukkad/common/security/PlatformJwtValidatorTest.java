@@ -22,6 +22,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PlatformJwtValidatorTest {
 
@@ -606,6 +609,126 @@ class PlatformJwtValidatorTest {
                 .type(JOSEObjectType.JWT)
                 .keyID(signingKey.getKeyID())
                 .build();
+    }
+
+    // ─── P1 REVOCATION: logout/credential-epoch kills live access tokens ────────
+
+    /** Stub whose revokedBefore() answers a canned value / failure per case. */
+    private static JwtRevocationService revocationStub(java.util.function.LongSupplier epoch) {
+        JwtRevocationService stub = mock(JwtRevocationService.class);
+        when(stub.revokedBefore(anyLong())).thenAnswer(invocation -> {
+            long result = epoch.getAsLong();
+            return result == 0L ? null : Instant.ofEpochSecond(result);
+        });
+        return stub;
+    }
+
+    private static long epoch(Instant instant) {
+        return instant.getEpochSecond();
+    }
+
+    private static PlatformJwtValidator validatorWith(io.micrometer.core.instrument.MeterRegistry meters,
+                                                      JwtRevocationService revocations) {
+        return new PlatformJwtValidator(new PlatformJwtProperties(SECRET, null, null, null),
+                PlatformJwtValidator.defaultRestClient(), false, meters, revocations);
+    }
+
+    @Test
+    void accessToken_issuedBeforeRevocationEpoch_rejected() throws Exception {
+        JwtRevocationService revocations = revocationStub(
+                () -> epoch(Instant.now().plusSeconds(30))); // epoch AHEAD of iat
+        PlatformJwtValidator validator = validatorWith(new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                revocations);
+
+        String token = hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600)));
+
+        assertThat(validator.validate(token))
+                .as("token predating the logout epoch must die with it")
+                .isEmpty();
+    }
+
+    @Test
+    void accessToken_issuedBeforeEpoch_recordsRejectedCounter() throws Exception {
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        PlatformJwtValidator validator = validatorWith(meters,
+                revocationStub(() -> epoch(Instant.now().plusSeconds(30))));
+
+        validator.validate(hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600))));
+
+        assertThat(meters.get("service_auth_rejected").tag("reason", "revoked").counter().count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void accessToken_issuedAfterEpoch_accepted() throws Exception {
+        PlatformJwtValidator validator = validatorWith(null,
+                revocationStub(() -> epoch(Instant.now().minusSeconds(3600))));
+
+        String token = hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600)));
+
+        assertThat(validator.validate(token))
+                .as("a fresh (post-logout-login) token must verify")
+                .isPresent();
+    }
+
+    @Test
+    void accessToken_withoutEpoch_alwaysAccepted() throws Exception {
+        PlatformJwtValidator validator = validatorWith(null, revocationStub(() -> 0L));
+
+        assertThat(validator.validate(hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600))))).isPresent();
+    }
+
+    @Test
+    void redisFailure_duringRevocationCheck_failsOpenWithBypassCounter() throws Exception {
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        JwtRevocationService failing = mock(JwtRevocationService.class);
+        when(failing.revokedBefore(anyLong())).thenThrow(new RuntimeException("connection refused"));
+        PlatformJwtValidator validator = validatorWith(meters, failing);
+
+        String token = hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600)));
+
+        assertThat(validator.validate(token))
+                .as("availability wins: a Redis outage must not 401 the fleet")
+                .isPresent();
+        assertThat(meters.get(PlatformJwtValidator.METRIC_REVOCATION_BYPASS).counter().count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void absentRevocationService_behavesExactlyLikePreP1() throws Exception {
+        // The 4-arg constructor used across every existing test slice has no
+        // revocation store: validation must be untouched and never NPE.
+        PlatformJwtValidator validator = new PlatformJwtValidator(
+                new PlatformJwtProperties(SECRET, null, null, null),
+                PlatformJwtValidator.defaultRestClient(), false, null);
+
+        assertThat(validator.validate(hs256Token(42L, "a@b.com", "customer",
+                Date.from(Instant.now().plusSeconds(3600))))).isPresent();
+    }
+
+    @Test
+    void tokenWithoutIssuedAt_skipsEpochComparisonButStillVerifies() throws Exception {
+        JwtRevocationService revocations = revocationStub(() -> epoch(Instant.now()));
+        PlatformJwtValidator validator = validatorWith(null, revocations);
+
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("77")
+                .claim("email", "no-iat@b.com")
+                .claim("scope", "customer")
+                .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+        jwt.sign(new MACSigner(SECRET));
+
+        // No iat → nothing to order against the epoch; signature/claims still rule.
+        assertThat(validator.validate(jwt.serialize())).isPresent();
     }
 
 }

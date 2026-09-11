@@ -1,6 +1,7 @@
 package com.bhukkad.identity.service;
 
 import com.bhukkad.common.error.UnauthorizedException;
+import com.bhukkad.common.security.JwtRevocationService;
 import com.bhukkad.identity.domain.RefreshToken;
 import com.bhukkad.identity.domain.RefreshTokenRepository;
 import com.bhukkad.identity.security.JwtProperties;
@@ -15,6 +16,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,6 +30,14 @@ import org.springframework.transaction.annotation.Transactional;
  * refreshing never extends a session. Presenting an already-revoked token
  * revokes the WHOLE family (reuse detection): whichever copy the attacker or
  * the legitimate client holds, both die.
+ *
+ * <p>P1 REVOCATION: every session kill made through this service
+ * ({@link #revoke(String)} per-device logout, {@link #revokeAllForCustomer(Long)}
+ * full logout / password change / reset / deactivation) additionally stamps
+ * the user's {@link JwtRevocationService} access-token epoch — closing the
+ * "bearer access token lives to its 15-minute TTL after logout" gap. The
+ * epoch write is best-effort (a Redis outage degrades to the TTL-bound
+ * behaviour, it never fails the DB-side revocation).</p>
  *
  * <p>Violations surface as the generic 401 {@link UnauthorizedException}:
  * unknown, revoked, expired and raced tokens are deliberately
@@ -45,6 +55,12 @@ public class RefreshTokenService {
 
     private final RefreshTokenRepository repository;
     private final JwtProperties jwtProperties;
+    /**
+     * Optional by deployment shape (slice contexts may carry no Redis epoch
+     * store): resolved per revocation; absent = TTL-bounded behaviour only.
+     */
+    private final ObjectProvider<JwtRevocationService> jwtRevocations;
+
 
     /** Outcome of a successful rotation: who, and the new raw refresh token. */
     public record Rotation(Long customerId, String refreshToken, String deviceId, Instant expiresAt) {
@@ -122,25 +138,53 @@ public class RefreshTokenService {
         return new Rotation(presented.getCustomerId(), raw, next.getDeviceId(), next.getExpiresAt());
     }
 
-    /** Single-session logout: revokes exactly this token; unknown tokens are accepted no-ops. */
+    /**
+     * Single-session logout: revokes exactly this token; unknown tokens are
+     * accepted no-ops. P1 REVOCATION: the owning account's ACCESS-token epoch
+     * is stamped too, so a bearer token issued before this logout stops
+     * working immediately instead of running out its TTL. Epoch revocation is
+     * account-wide (JWTs carry no device binding): on a per-device logout the
+     * user's other sessions lose only their current access tokens — they
+     * recover silently via the next refresh-token rotation.
+     */
     @Transactional
     public void revoke(String presentedRaw) {
         if (presentedRaw == null || presentedRaw.isBlank()) {
             return;
         }
-        repository.findByTokenHash(sha256Hex(presentedRaw))
-                .ifPresent(row -> repository.revokeIfLive(row.getTokenHash(), Instant.now()));
+        repository.findByTokenHash(sha256Hex(presentedRaw)).ifPresent(row -> {
+            repository.revokeIfLive(row.getTokenHash(), Instant.now());
+            revokeAccessEpoch(row.getCustomerId());
+        });
     }
 
-    /** Kills every live session of a principal (password change / reset). */
+    /**
+     * Kills every live session of a principal (password change / reset), the
+     * no-token logout variant, and accounts found deactivated at refresh time.
+     * Also stamps the epoch so outstanding access tokens die with it
+     * (P1 REVOCATION — see class javadoc).
+     */
     @Transactional
     public int revokeAllForCustomer(Long customerId) {
         int killed = repository.revokeAllByCustomer(customerId, Instant.now());
+        revokeAccessEpoch(customerId);
         if (killed > 0) {
             log.info("REFRESH_TOKENS_REVOKED_ALL customerId={} revokedRows={}", customerId, killed);
         }
         return killed;
     }
+
+    /** Best-effort access-token epoch stamp; never breaks the DB revocation. */
+    private void revokeAccessEpoch(Long customerId) {
+        if (customerId == null) {
+            return;
+        }
+        JwtRevocationService revocations = jwtRevocations.getIfAvailable();
+        if (revocations != null) {
+            revocations.revoke(customerId, Instant.now());
+        }
+    }
+
 
     private static String randomToken() {
         byte[] buf = new byte[TOKEN_BYTES];

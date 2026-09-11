@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This service logs exclusively through the shared platform configuration in
+  platform-lib's classpath resource logback-bhukkad.xml — console layout with
+  the PII redactor (%pii) and trace-id correlation. Per-profile levels are set
+  with logging.level.* in application(.yml|<profile>) as usual.
+-->
+<configuration>
+    <include resource="logback-bhukkad.xml"/>
+</configuration>

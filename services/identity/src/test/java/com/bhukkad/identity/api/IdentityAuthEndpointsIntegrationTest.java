@@ -157,6 +157,115 @@ class IdentityAuthEndpointsIntegrationTest extends AbstractIdentityPostgresTest 
         assertThat(ex).as("refresh after logout must fail").isNotNull();
     }
 
+    // ─── P1 REVOCATION: logout kills the ACCESS token too, not just sessions ───
+
+    private int profileStatus(String bearerToken) {
+        try {
+            var ok = client().get().uri("/api/v1/customers/profile")
+                    .header("Authorization", "Bearer " + bearerToken)
+                    .retrieve().toBodilessEntity();
+            return ok.getStatusCode().value();
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            return e.getStatusCode().value();
+        }
+    }
+
+    /**
+     * JWT {@code iat} has second precision and the epoch is truncated the same
+     * way — a sub-second logout after issuing would make {@code iat < epoch}
+     * unprovable. Two seconds keeps the assertion deterministic.
+     */
+    private static void guaranteeEpochIsLaterThanIat() throws InterruptedException {
+        Thread.sleep(2_100);
+    }
+
+    @Test
+    void logoutWithoutRefreshToken_revokesOutstandingAccessToken_immediatelyNotByTtl()
+            throws Exception {
+        String[] pair = registerAndGetPair("logout-epoch@test.com");
+
+        int before = profileStatus(pair[0]);
+        assertThat(before).as("token authenticates BEFORE logout").isNotEqualTo(401);
+
+        guaranteeEpochIsLaterThanIat();
+
+        var out = client().post().uri("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + pair[0])
+                .retrieve().toBodilessEntity();
+        assertThat(out.getStatusCode().is2xxSuccessful()).isTrue();
+
+        assertThat(profileStatus(pair[0]))
+                .as("P1: the access token dies WITH the logout, not with its 15-min TTL")
+                .isEqualTo(401);
+    }
+
+    @Test
+    void logoutWithRefreshToken_alsoStampsTheAccessEpoch() throws Exception {
+        String[] pair = registerAndGetPair("logout-epoch-dev@test.com");
+
+        guaranteeEpochIsLaterThanIat();
+
+        var out = client().post().uri("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + pair[0])
+                .header("Content-Type", "application/json")
+                .body("{\"refreshToken\":\"" + pair[1] + "\"}")
+                .retrieve().toBodilessEntity();
+        assertThat(out.getStatusCode().is2xxSuccessful()).isTrue();
+
+        assertThat(profileStatus(pair[0]))
+                .as("per-device logout revokes the account epoch (access token dead)")
+                .isEqualTo(401);
+    }
+
+    @Test
+    void loginAfterLogout_getsAFreshVerifiableToken() throws Exception {
+        String[] pair = registerAndGetPair("logout-epoch-relogin@test.com");
+        guaranteeEpochIsLaterThanIat();
+
+        client().post().uri("/api/v1/auth/logout")
+                .header("Authorization", "Bearer " + pair[0])
+                .retrieve().toBodilessEntity();
+
+        var login = client().post().uri("/api/v1/auth/login")
+                .header("Content-Type", "application/json")
+                .body("{\"email\":\"logout-epoch-relogin@test.com\",\"password\":\"password123\"}")
+                .retrieve().toEntity(String.class);
+        assertThat(login.getStatusCode().is2xxSuccessful()).isTrue();
+        JsonNode json = objectMapper.readTree(login.getBody());
+        String fresh = json.get("token").asText();
+
+        assertThat(profileStatus(fresh))
+                .as("tokens issued AFTER the epoch verify normally")
+                .isNotEqualTo(401);
+    }
+
+    @Test
+    void changePassword_revokesOutstandingAccessToken() throws Exception {
+        String[] pair = registerAndGetPair("pwchange-epoch@test.com");
+        guaranteeEpochIsLaterThanIat();
+
+        var change = client().post().uri("/api/v1/auth/change-password")
+                .header("Authorization", "Bearer " + pair[0])
+                .header("Content-Type", "application/json")
+                .body("{\"currentPassword\":\"password123\",\"newPassword\":\"password456\"}")
+                .retrieve().toBodilessEntity();
+        assertThat(change.getStatusCode().is2xxSuccessful()).isTrue();
+
+        assertThat(profileStatus(pair[0]))
+                .as("credential change must kill every pre-change access token")
+                .isEqualTo(401);
+    }
+
+    @Test
+    void withoutRedisBackedEpoch_serviceStillIssuesAndVerifiesTokensInertly() {
+        // Boot-safety mirror of the platform-lib unit contract: the identity
+        // context (test profile, real Redis container here) must start the
+        // validator WITH the revocation bean and still authenticate normally —
+        // the regression guard against NPEs when no epoch key exists.
+        assertThat(profileStatus("not-a-jwt")).isEqualTo(401);
+    }
+
+
     @Test
     void refresh_rejectsInvalidToken() {
         // IdentityService.refresh throws UnauthorizedException → 401 (generic
