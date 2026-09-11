@@ -1,9 +1,13 @@
 package com.bhukkad.delivery.service;
 
+import org.springframework.stereotype.Component;
+
 /**
  * Great-circle distance via the Haversine formula (port of monolith
  * {@code RoadDistanceService} fallback). Deterministic and dependency-free.
+ * Bean registration backs {@link EtaService} when {@code app.eta.enabled=true}.
  */
+@Component
 public class HaversineDistanceCalculator implements DistanceCalculator {
 
     private static final double EARTH_RADIUS_KM = 6371.0;

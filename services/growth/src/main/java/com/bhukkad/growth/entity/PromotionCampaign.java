@@ -53,6 +53,18 @@ public class PromotionCampaign {
     @Column(name = "free_delivery")
     private boolean freeDelivery;
 
+    @Column(name = "buy_quantity")
+    private Integer buyQuantity;
+
+    @Column(name = "get_quantity")
+    private Integer getQuantity;
+
+    @Column(name = "get_discount_percent")
+    private Integer getDiscountPercent;
+
+    @Column(length = 50)
+    private String targetSegment;
+
     private int priority;
 
     @Column(name = "is_active")

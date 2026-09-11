@@ -30,7 +30,22 @@ class SearchBoundedQueryTest {
     @Mock private MenuItemSearchRepository menuItemRepo;
 
     private SearchServiceImpl service() {
-        return new SearchServiceImpl(restaurantRepo, menuItemRepo);
+        return new SearchServiceImpl(restaurantRepo, menuItemRepo, false);
+    }
+
+    @Test
+    void unifiedSearch_fuzzyFlagRoutesToSimilarityQueries() {
+        when(restaurantRepo.searchTextFuzzy(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of());
+        when(menuItemRepo.searchTextFuzzy(any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of());
+
+        new SearchServiceImpl(restaurantRepo, menuItemRepo, true).unifiedSearch("Biryani");
+
+        // Fuzzy path passes the plain lowercased term (no LIKE escapes).
+        verify(restaurantRepo).searchTextFuzzy(eq("biryani"), eq(50));
+        verify(menuItemRepo).searchTextFuzzy(eq("biryani"), eq(50));
+        verify(restaurantRepo, org.mockito.Mockito.never()).searchText(any(), any(Pageable.class));
     }
 
     @Test

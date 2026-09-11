@@ -7,9 +7,13 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface RiderLocationUpdateRepository extends JpaRepository<RiderLocationUpdate, Long> {
     List<RiderLocationUpdate> findByAgentId(Long agentId);
+
+    /** The rider's freshest known position (live-ETA + dispatch matching input). */
+    Optional<RiderLocationUpdate> findFirstByAgentIdOrderByRecordedAtDesc(Long agentId);
 
     /**
      * Batched retention delete (PERF-4 §4.3): removes at most {@code limit} of

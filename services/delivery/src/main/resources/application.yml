@@ -75,3 +75,16 @@ app:
         consumer-group: ${KAFKA_CONSUMER_GROUP:delivery-platform-consumer}
         platform-topic: delivery.events.v1
         dlq-topic: delivery.events.v1.dlt
+  # Live-ETA estimation (ADR-003): off by default — boot-safe; the delivery
+  # module answers empty ETAs until order-side destination plumbing exists.
+  eta:
+    enabled: ${ETA_ENABLED:false}
+  # Rider dispatch matching. geo-matching.enabled is the ADR-003 flag
+  # (default off in dev; prod overlay may enable after soak). active-load-cap
+  # is NOT flagged: the conditional UPDATE is the atomicity guard itself.
+  delivery:
+    geo-matching:
+      enabled: ${DELIVERY_GEO_MATCHING_ENABLED:false}
+    active-load-cap: ${DELIVERY_ACTIVE_LOAD_CAP:4}
+    position-freshness-minutes: ${DELIVERY_POSITION_FRESHNESS_MINUTES:15}
+    candidate-limit: ${DELIVERY_CANDIDATE_LIMIT:20}

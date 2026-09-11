@@ -35,6 +35,27 @@ public interface MenuItemSearchRepository extends JpaRepository<MenuItemSearchEn
     List<MenuItemSearchEntity> searchNamePrefix(@Param("prefix") String lowercasedEscapedPrefix, Pageable pageable);
 
     /**
+     * ADR-002 fuzzy path (pg_trgm, migration V11): trigram similarity over
+     * the name/description/category columns, typo-tolerant via the {@code %}
+     * operator (pg_trgm.similarity_threshold, default 0.3) and ranked by best
+     * per-column similarity. Only reached when
+     * {@code app.search.fuzzy.enabled=true} — the LIKE path stays default.
+     */
+    @Query(value = """
+            SELECT * FROM menu_item_search
+            WHERE lower(name) % :term
+               OR lower(description) % :term
+               OR lower(category_name) % :term
+            ORDER BY GREATEST(
+                similarity(lower(name), :term),
+                similarity(lower(description), :term),
+                similarity(lower(category_name), :term)) DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<MenuItemSearchEntity> searchTextFuzzy(@Param("term") String lowercasedTerm,
+                                               @Param("limit") int limit);
+
+    /**
      * ADR-002 search sync: idempotent upsert of the full document keyed by
      * the menu-item id (the projection PK IS the source id). {@code COALESCE}
      * preserves enrichment columns the event payload does not carry

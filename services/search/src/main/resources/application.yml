@@ -80,3 +80,8 @@ app:
       enabled: ${SEARCH_SYNC_RECONCILIATION_ENABLED:true}
       interval-ms: ${SEARCH_SYNC_SWEEP_INTERVAL_MS:300000}
       restaurants-per-cycle: ${SEARCH_SYNC_RESTAURANTS_PER_CYCLE:20}
+    fuzzy:
+      # ADR-002 pg_trgm similarity path (migration V11). Default FALSE: the
+      # bounded LIKE/prefix queries stay the compatibility surface until the
+      # flag has soaked (implemented behind flag, product rollout pending).
+      enabled: ${SEARCH_FUZZY_ENABLED:false}
