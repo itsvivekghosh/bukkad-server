@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-kafka-lag-exporter
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: kafka-lag-exporter
+spec:
+  # Single replica ON PURPOSE: KLE polls consumer-group state itself; two
+  # replicas would double AdminClient load and emit duplicate series (same
+  # labels). If HA ever matters, shard by cluster in application.conf, not
+  # by replicas.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: kafka-lag-exporter
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: kafka-lag-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: kafka-lag-exporter
+          # Maintained community fork of LinkedIn's kafka-lag-exporter
+          # (seglo/kafka-lag-exporter, Docker Hub; ~1.4M pulls at pin time).
+          # Pinned to the latest release 0.8.2; on bump, re-check the
+          # application.conf shape + launcher path against that tag's chart.
+          image: seglo/kafka-lag-exporter:0.8.2
+          imagePullPolicy: IfNotPresent
+          # sbt-native-packager docker staging layout (upstream chart's
+          # 040-Deployment): config mounted at /opt/docker/conf/, launcher at
+          # /opt/docker/bin/, JVM opts passed as trailing args.
+          command: ["/opt/docker/bin/kafka-lag-exporter"]
+          args:
+            - -Dconfig.file=/opt/docker/conf/application.conf
+            - -Dlogback.configurationFile=/opt/docker/conf/logback.xml
+          ports:
+            - containerPort: 8000
+              name: metrics
+              protocol: TCP
+          # Upstream probes: the filter query exposes ONLY the poll-time gauge
+          # (the exporter's own health signal — proves a Kafka poll completed)
+          # instead of scraping the full metrics payload on every probe.
+          startupProbe:
+            httpGet:
+              path: "/metrics?name[]=kafka_consumergroup_poll_time_ms"
+              port: metrics
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: "/metrics?name[]=kafka_consumergroup_poll_time_ms"
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: "/metrics?name[]=kafka_consumergroup_poll_time_ms"
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            # JVM<->container contract (P-09): memory requests==limits, CPU
+            # request set, NO CPU limit.
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /opt/docker/conf
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: bhukkad-kafka-lag-exporter-config

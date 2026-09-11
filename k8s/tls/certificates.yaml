@@ -1,0 +1,90 @@
+# Leaf Certificates signed by the k8s/tls/issuer.yaml CA. Applying this file
+# is the SECOND half of the TLS enable (README-TLS.md step 2) — until then the
+# Secrets below do NOT exist and every consumer mounts them OPTIONAL, so the
+# base stack runs exactly as before (TLS_ENABLED=false posture).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-postgres
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  # Consumed by k8s/postgres/deployment.yaml (ssl-cert volume, /etc/postgresql/tls).
+  # Service DNS forms only: clients verify against the URI they actually dial
+  # (bhukkad-postgresql[:5432]). SANs cover the short/long names below; add the
+  # read-replica DNS if the replica is ever TLS-wired from the same Secret.
+  secretName: bhukkad-postgres-tls
+  duration: 720h      # 30d leaf
+  renewBefore: 36h
+  commonName: bhukkad-postgresql.bhukkad.svc.cluster.local
+  dnsNames:
+    - bhukkad-postgresql
+    - bhukkad-postgresql.bhukkad
+    - bhukkad-postgresql.bhukkad.svc
+    - bhukkad-postgresql.bhukkad.svc.cluster.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: bhukkad-ca
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-redpanda
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  # One SERVER cert shared by all three brokers (they each advertise their
+  # stable per-pod headless DNS — covered by the wildcard + explicit SANs).
+  # Wired via the commented TLS listener block in
+  # k8s/components/redpanda/statefulset.yaml (flip per README-TLS.md step 5).
+  secretName: bhukkad-redpanda-tls
+  duration: 720h
+  renewBefore: 36h
+  commonName: redpanda-headless.bhukkad.svc.cluster.local
+  dnsNames:
+    - redpanda-headless
+    - redpanda-headless.bhukkad
+    - redpanda-headless.bhukkad.svc
+    - redpanda-headless.bhukkad.svc.cluster.local
+    - "*.redpanda-headless.bhukkad.svc.cluster.local"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: bhukkad-ca
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-redis
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  # Consumed by k8s/redis/deployment.yaml (tls-cert volume, /etc/redis/tls —
+  # same mount when TLS_ENABLED=true; commented tls-port block in
+  # k8s/redis/configmap.yaml).
+  secretName: bhukkad-redis-tls
+  duration: 720h
+  renewBefore: 36h
+  commonName: bhukkad-redis.bhukkad.svc.cluster.local
+  dnsNames:
+    - bhukkad-redis
+    - bhukkad-redis.bhukkad
+    - bhukkad-redis.bhukkad.svc
+    - bhukkad-redis.bhukkad.svc.cluster.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: bhukkad-ca
+    kind: Issuer

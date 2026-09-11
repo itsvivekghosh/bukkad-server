@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# Kafka Lag Exporter (roadmap #14 completion) — consumer-lag metrics for the
+# Redpanda cluster.
+#
+# WHY: k8s/monitoring/prometheus-rules.yaml alerts on
+# `kafka_consumergroup_lag` (KafkaConsumerLagHigh, MoneyTopicDltLag) — a metric
+# exported by NOTHING today, so both alerts were inert. This component ships
+# the poller whose /metrics endpoint provides the lag series
+# (kafka_consumergroup_group_lag / _sum_lag / _max_lag per group+topic+
+# partition via seglo/kafka-lag-exporter, the maintained community line of
+# LinkedIn's original).
+#
+# Toggle (redpanda pattern): present below = shipped with the base build;
+# remove the `components/kafka-lag-exporter` line from k8s/kustomization.yaml
+# for a lag-metrics-free stack (alerts then stay inert, never false-fire).
+#
+# NOTE (coordination, TLS): no auth is needed while Redpanda serves PLAINTEXT.
+# When the k8s/tls/README-TLS.md flip adds SASL, this exporter needs DESCRIBE
+# ACLs for its client-group (kafkalagexporter) + ssl/sasl_* entries in the
+# consumer/admin client properties of application.conf below.
+# =============================================================================
+
+resources:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - service-monitor.yaml

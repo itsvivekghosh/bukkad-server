@@ -1,0 +1,36 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bhukkad-kafka-lag-exporter
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    # release selector that lets the Prometheus-Operator pick this up — identical
+    # to bhukkad-services / bhukkad-infra (k8s/monitoring/service-monitors.yaml).
+    release: bhukkad-prometheus
+    component: kafka-lag-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - bhukkad
+  # Select the kafka-lag-exporter Service ONLY (its port is `metrics`, not the
+  # Spring actuator `http`), matching by the component label set in
+  # service.yaml. The fleet monitor's `port: http` endpoint can't scrape this
+  # exporter (no /actuator/prometheus), hence the dedicated monitor.
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: kafka-lag-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace

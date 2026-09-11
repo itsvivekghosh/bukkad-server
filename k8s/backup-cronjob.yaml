@@ -73,6 +73,75 @@ spec:
                   cpu: 500m
                   memory: 512Mi
 
+            # PITR base backup (k8s/docs/RUNBOOK-PITR.md): the dumps above are
+            # T-1 logical restores; THIS pushes a nightly wal-g FULL base
+            # backup (streamed over the BASE_BACKUP protocol — remote mode,
+            # no PGDATA mount) so WAL-G WAL archived by the postgres pod's
+            # walg-archive sidecar always has a replay base, and prunes to
+            # 7 FULLs. Independent of the dump set: wal-g uploads straight to
+            # WALG_S3_PREFIX (NOT the s3-sync'd /backup tree), so a dump
+            # failure cannot corrupt the PITR chain and vice versa. Runs as
+            # the same backup superuser as postgres-backup; exits 0 WITHOUT
+            # pushing while WALG_S3_PREFIX is a placeholder (opt-in posture).
+            - name: walg-base-backup
+              image: quay.io/wal/wal-g:postgresql-latest
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/backup/backup-walg.sh"]
+              env:
+                - name: WALG_S3_PREFIX
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: WALG_S3_PREFIX
+                      optional: true
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: AWS_ACCESS_KEY_ID
+                      optional: true
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: AWS_SECRET_ACCESS_KEY
+                      optional: true
+                - name: AWS_REGION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: bhukkad-config
+                      key: AWS_REGION
+                - name: WALG_COMPRESSION_METHOD
+                  value: "zstd"
+                - name: WALG_RETAIN_COUNT
+                  value: "7"
+                - name: PGHOST
+                  value: "bhukkad-postgresql"
+                - name: PGPORT
+                  value: "5432"
+                # Backup superuser (same rationale as postgres-backup above).
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: DB_USERNAME
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: DB_PASSWORD
+              volumeMounts:
+                - name: backup-scripts
+                  mountPath: /backup/backup-walg.sh
+                  subPath: backup-walg.sh
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+
             # Off-site copy (roadmap #15): mirrors the dump dir to S3 after the
             # dump containers finish. Pinned aws-cli image — neither postgres
             # nor redis images ship an `aws` binary, and only this container

@@ -1,0 +1,48 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: bhukkad-selfsigned
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  # Bootstrap issuer: signs ONLY the cluster CA Certificate below. Leaf certs
+  # are served by the CA issuer (issuer-ca.yaml) after flip.
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-ca
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  # Cluster-internal root CA. Private key + chain land in Secret bhukkad-ca —
+  # consumed by every leaf Certificate below AND by clients (JDBC/Kafka/Lettuce
+  # truststores) at flip time (k8s/tls/README-TLS.md).
+  secretName: bhukkad-ca
+  duration: 87600h    # 10y — CA lives longer than any leaf
+  renewBefore: 2160h  # 90d
+  commonName: bhukkad-cluster-ca
+  isCA: true
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: bhukkad-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: bhukkad-ca
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: tls
+spec:
+  ca:
+    secretName: bhukkad-ca

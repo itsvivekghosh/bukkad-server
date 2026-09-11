@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-growth
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: growth
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: growth
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: growth
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8089"
+    spec:
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: bhukkad-growth
+          image: ghcr.io/bhukkad/growth:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8089
+              name: http
+          envFrom:
+            - configMapRef:
+                name: bhukkad-config
+          env:
+            - name: SERVER_PORT
+              value: "8089"
+            - name: WAIT_FOR_SERVICES
+              value: "false"
+            - name: HEALTH_PATH
+              value: /api/v1/health/ping
+            # growth composes its datasource from the generic POSTGRES_* env
+            # vars (application.yml) — host/db-name inline non-secret,
+            # credentials from bhukkad-secrets. The database is provisioned
+            # out-of-band like every other service DB (listed in
+            # initdb/00-create-databases.sql for the compose stack).
+            - name: POSTGRES_HOST
+              value: "bhukkad-postgresql"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: "growth"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: GROWTH_DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: GROWTH_DB_PASSWORD
+            # The in-cluster Redis runs with requirepass (k8s/redis/
+            # deployment.yaml); application.yml maps spring.data.redis
+            # WITHOUT a password placeholder, so bind it via relaxed env.
+            # growth's referral rate-limiter + ShedLock live in Redis —
+            # NOAUTH here would fail-closed the limiter and break the
+            # nightly reconciliation lock.
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: JWT_SECRET
+            # Service-mesh (inter-service) HMAC secret
+            # (app.auth.service.jwt-secret) — provisioned in
+            # k8s/external-secret.yaml (Vault bhukkad/prod/auth); without the
+            # mapping it would vanish on ExternalSecret sync.
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            # RS256 verification: identity's JWKS via the ClusterIP Service
+            # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
+            # Referral reward client (yml default is the compose host:port;
+            # k8s Service is port 80 → targetPort 8084, k8s/referral).
+            - name: REFERRAL_SERVICE_URL
+              value: http://bhukkad-referral.bhukkad.svc.cluster.local
+            # P-09 JVM<->container contract: Guaranteed QoS (memory
+            # requests==limits), CPU requests with NO limit (a limit throttles
+            # GC threads), and the canonical -XX flag set (perf guide §4.1).
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+UseG1GC
+                -XX:MaxGCPauseMillis=200
+                -XX:+ExitOnOutOfMemoryError
+                -XX:+UseStringDeduplication
+                -Djava.security.egd=file:/dev/./urandom
+          resources:
+            requests:
+              cpu: 750m
+              memory: 1024Mi
+            limits:
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

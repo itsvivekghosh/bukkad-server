@@ -37,26 +37,31 @@ spec:
         # DLT lag > 0 on money topics (V-10): anything sitting on a
         # *.dlt topic failed consumption — for money topics (orders/payments
         # streams per docs/event-catalog.md) that is a money-integrity event.
-        # Metric: kafka_consumergroup_lag via the Kafka exporter / Redpanda rpk
-        # exporter.
+        # Metric: kafka_consumergroup_group_lag per partition
+        # (cluster_name/group/topic/partition labels), exported by
+        # k8s/components/kafka-lag-exporter (P2). The legacy
+        # kafka_consumergroup_lag name is emitted by no deployed exporter;
+        # fixed to the shipped series alongside the component landing.
         - alert: MoneyTopicDltLag
-          expr: kafka_consumergroup_lag{topic=~"order\\.events\\.v1\\.dlt|bhukkad\\.platform\\.events\\.dlt"} > 0
+          expr: kafka_consumergroup_group_lag{topic=~"order\\.events\\.v1\\.dlt|bhukkad\\.platform\\.events\\.dlt"} > 0
           for: 5m
           labels:
             severity: critical
             domain: events
           annotations:
-            summary: "Messages parked on money-topic DLT {{ $labels.topic }} (group {{ $labels.consumergroup }})"
+            summary: "Messages parked on money-topic DLT {{ $labels.topic }} (group {{ $labels.group }})"
 
         # Kafka consumer lag on business topics (S2/PERF-2 follow-through).
+        # kafka_consumergroup_group_max_lag = highest partition lag per group
+        # (same exporter) — alerting per group avoids a rule per partition.
         - alert: KafkaConsumerLagHigh
-          expr: kafka_consumergroup_lag{topic!~".*\\.dlt"} > 5000
+          expr: kafka_consumergroup_group_max_lag > 5000
           for: 10m
           labels:
             severity: warning
             domain: events
           annotations:
-            summary: "Consumer group {{ $labels.consumergroup }} lagging {{ $value }} on {{ $labels.topic }}"
+            summary: "Consumer group {{ $labels.group }} has max partition lag {{ $value }}"
 
     - name: bhukkad.database
       rules:

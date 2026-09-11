@@ -132,3 +132,44 @@ data:
     printf '%s\n' "${STAMP}" > "${BACKUP_DIR}/.last_success_epoch"
     printf 'ok\n' > "${BACKUP_DIR}/.backup_done"
     echo "[$(date)] Redis backup finished successfully"
+
+  # ---------------------------------------------------------------------------
+  # PITR base backups (k8s/docs/RUNBOOK-PITR.md). The nightly dump set gives a
+  # T-1 logical restore; THIS closes the gap to point-in-time: a wal-g FULL
+  # base backup streamed over the BASE_BACKUP protocol (remote mode — NO PGDATA
+  # directory argument; the wal-g docs specify `PGHOST=... wal-g backup-push`
+  # for exactly this Kubernetes-CronJob pattern) so the WAL segments archived
+  # continuously by the postgres pod's walg-archive sidecar always have a base
+  # to replay FROM. Connection is via the standard PG* libpq env vars like
+  # backup-postgres.sh (superuser has the required replication rights).
+  #
+  # Retention: `wal-g delete retain FULL 7 --use-sentinel-time --confirm`
+  # keeps the 7 newest FULL backups plus the WAL each still needs (docs-
+  # specified sentinel-time ordering avoids the post-major-upgrade name-order
+  # pitfall). ~1 week PITR window floor; the S3 dump lifecycle stays 30d.
+  #
+  # Guard: with WALG_S3_PREFIX unset/placeholder the script SKIP-SUCCEEDS so
+  # an unconfigured cluster doesn't page BackupJobFailed (PITR opt-in is then
+  # explicit, matching the sidecar's discard-mode WARN posture).
+  # ---------------------------------------------------------------------------
+  backup-walg.sh: |
+    #!/bin/sh
+    set -eu
+    case "${WALG_S3_PREFIX:-}" in
+      ""|*CHANGE_ME*)
+        echo "[$(date)] WALG_S3_PREFIX unset/placeholder — skipping wal-g base backup (PITR not configured; see k8s/docs/RUNBOOK-PITR.md)"
+        exit 0
+        ;;
+    esac
+    : "${PGHOST:?PGHOST required (postgres host)}"
+    : "${PGUSER:?PGUSER required (backup superuser)}"
+    : "${PGPASSWORD:?PGPASSWORD required}"
+    PGPORT="${PGPORT:-5432}"
+    export PGHOST PGPORT PGUSER PGPASSWORD
+    echo "[$(date)] wal-g base backup via ${PGHOST}:${PGPORT} -> ${WALG_S3_PREFIX}"
+    # Remote streaming mode: backup-push WITHOUT a data directory.
+    wal-g backup-push
+    echo "[$(date)] base backup pushed; retaining ${WALG_RETAIN_COUNT:-7} FULL"
+    wal-g delete retain FULL "${WALG_RETAIN_COUNT:-7}" --use-sentinel-time --confirm
+    wal-g backup-list
+    echo "[$(date)] wal-g base backup finished successfully"
