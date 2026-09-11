@@ -2,6 +2,7 @@ package com.bhukkad.identity.api;
 
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.error.UnauthorizedException;
+import com.bhukkad.common.security.JwtRevocationService;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.identity.domain.Address;
 import com.bhukkad.identity.domain.AddressRepository;
@@ -40,17 +41,21 @@ public class CustomerSelfController {
     private final AddressRepository addressRepository;
     private final ReferralService referralService;
     private final AccountProfileService profileService;
+    /** P1: self-service account deletion must invalidate issued access tokens immediately. */
+    private final JwtRevocationService revocationService;
 
     public CustomerSelfController(CustomerRepository customerRepository,
                                     AddressService addressService,
                                     AddressRepository addressRepository,
                                     ReferralService referralService,
-                                    AccountProfileService profileService) {
+                                    AccountProfileService profileService,
+                                    JwtRevocationService revocationService) {
         this.customerRepository = customerRepository;
         this.addressService = addressService;
         this.addressRepository = addressRepository;
         this.referralService = referralService;
         this.profileService = profileService;
+        this.revocationService = revocationService;
     }
 
     @GetMapping("/profile")
@@ -214,6 +219,7 @@ public class CustomerSelfController {
             c.setFullName("Deleted User");
         }
         customerRepository.save(c);
+        revocationService.revokeTokensIssuedBefore(c.getId());
         return Map.of("message", "Account deleted");
     }
 

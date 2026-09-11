@@ -28,6 +28,7 @@ import org.springframework.web.client.RestClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Date;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,6 +62,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       {@code app.auth.jwt.hmac-grace-enabled} is true (default). Flipping
  *       that property to false rejects HS256 outright. {@code alg=none} and
  *       HS384/HS512 downgrade attempts are always rejected.</li>
+ *   <li>P1 logout revocation: access tokens whose {@code iat} predates the
+ *       user's revocation epoch ({@link JwtRevocationService}, written on
+ *       logout / password change / deactivation) are rejected with a ±2 s
+ *       clock-slack grace; the check fails OPEN when Redis is unreachable and
+ *       is skipped entirely when Redis is not configured.</li>
  * </ul>
  */
 @Component
@@ -75,6 +81,13 @@ public class PlatformJwtValidator {
     private static final Duration JWKS_CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration JWKS_READ_TIMEOUT = Duration.ofSeconds(3);
 
+    /**
+     * Clock slack around the revocation epoch (P1 logout revocation): tokens
+     * issued up to 2 s BEFORE the epoch still validate, so identity's and the
+     * verifying service's clocks may drift without logging the user out.
+     */
+    static final long REVOCATION_CLOCK_SLACK_SECONDS = 2;
+
     /** jjwt/HS256 minimum: 256 bits of secret material (RFC 7518 §3.2). */
     static final int MIN_HMAC_SECRET_BYTES = 32;
 
@@ -85,6 +98,9 @@ public class PlatformJwtValidator {
     /** Pre-built HS256 verifier — NEVER per-request; null = secret absent/too short in a non-strict profile. */
     @Nullable
     private final MACVerifier macVerifier;
+    /** Logout/password-change revocation epoch (P1); null = not wired (check skipped). */
+    @Nullable
+    private final JwtRevocationService revocationService;
 
     private volatile JWKSet cachedJwks;
     private volatile long lastFetchMillis;
@@ -104,25 +120,35 @@ public class PlatformJwtValidator {
     @Autowired
     public PlatformJwtValidator(PlatformJwtProperties properties,
                                 Environment environment,
+                                ObjectProvider<JwtRevocationService> revocationServiceProvider,
                                 ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this(properties, defaultRestClient(),
-                properties.requiredInProfile(environment), meterRegistryProvider.getIfAvailable());
+                properties.requiredInProfile(environment),
+                revocationServiceProvider.getIfAvailable(), meterRegistryProvider.getIfAvailable());
     }
 
     /** Convenience for non-Spring construction (tests): permissive profile, no metrics. */
     public PlatformJwtValidator(PlatformJwtProperties properties) {
-        this(properties, defaultRestClient(), false, null);
+        this(properties, defaultRestClient(), false, null, null);
     }
 
     /** Test seam: injected transport, permissive profile check, no metrics. */
     PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient) {
-        this(properties, restClient, false, null);
+        this(properties, restClient, false, null, null);
+    }
+
+    /** Test seam: injected revocation service (null = epoch check skipped). */
+    PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
+                         @Nullable JwtRevocationService revocationService) {
+        this(properties, restClient, false, revocationService, null);
     }
 
     PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
-                         boolean requiredInProfile, @Nullable MeterRegistry meterRegistry) {
+                         boolean requiredInProfile, @Nullable JwtRevocationService revocationService,
+                         @Nullable MeterRegistry meterRegistry) {
         this.properties = properties;
         this.restClient = restClient;
+        this.revocationService = revocationService;
         this.meterRegistry = meterRegistry;
         byte[] secretBytes = properties.secret() == null
                 ? new byte[0] : properties.secret().getBytes(StandardCharsets.UTF_8);
@@ -230,6 +256,11 @@ public class PlatformJwtValidator {
                 log.debug("JWT rejected: subject is not numeric");
                 return Optional.empty();
             }
+            if (predatesRevocationEpoch(userId, claims)) {
+                recordRejection("revoked");
+                log.debug("JWT rejected: issued before the user's revocation epoch (logout/password change)");
+                return Optional.empty();
+            }
             return Optional.of(new TokenPrincipal(userId,
                     claims.getStringClaim("email"),
                     scopeOf(claims)));
@@ -238,6 +269,31 @@ public class PlatformJwtValidator {
             log.debug("JWT validation failed: {}", e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * P1 logout revocation: a token minted BEFORE the user's revocation
+     * epoch (logout, password change, deactivation) is rejected — the
+     * ±{@link #REVOCATION_CLOCK_SLACK_SECONDS} grace absorbs issuer/verifier
+     * clock drift so a just-logged-out session is not half-broken. No
+     * revocation service wired, no epoch stored, an unreachable Redis
+     * (fail-open inside the service) or a token without an {@code iat} claim
+     * all leave the token valid — this is hardening on top of signature +
+     * expiry, never the sole gate.
+     */
+    private boolean predatesRevocationEpoch(long userId, JWTClaimsSet claims) throws java.text.ParseException {
+        if (revocationService == null) {
+            return false;
+        }
+        Optional<Instant> epoch = revocationService.revocationEpoch(userId);
+        if (epoch.isEmpty()) {
+            return false;
+        }
+        Date issuedAt = claims.getIssueTime();
+        if (issuedAt == null) {
+            return false; // cannot evaluate — fail open (tokens always carry iat)
+        }
+        return issuedAt.toInstant().isBefore(epoch.get().minusSeconds(REVOCATION_CLOCK_SLACK_SECONDS));
     }
 
     /**

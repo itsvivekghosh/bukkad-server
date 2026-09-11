@@ -342,7 +342,7 @@ class PlatformJwtValidatorTest {
     void hmacSecretTooShortInStrictProfile_failsBootWithIllegalState() {
         assertThatThrownBy(() -> new PlatformJwtValidator(
                 new PlatformJwtProperties("short-secret", null, null, null),
-                PlatformJwtValidator.defaultRestClient(), true, null))
+                PlatformJwtValidator.defaultRestClient(), true, null, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("at least 32");
     }
@@ -352,7 +352,7 @@ class PlatformJwtValidatorTest {
         // Must NOT throw: a 32+ byte secret is legitimate in prod/staging.
         PlatformJwtValidator validator = new PlatformJwtValidator(
                 new PlatformJwtProperties(SECRET, null, null, null),
-                PlatformJwtValidator.defaultRestClient(), true, null);
+                PlatformJwtValidator.defaultRestClient(), true, null, null);
 
         String token = hs256Token(42L, "a@b.com", "customer",
                 Date.from(Instant.now().plusSeconds(3600)));
