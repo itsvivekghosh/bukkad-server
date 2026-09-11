@@ -1,0 +1,15 @@
+# Flips the Postgres CLIENT side together with the server TLS from
+# patch-postgres-tls.yaml: DB_SSL_ENABLED=true + the sslmode=require JDBC
+# URLs (the variants commented in k8s/configmap.yaml). sslmode=require
+# encrypts the connection; certificate verification (verify-ca/verify-full)
+# needs the internal CA in the client truststore — document any upgrade of
+# sslmode in k8s/README-TLS.md before enforcing it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-config
+  namespace: bhukkad
+data:
+  DB_SSL_ENABLED: "true"
+  DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&sslmode=require"
+  DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-replica:5432/bhukkad?currentSchema=public&sslmode=require"

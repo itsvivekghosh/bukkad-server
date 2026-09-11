@@ -24,7 +24,19 @@ data:
 
   # Primary datasource. DB_URL is what application-prod.yml actually reads;
   # DB_HOST/DB_PORT/DB_NAME are kept for the dev profile and for tooling.
+  #
+  # In-cluster TLS (k8s/README-TLS.md): DB_SSL_ENABLED is the documented
+  # client-side flag for Postgres TLS. Default "false" — dev-boot compatible
+  # (plain JDBC to the plaintext 5432 listener). The kustomize component
+  # k8s/components/tls-internal flips it to "true" together with the
+  # sslmode=require JDBC URLs below in one apply (server certs via the
+  # cert-manager internal CA; PostgreSQL accepts plaintext too, so the server
+  # side is not breaking).
+  DB_SSL_ENABLED: "false"
   DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&ssl=false"
+  # TLS-ready URL variants — flip WITH DB_SSL_ENABLED ("true") via the
+  # tls-internal component; do not hand-edit one without the other.
+  # DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&sslmode=require"
   DB_HOST: "bhukkad-postgresql"
   DB_PORT: "5432"
   DB_NAME: "core"
@@ -37,9 +49,19 @@ data:
   DB_REPLICA_HOST: "bhukkad-postgresql-replica"
   DB_REPLICA_PORT: "5432"
   DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-replica:5432/bhukkad?currentSchema=public&ssl=false"
+  # TLS-ready variant for the replica (flip WITH DB_SSL_ENABLED).
+  # DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-replica:5432/bhukkad?currentSchema=public&sslmode=require"
 
   REDIS_HOST: "bhukkad-redis"
   REDIS_PORT: "6379"
+  # COMMENTED-READY Redis TLS (k8s/README-TLS.md): the tls-internal component
+  # mounts the redis server cert (bhukkad-redis-tls secret → /etc/redis-tls,
+  # redis/deployment patch) but the server stays on plaintext until the
+  # bhukkad-redis-config TLS directives are uncommented (documented flip).
+  # Uncomment BOTH sides together; note the Sentinel pair needs the same
+  # treatment (limitation tracked in k8s/README-TLS.md).
+  # REDIS_SSL: "true"
+  # SPRING_DATA_REDIS_SSL_ENABLED: "true"
 
   APP_ENVIRONMENT: "production"
   APP_DEBUG: "false"
@@ -68,6 +90,35 @@ data:
     redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,
     redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,
     redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
+
+  # ---------------------------------------------------------------------------
+  # COMMENTED-READY Redpanda client TLS + SASL (k8s/README-TLS.md).
+  #
+  # Broker side: the kustomize component k8s/components/tls-internal adds a
+  # TLS Kafka listener (redpanda-N...:9095, cert-manager internal-CA leaf
+  # certs) and a SASL superuser bootstrap (bhukkad-secrets
+  # REDPANDA_SUPERUSER_USERNAME/PASSWORD). The PLAINTEXT 9092 listener stays
+  # up, so uncommenting nothing keeps the fleet working.
+  #
+  # CLIENT SIDE (coordination): platform-lib's KafkaPlatformConfig builds its
+  # consumer/producer maps from app.events.external.kafka.* only — it does
+  # NOT read spring.kafka.* or any KAFKA_SSL_* env today. The keys below are
+  # the agreed env contract for the platform-lib change that wires TLS/SASL;
+  # flip them ONLY after that lands, then flip clients from 9092 to 9095 and
+  # finally enforce SASL broker-side (flip order in k8s/README-TLS.md).
+  # ---------------------------------------------------------------------------
+  # KAFKA_SSL_ENABLED: "true"
+  # KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "https"
+  # KAFKA_SSL_TRUSTSTORE_TYPE: "PEM"
+  # KAFKA_SSL_TRUSTSTORE_CERTIFICATES_SECRETKEYREF: bhukkad-secrets/REDPANDA_CA_CRT
+  # KAFKA_SASL_MECHANISM: "SCRAM-SHA-256"
+  # KAFKA_SASL_JAAS_USERNAME_SECRETKEYREF: bhukkad-secrets/REDPANDA_SUPERUSER_USERNAME
+  # KAFKA_SASL_JAAS_PASSWORD_SECRETKEYREF: bhukkad-secrets/REDPANDA_SUPERUSER_PASSWORD
+  # TLS bootstrap (flip together with the block above):
+  # KAFKA_BOOTSTRAP_SERVERS: >-
+  #   redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9095,
+  #   redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9095,
+  #   redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9095
 
   # Razorpay payment gateway. The simulated gateway (default) is rejected by
   # SecretValidationConfig in the prod profile because it cannot validate webhook

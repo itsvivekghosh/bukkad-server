@@ -1,0 +1,58 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# FLAG: in-cluster TLS (P2). Toggle by exactly one line in
+# k8s/kustomization.yaml (uncomment `components/tls-internal`), exactly like
+# the redpanda component. Flip procedure, verification and rollback:
+# k8s/README-TLS.md.
+#
+# What it ships (all namespaced to bhukkad):
+#   * cert-manager internal CA chain (selfsigned Issuer → CA Certificate →
+#     CA Issuer) — PREREQUISITE: cert-manager installed on the cluster.
+#   * leaf certificates (90-day, auto-renewed):
+#       - bhukkad-postgres-tls   → postgres server (ssl=on via deployment
+#                                  patch; plaintext still accepted)
+#       - bhukkad-redpanda-tls   → redpanda TLS Kafka listener :9095 (the
+#                                  PLAINTEXT :9092 listener stays up)
+#       - bhukkad-redis-tls      → redis cert MOUNT only (server stays
+#                                  plaintext until the documented flip)
+#       - bhukkad-nginx-tls      → nginx secondary router :443
+#   * redpanda TLS listener config (mounted via writable emptyDir — rpk
+#     persists config to its --config file) + SASL superuser bootstrap Job
+#     (credentials from bhukkad-secrets; enforcement of SASL is a separate,
+#     documented final step).
+#   * patches: postgres server TLS, redis cert mount, nginx 443 (deployment +
+#     service + extra server file), bhukkad-config DB_SSL_ENABLED=true +
+#     sslmode JDBC URLs.
+#
+# Dev-boot compatibility: nothing here breaks a plaintext fleet on apply —
+# postgres keeps accepting plaintext, redpanda keeps :9092, redis/nginx add
+# listeners. Breaking flips (redis TLS-only, SASL enforcement, 80→443
+# redirect) are manual steps sequenced in README-TLS.
+#
+# COORDINATION: Kafka client TLS/SASL env blocks (commented in
+# k8s/configmap.yaml) need a platform-lib KafkaPlatformConfig change before
+# clients can move to :9095.
+# =============================================================================
+
+resources:
+  - issuer.yaml
+  - certificates.yaml
+  - redpanda-tls-config.yaml
+  - redpanda-superuser-job.yaml
+
+patches:
+  - path: patch-postgres-tls.yaml
+  - path: patch-redis-tls.yaml
+  - path: patch-nginx-deployment-tls.yaml
+  - path: patch-nginx-configmap-tls.yaml
+  - path: patch-nginx-service-tls.yaml
+  - path: patch-redpanda-statefulset-tls.yaml
+  - path: patch-configmap-db-ssl.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      managed-by: kustomize
+      project: bhukkad

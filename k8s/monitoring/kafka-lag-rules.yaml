@@ -1,0 +1,87 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bhukkad-kafka-lag-alerts
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    # Prometheus Operator rule selector (same convention as
+    # k8s/monitoring/prometheus-rules.yaml).
+    release: bhukkad-prometheus
+spec:
+  groups:
+    # =========================================================================
+    # P2 Kafka consumer-lag alerts — powered by the kafka-exporter shipped by
+    # the kustomize COMPONENT k8s/components/kafka-exporter (danielqsj
+    # kafka-exporter metric contract: kafka_consumergroup_lag{consumergroup,
+    # topic,partition}, kafka_consumergroup_current_offset, kafka_brokers).
+    #
+    # G-2 (no inert safety devices): these expressions are only meaningful
+    # while that exporter component is enabled — remove
+    # monitoring/kafka-lag-rules.yaml together with the component, never one
+    # without the other.
+    #
+    # The exporter also makes the EXISTING alerts in
+    # k8s/monitoring/prometheus-rules.yaml live (MoneyTopicDltLag,
+    # KafkaConsumerLagHigh — previously inert per the P0 config audit). The
+    # alerts here COMPLEMENT them: exporter tripwires, non-money DLT backlog,
+    # and a stalled-consumer detector — no duplicate alert names.
+    # =========================================================================
+    - name: bhukkad.kafka.lag
+      rules:
+        # Exporter tripwire: no broker metrics at all → the lag alerts above
+        # and below are BLIND. Fire before anything else silently dies.
+        - alert: KafkaExporterAbsent
+          expr: absent(kafka_brokers)
+          for: 15m
+          labels:
+            severity: warning
+            domain: events
+          annotations:
+            summary: "kafka-exporter reports no brokers for 15m (exporter down or ServiceMonitor broken)"
+
+        # The Redpanda cluster is 3 brokers (k8s/components/redpanda); fewer
+        # visible broker metrics means brokers down or unreachable from the
+        # exporter (min ISR erosion follows quickly).
+        - alert: KafkaBrokersUnavailable
+          expr: kafka_brokers < 3
+          for: 10m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Only {{ $value }} Kafka broker(s) visible (expected 3)"
+
+        # Non-money DLT backlog (warning tier): anything parked on a .dlt
+        # topic failed consumption. Money-topic DLTs
+        # (order.events.v1.dlt / bhukkad.platform.events.dlt) already page as
+        # CRITICAL MoneyTopicDltLag in prometheus-rules.yaml — this rule
+        # covers the remaining DLT routes (payment.events.v1.dlt,
+        # restaurant.events.v1.dlt, and any future *.dlt) at warning level
+        # instead of double-firing the same condition twice.
+        - alert: KafkaDltBacklog
+          expr: kafka_consumergroup_lag{topic=~".*\\.dlt", topic!~"order\\.events\\.v1\\.dlt|bhukkad\\.platform\\.events\\.dlt"} > 0
+          for: 5m
+          labels:
+            severity: warning
+            domain: events
+          annotations:
+            summary: "Messages parked on DLT topic {{ $labels.topic }} (group {{ $labels.consumergroup }})"
+
+        # Stalled consumer group (critical): the group still owes messages
+        # (lag > 0) but its committed offset has not moved for 30m — crash
+        # loop, poison message, or a wedged handler. This is the
+        # complement to the volume-based KafkaConsumerLagHigh (> 5000 for
+        # 10m) which stays silent on low-traffic topics that stop
+        # progressing entirely.
+        - alert: ConsumerGroupStalled
+          expr: >-
+            sum by (consumergroup) (kafka_consumergroup_lag{topic!~".*\\.dlt"}) > 0
+            and on (consumergroup)
+            sum by (consumergroup) (increase(kafka_consumergroup_current_offset{topic!~".*\\.dlt"}[30m])) == 0
+          for: 10m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Consumer group {{ $labels.consumergroup }} has lag but no offset progress in 30m — stalled"

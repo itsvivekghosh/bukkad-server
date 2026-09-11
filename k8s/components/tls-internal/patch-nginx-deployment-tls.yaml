@@ -1,0 +1,37 @@
+# nginx TLS secondary router (tls-internal component): adds the 443 listener
+# (ports), the cert mount, and extends the filtered server-dir volume with
+# bhukkad-api-tls.conf (patched into the ConfigMap by
+# patch-nginx-configmap-tls.yaml). The plaintext :80 edge stays serving — the
+# 80→443 redirect is commented-ready in bhukkad-api-80.conf (README-TLS).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-nginx
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx
+          ports:
+            - containerPort: 443
+              name: https
+          volumeMounts:
+            - name: nginx-tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+      volumes:
+        - name: nginx-tls
+          secret:
+            secretName: bhukkad-nginx-tls
+            defaultMode: 0400
+        - name: nginx-servers
+          configMap:
+            name: bhukkad-nginx-config
+            items:
+              - key: bhukkad-api-80.conf
+                path: bhukkad-api-80.conf
+              - key: bhukkad-routes.conf
+                path: bhukkad-routes.conf
+              - key: bhukkad-api-tls.conf
+                path: bhukkad-api-tls.conf

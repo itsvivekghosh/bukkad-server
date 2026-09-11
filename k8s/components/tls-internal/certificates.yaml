@@ -1,0 +1,103 @@
+# Leaf certificates issued by the bhukkad internal CA (issuer.yaml).
+# 90-day validity with auto-renewal; SANs cover the in-cluster Service DNS
+# names (the forms clients actually dial: short name, namespace-qualified,
+# FQDN). See k8s/README-TLS.md for the verification snippet per endpoint.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-postgres-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: postgres
+spec:
+  secretName: bhukkad-postgres-tls
+  duration: 2160h        # 90 days
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-postgresql
+    - bhukkad-postgresql.bhukkad
+    - bhukkad-postgresql.bhukkad.svc
+    - bhukkad-postgresql.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-redpanda-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redpanda
+spec:
+  # One leaf shared by all three brokers (each broker mounts the same
+  # secret): SANs cover every per-pod headless DNS name plus the headless
+  # Service. rpk/Java clients verify against the broker they dial.
+  secretName: bhukkad-redpanda-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - redpanda-headless
+    - redpanda-headless.bhukkad
+    - redpanda-headless.bhukkad.svc
+    - redpanda-headless.bhukkad.svc.cluster.local
+    - redpanda-0.redpanda-headless.bhukkad.svc.cluster.local
+    - redpanda-1.redpanda-headless.bhukkad.svc.cluster.local
+    - redpanda-2.redpanda-headless.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-redis-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redis
+spec:
+  secretName: bhukkad-redis-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-redis
+    - bhukkad-redis.bhukkad
+    - bhukkad-redis.bhukkad.svc
+    - bhukkad-redis.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-nginx-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: nginx
+spec:
+  secretName: bhukkad-nginx-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - api.bhukkad.com
+    - localhost
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer

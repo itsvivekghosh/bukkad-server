@@ -1,0 +1,45 @@
+# cert-manager internal CA chain for the bhukkad namespace (namespaced
+# Issuers — no ClusterIssuer scope). PREREQUISITE: cert-manager installed
+# (apiVersion cert-manager.io/v1 CRDs present). See k8s/README-TLS.md.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: bhukkad-selfsigned-issuer
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-internal-ca
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  isCA: true
+  commonName: bhukkad-internal-ca
+  secretName: bhukkad-internal-ca
+  duration: 87600h        # 10 years
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    name: bhukkad-selfsigned-issuer
+    kind: Issuer
+---
+# The CA Issuer every workload leaf certificate references. Keep the CA
+# secret (bhukkad-internal-ca) private; clients that verify certificates
+# (sslmode=verify-ca/verify-full, nginx upstreams, rpk -X tls.truststore)
+# trust tls.crt from that secret.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: bhukkad-internal-ca-issuer
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  ca:
+    secretName: bhukkad-internal-ca

@@ -1,0 +1,95 @@
+# SASL superuser bootstrap for Redpanda (credentials from bhukkad-secrets:
+# REDPANDA_SUPERUSER_USERNAME / REDPANDA_SUPERUSER_PASSWORD — Vault
+# bhukkad/prod/redpanda via k8s/external-secret.yaml; placeholders in
+# k8s/secrets.yaml per its guardrails).
+#
+# Semantics: the Job runs when the tls-internal component is included and
+# RETRIES (backoffLimit 40) — SASL user creation succeeds at whatever stage
+# the cluster is in:
+#   * SASL enforcement OFF (default after apply): creates the SCRAM user,
+#     registers it in redpanda.superusers, grants cluster-wide ACLs.
+#   * SASL enforcement ON (ops flipped it before this succeeded): the rpk
+#     calls authenticate AS the superuser (creds below), so the remaining
+#     steps still converge.
+# The final SASL ENFORCEMENT step (enable_sasl=true) is documented in
+# k8s/README-TLS.md and is deliberately not automated here.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-superuser-bootstrap
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redpanda
+spec:
+  backoffLimit: 40
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: redpanda
+    spec:
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+      containers:
+        - name: bootstrap
+          image: redpandadata/redpanda:v23.3.13   # rpk matches the broker pin
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDPANDA_SUPERUSER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDPANDA_SUPERUSER_USERNAME
+            - name: REDPANDA_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDPANDA_SUPERUSER_PASSWORD
+            - name: BROKERS
+              value: >-
+                redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,
+                redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,
+                redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              RPK_OPTS=(-X brokers="$BROKERS")
+              # If SASL enforcement was already flipped on, authenticate as the
+              # superuser for the admin calls; harmless while enforcement is off.
+              RPK_AUTH=(-X user="$REDPANDA_SUPERUSER_USERNAME" \
+                        -X pass="$REDPANDA_SUPERUSER_PASSWORD" \
+                        -X sasl.mechanism=SCRAM-SHA-256)
+              echo "creating SCRAM user ${REDPANDA_SUPERUSER_USERNAME} (if absent)"
+              rpk acl user create "$REDPANDA_SUPERUSER_USERNAME" \
+                --password "$REDPANDA_SUPERUSER_PASSWORD" \
+                --mechanism scram-sha-256 \
+                "${RPK_OPTS[@]}" || echo "user exists (or broker not ready) — retrying via ACL grant"
+              echo "registering superuser in cluster config"
+              rpk config set redpanda.superusers "$REDPANDA_SUPERUSER_USERNAME" \
+                "${RPK_OPTS[@]}" "${RPK_AUTH[@]}"
+              echo "granting cluster-wide ACLs"
+              rpk acl create \
+                --allow-principal "User:${REDPANDA_SUPERUSER_USERNAME}" \
+                --operations all \
+                "${RPK_OPTS[@]}" "${RPK_AUTH[@]}"
+              echo "superuser bootstrap complete"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

@@ -29,6 +29,12 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+            # Server blocks (bhukkad-api-80.conf + bhukkad-routes.conf; the
+            # TLS flag adds bhukkad-api-tls.conf, k8s/components/tls-internal).
+            # Filtered via items so nginx.conf itself is not double-loaded.
+            - name: nginx-servers
+              mountPath: /etc/nginx/bhukkad
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -57,3 +63,14 @@ spec:
             items:
               - key: nginx.conf
                 path: nginx.conf
+        # Server blocks dir — items mirror the *.conf keys that should be
+        # included. The tls-internal component's patch appends
+        # bhukkad-api-tls.conf here.
+        - name: nginx-servers
+          configMap:
+            name: bhukkad-nginx-config
+            items:
+              - key: bhukkad-api-80.conf
+                path: bhukkad-api-80.conf
+              - key: bhukkad-routes.conf
+                path: bhukkad-routes.conf

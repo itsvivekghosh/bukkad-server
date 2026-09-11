@@ -49,5 +49,21 @@ data:
     log_connections = 1
     log_disconnections = 1
     stats_period = 60
-  userlist.txt: |
-    "app" "CHANGE_ME_DB_PASSWORD"
+  # ---------------------------------------------------------------------------
+  # AUTH (no userlist.txt here — a password in a ConfigMap is a secret leak
+  # by construction, which is why the CHANGE_ME placeholder used to live in
+  # this file): pgbouncer authentication comes from the secretKeyRef env
+  # pattern used across the fleet — k8s/pgbouncer/deployment.yaml injects
+  # DB_USERNAME / DB_PASSWORD from bhukkad-secrets (Vault bhukkad/prod/database
+  # via k8s/external-secret.yaml), and the edoburu/pgbouncer image generates
+  # /etc/pgbouncer/userlist.txt from those env vars at boot. Nothing in this
+  # ConfigMap carries credentials.
+  #
+  # ROTATION: rotate the password in Vault (bhukkad/prod/database → password).
+  # The ExternalSecret resyncs within refreshInterval (1h) into bhukkad-secrets;
+  # then restart the pooler so the image re-renders the userlist
+  # (kubectl -n bhukkad rollout restart deploy/pgbouncer). App pods read the
+  # same secret key and pick the new password on their next Hikari
+  # connection — coordinate the restart with a deploy rollout if a service
+  # caches connections beyond pgbouncer's server_lifetime (3600s).
+  # ---------------------------------------------------------------------------

@@ -1,0 +1,18 @@
+# Exposes the TLS secondary router through the LoadBalancer Service. The
+# plaintext :80 port is kept (see bhukkad-api-80.conf for the commented 80→443
+# redirect cutover).
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-nginx
+  namespace: bhukkad
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+    - port: 443
+      targetPort: 443
+      protocol: TCP
+      name: https

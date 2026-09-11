@@ -1,0 +1,107 @@
+# Redpanda TLS Kafka listener (tls-internal component).
+#
+# Mechanics: rpk (v23.3) configures per-listener TLS via the redpanda.yaml
+# config FILE only (no CLI TLS flags — verified against the rpk reference):
+#   * redpanda-tls-config.yaml is copied by the new copy-tls-config init
+#     container into a WRITABLE emptyDir and passed as --config (rpk persists
+#     config updates to that file, so it cannot be a read-only ConfigMap
+#     mount);
+#   * the listener NAME (tls, lowercase) matches the TLS:// scheme used in
+#     the --kafka-addr/--advertise-kafka-addr flags, so rpk merges the CLI
+#     address/advertise updates onto the file's listener list while the tls
+#     block (cert/key/truststore paths) comes from the file;
+#   * the PLAINTEXT :9092 listener + its advertise entry are KEPT — clients
+#     stay on plaintext until the documented client flip
+#     (k8s/README-TLS.md); SASL enforcement is a later, separate step.
+#
+# Certs: the shared bhukkad-redpanda-tls leaf (SANs for all three brokers +
+# headless Service) mounted at /etc/redpanda/certs; files are root:fsGroup
+# (101) mode 0440 so the broker uid can read them.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: redpanda
+          args:
+            - redpanda
+            - start
+            - --config
+            - /etc/redpanda-tls/redpanda.yaml
+            # One broker per pod; tune --smp with the CPU request if raised.
+            - --smp=1
+            - --memory=1G
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --node-id=$(POD_ORDINAL)
+            # Two Kafka listeners: PLAINTEXT (unchanged, un-migrated fleet)
+            # + TLS on :9095. Each broker ADVERTISES its stable headless DNS
+            # so clients across the mesh re-resolve correctly after pod
+            # rescheduling.
+            - --kafka-addr=PLAINTEXT://0.0.0.0:9092,TLS://0.0.0.0:9095
+            - --advertise-kafka-addr=PLAINTEXT://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9092,TLS://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9095
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:33145
+            - --controller-addr=0.0.0.0:33146
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: kafka-tls
+              containerPort: 9095
+            - name: admin
+              containerPort: 9644
+            - name: rpc
+              containerPort: 33145
+            - name: controller
+              containerPort: 33146
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+            - name: redpanda-tls
+              mountPath: /etc/redpanda/certs
+              readOnly: true
+            - name: tls-config-src
+              mountPath: /tls-config-src
+              readOnly: true
+            - name: redpanda-tls-config
+              mountPath: /etc/redpanda-tls
+      initContainers:
+        # Map the pod-name annotation to a numeric node-id the broker accepts.
+        - name: set-node-id
+          image: busybox:1.36
+          command: ["sh", "-c", "echo ${POD_NAME##*-} > /config/node-id"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: node-id
+              mountPath: /config
+        # Copy the TLS config into a writable emptyDir: rpk persists config
+        # updates to --config, which a read-only ConfigMap mount would break.
+        - name: copy-tls-config
+          image: busybox:1.36
+          command: ["sh", "-c", "cp /tls-config-src/redpanda.yaml /etc/redpanda-tls/redpanda.yaml && chmod 0644 /etc/redpanda-tls/redpanda.yaml"]
+          volumeMounts:
+            - name: tls-config-src
+              mountPath: /tls-config-src
+              readOnly: true
+            - name: redpanda-tls-config
+              mountPath: /etc/redpanda-tls
+      volumes:
+        - name: node-id
+          emptyDir: {}
+        - name: redpanda-tls
+          secret:
+            secretName: bhukkad-redpanda-tls
+            defaultMode: 0440
+        - name: tls-config-src
+          configMap:
+            name: redpanda-tls-config
+        - name: redpanda-tls-config
+          emptyDir: {}
