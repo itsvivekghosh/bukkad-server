@@ -55,7 +55,14 @@ data:
   # are seeded by its topics-init Job from docs/event-catalog.md. Consumers
   # stay disabled until ops flips this flag per service; KAFKA_BOOTSTRAP_SERVERS
   # targets the brokers' headless Service so the flip needs no re-render.
-  APP_EVENTS_EXTERNAL_ENABLED: "false"
+  # ENABLED fleet-wide (P0 config audit): EventBackbonePreflight refuses a prod
+  # boot when this is "false" (outbox rows would accumulate silently), so the
+  # off state is unbootable in prod, not a safe default.
+  # DEPENDENCY (coordination): a concurrent batch is fixing the publisher
+  # topic alignment to match docs/event-catalog.md + the topics-init Job
+  # seeding — the outbox relay will publish misaligned topic names until that
+  # lands; DLT/Consumer-lag alerts (bhukkad.events group) are the tripwire.
+  APP_EVENTS_EXTERNAL_ENABLED: "true"
   APP_EVENTS_EXTERNAL_TYPE: "kafka"
   KAFKA_BOOTSTRAP_SERVERS: >-
     redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,
@@ -83,3 +90,20 @@ data:
   # the log shipper idles (tail-only); set to e.g. "loki.observability.svc"
   # or an external Loki host to enable shipping.
   LOKI_HOST: ""
+
+  # ---------------------------------------------------------------------------
+  # Distributed tracing (P0 config audit): services read these via
+  # ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:...} / ${TRACING_SAMPLE_PROBABILITY:...}
+  # in their application.yml (management.zipkin.tracing.endpoint /
+  # management.tracing.sampling.probability).
+  #
+  # Zipkin/OTLP span export endpoint. EMPTY default keeps current behavior
+  # (spans are built but not exported; the app-local default localhost:9411 is
+  # a no-op in-cluster). Set to an in-cluster Zipkin/OTLP collector to enable
+  # export, e.g. "http://zipkin.observability.svc.cluster.local:9411/api/v2/spans"
+  # or an OTLP-endpoint-compatible collector.
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: ""
+  # Head-based sampling probability. The code default is 1.0 (100% of requests
+  # traced) which is prohibitive at fleet traffic levels; 0.1 = 10% sampling
+  # for prod. Raise temporarily when chasing a specific incident.
+  TRACING_SAMPLE_PROBABILITY: "0.1"

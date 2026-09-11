@@ -66,6 +66,19 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: SEARCH_DB_PASSWORD
+            # Service-mesh (inter-service) HMAC secret
+            # (app.auth.service.jwt-secret) — provisioned in
+            # k8s/external-secret.yaml (Vault bhukkad/prod/auth); without the
+            # mapping it would vanish on ExternalSecret sync.
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            # RS256 verification: identity's JWKS via the ClusterIP Service
+            # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
             # P-09 JVM<->container contract: Guaranteed QoS (memory
             # requests==limits), CPU requests with NO limit (a limit throttles
             # GC threads), and the canonical -XX flag set (perf guide §4.1).
