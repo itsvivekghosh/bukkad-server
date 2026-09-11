@@ -71,7 +71,5 @@ app:
         consumer-group: ${SURVEY_CONSUMER_GROUP:survey-platform-consumer}
   service:
     survey-url: ${SURVEY_SERVICE_URL:http://localhost:8083}
-    order-url: ${ORDER_SERVICE_URL:http://localhost:8081}
-    customer-url: ${CUSTOMER_SERVICE_URL:http://localhost:8082}
     restaurant-url: ${RESTAURANT_SERVICE_URL:http://localhost:8084}
     menu-url: ${MENU_SERVICE_URL:http://localhost:8085}

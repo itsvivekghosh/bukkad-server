@@ -27,6 +27,16 @@ public class DeliveryAgent {
 
     @jakarta.persistence.Column(length = 30)
     private String vehicleNumber;
+
+    /**
+     * Active (assigned, not yet delivered) assignment count. Maintained by
+     * conditional UPDATEs (V10): +1 on assign within the configured cap,
+     * -1 on markDelivered — never mutated through JPA field writes so racing
+     * dispatchers arbitrate inside the database.
+     */
+    @jakarta.persistence.Column(name = "active_load", nullable = false)
+    private int activeLoad = 0;
+
     @CreatedDate @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
     @LastModifiedDate @Column(nullable = false)

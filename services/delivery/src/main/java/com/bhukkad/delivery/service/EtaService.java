@@ -2,12 +2,22 @@ package com.bhukkad.delivery.service;
 
 import com.bhukkad.common.error.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
 
 /**
  * ETA estimation (port of monolith {@code OrderEtaService}): distance + fixed
  * prep/restaurant handling time, converted to minutes.
+ *
+ * <p>Registered as a bean only when {@code app.eta.enabled=true} (default
+ * off, boot-safe): the delivery module's ETA consumers
+ * ({@code DefaultEtaPort}) degrade to empty snapshots while the flag is off,
+ * because the order's destination coordinates are not known to this service
+ * until the order-side geo plumbing is wired (ADR-003).</p>
  */
+@Service
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.eta.enabled", havingValue = "true")
 public class EtaService {
 
     /** Average delivery speed, km/h, urban. */

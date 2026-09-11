@@ -35,6 +35,27 @@ public interface RestaurantSearchRepository extends JpaRepository<RestaurantSear
     List<RestaurantSearchEntity> searchNamePrefix(@Param("prefix") String lowercasedEscapedPrefix, Pageable pageable);
 
     /**
+     * ADR-002 fuzzy path (pg_trgm, migration V11): trigram similarity over
+     * the same columns {@link #searchText} targets, typo-tolerant via the
+     * {@code %} operator (pg_trgm.similarity_threshold, default 0.3) and
+     * ranked by best per-column similarity. Only reached when
+     * {@code app.search.fuzzy.enabled=true} — the LIKE path stays default.
+     */
+    @Query(value = """
+            SELECT * FROM restaurant_search
+            WHERE lower(name) % :term
+               OR lower(description) % :term
+               OR lower(cuisine_summary) % :term
+            ORDER BY GREATEST(
+                similarity(lower(name), :term),
+                similarity(lower(description), :term),
+                similarity(lower(cuisine_summary), :term)) DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<RestaurantSearchEntity> searchTextFuzzy(@Param("term") String lowercasedTerm,
+                                                 @Param("limit") int limit);
+
+    /**
      * ADR-002 search sync: idempotent upsert of the restaurant projection,
      * keyed by the restaurant id (the projection PK IS the source id).
      */
