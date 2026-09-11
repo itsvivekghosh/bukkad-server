@@ -9,6 +9,7 @@ import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.order.api.CreateOrderRequest;
 import com.bhukkad.order.api.OrderItemRequest;
 import com.bhukkad.order.api.OrderResponse;
+import com.bhukkad.order.api.RestaurantPricedItemResolver;
 import com.bhukkad.order.client.PaymentServiceClient;
 import com.bhukkad.order.client.RestaurantClient;
 import com.bhukkad.order.client.dto.ChargeResponse;
@@ -37,6 +38,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -75,9 +77,12 @@ class OrderSagaExecutionTest {
     void wire() {
         SagaCoordinator coordinator = new SagaCoordinator(sagaInstanceRepository, sagaStepRepository);
         // Gate OFF: this suite pins the synchronous batch-A saga semantics.
+        // The REAL RestaurantPricedItemResolver runs over the mocked client so
+        // server-side re-pricing (money-integrity #3) is exercised end to end.
         service = new OrderService(orderRepository, orderItemRepository, timelineRepository,
-                coordinator, eventPublisher, restaurantClient, paymentServiceClient, tokenProvider,
-                new com.bhukkad.order.OrderSagaProperties());
+                coordinator, eventPublisher, restaurantClient,
+                new RestaurantPricedItemResolver(restaurantClient), paymentServiceClient,
+                tokenProvider, new com.bhukkad.order.OrderSagaProperties());
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
@@ -87,6 +92,7 @@ class OrderSagaExecutionTest {
             return o;
         });
         when(orderItemRepository.findByOrderId(anyLong())).thenReturn(List.of());
+        when(restaurantClient.getMenuItems(anyCollection())).thenReturn(Mono.just(menuSnapshot()));
         when(sagaInstanceRepository.findBySagaId(anyString())).thenReturn(null);
         when(sagaInstanceRepository.save(any(SagaInstance.class))).thenAnswer(inv -> inv.getArgument(0));
         when(sagaStepRepository.save(any(SagaStep.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -99,6 +105,21 @@ class OrderSagaExecutionTest {
                     return Optional.of(step);
                 });
         when(tokenProvider.getIfAvailable()).thenReturn(null); // no service-mesh token configured
+    }
+
+    /** Batch menu payload the restaurant service would return for items 100/101. */
+    private static List<java.util.Map<String, Object>> menuSnapshot() {
+        java.util.Map<String, Object> paneer = new java.util.LinkedHashMap<>();
+        paneer.put("id", 100L);
+        paneer.put("restaurantId", 2L);
+        paneer.put("name", "Paneer");
+        paneer.put("price", new BigDecimal("240.00"));
+        java.util.Map<String, Object> roti = new java.util.LinkedHashMap<>();
+        roti.put("id", 101L);
+        roti.put("restaurantId", 2L);
+        roti.put("name", "Roti");
+        roti.put("price", new BigDecimal("20.00"));
+        return List.of(paneer, roti);
     }
 
     private CreateOrderRequest request() {

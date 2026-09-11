@@ -11,6 +11,7 @@ import com.bhukkad.order.api.OrderDetailsResponse;
 import com.bhukkad.order.api.OrderItemDto;
 import com.bhukkad.order.api.OrderItemRequest;
 import com.bhukkad.order.api.OrderResponse;
+import com.bhukkad.order.api.RestaurantPricedItemResolver;
 import com.bhukkad.order.client.PaymentServiceClient;
 import com.bhukkad.order.client.RestaurantClient;
 import com.bhukkad.order.client.dto.ChargeResponse;
@@ -31,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -64,6 +66,7 @@ public class OrderService {
     private final SagaCoordinator sagaCoordinator;
     private final OrderEventPublisher eventPublisher;
     private final RestaurantClient restaurantClient;
+    private final RestaurantPricedItemResolver pricedItemResolver;
     private final PaymentServiceClient paymentServiceClient;
     private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
     private final com.bhukkad.order.OrderSagaProperties asyncSaga;
@@ -77,7 +80,16 @@ public class OrderService {
             throw new BusinessException("Item quantity must be positive");
         }
 
-        BigDecimal total = request.items().stream()
+        // Money-integrity (roadmap #3): client-supplied unitPrice is NEVER
+        // trusted. Every line is re-priced from the restaurant menu snapshot
+        // (cached batch endpoint) BEFORE the write transaction; a missing id
+        // means the item does not exist or is unavailable/inactive and
+        // rejects the order (resolver's existing error conventions: 400 for
+        // missing/unavailable items, 503 UpstreamUnavailableException for a
+        // restaurant outage — never a silent fallback to client prices).
+        List<OrderItemRequest> items = rePrice(request);
+
+        BigDecimal total = items.stream()
                 .map(i -> i.unitPrice().multiply(BigDecimal.valueOf(i.quantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -89,7 +101,6 @@ public class OrderService {
         order = orderRepository.save(order);
         final Long orderId = order.getId();
 
-        List<OrderItemRequest> items = request.items();
         items.forEach(i -> {
             OrderItem item = new OrderItem();
             item.setOrderId(orderId);
@@ -113,7 +124,7 @@ public class OrderService {
         // payment service's consumer (W1-MONEY) settles/fails it and the
         // PaymentSagaEventConsumer drives CONFIRMED/compensation from there.
         String serviceToken = serviceToken();
-        List<StockReservationLine> reservationLines = request.items().stream()
+        List<StockReservationLine> reservationLines = items.stream()
                 .map(i -> StockReservationLine.of(i.menuItemId(), i.name(), i.quantity()))
                 .toList();
 
@@ -142,7 +153,7 @@ public class OrderService {
             recordTimeline(orderId, "PAYMENT_REQUESTED");
             eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
             eventPublisher.orderItemsSnapshot(orderId, request.restaurantId(),
-                    request.items().stream()
+                    items.stream()
                             .map(i -> new OrderEventPublisher.SnapshotItem(i.menuItemId(), i.name(), i.quantity()))
                             .toList());
             // G-1: the payment request commits atomically with the order; the
@@ -206,7 +217,7 @@ public class OrderService {
         // Trending feed (survey OrderItemsSnapshotConsumer contract) — same tx
         // as the order (deliverable 1).
         eventPublisher.orderItemsSnapshot(orderId, request.restaurantId(),
-                request.items().stream()
+                items.stream()
                         .map(i -> new OrderEventPublisher.SnapshotItem(i.menuItemId(), i.name(), i.quantity()))
                         .toList());
 
@@ -216,6 +227,47 @@ public class OrderService {
     private String serviceToken() {
         ServiceJwtAuthTokenProvider provider = serviceJwtTokenProvider.getIfAvailable();
         return provider != null ? provider.serviceToken() : null;
+    }
+
+    /**
+     * Re-prices every line from the restaurant's menu snapshot so the money
+     * path carries only server-computed values. One cached batch call covers
+     * the whole order (PERF-3 chord). Every create surface (canonical,
+     * customer-nested and legacy-compat controllers, batch checkout, reorder
+     * and the async job) funnels through here, so client-supplied
+     * {@code unitPrice}/{@code name} can never reach the order entity, the
+     * saga payload, the payment charge or the outbox events.
+     *
+     * <p>Reuses {@link RestaurantPricedItemResolver} and its error
+     * conventions: an id the restaurant does not return (nonexistent,
+     * unavailable or inactive) rejects the order with
+     * {@link BusinessException}; a restaurant outage surfaces as
+     * {@code UpstreamUnavailableException} (503) instead of faking a missing
+     * item. Fail-closed: there is no fallback to client prices.</p>
+     */
+    private List<OrderItemRequest> rePrice(CreateOrderRequest request) {
+        Map<Long, RestaurantPricedItemResolver.PricedItem> priced =
+                pricedItemResolver.resolveAll(request.items().stream()
+                        .map(OrderItemRequest::menuItemId)
+                        .toList());
+        return request.items().stream()
+                .map(i -> {
+                    RestaurantPricedItemResolver.PricedItem authoritative = priced.get(i.menuItemId());
+                    if (authoritative == null) {
+                        // Not in the restaurant's answer (e.g. a null id was
+                        // never requestable): treat as unavailable.
+                        throw new BusinessException(
+                                "Menu item is temporarily unavailable: " + i.menuItemId());
+                    }
+                    // Menu prices are numeric(10,2); normalizing to the same
+                    // scale keeps stored money and the frozen W1-MONEY amount
+                    // string deterministic across the JSON round-trip.
+                    BigDecimal serverPrice = authoritative.price()
+                            .setScale(2, java.math.RoundingMode.HALF_UP);
+                    return new OrderItemRequest(i.menuItemId(), authoritative.name(),
+                            serverPrice, i.quantity());
+                })
+                .toList();
     }
 
     /**

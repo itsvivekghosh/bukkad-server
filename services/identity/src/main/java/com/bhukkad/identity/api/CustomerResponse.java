@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Data
@@ -20,7 +21,7 @@ public class CustomerResponse {
     private Boolean active;
     private Boolean emailVerified;
     private Integer loyaltyPoints;
-    private Double walletBalance;
+    private BigDecimal walletBalance;
     private String role;
     private String createdAt;
     private List<AddressResponse> addresses;

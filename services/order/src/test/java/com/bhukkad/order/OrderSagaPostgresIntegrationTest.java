@@ -54,8 +54,25 @@ class OrderSagaPostgresIntegrationTest extends AbstractOrderPostgresTest {
     @MockBean
     private PaymentServiceClient paymentServiceClient;
 
+    /** Menu snapshot the mocked restaurant service returns for items 100/101. */
+    private static List<java.util.Map<String, Object>> menuSnapshot() {
+        java.util.Map<String, Object> burger = new java.util.LinkedHashMap<>();
+        burger.put("id", 100L);
+        burger.put("restaurantId", 10L);
+        burger.put("name", "Burger");
+        burger.put("price", BigDecimal.valueOf(12.50));
+        java.util.Map<String, Object> fries = new java.util.LinkedHashMap<>();
+        fries.put("id", 101L);
+        fries.put("restaurantId", 10L);
+        fries.put("name", "Fries");
+        fries.put("price", BigDecimal.valueOf(4.00));
+        return List.of(burger, fries);
+    }
+
     @Test
     void createOrder_sagaCompletesSuccessfully() {
+        when(restaurantClient.getMenuItems(any()))
+                .thenReturn(Mono.just(menuSnapshot()));
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
@@ -80,6 +97,8 @@ class OrderSagaPostgresIntegrationTest extends AbstractOrderPostgresTest {
 
     @Test
     void createOrder_chargeFails_compensatesAndCancelsOrder() {
+        when(restaurantClient.getMenuItems(any()))
+                .thenReturn(Mono.just(menuSnapshot()));
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         when(restaurantClient.releaseStock(any(), any()))
