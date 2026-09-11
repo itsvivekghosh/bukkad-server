@@ -137,11 +137,7 @@ public class OrderAdjunctController {
     public Map<String, Object> photoUploadUrl(@AuthenticationPrincipal TokenPrincipal principal,
                                               @PathVariable Long orderId,
                                               @RequestBody(required = false) Map<String, Object> body) {
-        String scope = String.valueOf(principal == null ? "" : principal.scope());
-        if (!"DELIVERY_AGENT".equalsIgnoreCase(scope) && !"ADMIN".equalsIgnoreCase(scope)) {
-            throw new UnauthorizedException("Authenticated delivery agent required");
-        }
-        Order order = requireOrder(orderId);
+        Order order = requireAssignedAgentOrAdmin(principal, orderId);
         if (!"OUT_FOR_DELIVERY".equals(order.getStatus())) {
             throw new BusinessException(
                     "Photo proof is only accepted while the order is out for delivery");
@@ -162,10 +158,7 @@ public class OrderAdjunctController {
     public Map<String, Object> verifyOtp(@AuthenticationPrincipal TokenPrincipal principal,
                                          @PathVariable Long orderId,
                                          @RequestParam(required = false) String otp) {
-        String scope = String.valueOf(principal == null ? "" : principal.scope());
-        if (!"DELIVERY_AGENT".equalsIgnoreCase(scope) && !"ADMIN".equalsIgnoreCase(scope)) {
-            throw new UnauthorizedException("Authenticated delivery agent required");
-        }
+        requireAssignedAgentOrAdmin(principal, orderId);
         OrderDeliveryProof proof = proofRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No OTP issued for order: " + orderId));
@@ -242,6 +235,31 @@ public class OrderAdjunctController {
     private Order requireOrder(Long orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+    }
+
+    /**
+     * Proof-mutation gate (audit LOW-IDOR-5): role alone proves the caller is
+     * <i>a</i> rider, not THIS order's rider. Mirror the picked-up/delivered
+     * transitions: the assigned agent (or admin) only. Returns the loaded
+     * order for the caller's next check.
+     */
+    private Order requireAssignedAgentOrAdmin(TokenPrincipal principal, Long orderId) {
+        if (principal == null || principal.userId() == null) {
+            throw new UnauthorizedException("Authenticated delivery agent required");
+        }
+        if (PrincipalGuard.isAdmin(principal)) {
+            return requireOrder(orderId);
+        }
+        if (!"DELIVERY_AGENT".equalsIgnoreCase(String.valueOf(principal.scope()))) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Delivery agent access required");
+        }
+        Order order = requireOrder(orderId);
+        if (!principal.userId().equals(order.getDeliveryAgentId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Order is not assigned to this agent");
+        }
+        return order;
     }
 
     private void requireOrderOwner(TokenPrincipal principal, Long orderId) {

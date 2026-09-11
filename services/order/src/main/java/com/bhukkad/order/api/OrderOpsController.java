@@ -53,6 +53,7 @@ public class OrderOpsController {
 
     private final OrderService orderService;
     private final OrderRepository orderRepository;
+    private final RestaurantOwnerResolver restaurantOwnerResolver;
 
     // ------------------------------------------------------------------
     // Owner: restaurant order views
@@ -230,6 +231,13 @@ public class OrderOpsController {
         return principal != null && SCOPE_ADMIN.equalsIgnoreCase(String.valueOf(principal.scope()));
     }
 
+    /**
+     * Owner gate with object-level binding (audit HIGH-IDOR-3): the scope
+     * check alone only proved the caller is <i>an</i> owner — the restaurant
+     * ownership oracle must confirm THIS owner owns THIS restaurant. Admins
+     * override; unknown restaurants and oracle outages fail CLOSED (denial,
+     * never a pass).
+     */
     private void requireRestaurantOwnerOrAdmin(TokenPrincipal principal, Long restaurantId) {
         if (principal == null || principal.userId() == null) {
             throw new UnauthorizedException("Authenticated owner required");
@@ -237,10 +245,13 @@ public class OrderOpsController {
         if (isAdmin(principal)) {
             return;
         }
-        if (SCOPE_OWNER.equalsIgnoreCase(String.valueOf(principal.scope()))) {
-            return;
+        if (!SCOPE_OWNER.equalsIgnoreCase(String.valueOf(principal.scope()))) {
+            throw new AccessDeniedException("Owner access required");
         }
-        throw new AccessDeniedException("Owner access required");
+        Long ownerId = restaurantOwnerResolver.ownerIdOf(restaurantId);
+        if (ownerId == null || !ownerId.equals(principal.userId())) {
+            throw new AccessDeniedException("Not your restaurant");
+        }
     }
 
     private static Long requireAgent(TokenPrincipal principal) {

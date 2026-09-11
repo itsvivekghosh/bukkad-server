@@ -42,13 +42,28 @@ public class LiveStreamController {
 
     /**
      * Subscribe to rider updates. Rider streams carry live GPS + assigned
-     * orders: agent/ops scopes only; cross-agent reads are prevented by scoping.
+     * orders: agent/ops scopes only. Object-level binding (audit HIGH-IDOR-4):
+     * a DELIVERY_AGENT principal may only open ITS OWN stream — the path
+     * {@code agentId} must equal the JWT subject. ADMIN/SERVICE (mesh callers
+     * such as ops dashboards proxying a view) bypass the self-match.
      */
     @GetMapping(value = "/rider/{agentId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("hasAnyRole('DELIVERY_AGENT', 'ADMIN', 'SERVICE')")
     public SseEmitter subscribeRider(
+            @AuthenticationPrincipal TokenPrincipal principal,
             @PathVariable Long agentId,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+        PrincipalGuard.requireAuthenticated(principal);
+        String scope = principal.scope() == null ? "" : principal.scope().toUpperCase(java.util.Locale.ROOT);
+        boolean privileged = "ADMIN".equals(scope) || "SERVICE".equals(scope);
+        if (!privileged && !"DELIVERY_AGENT".equals(scope)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Rider stream access required");
+        }
+        if (!privileged && !principal.userId().equals(agentId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Not this rider's stream");
+        }
         log.debug("SSE rider subscribe | agentId={} | lastEventId={}", agentId, lastEventId);
         return sseStreamService.subscribeRider(agentId, lastEventId);
     }
