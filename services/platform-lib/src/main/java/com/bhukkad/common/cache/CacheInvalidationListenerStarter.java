@@ -2,6 +2,7 @@ package com.bhukkad.common.cache;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -37,6 +38,7 @@ public class CacheInvalidationListenerStarter {
     private final AtomicBoolean started = new AtomicBoolean(false);
     private volatile ScheduledExecutorService retryExecutor;
 
+    @Autowired
     public CacheInvalidationListenerStarter(ObjectProvider<RedisMessageListenerContainer> containerProvider) {
         this(containerProvider, 10_000L);
     }
