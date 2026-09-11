@@ -2,6 +2,7 @@ package com.bhukkad.referral.serviceImpl;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.referral.dto.request.AffiliateCodeRequest;
 import com.bhukkad.referral.dto.response.AffiliateCodeResponse;
 import com.bhukkad.referral.dto.response.AffiliateStatsResponse;
@@ -38,6 +39,7 @@ public class AffiliateServiceImpl implements AffiliateService {
 
     @Override
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: SQL-side newest-first page capped at ADMIN_LIST_CAP (200) — not a whole-table read")
     public List<AffiliateCodeResponse> listAll() {
         // PERF-3: the affiliate registry was listed whole-table. The endpoint
         // shape is unchanged (bare list); the read additively caps at the 200

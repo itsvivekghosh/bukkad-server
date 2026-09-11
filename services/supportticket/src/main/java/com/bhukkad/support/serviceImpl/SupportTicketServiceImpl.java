@@ -2,6 +2,7 @@ package com.bhukkad.support.serviceImpl;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.support.dto.request.SupportTicketRequest;
 import com.bhukkad.support.dto.response.SupportTicketResponse;
 import com.bhukkad.support.entity.SupportTicket;
@@ -68,6 +69,7 @@ public class SupportTicketServiceImpl {
      * Lists all support tickets for admin review, newest first.
      */
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 KNOWN DEBT: whole-table admin ticket listing sorted by createdAt — V-04 pagination migration pending (tracked with the supportticket service-extraction batch); do not copy this pattern")
     public List<SupportTicketResponse> listAllForAdmin() {
         return supportTicketRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
                 .map(this::toResponse)

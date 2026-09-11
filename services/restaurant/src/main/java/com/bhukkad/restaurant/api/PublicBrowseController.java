@@ -2,6 +2,7 @@ package com.bhukkad.restaurant.api;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.restaurant.domain.Cuisine;
 import com.bhukkad.restaurant.domain.CuisineRepository;
 import com.bhukkad.restaurant.domain.MenuCategory;
@@ -99,6 +100,7 @@ public class PublicBrowseController {
 
     @GetMapping("/api/v1/restaurants/public/filter")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: cuisines are a small bounded reference table used for the cuisine-name → id lookup")
     public Map<String, Object> filterPublic(@RequestParam(required = false) String cuisine,
                                             @RequestParam(required = false) Boolean isPureVeg) {
         List<Restaurant> active = restaurantRepository.findByIsActiveTrue();

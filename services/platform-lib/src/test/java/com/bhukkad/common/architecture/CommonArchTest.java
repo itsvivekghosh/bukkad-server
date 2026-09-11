@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 /**
  * Boundary guardrails for the {@code platform-lib} platform library
@@ -83,5 +84,27 @@ class CommonArchTest {
                         "com.bhukkad.common.idempotency..",
                         "com.bhukkad.common.saga..");
         rule.check(COMMON_CLASSES);
+    }
+
+    // ------------------------------------------------------------------
+    // G-4 (PRODUCTION-READINESS-AUDIT-GUIDE.md): transaction boundaries —
+    // no @Transactional on controllers (V-05 proxy/self-invocation class).
+    // Canonical statement of the rule; per-service *ArchTest files mirror it
+    // for their own controller layer (platform-lib itself has no controllers,
+    // so the rule is vacuously true here and guards future regressions).
+    // ------------------------------------------------------------------
+
+    @Test
+    void noTransactionalOnControllerClasses() {
+        noClasses().that().haveSimpleNameEndingWith("Controller")
+                .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
+                .check(COMMON_CLASSES);
+    }
+
+    @Test
+    void noTransactionalOnControllerMethods() {
+        noMethods().that().areDeclaredInClassesThat().haveSimpleNameEndingWith("Controller")
+                .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
+                .check(COMMON_CLASSES);
     }
 }

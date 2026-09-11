@@ -54,6 +54,7 @@ jobs:
       # root services/). Pushed under the immutable commit-sha tag; the deploy
       # job pins these tags into the kustomize render below.
       - name: Build and push ${{ matrix.service }} image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: services
@@ -64,6 +65,25 @@ jobs:
           tags: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # P2 digest-pinned deploys: record the registry digest of the image this
+      # matrix leg pushed (outputs.digest), one file per service, and hand the
+      # set to the deploy job as an artifact. Job-level outputs cannot carry a
+      # per-matrix map, so the deploy job consumes the artifact instead.
+      - name: Record pushed image digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ matrix.service }}"
+          echo "Digest for ${{ matrix.service }}: ${{ steps.build.outputs.digest }}"
+
+      - name: Upload image digests
+        uses: actions/upload-artifact@v5
+        with:
+          # One artifact per matrix leg (12 parallel legs must not overwrite
+          # each other); the deploy job merges them back into one directory.
+          name: image-digests-${{ matrix.service }}
+          path: /tmp/digests/
+          retention-days: 1
 
       - name: Update STAGING_IMAGE_SHA variable
         if: github.ref == 'refs/heads/deploy'
@@ -96,6 +116,13 @@ jobs:
       GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
       GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
       HEALTH_PATH: ${{ vars.HEALTH_PATH }}
+      # P2 digest-pinned deploys: 'true' (default) pins the kustomize render to
+      # ghcr.io/bhukkad/<svc>@sha256:<digest> captured from the build job, so
+      # the cluster can only run bits this run built and pushed. Set the repo
+      # variable DEPLOY_BY_DIGEST=false to fall back to immutable sha tags.
+      # The committed k8s/ manifests keep :latest as the DEV/MINIKUBE fallback
+      # only — it is never what staging deploys.
+      DEPLOY_BY_DIGEST: ${{ vars.DEPLOY_BY_DIGEST || 'true' }}
 
     steps:
       # ─────────────────────────────────────────────────────────────
@@ -178,23 +205,50 @@ jobs:
 
       # Wire the images this pipeline pushed into the deploy WITHOUT editing
       # the committed k8s/ manifests (CI-side resolution): the manifests pin
-      # ghcr.io/bhukkad/<service>:latest as their base reference; kustomize
-      # overrides name→sha at render time so the cluster runs the immutable
-      # image built from exactly this commit. The checkout edit below is
-      # runner-local and never committed.
-      - name: "📌 Pin per-service images to pushed sha tags"
+      # ghcr.io/bhukkad/<service>:latest as their dev/minikube fallback; the
+      # render below overrides name→digest (default) or name→sha so the
+      # cluster runs the immutable image built from exactly this commit.
+      # P2: the edit runs against a TEMP COPY of k8s/ — the checkout itself is
+      # never touched by the deploy.
+      - name: "Install kustomize"
+        uses: azure/setup-kustomize@v4
+
+      - name: "Download pushed image digests"
+        uses: actions/download-artifact@v5
+        with:
+          pattern: image-digests-*
+          merge-multiple: true
+          path: /tmp/digests/
+
+      - name: "📌 Pin per-service images (digest by default, sha fallback)"
         run: |
           set -euo pipefail
-          cd k8s
+          KUSTOMIZE_DIR="$(mktemp -d /tmp/bhukkad-staging-k8s.XXXXXX)"
+          cp -R k8s "${KUSTOMIZE_DIR}/k8s"
+          cd "${KUSTOMIZE_DIR}/k8s"
           for svc in identity restaurant order payment delivery notification admin-analytics gateway search survey referral supportticket; do
-            kustomize edit set image "ghcr.io/bhukkad/${svc}=ghcr.io/bhukkad/${svc}:${GITHUB_SHA}"
+            if [ "${DEPLOY_BY_DIGEST}" = "true" ]; then
+              DIGEST_FILE="/tmp/digests/${svc}"
+              [ -s "${DIGEST_FILE}" ] || { echo "::error::missing digest for ${svc} (build job did not record it)"; exit 1; }
+              DIGEST="$(cat "${DIGEST_FILE}")"
+              if ! echo "${DIGEST}" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+                echo "::error::digest for ${svc} is not a sha256:<64hex> — '${DIGEST}'"
+                exit 1
+              fi
+              REF="ghcr.io/bhukkad/${svc}@${DIGEST}"
+            else
+              REF="ghcr.io/bhukkad/${svc}:${GITHUB_SHA}"
+            fi
+            kustomize edit set image "ghcr.io/bhukkad/${svc}=${REF}"
+            echo "Pinned ${svc} → ${REF}"
           done
-          echo "Pinned 12 service images to commit ${GITHUB_SHA}"
+          echo "KUSTOMIZE_DIR=${KUSTOMIZE_DIR}" >> "$GITHUB_ENV"
+          echo "Pinned 12 service images (DEPLOY_BY_DIGEST=${DEPLOY_BY_DIGEST})"
 
       - name: "🚀 Deploy to staging"
         run: |
           set -euo pipefail
-          kubectl apply -k k8s/
+          kubectl apply -k "${KUSTOMIZE_DIR}/k8s"
           kubectl rollout status deployment/bhukkad-gateway -n bhukkad --timeout=600s
           kubectl rollout status deployment/bhukkad-restaurant -n bhukkad --timeout=600s
           kubectl rollout status deployment/bhukkad-identity -n bhukkad --timeout=600s

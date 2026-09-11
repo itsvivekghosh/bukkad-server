@@ -2,6 +2,7 @@ package com.bhukkad.delivery.api;
 
 import com.bhukkad.delivery.domain.DeliveryZone;
 import com.bhukkad.delivery.domain.DeliveryZoneRepository;
+import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -76,6 +77,7 @@ public class ServiceabilityCheckController {
         return body;
     }
 
+    @AllowFullScan(reason = "G-6 reviewed: read-through snapshot cache over the small bounded zone reference table, refreshed at most once per TTL")
     private List<DeliveryZone> cachedZones() {
         CachedZones current = cache.get();
         long now = System.currentTimeMillis();

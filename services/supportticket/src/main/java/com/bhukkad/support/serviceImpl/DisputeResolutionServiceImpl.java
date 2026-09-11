@@ -2,6 +2,7 @@ package com.bhukkad.support.serviceImpl;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.support.dto.request.DisputeRequest;
 import com.bhukkad.support.dto.request.DisputeResolveRequest;
 import com.bhukkad.support.dto.OrderDetailDto;
@@ -85,6 +86,7 @@ public class DisputeResolutionServiceImpl {
      * is additively capped at {@value #ADMIN_DISPUTE_PAGE_SIZE} recent rows
      * (deeper history is pageable later without changing the current body).
      */
+    @AllowFullScan(reason = "G-6 reviewed: SQL-side newest-first page capped at ADMIN_DISPUTE_PAGE_SIZE — not a whole-table read")
     public List<DisputeResponse> listForAdmin(int maxSize) {
       int cap = Math.max(1, Math.min(maxSize, ADMIN_DISPUTE_PAGE_SIZE));
       return this.disputeRepository

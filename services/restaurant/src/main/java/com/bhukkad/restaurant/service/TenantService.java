@@ -1,5 +1,6 @@
 package com.bhukkad.restaurant.service;
 
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.restaurant.domain.Tenant;
 import com.bhukkad.restaurant.domain.TenantRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class TenantService {
 
     private final TenantRepository tenantRepository;
 
+    @AllowFullScan(reason = "G-6 reviewed: tenants are a small bounded B2B reference table (rows grow with signed-up tenants, not traffic)")
     public List<Tenant> listAll() {
         return tenantRepository.findAll();
     }

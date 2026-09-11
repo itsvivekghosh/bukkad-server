@@ -1,6 +1,7 @@
 package com.bhukkad.identity.service;
 
 import com.bhukkad.common.error.DuplicateRequestException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.identity.domain.Tenant;
 import com.bhukkad.identity.domain.TenantRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ public class TenantService {
 
     /** All tenants, newest first (admin console listing). */
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: tenants are a small bounded B2B reference table (rows grow with signed-up tenants, not traffic)")
     public java.util.List<Tenant> list() {
         return tenantRepository.findAllByOrderByIdDesc();
     }

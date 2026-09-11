@@ -1,5 +1,6 @@
 package com.bhukkad.restaurant.service;
 
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.restaurant.domain.MenuItem;
 import com.bhukkad.restaurant.domain.MenuItemRepository;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +62,7 @@ public class AutocompleteService {
         }
     }
 
+    @AllowFullScan(reason = "G-6 reviewed: startup/scheduled rebuild of the in-memory autocomplete trie over menu names; pod-local index, refreshed on a fixed ticker")
     public void warm() {
         TrieIndex fresh = new TrieIndex();
         menuItemRepository.findAll().forEach(mi -> fresh.insert(mi.getName()));

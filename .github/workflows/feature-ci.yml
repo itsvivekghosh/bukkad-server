@@ -54,12 +54,16 @@ jobs:
           java-version: 17
           cache: maven
       - run: chmod +x mvnw
+      # P2 repair: run against the services reactor (the repo root has no
+      # pom.xml). The *ArchTest pattern picks up the platform-lib base rules
+      # (CommonArchTest) plus every per-service ArchTest, including the G-4
+      # controller transaction-boundary rules.
       - name: Run ArchUnit
-        run: ./mvnw -B test -Dtest="ArchitectureTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B -f services/pom.xml test -Dtest="*ArchTest" -Dsurefire.failIfNoSpecifiedTests=false
       - name: Run Pact consumer tests (writes pact file)
-        run: ./mvnw -B test -Dtest="CuisineApiConsumerPactTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B -f services/pom.xml test -Dtest="CuisineApiConsumerPactTest" -Dsurefire.failIfNoSpecifiedTests=false
       - name: Run Pact provider tests (verifies consumer pact)
-        run: ./mvnw -B test -Dtest="CuisineApiProviderPactTest" -Dsurefire.failIfNoSpecifiedTests=false
+        run: ./mvnw -B -f services/pom.xml test -Dtest="CuisineApiProviderPactTest" -Dsurefire.failIfNoSpecifiedTests=false
 
   mutation-testing:
     name: Mutation Testing
@@ -153,15 +157,18 @@ jobs:
         with:
           languages: java
 
-      - name: Build
-        run: ./mvnw -B compile -DskipTests
+      # P2 repair: the repo root has NO pom.xml (the monolith was deleted) —
+      # compile the services/ reactor so CodeQL has Java binaries to analyze.
+      - name: Build services reactor
+        run: ./mvnw -B -f services/pom.xml compile -DskipTests
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
 
-  # SonarCloud analysis. Requires the SONAR_TOKEN secret. The scanner
-  # auto-detects the pull request context and decorates the PR with the
-  # Quality Gate result. Skipped entirely when the secret is not configured.
+  # SonarCloud analysis of the services/ reactor (sonar-project.properties
+  # maps sonar.modules onto services/<module>). Requires the SONAR_TOKEN
+  # secret. The scanner auto-detects the pull request context and decorates
+  # the PR with the Quality Gate result.
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
@@ -183,15 +190,18 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Run tests with JaCoCo coverage
-        run: ./mvnw -B test -Dtest="*Test,*Tests,!*IntegrationTest,!*RegressionTest,!*PactTest" -Dsurefire.failIfNoSpecifiedTests=false
+      # P2 repair: run the reactor build (repo root has no pom.xml). This
+      # leaves per-module surefire XML and JaCoCo XML under
+      # services/<module>/target/ for the scanner to pick up.
+      - name: Run tests with JaCoCo coverage (services reactor)
+        run: ./mvnw -B -f services/pom.xml test -Dtest="*Test,*Tests,!*IntegrationTest,!*RegressionTest,!*PactTest" -Dsurefire.failIfNoSpecifiedTests=false
 
       - name: Upload JaCoCo report
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: jacoco-report-sonar
-          path: target/site/jacoco/
+          path: services/*/target/site/jacoco/
           retention-days: 14
 
       - name: SonarQube Scan

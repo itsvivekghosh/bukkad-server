@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 /**
  * Boundary guardrails for the realtime service, mirroring the order-service
@@ -40,6 +41,26 @@ class RealtimeServiceArchTest {
         noClasses().that().resideInAPackage("com.bhukkad.realtime..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "com.bhukbad.serviceImpl..", "com.bhukbad.entity..", "com.bhukad.dto..")
+                .check(SERVICE_CLASSES);
+    }
+
+    // ------------------------------------------------------------------
+    // G-4 (PRODUCTION-READINESS-AUDIT-GUIDE.md): transaction boundaries —
+    // no @Transactional on controllers (V-05 proxy/self-invocation class).
+    // Transaction boundaries belong in the service layer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void noTransactionalOnControllerClasses() {
+        noClasses().that().haveSimpleNameEndingWith("Controller")
+                .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
+                .check(SERVICE_CLASSES);
+    }
+
+    @Test
+    void noTransactionalOnControllerMethods() {
+        noMethods().that().areDeclaredInClassesThat().haveSimpleNameEndingWith("Controller")
+                .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
                 .check(SERVICE_CLASSES);
     }
 }

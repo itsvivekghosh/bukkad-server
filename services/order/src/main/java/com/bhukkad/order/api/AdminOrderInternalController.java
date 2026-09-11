@@ -2,6 +2,7 @@ package com.bhukkad.order.api;
 
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.order.domain.Order;
 import com.bhukkad.order.domain.OrderRepository;
 import com.bhukkad.order.service.OrderService;
@@ -34,6 +35,7 @@ public class AdminOrderInternalController {
 
     @GetMapping("/orders")
     @Transactional(readOnly = true)
+    @AllowFullScan(reason = "G-6 reviewed: paged — page/size clamped to (0..) x 1..100 before the query")
     public Page<OrderResponse> orders(@AuthenticationPrincipal TokenPrincipal principal,
                                       @RequestParam(defaultValue = "0") int page,
                                       @RequestParam(defaultValue = "10") int size) {

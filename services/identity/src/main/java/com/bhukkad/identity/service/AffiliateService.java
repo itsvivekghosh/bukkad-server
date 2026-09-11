@@ -2,6 +2,7 @@ package com.bhukkad.identity.service;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.identity.domain.AffiliateCode;
 import com.bhukkad.identity.domain.AffiliateCodeRepository;
 import com.bhukkad.identity.domain.AffiliateReferral;
@@ -36,6 +37,7 @@ public class AffiliateService {
     private final AffiliateReferralRepository affiliateReferralRepository;
     private final CustomerRepository customerRepository;
 
+    @AllowFullScan(reason = "G-6 reviewed: SQL-side newest-first page capped at ADMIN_LIST_CAP (200) — not a whole-table read")
     public List<AffiliateCodeResponse> listAll() {
         // PERF-3: whole-table listing replaced by a bounded, newest-first SQL
         // page. Response shape (bare list) unchanged; additively capped at the

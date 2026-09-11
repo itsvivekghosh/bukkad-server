@@ -5,6 +5,7 @@ import com.bhukkad.delivery.domain.DeliveryZoneRepository;
 import com.bhukkad.delivery.domain.ZoneSurgeRule;
 import com.bhukkad.delivery.domain.ZoneSurgeRuleRepository;
 import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,6 +31,7 @@ public class ServiceabilityController {
     }
 
     @GetMapping
+    @AllowFullScan(reason = "G-6 reviewed: delivery zones are a small bounded reference table (single-digit rows, admin-managed)")
     public List<DeliveryZone> zones() {
         return zoneRepository.findAll();
     }

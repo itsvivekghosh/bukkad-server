@@ -1,6 +1,7 @@
 package com.bhukkad.restaurant.feed;
 
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.restaurant.domain.PromoBanner;
 import com.bhukkad.restaurant.domain.PromoBannerRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ public class PromoBannerAdminService {
 
     private final PromoBannerRepository promoBannerRepository;
 
+    @AllowFullScan(reason = "G-6 reviewed: promo banners are a small bounded reference table (admin-managed homepage banners)")
     public List<PromoBanner> listAll() {
         return promoBannerRepository.findAll();
     }

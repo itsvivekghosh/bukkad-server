@@ -1,6 +1,7 @@
 package com.bhukkad.restaurant.service;
 
 import com.bhukkad.common.error.ResourceNotFoundException;
+import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.restaurant.domain.PromotionCampaign;
 import com.bhukkad.restaurant.domain.PromotionCampaignRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class PromotionAdminService {
 
     private final PromotionCampaignRepository promotionCampaignRepository;
 
+    @AllowFullScan(reason = "G-6 reviewed: admin campaign listing over a small bounded reference table (active promotions are hand-curated)")
     public List<PromotionCampaign> listAll() {
         return promotionCampaignRepository.findAll();
     }
