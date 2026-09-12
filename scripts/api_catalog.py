@@ -3219,6 +3219,18 @@ API_CATALOG = [
     },
     {
         "group": "Authentication",
+        "name": "Login After Password Change",
+        "description": "Re-login with the new password: the token-revocation epoch invalidates tokens minted before the change, so the suite must refresh its customer token.",
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "expected": [
+            200
+        ],
+        "body_key": "login_customer_after_pw_change",
+        "extract": {"customer_token": "token"},
+    },
+    {
+        "group": "Authentication",
         "name": "Reset Password — Invalid Token",
         "description": "Submitting an invalid/expired reset token returns a 400 BusinessException.",
         "method": "POST",
@@ -4980,6 +4992,7 @@ BODY_TEMPLATES = {
     "login_missing_fields": {"email": "missing-fields-{run_id}@bhukkad.test"},
     "forgot_password": {"email": "{customer_email}"},
     "change_password": {"currentPassword": "{password}", "newPassword": "{password}New"},
+    "login_customer_after_pw_change": {"email": "{customer_email}", "password": "{password}New"},
     "register_customer_with_referral": {
         "fullName": "Referred API Test Customer",
         "email": "{referred_customer_email}",
