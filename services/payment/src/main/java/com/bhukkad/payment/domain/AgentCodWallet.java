@@ -36,12 +36,14 @@ public class AgentCodWallet {
     private BigDecimal balance = BigDecimal.ZERO;
 
     /**
-     * Optimistic-lock anchor (V11 migration): the FOR UPDATE lock stays the
-     * primary serialization mechanism; this only catches writes that bypassed
-     * the lock window.
+     * Optimistic lock (audit V-02 finish, mirrors WalletBalance/V-01). The
+     * money path keeps its pessimistic FOR UPDATE read (adopted position,
+     * docs §3.7); the version is the second fence: a stale managed write
+     * outside the lock window now fails loudly instead of clobbering the row.
      */
     @Version
-    private Long version;
+    @Column(nullable = false)
+    private Long version = 0L;
 
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)

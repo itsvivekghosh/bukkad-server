@@ -11,16 +11,17 @@ import org.springframework.web.reactive.function.client.WebClient;
 /**
  * Payment-local WebClient + gateway strategy wiring (audit feature #1).
  *
- * <p>The adapter's WebClient is built by the platform-lib
- * {@link PlatformWebClientBuilderFactory} (G-13): the shared bounded
- * connection pool with metrics, explicit connect/response timeouts, and the
- * same {@code RetryFilter} (transient GETs only) + Resilience4j
- * {@code CircuitBreakerFilter} with meter-exported breaker gauges the hand
- * roll used to assemble — so the PSP calls sit behind the platform's
- * breaker/retry discipline. The dedicated {@code razorpay} breaker name keeps
- * PSP failures isolated from the inter-service {@code default} breaker; no
- * base URL is set because Razorpay is an external host, not a mesh
- * service.</p>
+ * <p>The adapter's WebClient comes from {@link PlatformWebClientBuilderFactory}
+ * (audit G-13/P-05, mirroring notification's TwilioSmsSender): the bounded
+ * JVM-wide connection pool, explicit timeouts, transient-only idempotent
+ * {@code RetryFilter} and a Resilience4j {@code CircuitBreakerFilter} with
+ * meter-exported gauges. The dedicated {@code razorpay} breaker target keeps
+ * PSP failures isolated from the inter-service {@code default} breaker, and
+ * the absolute Razorpay base URL replaces the factory's host-less base because
+ * Razorpay is an external host, not a mesh service (added on the copied
+ * builder via {@code mutate()}; Spring 6.1 copies connector + filters and
+ * permits the baseUrl change — revisit this pin on a Boot 3.5/6.2 upgrade,
+ * where mutating the base URL is restricted).</p>
  *
  * <p>Strategy selection by properties ({@code app.payment.gateway =
  * razorpay|simulated}); {@code simulated} stays the default so dev/test
@@ -34,8 +35,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 public class GatewayConfig {
 
     @Bean
-    public WebClient razorpayWebClient(ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        return PlatformWebClientBuilderFactory.forTarget("razorpay", meterRegistryProvider.getIfAvailable())
+    public WebClient razorpayWebClient(PaymentProperties properties,
+                                       ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return PlatformWebClientBuilderFactory
+                .forTarget("razorpay", meterRegistryProvider.getIfAvailable())
+                .build()
+                .mutate()
+                .baseUrl(properties.getRazorpay().getBaseUrl())
                 .build();
     }
 

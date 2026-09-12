@@ -1,7 +1,7 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
+import com.bhukkad.order.client.dto.MenuItemDto;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
 import com.bhukkad.order.client.dto.StockReservationLine;
@@ -22,12 +22,12 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the Restaurant service.
  *
- * <p>HTTP stack comes from the platform {@link PlatformWebClientBuilderFactory}
- * (G-13/P-05): the shared bounded connection pool, 2 s connect + 5 s response
- * timeouts, retry (3 attempts, 1s backoff), and the per-target circuit breaker
- * ({@value #TARGET}, 50% failure threshold, 10s open state). The mesh base URL
- * is layered on with {@code mutate()} because the factory builds
- * target-scoped clients without one.</p>
+ * <p>Runs on the platform WebClient factory (audit G-13/P-05): bounded shared
+ * connection pool, explicit connect/response timeouts, retry (3 attempts,
+ * 1s backoff on transient idempotent failures), circuit breaker
+ * ({@code restaurant} target, 50% failure threshold, 10s open state) and
+ * metrics — with the service base URL added on the copied builder
+ * (Spring 6.1 {@code mutate()} preserves connector + filters).</p>
  */
 @Component
 public class RestaurantClient {
@@ -45,25 +45,11 @@ public class RestaurantClient {
 
     @Autowired
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
-                            ObjectProvider<MeterRegistry> meterRegistryProvider,
-                            ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider) {
-        this.webClient = buildWebClient(baseUrl, meterRegistryProvider);
-        this.serviceJwtTokenProvider = serviceJwtTokenProvider;
-    }
-
-    /** Mesh token for {@code /api/v1/internal/**} calls; null when unconfigured (tests). */
-    private String serviceToken() {
-        return serviceJwtTokenProvider == null ? null
-                : java.util.Optional.ofNullable(serviceJwtTokenProvider.getIfAvailable())
-                        .map(ServiceJwtAuthTokenProvider::serviceToken).orElse(null);
-    }
-
-    private static WebClient buildWebClient(String baseUrl, ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        MeterRegistry meterRegistry = meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable();
-        return PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
+                            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
+        this.webClient = PlatformWebClientBuilderFactory
+                .forTarget("restaurant",
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
                 .build()
-                // The factory ships no baseUrl; mutate() preserves the platform
-                // connector/filters and only pins the mesh base URL.
                 .mutate()
                 .baseUrl(baseUrl)
                 .build();

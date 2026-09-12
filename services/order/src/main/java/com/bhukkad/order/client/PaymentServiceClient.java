@@ -21,12 +21,13 @@ import java.util.Map;
  * Reactive client for the Payment service's internal charge surface, used by
  * the order-creation saga CHARGE_PAYMENT step (audit batch A).
  *
- * <p>Mirrors {@link RestaurantClient}: the HTTP stack comes from the platform
- * {@link PlatformWebClientBuilderFactory} (G-13/P-05) — shared pool, 2 s
- * connect + 5 s response timeouts, retry (3 attempts, 1s backoff) and the
- * per-target circuit breaker ({@value #TARGET}); per-call timeouts bound each
- * call chain. The charge carries a stable {@code reference} (e.g.
- * {@code ORDER-<id>}) so retries are idempotent server-side.</p>
+ * <p>Mirrors {@link RestaurantClient} on the platform WebClient factory
+ * (audit G-13/P-05): shared bounded pool, platform timeouts, retry
+ * (3 attempts, 1s backoff on transient idempotent failures), the
+ * {@code payment} circuit breaker and metrics; the service base URL is
+ * applied on the copied builder. The charge carries a stable
+ * {@code reference} (e.g. {@code ORDER-<id>}) so retries are idempotent
+ * server-side.</p>
  *
  * <p>Server contract (owned by the payment service):
  * {@code POST /api/v1/internal/payments/charge} with body
@@ -53,16 +54,11 @@ public class PaymentServiceClient {
 
     @Autowired
     public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl,
-                                ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        this.webClient = buildWebClient(baseUrl, meterRegistryProvider);
-    }
-
-    private static WebClient buildWebClient(String baseUrl, ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        MeterRegistry meterRegistry = meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable();
-        return PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
+                                org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
+        this.webClient = PlatformWebClientBuilderFactory
+                .forTarget("payment",
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
                 .build()
-                // The factory ships no baseUrl; mutate() preserves the platform
-                // connector/filters and only pins the mesh base URL.
                 .mutate()
                 .baseUrl(baseUrl)
                 .build();

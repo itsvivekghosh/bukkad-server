@@ -2,8 +2,6 @@ package com.bhukkad.order.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
-import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -18,14 +16,15 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the SupportTicket service (dispute operations).
  *
- * <p>HTTP stack comes from the platform {@link PlatformWebClientBuilderFactory}
- * (G-13/P-05): shared pool, 2 s connect + 5 s response timeouts, retry
- * (3 attempts, 1s backoff) and the per-target circuit breaker
- * ({@value #TARGET}). Every call carries the mesh service token on
- * {@code X-Service-Token} — supportticket authorizes dispute surfaces behind
- * role guards, so tokenless mesh legs used to be rejected with 401 and
- * silently swallowed into empty responses (the admin dispute console appeared
- * to return no data).</p>
+ * <p>Runs on the platform WebClient factory (audit G-13/P-05): shared bounded
+ * pool, platform timeouts, retry (3 attempts, 1s backoff on transient
+ * idempotent failures), the {@code supportticket} circuit breaker
+ * (50% failure threshold, 10s open state) and metrics; the service base URL
+ * and mesh-token stamping are applied on the copied builder.
+ * Every call carries the mesh service token on {@code X-Service-Token} —
+ * supportticket authorizes dispute surfaces behind role guards, so tokenless
+ * mesh legs used to be rejected with 401 and silently swallowed into empty
+ * responses (the admin dispute console appeared to return no data).</p>
  */
 @Component
 public class SupportTicketDisputeClient {
@@ -41,15 +40,10 @@ public class SupportTicketDisputeClient {
             ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
             ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.authTokenProvider = authTokenProvider;
-        this.webClient = buildWebClient(baseUrl, meterRegistryProvider);
-    }
-
-    private WebClient buildWebClient(String baseUrl, ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        MeterRegistry meterRegistry = meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable();
-        return PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
+        this.webClient = PlatformWebClientBuilderFactory
+                .forTarget("supportticket",
+                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
                 .build()
-                // The factory ships no baseUrl; mutate() preserves the platform
-                // connector/filters and only pins the mesh base URL.
                 .mutate()
                 .baseUrl(baseUrl)
                 // Mesh auth: stamp X-Service-Token when service auth is

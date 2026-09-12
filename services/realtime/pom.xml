@@ -22,8 +22,9 @@
 		<dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
 		<dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><version>${lombok.version}</version><scope>provided</scope></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
-		<!-- PlatformWebClientBuilderFactory (G-13) needs the reactive WebClient;
-		     platform-lib declares webflux optional so it does not transit. -->
+		<!-- G-13/P-05: WebClient for OrderOwnershipClient via the platform
+		     factory (app type stays SERVLET; webmvc wins the web-app-type
+		     deduction). Same dependency order/payment/notification carry. -->
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webflux</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-security</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>

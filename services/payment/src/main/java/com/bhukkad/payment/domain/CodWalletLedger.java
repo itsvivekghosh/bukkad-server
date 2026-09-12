@@ -1,6 +1,13 @@
 package com.bhukkad.payment.domain;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.data.annotation.CreatedDate;
@@ -10,15 +17,15 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * Append-only COD wallet ledger (audit V-02 finish): one row per committed
- * balance mutation on {@link AgentCodWallet}, written inside the SAME
- * transaction as the mutation so the audit trail can never lag or lead the
- * balance. {@code balanceAfter} carries the post-mutation persisted balance,
- * making the per-agent sequence a monotonic audit chain for reconciliation.
+ * Append-only ledger entry for an agent COD wallet mutation (audit V-02
+ * finish). One row per committed CREDIT/DEBIT, written in the SAME
+ * transaction as the balance change by {@code CodWalletService};
+ * {@code balanceAfter} is the balance AS PERSISTED (M-1 rule from V-01),
+ * never a recomputed in-memory sum. Never update or delete rows.
  */
 @Entity
 @Table(name = "cod_wallet_ledger", indexes = {
-        @Index(name = "idx_cod_ledger_agent", columnList = "agent_id, created_at")
+        @Index(name = "idx_cod_ledger_agent_created", columnList = "agent_id, created_at")
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
@@ -32,12 +39,13 @@ public class CodWalletLedger {
     @Column(name = "agent_id", nullable = false)
     private Long agentId;
 
-    /** Order the movement belongs to, when one exists (direct adjustments may be null). */
+    /** Optional order attribution (nullable — the amount-only contract stands). */
     @Column(name = "order_id")
     private Long orderId;
 
+    /** {@code CREDIT} or {@code DEBIT}; VARCHAR(6) in the schema. */
     @Column(nullable = false, length = 6)
-    private String type; // CREDIT, DEBIT
+    private String type;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
