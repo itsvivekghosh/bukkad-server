@@ -20,7 +20,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -119,5 +122,38 @@ class EdgeKillSwitchFilterTest {
         assertThat(chain.passed).isFalse();
         assertThat(exchange.getResponse().getStatusCode().value()).isEqualTo(503);
         assertThat(exchange.getResponse().getBodyAsString().block()).contains("SERVICE_DISABLED");
+    }
+
+    @Test
+    void validJwt_principalIdFlowsIntoRolloutBucketing() {
+        PlatformJwtValidator validator = mock(PlatformJwtValidator.class);
+        when(validator.validate(any())).thenReturn(Optional.of(
+                new com.bhukkad.common.security.TokenPrincipal(42L, "u@bhukkad.com", "user")));
+        EdgeFeatureFlags flags = mock(EdgeFeatureFlags.class);
+        when(flags.isRouteEnabled(anyString(), any())).thenReturn(Mono.just(true));
+        EdgeKillSwitchFilter filter = new EdgeKillSwitchFilter(flags, providerOf(validator));
+
+        Chain chain = new Chain();
+        filter.filter(exchangeWithFlagRoute(), chain).block(Duration.ofSeconds(2));
+
+        assertThat(chain.passed).isTrue();
+        var subject = org.mockito.ArgumentCaptor.forClass(Long.class);
+        verify(flags).isRouteEnabled(eq("edge.test.enabled"), subject.capture());
+        assertThat(subject.getValue()).isEqualTo(42L);
+    }
+
+    @Test
+    void validatorBlowup_degradesToAnonymousDecision() {
+        PlatformJwtValidator validator = mock(PlatformJwtValidator.class);
+        when(validator.validate(any())).thenThrow(new IllegalStateException("JWKS down"));
+        EdgeFeatureFlags flags = mock(EdgeFeatureFlags.class);
+        when(flags.isRouteEnabled(anyString(), any())).thenReturn(Mono.just(true));
+        EdgeKillSwitchFilter filter = new EdgeKillSwitchFilter(flags, providerOf(validator));
+
+        Chain chain = new Chain();
+        filter.filter(exchangeWithFlagRoute(), chain).block(Duration.ofSeconds(2));
+
+        assertThat(chain.passed).isTrue();
+        verify(flags).isRouteEnabled(eq("edge.test.enabled"), isNull());
     }
 }

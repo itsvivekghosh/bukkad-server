@@ -194,4 +194,65 @@ class EdgeRateLimitFilterTest {
         verify(redis, never()).execute(any(RedisScript.class), anyList(), anyList());
     }
 
+    @Test
+    void redisBeanAbsent_limiterIsInert_andBypassIsCountedOnce() {
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        Chain chain = new Chain();
+
+        filter(null, meters, true, true).filter(loginRequest(), chain).block();
+
+        assertThat(chain.passed).isTrue();
+        assertThat(meters.get(RedisRateLimitService.METRIC_BYPASS_REDIS_ERROR)
+                .tag("bucket", "edge-login").counter().count()).isEqualTo(1.0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static EdgeRateLimitFilter filterWithValidator(ReactiveStringRedisTemplate redis,
+                                                           com.bhukkad.common.security.PlatformJwtValidator validator) {
+        ObjectProvider redisProvider = mock(ObjectProvider.class);
+        when(redisProvider.getIfAvailable()).thenReturn(redis);
+        ObjectProvider meterProvider = mock(ObjectProvider.class);
+        when(meterProvider.getIfAvailable()).thenReturn(new SimpleMeterRegistry());
+        ObjectProvider jwtProvider = mock(ObjectProvider.class);
+        when(jwtProvider.getIfAvailable()).thenReturn(validator);
+        return new EdgeRateLimitFilter(redisProvider, meterProvider, jwtProvider, true, true);
+    }
+
+    @Test
+    void authenticatedSubject_becomesTheBucketKey() {
+        com.bhukkad.common.security.PlatformJwtValidator validator =
+                mock(com.bhukkad.common.security.PlatformJwtValidator.class);
+        when(validator.validate("t.ok")).thenReturn(java.util.Optional.of(
+                new com.bhukkad.common.security.TokenPrincipal(7L, "u@bhukkad.com", "user")));
+        ReactiveStringRedisTemplate redis = redisReturning(1L);
+
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/v1/auth/login")
+                .header("Authorization", "Bearer t.ok")
+                .remoteAddress(new InetSocketAddress("10.0.0.9", 51111)));
+        filterWithValidator(redis, validator).filter(exchange, new Chain()).block();
+
+        ArgumentCaptor<List<String>> keys = ArgumentCaptor.forClass(List.class);
+        verify(redis).execute(any(RedisScript.class), keys.capture(), anyList());
+        assertThat(keys.getValue().get(0)).isEqualTo(RedisRateLimitService.PREFIX + "edge-login:7|10.0.0.9");
+    }
+
+    @Test
+    void validatorFailure_fallsBackToAnonymousBucket_neverFailsRequest() {
+        com.bhukkad.common.security.PlatformJwtValidator validator =
+                mock(com.bhukkad.common.security.PlatformJwtValidator.class);
+        when(validator.validate("t.bad")).thenThrow(new IllegalStateException("parse boom"));
+        ReactiveStringRedisTemplate redis = redisReturning(1L);
+
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/v1/auth/login")
+                .header("Authorization", "Bearer t.bad")
+                .remoteAddress(new InetSocketAddress("10.0.0.9", 51111)));
+        Chain chain = new Chain();
+        filterWithValidator(redis, validator).filter(exchange, chain).block();
+
+        assertThat(chain.passed).isTrue();
+        ArgumentCaptor<List<String>> keys = ArgumentCaptor.forClass(List.class);
+        verify(redis).execute(any(RedisScript.class), keys.capture(), anyList());
+        assertThat(keys.getValue().get(0)).isEqualTo(RedisRateLimitService.PREFIX + "edge-login:anon|10.0.0.9");
+    }
+
 }
