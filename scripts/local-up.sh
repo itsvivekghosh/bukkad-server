@@ -43,6 +43,25 @@ export SUPPORTTICKET_SERVICE_URL=http://localhost:8086
 export NOTIFICATION_SERVICE_URL=http://localhost:8085
 export ADMIN_ANALYTICS_SERVICE_URL=http://localhost:8087
 export SEARCH_SERVICE_URL=http://localhost:8082
+
+# --- local stack canonical mesh URLs (restructured yml placeholders read *_BASE_URL;
+# gateway routes still read the legacy *_SERVICE_URL — both exported to cover all
+# consumers, mirroring the k8s ConfigMap) ---
+export IDENTITY_BASE_URL=http://localhost:8081
+export RESTAURANT_BASE_URL=http://localhost:8091
+export ORDER_BASE_URL=http://localhost:8092
+export PAYMENT_BASE_URL=http://localhost:8093
+export DELIVERY_BASE_URL=http://localhost:8094
+export NOTIFICATION_BASE_URL=http://localhost:8085
+export SUPPORT_BASE_URL=http://localhost:8086
+export ADMIN_ANALYTICS_BASE_URL=http://localhost:8087
+export SEARCH_BASE_URL=http://localhost:8082
+export PERSONALIZATION_BASE_URL=http://localhost:8088
+export GROWTH_BASE_URL=http://localhost:8089
+export REALTIME_BASE_URL=http://localhost:8077
+export SURVEY_BASE_URL=http://localhost:8083
+export REFERRAL_BASE_URL=http://localhost:8084
+export APP_SERVICES_PAYMENT_URL=http://localhost:8093
 export SURVEY_SERVICE_URL=http://localhost:8083
 export REFERRAL_SERVICE_URL=http://localhost:8084
 export REALTIME_SERVICE_URL=http://localhost:8077
