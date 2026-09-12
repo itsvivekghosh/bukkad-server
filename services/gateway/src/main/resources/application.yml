@@ -92,7 +92,7 @@ management:
         liveness:
           include: livenessState
         readiness:
-          include: readinessState,config
+          include: readinessState
   metrics:
     export:
       prometheus:
