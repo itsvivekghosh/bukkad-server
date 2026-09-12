@@ -5173,6 +5173,7 @@ BODY_TEMPLATES = {
         "foodRating": 5,
         "deliveryRating": 4,
     },
+    "menu_item_rating": {
         "menuItemId": "{menu_item_id}",
         "rating": 5,
         "comment": "Best paneer tikka!",
