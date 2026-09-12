@@ -84,4 +84,34 @@ class SecureCookieFilterTest {
         // only one Secure/HttpOnly instance survives the rewrite
         assertThat(hardened.indexOf("HttpOnly")).isEqualTo(hardened.lastIndexOf("HttpOnly"));
     }
+
+    @Test
+    void harden_appendsHardeningToAttributelessCookie() {
+        assertThat(SecureCookieFilter.harden("S=1"))
+                .isEqualTo("S=1; HttpOnly; Secure; SameSite=Strict");
+    }
+
+    @Test
+    void harden_returnsNullForUnparseableValues() {
+        assertThat(SecureCookieFilter.harden("not-a-cookie")).isNull();
+        assertThat(SecureCookieFilter.harden("; Secure")).isNull();
+        assertThat(SecureCookieFilter.harden("   ")).isNull();
+    }
+
+    @Test
+    void harden_skipsEmptyAttributeSegments() {
+        assertThat(SecureCookieFilter.harden("A=1;; ; Path=/"))
+                .isEqualTo("A=1; Path=/; HttpOnly; Secure; SameSite=Strict");
+    }
+
+    @Test
+    void unparseableCookie_passesThroughTheFilterUnchanged() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/x"));
+        filter.filter(exchange, ex -> reactor.core.publisher.Mono.empty()).block();
+        exchange.getResponse().getHeaders().add("Set-Cookie", "totally-malformed");
+        exchange.getResponse().setComplete().block();
+
+        assertThat(exchange.getResponse().getHeaders().get("Set-Cookie"))
+                .containsExactly("totally-malformed");
+    }
 }
