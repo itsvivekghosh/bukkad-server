@@ -114,9 +114,11 @@ public class LoginLockoutService {
     }
 
     /**
-     * Records a failed credential attempt. When the threshold is crossed the
-     * lock engages (exponentially escalating) and the method returns the lock
-     * duration in milliseconds; otherwise the running failure count.
+     * Records a failed credential attempt. Returns the signed verdict of the
+     * atomic script: a positive value is the running failure count within the
+     * window (still below the threshold), a negative value is the negated
+     * lock horizon in milliseconds — the remaining TTL of an active lock, or
+     * the freshly imposed escalating duration on the crossing attempt.
      */
     public long recordFailure(String email, String ip) {
         String lockKey = key("lock", email, ip);
@@ -132,11 +134,9 @@ public class LoginLockoutService {
                 return 0;
             }
             if (result < 0) {
-                long lockMillis = -result;
-                if (lockMillis >= (long) properties.baseLockSeconds() * 1000) {
+                if (-result >= (long) properties.baseLockSeconds() * 1000) {
                     record(METRIC_AUTH_LOCKOUT_ACTIVE, "activate");
                 }
-                return lockMillis;
             }
             return result;
         } catch (RedisConnectionFailureException | RedisSystemException e) {
