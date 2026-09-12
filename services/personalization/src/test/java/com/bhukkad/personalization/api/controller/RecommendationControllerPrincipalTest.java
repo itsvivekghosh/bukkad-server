@@ -1,7 +1,8 @@
-package com.bhukkad.personalization.api;
+package com.bhukkad.personalization.api.controller;
 
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.personalization.api.controller.RecommendationController;
 import com.bhukkad.personalization.domain.service.RecommendationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
