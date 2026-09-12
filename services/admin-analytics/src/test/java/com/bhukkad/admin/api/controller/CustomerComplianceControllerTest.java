@@ -11,12 +11,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,6 +101,50 @@ class CustomerComplianceControllerTest {
                 Map.of("purpose", "Bad Purpose!")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Invalid consent purpose");
+    }
+
+    @Test
+    void setConsent_missingPurposeKey_isRejected_notPersistedAsNullLiteral() {
+        // Regression: String.valueOf(null) yielded the literal "null", which
+        // matched the format regex and persisted a junk consent record.
+        assertThatThrownBy(() -> controller.setConsent(principal(7L, "CUSTOMER"), 7L,
+                Map.of("granted", Boolean.TRUE)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Invalid consent purpose");
+
+        verify(consentService, never()).setConsent(anyLong(), anyString(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void setConsent_explicitNullPurposeValue_isRejected() {
+        Map<String, Object> body = new HashMap<>();
+        body.put("purpose", null);
+        body.put("granted", true);
+
+        assertThatThrownBy(() -> controller.setConsent(principal(7L, "CUSTOMER"), 7L, body))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Invalid consent purpose");
+    }
+
+    @Test
+    void setConsent_blankPurpose_isRejected() {
+        assertThatThrownBy(() -> controller.setConsent(principal(7L, "CUSTOMER"), 7L,
+                Map.of("purpose", "   ")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Invalid consent purpose");
+    }
+
+    @Test
+    void setConsent_explicitStringPurpose_behaviorUnchanged() {
+        // Only absent/null/blank/invalid inputs are rejected; any string that
+        // satisfies the format regex is still forwarded verbatim.
+        when(consentService.setConsent(eq(7L), eq("marketing"), eq(true), eq("customer-portal")))
+                .thenReturn(record());
+
+        controller.setConsent(principal(7L, "CUSTOMER"), 7L,
+                Map.of("purpose", "marketing", "granted", Boolean.TRUE));
+
+        verify(consentService).setConsent(7L, "marketing", true, "customer-portal");
     }
 
     @Test

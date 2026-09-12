@@ -117,6 +117,48 @@ class AdminUserOpsControllerTest {
     }
 
     @Test
+    void cities_forwardsUpstream404WithBodyInsteadOfSurfacing500() {
+        when(mesh.getStatus("/api/v1/internal/cities")).thenReturn(404);
+        when(mesh.getRaw("/api/v1/internal/cities")).thenReturn(Map.of("error", "city registry unavailable"));
+
+        ResponseEntity<?> response = controller.cities();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isEqualTo(Map.of("error", "city registry unavailable"));
+    }
+
+    /** cities() through the real mesh client: 5xx must be returned, not thrown as 500. */
+    @Test
+    void cities_endToEndForwardsUpstreamBadGateway() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        com.bhukkad.common.security.ServiceJwtAuthTokenProvider tokenProvider =
+                org.mockito.Mockito.mock(com.bhukkad.common.security.ServiceJwtAuthTokenProvider.class);
+        when(tokenProvider.serviceToken()).thenReturn("mesh-token");
+
+        ServiceMeshClient client = new ServiceMeshClient(builder, tokenProvider);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "deliveryUri", "http://delivery:8080");
+        AdminUserOpsController liveController =
+                new AdminUserOpsController(
+                        org.mockito.Mockito.mock(AuditService.class), client);
+
+        server.expect(requestTo("http://delivery:8080/api/v1/internal/cities"))
+                .andExpect(header("X-Service-Token", "mesh-token"))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                        .body("{\"error\":\"delivery down\"}").contentType(MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://delivery:8080/api/v1/internal/cities"))
+                .andExpect(header("X-Service-Token", "mesh-token"))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                        .body("{\"error\":\"delivery down\"}").contentType(MediaType.APPLICATION_JSON));
+
+        ResponseEntity<?> response = liveController.cities();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody()).isEqualTo(Map.of("error", "delivery down"));
+        server.verify();
+    }
+
+    @Test
     void createCity_requiresName() {
         assertThatThrownBy(() -> controller.createCity(null))
                 .isInstanceOf(BusinessException.class)
@@ -168,6 +210,11 @@ class AdminUserOpsControllerTest {
         server.expect(requestTo("http://delivery:8080/api/v1/internal/cities"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
         server.expect(requestTo("http://delivery:8080/api/v1/internal/cities"))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                        .body("{\"error\":\"delivery down\"}").contentType(MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://delivery:8080/api/v1/internal/cities"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+        server.expect(requestTo("http://delivery:8080/api/v1/internal/cities"))
                 .andRespond(withStatus(HttpStatus.CREATED)
                         .body("{\"id\":4}").contentType(MediaType.APPLICATION_JSON));
 
@@ -176,10 +223,11 @@ class AdminUserOpsControllerTest {
         assertThat(client.post("/api/v1/internal/admin/users/3/erase", Map.of("mode", "crypto"))).isEmpty();
         assertThat(client.getRaw("/api/v1/internal/cities")).isEqualTo(List.of("Mumbai"));
         assertThat(client.getStatus("/api/v1/internal/cities")).isEqualTo(200);
-        // Suspected src/main bug: getStatus()/cities() cannot pass through 4xx/5xx —
-        // toBodilessEntity() throws before the status is ever read (documented via assert).
-        assertThatThrownBy(() -> client.getStatus("/api/v1/internal/cities"))
-                .isInstanceOf(org.springframework.web.client.HttpClientErrorException.class);
+        // Non-2xx statuses and error bodies must pass through the proxy instead
+        // of surfacing as 500 (getStatus() used to throw before reading 4xx/5xx).
+        assertThat(client.getStatus("/api/v1/internal/cities")).isEqualTo(404);
+        assertThat(client.getRaw("/api/v1/internal/cities")).isEqualTo(Map.of("error", "delivery down"));
+        assertThat(client.getRaw("/api/v1/internal/cities")).isNull();
         ResponseEntity<Map<String, Object>> created =
                 client.postForEntity("/api/v1/internal/cities", null);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);

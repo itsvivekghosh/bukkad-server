@@ -55,7 +55,10 @@ public class CustomerComplianceController {
         // Consent records are legally significant: only the data subject
         // (or an admin) may write them, and the purpose must be a known key.
         requireSelfOrAdmin(principal, userId);
-        String purpose = String.valueOf(body.get("purpose"));
+        // String.valueOf(a missing key) yields the literal "null", which passes
+        // the format regex and would persist a junk consent with purpose "null".
+        Object rawPurpose = body.get("purpose");
+        String purpose = rawPurpose == null ? null : String.valueOf(rawPurpose);
         if (purpose == null || purpose.isBlank() || !purpose.matches("[a-z_]{1,64}")) {
             throw new com.bhukkad.common.error.BusinessException("Invalid consent purpose");
         }

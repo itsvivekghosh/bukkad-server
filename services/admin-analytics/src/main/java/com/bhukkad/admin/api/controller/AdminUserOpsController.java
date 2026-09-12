@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -143,13 +144,27 @@ public class AdminUserOpsController {
         }
 
         Object getRaw(String path) {
-            return client(deliveryUri).get().uri(path)
-                    .retrieve().body(Object.class);
+            // Non-2xx used to throw here, so cities() surfaced upstream 404/502
+            // as a 500. Decode the upstream error body (when convertible) so the
+            // proxy can pass it through verbatim.
+            try {
+                return client(deliveryUri).get().uri(path)
+                        .retrieve().body(Object.class);
+            } catch (RestClientResponseException e) {
+                return e.getResponseBodyAs(Object.class);
+            }
         }
 
         int getStatus(String path) {
-            return client(deliveryUri).get().uri(path)
-                    .retrieve().toBodilessEntity().getStatusCode().value();
+            // retrieve().toBodilessEntity() throws on any non-2xx, hiding the
+            // upstream status. Catch the response exception and forward its
+            // status code so .status(mesh.getStatus(...)) proxies 4xx/5xx.
+            try {
+                return client(deliveryUri).get().uri(path)
+                        .retrieve().toBodilessEntity().getStatusCode().value();
+            } catch (RestClientResponseException ex) {
+                return ex.getStatusCode().value();
+            }
         }
 
         Map<String, Object> put(String path) {
