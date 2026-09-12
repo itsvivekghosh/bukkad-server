@@ -94,6 +94,9 @@ for entry in "${SERVICES[@]}"; do
   [ -n "$jar" ] || { echo "MISSING JAR for $name — run: ./mvnw -f services/pom.xml package -DskipTests"; exit 1; }
   java $LEAN_OPTS "-Dserver.port=$port" -jar "$jar" > "$LOG_DIR/$name.log" 2>&1 &
   echo "$! $name" >> "$PIDFILE"
+  # Stagger: 15 JVMs racing docker-proxy/Redis simultaneously cause connect
+  # refusions at boot (observed as Lettuce 'Unable to connect' + hard-fail).
+  sleep 2
 done
 
 echo "== waiting for services to report healthy =="
@@ -102,6 +105,7 @@ echo "== waiting for services to report healthy =="
 # /actuator/health (200/UP), not on the log.
 deadline=$(( $(date +%s) + 600 ))
 count=${#SERVICES[@]}
+RESTARTED=" "
 while true; do
   ok=0
   waiting=""
@@ -113,9 +117,24 @@ while true; do
     else
       pid=$(awk -v n="$name" '$2==n{print $1}' "$PIDFILE")
       if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-        echo "CRASHED: $name — last log lines:"
-        tail -15 "$LOG_DIR/$name.log"
-        exit 1
+        if case "$RESTARTED" in *" $name "*) false;; *) true;; esac; then
+          # Self-heal: one automatic restart — boot-storm connect refusals
+          # kill JVMs that lose the Redis/docker-proxy race; a restart on a
+          # quiet network succeeds (verified repeatedly by hand).
+          echo "   $name died at boot — restarting once"
+          RESTARTED="$RESTARTED$name "
+          jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
+          if [ -n "$jar" ]; then
+            java $LEAN_OPTS "-Dserver.port=$port" -jar "$jar" >> "$LOG_DIR/$name.log" 2>&1 &
+            newpid=$!
+            grep -v " $name\$" "$PIDFILE" > "$PIDFILE.tmp" && mv "$PIDFILE.tmp" "$PIDFILE"
+            echo "$newpid $name" >> "$PIDFILE"
+          fi
+        else
+          echo "CRASHED twice: $name — last log lines:"
+          tail -15 "$LOG_DIR/$name.log"
+          exit 1
+        fi
       fi
       waiting="$waiting $name"
     fi
