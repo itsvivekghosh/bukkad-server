@@ -1,0 +1,39 @@
+# Redis server TLS wiring (k8s/components/tls): mount the cert secret and
+# enable the TLS listener on 6380 while KEEPING plaintext 6379 — the staged
+# cutover leaves both open until ops flips the client env
+# (SPRING_DATA_REDIS_PORT/SPRING_DATA_REDIS_SSL_ENABLED in k8s/configmap.yaml,
+# commented-ready) and then sets --port 0 to close plaintext.
+# Client-verified TLS (SPRING_DATA_REDIS_SSL_ENABLED) does not require the CA
+# on the server side; ca.crt is mounted for future tls-auth-clients / mTLS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-redis
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      # fsGroup 999 (redis uid in the alpine image) so the redis process can
+      # read the mounted key (root:999 0440).
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: redis
+          command:
+            - sh
+            - -c
+            - exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD" --tls-port 6380 --port 6379 --tls-cert-file /etc/redis/tls/tls.crt --tls-key-file /etc/redis/tls/tls.key --tls-ca-cert-file /etc/redis/tls/ca.crt
+          ports:
+            - containerPort: 6379
+              name: redis
+            - containerPort: 6380
+              name: redis-tls
+          volumeMounts:
+            - name: redis-tls
+              mountPath: /etc/redis/tls
+              readOnly: true
+      volumes:
+        - name: redis-tls
+          secret:
+            secretName: bhukkad-redis-tls
+            defaultMode: 0440

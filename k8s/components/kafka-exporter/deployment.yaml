@@ -14,54 +14,57 @@ spec:
       component: kafka-exporter
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: bhukkad
         component: kafka-exporter
     spec:
-      serviceAccountName: bhukkad-app
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534   # nobody — image ships no dedicated uid
+        # danielqsj/kafka-exporter image runs the binary as nobody (65534).
+        runAsUser: 65534
         runAsGroup: 65534
-        fsGroup: 65534
       containers:
         - name: kafka-exporter
-          # Canonical upstream of the prometheus-community-track exporter
-          # (danielqsj/kafka_exporter). Pin bumped only after a smoke test —
-          # metric names here are contract for k8s/monitoring/kafka-lag-rules.yaml.
+          # Canonical kafka_exporter image (source: github.com/danielqsj/kafka_exporter,
+          # the repo prometheus-community points at). Pinned to minor.
           image: danielqsj/kafka-exporter:v1.10.0
           imagePullPolicy: IfNotPresent
           args:
-            # All three brokers: exporter survives single-broker loss and
-            # sees every partition replica (offsets/lag are cluster-wide).
+            # Same bootstrap set as KAFKA_BOOTSTRAP_SERVERS in configmap.yaml:
+            # stable per-broker headless DNS.
             - --kafka.server=redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092
             - --kafka.server=redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092
             - --kafka.server=redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092
-            # Contract for the alert rules: consumergroup + topic + partition
-            # labels on kafka_consumergroup_lag / kafka_consumergroup_current_offset.
-            - --topic-filter=.*
-            - --group-filter=.*
-            - --log.level=info
+            - --web.listen-address=:9308
+            # Explicit all-topics/all-groups (defaults, pinned for clarity) —
+            # alerts filter by topic regex on the Prometheus side.
+            - --topic.filter=.*
+            - --group.filter=.*
+            # --- TLS/SASL (uncomment during the components/tls flip, see
+            # k8s/README-TLS.md; platform must also expose the secret mounts):
+            # - --tls.enabled
+            # - --tls.ca-file=/etc/kafka-tls/ca.crt
+            # - --sasl.enabled
+            # - --sasl.mechanism=scram-sha256
+            # - --sasl.username=bhukkad-admin
+            # password comes via env KAFKA_EXPORTER_SASL_PASSWORD (a --sasl.password
+            # flag would leak the secret in `ps`); wire the secretKeyRef below when
+            # uncommenting:
+            #   env:
+            #     - name: KAFKA_EXPORTER_SASL_PASSWORD
+            #       valueFrom:
+            #         secretKeyRef:
+            #           name: bhukkad-secrets
+            #           key: REDPANDA_SUPERUSER_PASSWORD
           ports:
             - containerPort: 9308
               name: metrics
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: metrics
-            initialDelaySeconds: 15
-            periodSeconds: 15
-            timeoutSeconds: 5
-          readinessProbe:
-            httpGet:
-              path: /              # exporter serves / as a landing page
-              port: metrics
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
           resources:
             requests:
               cpu: 50m
@@ -69,6 +72,22 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

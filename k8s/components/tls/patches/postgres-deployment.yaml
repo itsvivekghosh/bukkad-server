@@ -1,0 +1,32 @@
+# Postgres server TLS wiring (k8s/components/tls): mount the TLS conf include
+# (pulled in via include_if_exists) + the server cert secret. Postgres keeps
+# serving 5432 for BOTH plaintext and TLS — sslmode is a client decision
+# (DB_SSL_ENABLED in k8s/configmap.yaml, default false).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-postgresql
+  namespace: bhukkad
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgres
+          volumeMounts:
+            - name: postgres-tls-conf
+              mountPath: /etc/postgresql/conf.d
+              readOnly: true
+            - name: postgres-tls
+              mountPath: /etc/postgresql/tls
+              readOnly: true
+      volumes:
+        - name: postgres-tls-conf
+          configMap:
+            name: bhukkad-postgres-tls-conf
+            items:
+              - key: postgresql-tls.conf
+                path: postgresql-tls.conf
+        - name: postgres-tls
+          secret:
+            secretName: bhukkad-postgres-tls
+            defaultMode: 0440

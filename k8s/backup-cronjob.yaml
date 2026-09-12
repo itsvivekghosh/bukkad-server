@@ -185,6 +185,9 @@ spec:
                   # Retention on the object store is enforced by a bucket
                   # lifecycle rule (30d), not by deletes here — see
                   # docs/backup-and-restore-runbook.md.
+                  # PITR WAL-freshness gate (k8s/README-PITR.md): fails the
+                  # job when wal-g has not uploaded a WAL segment recently.
+                  /backup/verify-wal.sh
               env:
                 - name: S3_BUCKET
                   valueFrom:
@@ -206,7 +209,18 @@ spec:
                     secretKeyRef:
                       name: bhukkad-secrets
                       key: AWS_SECRET_ACCESS_KEY
+                # PITR WAL gate (k8s/README-PITR.md): newest wal-g segment must
+                # be ≤30m old; disable only when the wal-g sidecar is absent.
+                - name: PITR_WAL_VERIFY
+                  value: "true"
+                - name: WAL_PREFIX
+                  value: s3://$(S3_BUCKET)/pitr
+                - name: WAL_MAX_AGE_SECONDS
+                  value: "1800"
               volumeMounts:
+                - name: backup-scripts
+                  mountPath: /backup/verify-wal.sh
+                  subPath: verify-wal.sh
                 - name: backup-volume
                   mountPath: /backup
               resources:

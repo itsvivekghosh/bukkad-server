@@ -128,6 +128,45 @@ data:
   APP_PAYMENT_RAZORPAY_ENABLED: "true"
 
   # ---------------------------------------------------------------------------
+  # In-cluster TLS (P2) — k8s/components/tls + k8s/README-TLS.md.
+  #
+  # DB_SSL_ENABLED gates the CLIENT side of Postgres TLS. Default "false" =
+  # current behavior (the jdbc URLs above keep ssl=false) and dev-boot
+  # compatible (the services/docker compose stack has no TLS). Server-side
+  # TLS (cert-manager internal CA + server certs, postgresql.conf ssl=on,
+  # redpanda TLS listener, redis tls-port, nginx 443) is enabled by
+  # UNCOMMENTING one line — `components: [- components/tls]` in
+  # k8s/kustomization.yaml — and never requires this flag by itself: a
+  # sslmode=disable client is accepted by a TLS-enabled server.
+  #
+  # FLIP ORDER (full procedure: k8s/README-TLS.md):
+  #   1. install cert-manager, uncomment components/tls, verify certificates;
+  #   2. move the JDBC URLs (the two below + every per-service *_DB_URL in
+  #      Vault, which override this ConfigMap via secretKeyRef) to
+  #      sslmode=require (stage A) or verify-full + mounted CA (stage B);
+  #   3. set DB_SSL_ENABLED="true" and rolling-restart the fleet.
+  DB_SSL_ENABLED: "false"
+  # --- COMMENTED-READY: client blocks for the TLS flip (uncomment together) --
+  # Stage A/B Postgres JDBC URLs (documented variants; per-service URLs live
+  # in Vault, not here):
+  #   DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&sslmode=verify-full&sslrootcert=/etc/postgresql-ca/tls.crt"
+  #   DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-replica:5432/bhukkad?currentSchema=public&sslmode=verify-full&sslrootcert=/etc/postgresql-ca/tls.crt"
+  #   # sslmode=require needs no CA mount; verify-full needs the CA secret
+  #   # (bhukkad-internal-ca) mounted at /etc/postgresql-ca in every client pod.
+  # Redpanda client SSL (needs platform-lib KafkaProperties SSL support —
+  # coordination; placeholder canonical names until wired):
+  #   KAFKA_SSL_ENABLED: "true"
+  #   KAFKA_SSL_CA_CERT_PATH: "/etc/kafka-tls/ca.crt"        # bhukkad-redpanda-tls mount
+  #   KAFKA_SASL_MECHANISM: "SCRAM-SHA-256"
+  #   KAFKA_SASL_USERNAME: "bhukkad-admin"
+  #   # KAFKA_SASL_PASSWORD from bhukkad-secrets key REDPANDA_SUPERUSER_PASSWORD
+  #   # (secretKeyRef in each producer/consumer deployment — do NOT put it here).
+  # Redis client SSL (server tls-port 6380 comes from components/tls):
+  #   SPRING_DATA_REDIS_PORT: "6380"
+  #   SPRING_DATA_REDIS_SSL_ENABLED: "true"   # Boot 3.2 spring.data.redis.ssl.enabled
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
   # Backup off-site copy (roadmap #15): the bhukkad-backup CronJob's s3-sync
   # container reads these. S3_BUCKET is REQUIRED — the in-cluster PVC alone was
   # the audited single-point-of-failure. AWS keys come from bhukkad-secrets

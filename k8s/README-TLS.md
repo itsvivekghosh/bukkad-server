@@ -1,159 +1,160 @@
-# In-cluster TLS Runbook (flag-gated, k8s/components/tls-internal)
+# In-cluster TLS — cert-manager internal CA, flag-gated (P2)
 
-Status: **flag OFF by default**. The base build is untouched (plaintext,
-dev-boot compatible). Enabling TLS = one component line in
-`k8s/kustomization.yaml` + the flip order below.
+In-cluster TLS for the bhukkad stack, gated behind **one kustomize line** and
+a **config flag**, dev-boot-compatible by default.
 
 ```
-components:
-  - components/redpanda
-  - components/tls-internal     # ← the TLS flag
+FLAG 1 (server side): k8s/kustomization.yaml
+    components:
+      - components/redpanda
+      - components/kafka-exporter
+      - components/tls          # ← UNCOMMENT to deploy TLS infrastructure
+FLAG 2 (client side): k8s/configmap.yaml
+    DB_SSL_ENABLED: "false"     # ← flip to "true" at stage A/B (below)
 ```
 
-Everything is namespaced to `bhukkad` (no ClusterIssuer, no cluster-scoped
-objects). The Java services are **not** modified by this flag — their boots
-stay green whether or not it is on.
+What `components/tls` ships when enabled (requires **cert-manager** in the
+cluster — applying without its CRDs fails on the Issuer/Certificate CRs):
 
----
+| Target | Server side | Client side (flag / commented-ready) |
+|---|---|---|
+| **postgres** | `ssl=on` via `include_if_exists` conf (`bhukkad-postgres-tls-conf` CM, mounted by the patch), cert `bhukkad-postgres-tls` | `DB_SSL_ENABLED` in `bhukkad-config`; JDBC URLs move to `sslmode=require|verify-full` (stages A/B below) |
+| **redpanda** | second listener `TLS://…:9093` + `redpanda.tls[0]` from the wildcard `bhukkad-redpanda-tls` secret (one secret, all 3 brokers); PLAINTEXT 9092 stays up | commented `KAFKA_*` env block in `bhukkad-config` (needs platform-lib SSL props — coordination) |
+| **redis** | `--tls-port 6380` + cert `bhukkad-redis-tls`; plaintext 6379 stays up | commented `SPRING_DATA_REDIS_SSL_ENABLED`/`_PORT` block in `bhukkad-config` |
+| **nginx** | 443 secondary router via `/etc/nginx/conf.d/tls-server.conf` drop-in (cert `bhukkad-nginx-tls`); 80 stays up | none (edge clients cut over directly) |
+| **redpanda SASL** | `redpanda-sasl-bootstrap` Job creates the SCRAM superuser from `bhukkad-secrets: REDPANDA_SUPERUSER_PASSWORD` | enforcement flags commented in the redpanda patch (step 3) |
 
-## 1. What the flag ships
+Everything here is in-cluster (cert-manager CA `bhukkad-internal-ca`, 10y;
+leaves auto-renewed by cert-manager). The public edge keeps whatever
+platform TLS/ingress termination it already has — `k8s/ingress.yaml` and the
+nginx 443 router are independent of it.
 
-| Layer | Object | Effect when flag is ON | Breaking? |
-|---|---|---|---|
-| CA | `Issuer bhukkad-selfsigned-issuer` → `Certificate bhukkad-internal-ca` (isCA) → `Issuer bhukkad-internal-ca-issuer` | cert-manager internal CA (10y) | no |
-| Postgres | `Certificate bhukkad-postgres-tls` + Deployment patch (`ssl=on`, `ssl_cert_file/ssl_key_file`) | server **offers** TLS on 5432, still accepts plaintext | no |
-| Postgres client | `bhukkad-config` patch: `DB_SSL_ENABLED: "true"` + `sslmode=require` JDBC URLs (primary + replica) | services reconnect with TLS | no (encrypt-only; no CA verification — see §4) |
-| Redpanda | `Certificate bhukkad-redpanda-tls` (SANs: all 3 brokers + headless svc) + `redpanda-tls-config` ConfigMap + StatefulSet patch | extra **TLS listener :9095**; `PLAINTEXT :9092` stays up; SASL superuser bootstrap Job runs | no |
-| Redis | `Certificate bhukkad-redis-tls` + Deployment patch (cert mounted at `/etc/redis-tls`) | cert pre-positioned only — server stays plaintext until §5 flip | no |
-| Nginx | `Certificate bhukkad-nginx-tls` + ConfigMap patch (`bhukkad-api-tls.conf`) + Deployment patch (:443 + cert) + Service patch (:443) | secondary router serves `https://…:443`; `:80` edge unchanged | no |
+## Flip order
 
-Key detail (Redpanda): rpk v23.3 has no CLI TLS flags — per-listener TLS comes
-from the redpanda.yaml config file. The component mounts
-`redpanda-tls-config` (ConfigMap) → copied by a new init container into a
-**writable emptyDir** → passed via `--config` (rpk persists broker config
-updates to its config file, so a read-only ConfigMap mount would break it).
-The listener named `tls` matches the `TLS://` scheme in
-`--kafka-addr`/`--advertise-kafka-addr`.
+Execute in order; each step is verifiable and reversible. Never enable
+client-side verification before the server side is confirmed serving TLS.
 
-Key detail (Postgres): ssl key files mount with `defaultMode: 0440`
-(root-owned, group-readable via `fsGroup: 999`) — PostgreSQL accepts
-root-owned 0640 keys; anything looser is refused at startup.
-
----
-
-## 2. Prerequisites
-
-1. **cert-manager** installed cluster-wide (CRDs `cert-manager.io/v1`).
-2. **Vault `bhukkad/prod/redpanda`** provisioned with `superuser_username` /
-   `superuser_password` (mapped via `k8s/external-secret.yaml`; placeholders
-   in `k8s/secrets.yaml` must never hold real values).
-3. The internal CA is namespaces-bound; clients that verify certificates need
-   `tls.crt` of the `bhukkad-internal-ca` secret.
-
-## 3. Flip order
+### Step 0 — prerequisites
 
 ```bash
-# 0. Dry-render with the flag on and diff — no surprises:
-kustomize build k8s/ | kubectl diff -f - || true     # after enabling the line
-
-# 1. Enable the flag (add the component line) and apply:
-kubectl apply -k k8s/
-
-# 2. Wait for issuance — every Certificate must be READY=True:
-kubectl -n bhukkad get certificates
-
-# 3. Let the patched workloads roll (postgres, redpanda, redis, nginx roll
-#    automatically; the config patch triggers service rollouts too):
-kubectl -n bhukkad rollout status deploy/bhukkad-postgresql
-kubectl -n bhukkad rollout status statefulset/redpanda
-
-# 4. Bootstrap the Redpanda SASL superuser (Job retries until the broker is
-#    reachable; inspect if it exhausts backoffLimit):
-kubectl -n bhukkad get job redpanda-superuser-bootstrap
+kubectl get crd issuers.cert-manager.io certificates.cert-manager.io   # cert-manager present?
+kubectl -n bhukkad get secret bhukkad-secrets \
+  -o jsonpath='{.data.REDPANDA_SUPERUSER_PASSWORD}' | base64 -d   # set in Vault (bhukkad/prod/redpanda)
 ```
 
-### Verification (per endpoint)
+### Step 1 — deploy server-side TLS
+
+Uncomment `- components/tls` in `k8s/kustomization.yaml`, build, apply:
 
 ```bash
-# Postgres — TLS offered on 5432, cert from the internal CA:
-openssl s_client -connect bhukkad-postgresql.bhukkad.svc.cluster.local:5432 -starttls postgres </dev/null | openssl x509 -noout -subject -issuer
-
-# Redpanda — TLS listener answers on 9095 (broker pod or port-forward):
-kubectl -n bhukkad exec redpanda-0 -- rpk cluster info \
-  -X brokers=redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9095 \
-  -X tls.enabled=true -X tls.ca=/etc/redpanda/certs/ca.crt
-
-# Nginx — 443 serves the internal-CA leaf:
-openssl s_client -connect <nginx-endpoint>:443 </dev/null | openssl x509 -noout -subject -issuer
+kubectl kustomize k8s | kubectl apply -f -
+kubectl -n bhukkad get certificate            # all READY=True
+kubectl -n bhukkad get secret bhukkad-postgres-tls bhukkad-redis-tls \
+  bhukkad-redpanda-tls bhukkad-nginx-tls bhukkad-internal-ca
 ```
 
-## 4. Postgres clients (done by the flag, verify after rollout)
-
-The component patch sets `DB_SSL_ENABLED: "true"` and swaps both JDBC URLs to
-`sslmode=require` (encrypted, no hostname/CA verification — acceptable for the
-in-cluster internal CA; upgrading to `verify-ca`/`verify-full` requires
-importing `tls.crt` from `bhukkad-internal-ca` into the JVM truststore and is
-a documented follow-up, not part of this flip). Confirm one service pod
-actually negotiated SSL:
+Verify each server speaks TLS while **plaintext keeps working** (nothing
+client-visible changed yet):
 
 ```bash
-kubectl -n bhukkad exec deploy/bhukkad-postgresql -- psql -U "$POSTGRES_USER" \
-  -c "SELECT usename, ssl FROM pg_stat_ssl WHERE ssl = true;"
+kubectl -n bhukkad exec deploy/bhukkad-postgresql -c postgres -- \
+  psql -U "$POSTGRES_USER" -d postgres -tAc "show ssl;"           # expect: on
+kubectl -n bhukkad exec deploy/bhukkad-redis -- \
+  redis-cli --tls --cacert /etc/redis/tls/ca.crt -p 6380 --no-auth-warning \
+    -a "$REDIS_PASSWORD" ping | grep PONG
+kubectl -n bhukkad get job redpanda-sasl-bootstrap -o jsonpath='{.status.succeeded}'  # 1
 ```
 
-## 5. Redis TLS (manual, breaking — separate window)
+### Step 2 — postgres clients, stage A (encrypt, no verification)
 
-The cert is mounted but the server still serves plaintext. To flip (both sides
-in the same maintenance window; Lettuce/RedisCacheService/RateLimitService and
-the backup CronJob's redis-cli reconnect afterwards):
+1. Update the JDBC URLs: `DB_URL` / `DB_REPLICA_URL` in `bhukkad-config`
+   **and every per-service `*_DB_URL` in Vault** (`bhukkad/prod/database`,
+   keys like `order_db_url`) — append
+   `?sslmode=require` (or `&sslmode=require` if query params exist).
+2. Set `DB_SSL_ENABLED: "true"` in `k8s/configmap.yaml` (documented marker
+   for the flip; the URLs carry the actual behavior).
+3. Rolling-restart the fleet:
+   `kubectl -n bhukkad rollout restart deploy -l app=bhukkad`
+   (per-service DB URLs come from the Vault-backed `bhukkad-secrets`, which
+   the ExternalSecret refreshes within 1h — force with
+   `kubectl -n bhukkad annotate externalsecret bhukkad-secrets force-sync=$(date +%s) --overwrite`).
 
-1. `k8s/redis/configmap.yaml` (or a live `kubectl edit configmap
-   bhukkad-redis-config`): uncomment the `port 0` / `tls-port 6379` /
-   `tls-cert-file` / `tls-key-file` / `tls-ca-cert-file` block.
-2. `k8s/configmap.yaml`: uncomment `SPRING_DATA_REDIS_SSL_ENABLED: "true"`
-   (client) — keep `REDIS_HOST`/`REDIS_PORT` unchanged (same port number).
-3. Rollout restart redis, then the services.
+### Step 3 — postgres clients, stage B (verify-full, optional but recommended)
 
-**Limitation (coordination):** `redis/redis-sentinel.yaml` does not yet speak
-TLS — do not flip the master before the sentinel pair is TLS-enabled too, or
-sentinel monitoring will fail. The nightly `backup-redis.sh` needs
-`REDIS_SSL`-aware redis-cli flags when the flip lands.
+Mount the CA into client pods and switch to `sslmode=verify-full`:
 
-## 6. Redpanda client TLS + SASL (blocked on platform-lib — coordination)
+- mount secret `bhukkad-internal-ca` key `ca.crt` at `/etc/postgresql-ca/tls.crt`
+  in the client Deployments (add per-service patch or extend the platform base —
+  ops decision; NOT wired by default to keep the fleet diff small),
+- change URLs to
+  `?currentSchema=public&sslmode=verify-full&sslrootcert=/etc/postgresql-ca/tls.crt`,
+- restart as in step 2.
 
-The broker-side TLS listener and the SCRAM superuser exist after §3, but
-**clients cannot move yet**: platform-lib's `KafkaPlatformConfig` builds its
-consumer/producer maps from `app.events.external.kafka.*` only and reads no
-TLS/SASL properties. The agreed env contract is commented in
-`k8s/configmap.yaml` (`KAFKA_SSL_*`, `KAFKA_SASL_*`, port-9095 bootstrap).
-Once the platform-lib change lands:
+The commented `DB_URL` / `DB_REPLICA_URL` variants in `k8s/configmap.yaml`
+show the exact final strings.
 
-1. Uncomment the client block (configmap) and roll the services.
-2. Verify lag stays flat (`k8s/monitoring/kafka-lag-rules.yaml`).
-3. **Enforce SASL** (breaking): `kubectl -n bhukkad exec redpanda-0 -- rpk
-   config set redpanda.enable_sasl true -X brokers=...:9092` — after this,
-   unauthenticated plaintext clients are rejected; keep the bootstrap Job's
-   creds as the admin identity.
+### Step 4 — redpanda TLS → SASL
 
-## 7. Nginx 443 secondary router (done by the flag)
+1. Create the SCRAM superuser (the bootstrap Job from step 1):
+   `kubectl -n bhukkad logs job/redpanda-sasl-bootstrap`.
+2. Enable SASL enforcement: in
+   `k8s/components/tls/patches/redpanda-statefulset.yaml` uncomment
+   `--set redpanda.enable_sasl=true` and
+   `--set redpanda.superusers=[bhukkad-admin]`, re-apply, wait for the
+   StatefulSet rollout.
+3. Clients (kafka-exporter + Spring fleet): the client env blocks in
+   `k8s/configmap.yaml` are **commented-ready** — but the Spring side needs
+   platform-lib `KafkaProperties`/`KafkaPlatformConfig` SSL/SASL property
+   support first (**coordination note — services-side change, not done in
+   this batch**). The kafka-exporter's `--tls.*`/`--sasl.*` args in
+   `k8s/components/kafka-exporter/deployment.yaml` are commented-ready too.
+4. Finally, per broker: make `TLS://` the primary advertised listener
+   (re-point `KAFKA_BOOTSTRAP_SERVERS` to `:9093`), then remove the
+   PLAINTEXT listener args. Verify with
+   `rpk cluster health -X tls.enabled -X brokers redpanda-0...:9093`.
 
-`:443` serves the same route set via the shared `bhukkad-routes.conf` include
-(`k8s/nginx/configmap.yaml` layout). The **80→443 redirect is commented** in
-`bhukkad-api-80.conf` on purpose: the external ingress
-(`k8s/ingress.yaml`, letsencrypt-prod) terminates TLS itself and forwards
-plaintext — enabling the redirect now would loop it. Uncomment the
-`return 308 https://$host$request_uri;` line only when the :80 edge is being
-decommissioned in favour of the internal TLS router.
+### Step 5 — redis clients
 
-## 8. Rollback
+After confirming 6380 answers TLS (step 1), uncomment in `k8s/configmap.yaml`:
 
-Remove the `components/tls-internal` line and `kubectl apply -k k8s/` — the
-base is plaintext again. Note:
+```yaml
+SPRING_DATA_REDIS_PORT: "6380"
+SPRING_DATA_REDIS_SSL_ENABLED: "true"    # spring.data.redis.ssl.enabled (Boot 3.2)
+```
 
-* Issued certificates and the CA secret stay in the namespace (delete
-  `bhukkad-internal-ca`, the 4 leaf secrets, and the Issuers explicitly if
-  you want a clean slate).
-* The redpanda `--config` emptyDir and init container disappear with the
-  patch; brokers regenerate a plaintext-only config from the base flags.
-* Services roll back to `ssl=false` JDBC URLs — no app-side change required
-  at any point of either direction.
+Restart the fleet, then close plaintext: in
+`k8s/components/tls/patches/redis-deployment.yaml` change `--port 6379` →
+`--port 0` (sentinel config in `k8s/redis/redis-sentinel.yaml` also needs the
+TLS port — verify sentinel connectivity before this final step).
+
+### Step 6 — nginx 80 → 443
+
+After edge clients are confirmed on HTTPS (via the LoadBalancer :443 or the
+ingress), flip the base `k8s/nginx/configmap.yaml` port-80 server block from
+proxying to a redirect:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+```
+
+Keep `/api/v1/health` on :80 if your LB health checks hit HTTP.
+
+## Dev compatibility
+
+None of this touches the dev path: `services/docker/docker-compose.dev.yml`
+runs plaintext postgres/redis/redpanda, the base kustomize build (flag off)
+renders zero TLS resources, and `DB_SSL_ENABLED` defaults to `false`. The
+base `postgresql.conf` ships only the inert
+`include_if_exists = '/etc/postgresql/conf.d/postgresql-tls.conf'` line.
+
+## Rollback
+
+- Client side: set the URLs/flags back (`ssl=false`, ports back), restart.
+- Server side: remove the `components/tls` line, re-apply; the certs/issuers
+  remain as orphaned objects (harmless) — delete with
+  `kubectl -n bhukkad delete certificate,certmanager.clusterissuer -l app=bhukkad`
+  plus the two `ClusterIssuer` names if desired.

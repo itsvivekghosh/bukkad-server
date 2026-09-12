@@ -10,7 +10,7 @@ spec:
   type: ClusterIP
   ports:
     - port: 9308
-      targetPort: 9308
+      targetPort: metrics
       protocol: TCP
       name: metrics
   selector:

@@ -41,6 +41,12 @@ data:
         charset utf-8;
         server_tokens off;
 
+        # Drop-in include (P2 TLS): the in-cluster-TLS component
+        # (k8s/components/tls) mounts a 443 server block at
+        # /etc/nginx/conf.d/tls-server.conf. Inert in the base build — an
+        # nginx wildcard include with zero matching files is not an error.
+        include /etc/nginx/conf.d/*.conf;
+
         # Logging
         log_format main '$remote_addr - $remote_user [$time_local] '
                         '"$request" $status $body_bytes_sent '

@@ -96,49 +96,50 @@ data:
     echo "${LOG_PREFIX} BACKUP FAILED for: ${FAILED[*]}"
     exit 1
 
-  # PITR WAL-archive freshness check (k8s/README-PITR.md). The wal-g-push
-  # sidecar in k8s/postgres/deployment.yaml streams archived segments to
-  # s3://$S3_BUCKET/postgres-wal continuously; this script (run nightly by
-  # the `wal-verify` container in backup-cronjob.yaml, same pinned aws-cli
-  # image) asserts the newest archived segment is fresh — the RPO tripwire
-  # for the physical backup path (pg_dump freshness alone proves nothing
-  # about WAL archiving). Exits non-zero on staleness so the CronJob records
-  # a failed job (alert rule BackupJobFailed) and writes the
-  # .wal_archive_last_success_epoch marker consumed like .last_success_epoch.
-  verify-wal-archive.sh: |
-    #!/bin/bash
-    set -euo pipefail
+  verify-wal.sh: |
+    #!/bin/sh
+    # ---------------------------------------------------------------------------
+    # PITR WAL-freshness gate (k8s/README-PITR.md). Runs in the bhukkad-backup
+    # CronJob's s3-sync container (the only container holding `aws` + cloud
+    # credentials) AFTER the dump sync: fails the job when the newest wal-g WAL
+    # segment under the PITR prefix is older than WAL_MAX_AGE_SECONDS (default
+    # 30m; archive_timeout=60s + a 10s sidecar poll make 30m generous), so a
+    # broken archive pipeline trips BackupJobFailed instead of silently
+    # shrinking the point-in-time recovery window.
+    #
+    # wal-g stores WAL under <prefix>/wal_<pg-version>*/ segments (e.g.
+    # wal_005/...); the check is version-agnostic by matching any wal_*/ key.
+    # Disable with PITR_WAL_VERIFY=false (only when the wal-g sidecar is not
+    # deployed or S3_BUCKET points at a bucket without the pitr prefix).
+    # ---------------------------------------------------------------------------
+    set -eu
     S3_BUCKET="${S3_BUCKET:?S3_BUCKET is required}"
-    AWS_REGION="${AWS_REGION:-ap-south-1}"
-    WAL_PREFIX="${WAL_PREFIX:-postgres-wal}"
-    WAL_MAX_AGE_HOURS="${WAL_MAX_AGE_HOURS:-6}"
-    BACKUP_DIR="${BACKUP_DIR:-/backup/wal}"
-    LOG_PREFIX="[$(date '+%Y-%m-%dT%H:%M:%S%z')]"
-    mkdir -p "${BACKUP_DIR}"
-    echo "${LOG_PREFIX} Verifying WAL archive freshness: s3://${S3_BUCKET}/${WAL_PREFIX}/ (max age ${WAL_MAX_AGE_HOURS}h)"
-    # Newest object under the WAL prefix (recursive; objects are flat
-    # wal-g segments). Columns: date time size key.
-    NEWEST=$(aws s3 ls "s3://${S3_BUCKET}/${WAL_PREFIX}/" --recursive | sort -k4 | tail -1 || true)
-    if [ -z "${NEWEST}" ]; then
-      echo "${LOG_PREFIX} WAL ARCHIVE VERIFY FAILED: no objects under s3://${S3_BUCKET}/${WAL_PREFIX}/ — archiving is broken or the bucket/prefix is wrong"
-      rm -f "${BACKUP_DIR}/.wal_archive_last_success_epoch"
+    PITR_WAL_VERIFY="${PITR_WAL_VERIFY:-true}"
+    if [ "${PITR_WAL_VERIFY}" != "true" ]; then
+      echo "[verify-wal] PITR_WAL_VERIFY=false — skipping WAL freshness check"
+      exit 0
+    fi
+    WAL_PREFIX="${WAL_PREFIX:-s3://${S3_BUCKET}/pitr}"
+    WAL_MAX_AGE_SECONDS="${WAL_MAX_AGE_SECONDS:-1800}"
+    NOW=$(date +%s)
+    # `aws s3 ls --recursive` rows: "YYYY-MM-DD HH:MM:SS <size> <key>".
+    # Keys under any wal_*/ subdir; take the newest by (date, time).
+    LATEST=$(aws s3 ls "${WAL_PREFIX}/" --recursive 2>/dev/null \
+      | awk '$4 ~ /(^|\/)wal_.*\// {print $1, $2}' | sort | tail -1 || true)
+    if [ -z "${LATEST}" ]; then
+      echo "[verify-wal] FAIL: no WAL segments found under ${WAL_PREFIX}/ (wal-g sidecar not uploading?)" >&2
       exit 1
     fi
-    NEWEST_DATE=$(echo "${NEWEST}" | awk '{print $1}')
-    NEWEST_TIME=$(echo "${NEWEST}" | awk '{print $2}')
-    NEWEST_KEY=$(echo "${NEWEST}" | awk '{print $4}')
-    NEWEST_EPOCH=$(date -d "${NEWEST_DATE} ${NEWEST_TIME}" +%s)
-    NOW_EPOCH=$(date +%s)
-    AGE_SECONDS=$(( NOW_EPOCH - NEWEST_EPOCH ))
-    MAX_AGE_SECONDS=$(( WAL_MAX_AGE_HOURS * 3600 ))
-    echo "${LOG_PREFIX} newest archived segment: ${NEWEST_KEY} (${AGE_SECONDS}s old)"
-    if [ "${AGE_SECONDS}" -gt "${MAX_AGE_SECONDS}" ]; then
-      echo "${LOG_PREFIX} WAL ARCHIVE VERIFY FAILED: newest segment is $(( AGE_SECONDS / 3600 ))h old (> ${WAL_MAX_AGE_HOURS}h) — PITR RPO breach (wal-g-push sidecar / S3 upload broken?)"
-      rm -f "${BACKUP_DIR}/.wal_archive_last_success_epoch"
+    TS=$(echo "${LATEST}" | cut -d' ' -f1-2)
+    # amazon/aws-cli image is amazonlinux:2023 — GNU date parses the timestamp.
+    LAST_EPOCH=$(date -u -d "${TS}" +%s)
+    AGE=$((NOW - LAST_EPOCH))
+    echo "[verify-wal] newest WAL segment uploaded ${AGE}s ago (max ${WAL_MAX_AGE_SECONDS}s)"
+    if [ "${AGE}" -gt "${WAL_MAX_AGE_SECONDS}" ]; then
+      echo "[verify-wal] FAIL: WAL upload stale (${AGE}s > ${WAL_MAX_AGE_SECONDS}s) — PITR window is shrinking" >&2
       exit 1
     fi
-    printf '%s\n' "${NOW_EPOCH}" > "${BACKUP_DIR}/.wal_archive_last_success_epoch"
-    echo "${LOG_PREFIX} WAL archive verify finished successfully"
+    echo "[verify-wal] OK: WAL uploads are fresh"
 
   backup-redis.sh: |
     #!/bin/sh

@@ -1,0 +1,70 @@
+# Redpanda SASL superuser bootstrap (k8s/components/tls, flip step 2/3).
+#
+# Creates the SCRAM-SHA-256 superuser from bhukkad-secrets BEFORE ops enables
+# redpanda.enable_sasl (see patches/redpanda-statefulset.yaml header). Runs
+# against the PLAINTEXT listener (9092) which is still open at that point;
+# idempotent — if the user exists, `rpk acl user create` fails and the
+# verification query succeeds instead.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-sasl-bootstrap
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redpanda
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: redpanda
+    spec:
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: create-superuser
+          image: redpandadata/redpanda:v23.3.13
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              BROKER=redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092
+              for i in $(seq 1 60); do
+                rpk cluster health -X brokers "${BROKER}" 2>/dev/null | grep -q '"is_healthy": true' \
+                  && break
+                echo "waiting for redpanda health ($i/60)"; sleep 5
+              done
+              if rpk acl user create bhukkad-admin \
+                   --password "${REDPANDA_SUPERUSER_PASSWORD}" \
+                   --mechanism SCRAM-SHA-256 \
+                   -X brokers "${BROKER}" 2>/dev/null; then
+                echo "superuser bhukkad-admin created"
+              elif rpk acl user list -X brokers "${BROKER}" | grep -q '^bhukkad-admin'; then
+                echo "superuser bhukkad-admin already exists"
+              else
+                echo "could not create or verify superuser bhukkad-admin"; exit 1
+              fi
+          env:
+            - name: REDPANDA_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDPANDA_SUPERUSER_PASSWORD
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

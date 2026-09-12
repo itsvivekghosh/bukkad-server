@@ -109,6 +109,21 @@ resources:
   - gateway/service.yaml
   - gateway/pdb.yaml
   - gateway/hpa.yaml
+  # P2 fleet completion: realtime (SSE order streams, consumes order.events.v1),
+  # personalization (recommendations) and growth (loyalty/referral/campaigns) —
+  # modeled on the survey base (same labels, env pattern, probes, HPA/PDB).
+  - realtime/deployment.yaml
+  - realtime/service.yaml
+  - realtime/pdb.yaml
+  - realtime/hpa.yaml
+  - personalization/deployment.yaml
+  - personalization/service.yaml
+  - personalization/pdb.yaml
+  - personalization/hpa.yaml
+  - growth/deployment.yaml
+  - growth/service.yaml
+  - growth/pdb.yaml
+  - growth/hpa.yaml
   # Logging: FluentBit DaemonSet tails /var/log/containers and ships to Loki at
   # ${LOKI_HOST} (wired via the DaemonSet env; k8s/logging/).
   - logging/fluent-bit-configmap.yaml
@@ -127,10 +142,10 @@ resources:
   # the release: bhukkad-prometheus rule selector) is present.
   - monitoring/service-monitors.yaml
   - monitoring/prometheus-rules.yaml
-  # P2 Kafka consumer-lag: DLT + consumer-group lag alerts. Metric source is
-  # the kafka-exporter component below — remove BOTH together (G-2: no inert
-  # safety devices). The exporter also makes MoneyTopicDltLag /
-  # KafkaConsumerLagHigh (above) live.
+  # Kafka consumer-lag alerting (P2): tripwires over the danielqsj
+  # kafka-exporter metrics (component below) — DLT parking, stalled groups,
+  # exporter-down watchdog. Makes the pre-existing MoneyTopicDltLag /
+  # KafkaConsumerLagHigh rules in prometheus-rules.yaml actually live.
   - monitoring/kafka-lag-rules.yaml
 
 # ---------------------------------------------------------------------------
@@ -167,10 +182,21 @@ resources:
 # ---------------------------------------------------------------------------
 components:
   - components/redpanda
-  # P2 backlog: Kafka consumer-lag poller feeding bhukkad.events alerts
-  # (kafka_consumergroup_* metrics). Toggle = remove this line (see its
-  # kustomization header; no-op on the fleet if the redpanda line is removed too).
-  - components/kafka-lag-exporter
+  # Kafka consumer-lag exporter (P2): danielqsj/kafka-exporter scraping the
+  # redpanda cluster's consumer-group/topic offsets; feeds
+  # monitoring/kafka-lag-rules.yaml + the pre-existing kafka_consumergroup_lag
+  # rules in monitoring/prometheus-rules.yaml.
+  - components/kafka-exporter
+  # ---------------------------------------------------------------------------
+  # Feature flag: in-cluster TLS (P2). UNCOMMENT the line below to enable the
+  # cert-manager internal CA + server certs and TLS listeners for postgres
+  # (ssl=on via include_if_exists conf), redpanda (TLS:// listener), redis
+  # (tls-port 6380) and nginx (443 secondary router). Requires cert-manager
+  # CRDs in the cluster. The CLIENT side stays on plaintext until ops flips
+  # DB_SSL_ENABLED / the commented client env blocks in configmap.yaml — the
+  # full flip order is k8s/README-TLS.md. Default OFF = dev-boot-compatible.
+  # ---------------------------------------------------------------------------
+  # - components/tls
 
 labels:
   - includeSelectors: true
