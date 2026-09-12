@@ -168,12 +168,11 @@ data:
 
   # ---------------------------------------------------------------------------
   # Backup off-site copy (roadmap #15): the bhukkad-backup CronJob's s3-sync
-  # container reads these. S3_BUCKET is REQUIRED — the in-cluster PVC alone was
+  # container reads these. S3_BUCKET is sourced from bhukkad-secrets — the in-cluster PVC alone was
   # the audited single-point-of-failure. AWS keys come from bhukkad-secrets
   # (Vault path bhukkad/prod/backup); the bucket lifecycle rule must enforce
   # 30-day retention (docs/backup-and-restore-runbook.md).
   # ---------------------------------------------------------------------------
-  S3_BUCKET: "CHANGE_ME_BACKUP_BUCKET"
   AWS_REGION: "ap-south-1"
 
   # Loki endpoint for the FluentBit DaemonSet (k8s/logging/). Unset/empty ⇒

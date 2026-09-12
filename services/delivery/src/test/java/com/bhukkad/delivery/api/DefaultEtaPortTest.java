@@ -11,6 +11,8 @@ import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
 import com.bhukkad.delivery.service.EtaService;
 import com.bhukkad.delivery.service.RoadNetworkDistanceCalculator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 

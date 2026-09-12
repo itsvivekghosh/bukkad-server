@@ -43,6 +43,18 @@ public class ReviewService {
         return reviewRepository.save(review);
     }
 
+    /**
+     * Removes a review (customer self-service delete; ADMIN may remove any).
+     * Unknown id → 404; foreign author → 403 (IDOR guard, audit B-class).
+     */
+    @Transactional
+    public void deleteFor(com.bhukkad.common.security.TokenPrincipal principal, Long reviewId) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new com.bhukkad.common.error.ResourceNotFoundException("Review not found: " + reviewId));
+        com.bhukkad.common.security.PrincipalGuard.requireSelfOrAdmin(principal, review.getCustomerId());
+        reviewRepository.delete(review);
+    }
+
     @Transactional(readOnly = true)
     public List<Review> byRestaurant(Long restaurantId) {
         return reviewRepository.findByRestaurantId(restaurantId);

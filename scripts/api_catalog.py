@@ -2272,7 +2272,7 @@ API_CATALOG = [
         "group": "Trust & Compliance (V17)",
         "name": "Moderate Review",
         "description": "Approve or reject a review; recalculates restaurant rating.",
-        "method": "PUT",
+        "method": "POST",
         "path": "/api/v1/admin/reviews/{review_id}/moderate",
         "auth": "admin",
         "query": {"status": "APPROVED"},

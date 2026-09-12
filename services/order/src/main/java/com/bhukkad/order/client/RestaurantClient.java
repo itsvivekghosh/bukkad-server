@@ -1,10 +1,12 @@
 package com.bhukkad.order.client;
 
+import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
 import com.bhukkad.order.client.dto.StockReservationLine;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -38,21 +40,37 @@ public class RestaurantClient {
     private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
-        this(baseUrl, (MeterRegistry) null);
+        this(baseUrl, (MeterRegistry) null, null);
     }
 
     @Autowired
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
-                            org.springframework.beans.factory.ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        this(baseUrl, meterRegistryProvider.getIfAvailable());
+                            ObjectProvider<MeterRegistry> meterRegistryProvider,
+                            ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider) {
+        this(baseUrl,
+                meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable(),
+                serviceJwtTokenProvider);
     }
 
     RestaurantClient(String baseUrl, MeterRegistry meterRegistry) {
+        this(baseUrl, meterRegistry, null);
+    }
+
+    RestaurantClient(String baseUrl, MeterRegistry meterRegistry,
+                     ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider) {
         this.webClient = PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
                 .build()
                 .mutate()
                 .baseUrl(baseUrl)
                 .build();
+        this.serviceJwtTokenProvider = serviceJwtTokenProvider;
+    }
+
+    /** Mesh token for {@code /api/v1/internal/**} calls; null when unconfigured (tests). */
+    private String serviceToken() {
+        ServiceJwtAuthTokenProvider provider = serviceJwtTokenProvider == null
+                ? null : serviceJwtTokenProvider.getIfAvailable();
+        return provider == null ? null : provider.serviceToken();
     }
 
     /**

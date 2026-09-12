@@ -61,6 +61,13 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- StepVerifier for reactive filter tests (V-13 kill-switch offload). -->
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
 		<!-- P1 REACTOR-HYGIENE: BlockHound — tests assert the edge filters do
 		     zero blocking work on event-loop/non-blocking scheduler threads
 		     (Audit V-13 offload contract machine-verified). Not managed by the

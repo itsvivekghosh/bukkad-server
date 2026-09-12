@@ -174,8 +174,8 @@ spec:
                   key: DB_PASSWORD
             - name: S3_BUCKET
               valueFrom:
-                configMapKeyRef:
-                  name: bhukkad-config
+                secretKeyRef:
+                  name: bhukkad-secrets
                   key: S3_BUCKET
             - name: WALG_S3_PREFIX
               value: s3://$(S3_BUCKET)/pitr

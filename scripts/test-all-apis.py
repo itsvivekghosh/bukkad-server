@@ -2026,6 +2026,9 @@ def main() -> int:
         "review": False,
         "invoice_pdf": False,
     }
+    # Destructive customer specs run ONLY after every token-dependent test
+    # (catalog tail) — otherwise their 401s pollute the edge-case results.
+    deferred: list[dict] = []
     main_order_id = None  # Preserve the main delivered order for review/invoice tests
 
     current_group = None
@@ -2108,6 +2111,10 @@ def main() -> int:
                     passed=False, skipped=False, error=str(e)))
                 print(f"  {RED}✗ E2E journey aborted: {e}{RESET}")
 
+        if spec["name"] in ("Delete Account", "Logout Customer", "Erase User Data"):
+            deferred.append(spec)
+            continue
+
         result = run_test(spec, args.base_url, state, args.timeout, args.verbose)
         state.results.append(result)
 
@@ -2120,6 +2127,18 @@ def main() -> int:
             except ConnectionError:
                 pass  # cancel-order setup is best-effort
 
+
+    # Destructive teardown runs LAST — after every token-dependent test.
+    for spec in deferred:
+        group = spec.get("group", "General")
+        if group != current_group:
+            print_section(group)
+            current_group = group
+        try:
+            result = run_test(spec, args.base_url, state, args.timeout, args.verbose)
+        except ConnectionError:
+            continue
+        state.results.append(result)
 
     # Summary
     passed = sum(1 for r in state.results if r.passed and not r.skipped)

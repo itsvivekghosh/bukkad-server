@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
@@ -36,6 +37,7 @@ class DeliveryServiceTest {
     @Mock private DeliveryAssignmentRepository assignmentRepository;
     @Mock private DeliveryEventPublisher eventPublisher;
     @Mock private RiderProximityMatcher proximityMatcher;
+    @Spy private final com.bhukkad.delivery.config.DeliveryMatchingProperties matchingProperties = new com.bhukkad.delivery.config.DeliveryMatchingProperties();
     @InjectMocks private DeliveryService service;
 
     private DeliveryAgent agent(long id) {
@@ -254,17 +256,19 @@ class DeliveryServiceTest {
         DeliveryAssignment result = service.assign(10L, 19.1, 72.9);
 
         assertThat(result.getAgentId()).isEqualTo(42L);
-        verify(agentRepository, never()).findFirstByIsActiveTrue();
+        verify(agentRepository, never()).incrementActiveLoadWithinCap(anyLong(), org.mockito.ArgumentMatchers.anyInt());
+        verify(agentRepository, never()).findByIsActiveTrueOrderByIdAsc();
         verify(eventPublisher).deliveryAssigned(10L, 42L);
     }
 
     @Test
-    void assign_geoMatchEmpty_fallsBackToLegacyFirstActive() {
+    void assign_geoMatchEmpty_fallsBackToActivePickWithinCap() {
         when(assignmentRepository.findByOrderId(10L))
                 .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(assignment(10L, DeliveryAssignment.STATUS_ASSIGNED)));
+                .thenReturn(Optional.of(assignment(10L, 9L, DeliveryAssignment.STATUS_ASSIGNED)));
         when(proximityMatcher.nearestEligible(19.1, 72.9)).thenReturn(Optional.empty());
-        when(agentRepository.findFirstByIsActiveTrue()).thenReturn(Optional.of(agent()));
+        when(agentRepository.findByIsActiveTrueOrderByIdAsc()).thenReturn(List.of(agent(9L)));
+        when(agentRepository.incrementActiveLoadWithinCap(9L, 4)).thenReturn(1);
         when(assignmentRepository.insertIfAbsent(eq(10L), eq(9L), anyString(), any()))
                 .thenReturn(1);
 
@@ -272,8 +276,6 @@ class DeliveryServiceTest {
     }
 
     private DeliveryAssignment assignmentWithAgent(Long orderId, Long agentId) {
-        DeliveryAssignment a = assignment(orderId, DeliveryAssignment.STATUS_ASSIGNED);
-        a.setAgentId(agentId);
-        return a;
+        return assignment(orderId, agentId, DeliveryAssignment.STATUS_ASSIGNED);
     }
 }

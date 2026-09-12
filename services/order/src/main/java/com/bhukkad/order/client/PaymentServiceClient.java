@@ -44,9 +44,6 @@ public class PaymentServiceClient {
     /** Breaker/metric target name — unchanged so breaker state survives the migration. */
     static final String TARGET = "payment";
 
-    /** Breaker/metric target name — one breaker for all payment calls. */
-    private static final String TARGET = "payment";
-
     private final WebClient webClient;
 
     public PaymentServiceClient(@Value("${app.services.payment.url}") String baseUrl) {

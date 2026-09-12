@@ -684,6 +684,25 @@ class PlatformJwtValidatorTest {
     }
 
     @Test
+    void accessToken_withoutIatClaim_failsOpenOnEpochCheck() throws Exception {
+        // The epoch check is hardening on top of signature+expiry, never the
+        // sole gate: no iat claim => nothing to compare, token still verifies.
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .subject("42")
+                .claim("email", "a@b.com")
+                .claim("scope", "customer")
+                .expirationTime(Date.from(Instant.now().plusSeconds(3600)))
+                .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+        jwt.sign(new MACSigner(SECRET));
+
+        PlatformJwtValidator validator = validatorWith(null,
+                revocationStub(() -> epoch(Instant.now().plusSeconds(30))));
+
+        assertThat(validator.validate(jwt.serialize())).isPresent();
+    }
+
+    @Test
     void redisFailure_duringRevocationCheck_failsOpenWithBypassCounter() throws Exception {
         io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry();

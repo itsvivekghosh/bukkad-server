@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * Order creation as a saga: {@code RESERVE_STOCK → CHARGE_PAYMENT}, with
@@ -337,8 +338,16 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersForCustomer(Long customerId) {
-        return orderRepository.findByCustomerId(customerId).stream()
-                .map(this::toResponse)
+        List<Order> orders = orderRepository.findByCustomerId(customerId);
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        List<OrderItem> items = orderItemRepository.findByOrderIdIn(orderIds);
+        Map<Long, List<OrderItem>> itemsByOrderId = items.stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+        return orders.stream()
+                .map(order -> toResponse(order, itemsByOrderId.getOrDefault(order.getId(), List.of())))
                 .toList();
     }
 
@@ -446,11 +455,15 @@ public class OrderService {
     }
 
     private OrderResponse toResponse(Order order) {
-        List<OrderItemDto> items = orderItemRepository.findByOrderId(order.getId()).stream()
+        return toResponse(order, orderItemRepository.findByOrderId(order.getId()));
+    }
+
+    private OrderResponse toResponse(Order order, List<OrderItem> items) {
+        List<OrderItemDto> itemDtos = items.stream()
                 .map(i -> new OrderItemDto(i.getMenuItemId(), i.getItemName(), i.getUnitPrice(), i.getQuantity()))
                 .toList();
         return new OrderResponse(order.getId(), order.getCustomerId(), order.getRestaurantId(),
-                order.getStatus(), order.getTotalAmount(), items);
+                order.getStatus(), order.getTotalAmount(), itemDtos);
     }
 
     private OrderDetailsResponse toDetailsResponse(Order order) {

@@ -141,4 +141,12 @@ public class ReviewController {
     public Review moderate(@PathVariable Long reviewId, @RequestParam String status) {
         return reviewService.moderate(reviewId, status);
     }
+
+    /** Customer deletes their own review; ADMIN may delete any (IDOR-safe). */
+    @DeleteMapping("/reviews/{reviewId}")
+    public java.util.Map<String, Object> deleteReview(@AuthenticationPrincipal TokenPrincipal principal,
+                                                      @PathVariable Long reviewId) {
+        reviewService.deleteFor(principal, reviewId);
+        return java.util.Map.of("id", reviewId, "deleted", true);
+    }
 }

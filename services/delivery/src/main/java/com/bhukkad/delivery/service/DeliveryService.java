@@ -26,6 +26,7 @@ public class DeliveryService {
     private final DeliveryAssignmentRepository assignmentRepository;
     private final DeliveryEventPublisher eventPublisher;
     private final RiderProximityMatcher proximityMatcher;
+    private final DeliveryMatchingProperties matchingProperties;
 
     /**
      * Assigns the order to an agent atomically (audit B10). The old
@@ -75,9 +76,12 @@ public class DeliveryService {
             throw new BusinessException("Order already assigned: " + orderId);
         }
 
-        DeliveryAgent agent = proximityMatcher.nearestEligible(anchorLat, anchorLng)
-                .orElseGet(() -> agentRepository.findFirstByIsActiveTrue()
-                        .orElseThrow(() -> new BusinessException("No active delivery agent available")));
+        // ADR-003: nearest eligible fresh rider wins when the matcher finds
+        // one; otherwise pick within the active-load cap (PERF-4), legacy
+        // first-active order as the final fallback inside that picker.
+        long agentId = proximityMatcher.nearestEligible(anchorLat, anchorLng)
+                .map(DeliveryAgent::getId)
+                .orElseGet(() -> selectAgentIdWithinCap(orderId));
 
         LocalDateTime now = LocalDateTime.now();
         int inserted = assignmentRepository.insertIfAbsent(orderId, agentId,

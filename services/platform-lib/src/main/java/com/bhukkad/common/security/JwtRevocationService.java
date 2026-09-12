@@ -89,6 +89,17 @@ public class JwtRevocationService {
     }
 
     /**
+     * Revoke everything the user currently holds: stamps the epoch at {@code now}
+     * so every access token minted before this call dies at the next validation.
+     * Call sites (logout, password change, admin deactivate) use this instead of
+     * {@link #revoke(long, Instant)} directly. Never throws — an outage may not
+     * fail the logout; tokens then expire on their own TTL.
+     */
+    public void revokeTokensIssuedBefore(long userId) {
+        revoke(userId, Instant.now());
+    }
+
+    /**
      * The current revocation epoch for {@code userId}, or {@code null} when no
      * epoch is stored (never revoked / inert context). {@link RuntimeException}
      * propagates on Redis failure — callers decide the failure posture (see

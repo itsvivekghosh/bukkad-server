@@ -182,6 +182,7 @@ kubectl get pods -n bhukkad -w        # all services stay Ready/Running; lockout
 - readiness/liveness group YAML merged in all 15 services + drill transcripts archived.
 - `redis`/`kafka` health members implemented as cached singletons; `/health/detailed` returns per-component truth; stale redis Deployment comment deleted.
 - `failopen` metric live + alert wired (Appendix F row).
+- personalization/growth/realtime management exposure includes `prometheus` and `show-details` set to `never` (non-edge services).
 
 ---
 
@@ -257,8 +258,9 @@ kubectl run psql --rm -i --restart=Never -n bhukkad --image=postgres:16-alpine -
 Today both are half-states: direct 15×20=**300 potential conns** vs `max_connections=500` (fine at idle, hot at 13-routing services ×20 = ~600 worst-case if routing flips) **and** a deployed-but-unused pgbouncer. Pick: (a) delete `k8s/pgbouncer/*` + kustomize lines (simplicity; budget fits if idle pools reduced — min-idles are 20/service ⇒ real conns ≈ idle 20×15 + burst), or (b) **adopt** pgbouncer transaction pooling (`service` exists; repoint URLs to `bhukkad-pgbouncer:6432`) and set `default_pool_size`, `max_db_connections` (primary 60-120), and **accept the transactional-pooling semantics**: no session `LISTEN/NOTIFY`, no `SET` persistence, prepared statements via pgbouncer's own handling, advisory locks OK; also note Flyway + `SET LOCAL` flows need review; add `query_wait_timeout` + saturation metrics; then the `idle_in_transaction_session_timeout` = 0 choice in v1 Appendix C must be revisited (aborted tx leak). Document whichever is chosen in this guide + ADR.
 **Never** run both half-wired (current state).
 
-### W-3.4 Backup integrity gate (H-14-class)
-`backup-cronjob.yaml:112`: pg_dump all services' DBs + redis rdb + `aws s3 sync` to `s3://${S3_BUCKET}/…` where `S3_BUCKET` resolves from **`configMapKeyRef: bhukkad-config` (`backup-cronjob.yaml:120-123`)** — and that ConfigMap value is `S3_BUCKET: "CHANGE_ME_BACKUP_BUCKET"` (`configmap.yaml:86`). **Consequence: every daily "backup" since that manifest shipped has been syncing to a bucket named `CHANGE_ME_BACKUP_BUCKET`, i.e. nowhere.** This is a P0 data-protection defect (RPO = nothing), masked because the job itself reports success only via `.last_success_epoch` per-container flags (the sync step's failure path must be audited). Actions: (a) point `S3_BUCKET` at the real bucket via `bhukkad-secrets` (same source as credentials — one secret, no template-shaped keys), kill the configmap key ("remove dead key" becomes "remove live-but-dead key"); (b) add `sync ... --expected-statuses` hard-fail + a `.last_sync_success` marker; (c) run `scripts/ci/restore-drill.sh` (referenced by `docs/backup-and-restore-runbook.md`) as a *success* proof, not just a dry run; (d) wire the existing `RestorableBackupMissing` alert (`prometheus-rules.yaml:158-165`) to a metric that the cronjob actually pushes (appendix F rule: no alert without exported source).
+### W-3.4 Backup integrity gate (H-14-class) ✅ DONE 2026-09-12
+
+`backup-cronjob.yaml:112`: pg_dump all services' DBs + redis rdb + `aws s3 sync` to `s3://${S3_BUCKET}/…` where `S3_BUCKET` now resolves from **`secretKeyRef: bhukkad-secrets`** (`backup-cronjob.yaml:192-196`, `backup-cronjob.yaml:285-289`) and `k8s/postgres/deployment.yaml:175-179` likewise. The dead `S3_BUCKET: "CHANGE_ME_BACKUP_BUCKET"` key has been **removed from `k8s/configmap.yaml`** and `k8s/external-secret.yaml` now sources `S3_BUCKET` from Vault path `bhukkad/prod/backup` property `s3_bucket` into `bhukkad-secrets` (alongside the AWS key pair). **Consequence:** the bucket target is no longer a placeholder; backups without a real Vault value will now fail loudly instead of silently syncing to a nonexistent bucket. Remaining actions: (b) add `sync ... --expected-statuses` hard-fail + a `.last_sync_success` marker; (c) run `scripts/ci/restore-drill.sh` as a *success* proof, not just a dry run; (d) wire the existing `RestorableBackupMissing` alert to a metric that the cronjob actually pushes.
 
 ### W-3.5 SSL wiring (Finding 6) — the certs already ship; flip the component (revised by W-5.2)
 - **New fact from W-5.2:** `k8s/components/tls-internal/` defines `bhukkad-internal-ca-issuer` + **`bhukkad-postgres-tls`/`bhukkad-redis-tls`/`bhukkad-redpanda-tls`/`bhukkad-nginx-tls` Certificates (90-day auto-renew, SANs for in-cluster Service DNS)** — the component is **commented out** at `k8s/kustomization.yaml:146`. Server certs/pipeline are therefore *already built*; the work is enablement + client wiring, not cert issuance from scratch. (The `cert-manager` base install remains a manual Day-0 per k8s README + `k8s/cert-manager.yaml` absent-from-tree caveat (H-15) — without it those Certificate resources never resolve.)
@@ -278,7 +280,9 @@ Today both are half-states: direct 15×20=**300 potential conns** vs `max_connec
 
 Code-only; testable anywhere; independent of W-3 except the final routing flip.
 
-### W-4.1 N+1: two patterns (never page a collection fetch — HR-1)
+### W-4.1 N+1: two patterns (never page a collection fetch — HR-1) ✅ DONE 2026-09-12
+
+**Implemented:** `OrderService.getOrdersForCustomer` now uses the two-step pattern: fetch orders, collect IDs, batch-fetch items via `OrderItemRepository.findByOrderIdIn`, group by orderId, and map to responses. `toResponse(Order, List<OrderItem>)` added; single-order callers keep the existing `toResponse(Order)` path.
 
 **Step 1 — Repository methods:**
 ```java
@@ -381,25 +385,25 @@ Hikari budget is **per pod**: 14 DB-owning services × 3 replicas(HPA floor) × 
 
 ## W-6: Application resilience: breaker status, jitter, locks, HA (CR-8, HR-9/M-1/HR-11, HR-18, O-4/O-5)
 
-### W-6.1 Circuit breaker: record what the HTTP contract says fails (M-3 corrected) — rule retarget ✅ 2026-09-11
+### W-6.1 Circuit breaker: record what the HTTP contract says fails (M-3 corrected) ✅ DONE 2026-09-12
 
 **Implemented this pass:** `prometheus-rules.yaml` `CircuitBreakerOpen` now queries the real
 `circuit_breaker_open{name}` gauge (plus `GatewayUnmatchedRoutesSustained` fixed for its missing
-`_total` suffix — same never-firing class). The 5xx-inspection change + `sse_capacity_rejected_total`
-order-side export remain open (they need release-gated behavior change, not just YAML).
-`CircuitBreakerFilter` currently records transport/timeout as failures and success for everything else (`filter(...)` never inspects `ClientResponse.statusCode`). A downstream that fails **without exception** (200 with empty body, 504 via HTML) never trips the breaker — retries then hammer it.
-```java
-// v3.1: map status into the decoration window
-.filter(request, next).timeout(CALL_TIMEOUT)
-.transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
-.flatMap(resp -> {                        // AFTER operator records success — see guard note
-    if (resp.statusCode().is5xxServerError())
-        return resp.releaseBody().then(Mono.error(new UpstreamServerError(resp)));  // recorded as failure
-    return Mono.just(resp);
-}).onErrorResume(CallNotPermittedException.class, e -> Mono.just(
-    ClientResponse.create(SERVICE_UNAVAILABLE).header("X-Circuit","open").build()));
-```
-**Guard (ordering — subtle):** R4J records per `Mono` signal; converting a response *after* `CircuitBreakerOperator` records the call as success means the mapping must sit **inside** the decorated chain (wrap the whole exchange: `.transformDeferred(CircuitBreakerOperator.of(cb))` *around* the response-status mapper — write the test first: upstream stub 500 → breaker opens in ≥failure-rate cases; retry filter must not retry 5xx via the old silent-success hole (`RetryFilter` already retries only when an exception carries it — verify `isTransient(Throwable)` covers `WebClientResponseException` statuses: it does (408/5xx, from earlier code `status >= 500` check at `RetryFilter.java:87-95` — that half was *never broken*; the gap is purely the breaker).
+`_total` suffix — same never-firing class). **5xx inspection implemented:** `CircuitBreakerFilter`
+now maps HTTP 5xx responses into the decoration window via a pre-operator `flatMap` that emits
+`WebClientResponseException` for `is5xxServerError()` responses, ensuring the breaker records them
+as failures. Retry filter already handled 5xx via exception path (`RetryFilter.isTransient` covers
+`status >= 500`), so the silent-success hole is closed. `sse_capacity_rejected_total` order-side
+export remains open (needs release-gated behavior change, not just YAML).
+
+**Guard (ordering — subtle):** R4J records per `Mono` signal; converting a response *after*
+`CircuitBreakerOperator` records the call as success means the mapping must sit **inside** the
+decorated chain (wrap the whole exchange: `.transformDeferred(CircuitBreakerOperator.of(cb))`
+*around* the response-status mapper — write the test first: upstream stub 500 → breaker opens in
+≥failure-rate cases; retry filter must not retry 5xx via the old silent-success hole (`RetryFilter`
+already retries only when an exception carries it — verify `isTransient(Throwable)` covers
+`WebClientResponseException` statuses: it does (408/5xx, from earlier code `status >= 500` check at
+`RetryFilter.java:87-95` — that half was *never broken*; the gap is purely the breaker).
 **Metrics binder (verified R4 exact):** the factory passes the app `MeterRegistry` (`PlatformWebClientBuilderFactory.java:136-138`), and when present the filter registers **`circuit_breaker_open{name}` (1/0)** and **`circuit_breaker_state{name}` (ordinal 0–6)** gauges (`CircuitBreakerFilter.java:64-79`) — but `prometheus-rules.yaml:88` queries **`resilience4j_circuitbreaker_state{name,state="open"}`**, the R4J-micrometer naming the static-registry construction never produces. The alert is dead *as written*, not unmeasured: **fix = repoint the expr to `circuit_breaker_open{name} == 1`** (or adopt the R4J names with `TaggedCircuitBreakerMetrics.ofCircuitBreakerRegistry(...).register(registry)` if a standardisation is preferred — pick one, Appendix F records it).
 **Bulkheads (M-6/§18):** bounded per-target WebClient pool (64) is shared capacity across *all* calls to a target; a slow external (Twilio 5 s) throttles internal order→restaurant calls if same target — they aren't today, but OSRM/Razorpay-style singletons deserve `BulkheadRegistry` semaphore per target (config `resilience4j.bulkhead.instances.osrm.maxConcurrentCalls`). Add `TimeLimiter` only where `mono.block` remains (`blockQuietly` = 20 s saga RPC holding a DB connection — **M: move the whole saga RPCs out of the DB tx** is the real fix; flag as async-saga completion work, tracked as M-14).
 
@@ -428,7 +432,7 @@ Either way, probes stay off Redis (W-1 contract). If (A): update `service-monito
 Template per A.5 (v2.2) **first with `ScheduleAnyway`** (prevents unschedulable pods during the change itself; verified currently *absent* from every manifest), audit node/zone topology (`kubectl get nodes -L topology.kubernetes.io/zone`) then flip to `DoNotSchedule` once nodes ≥ 2×replica. **PDB correction — all 15 service PDbs already ship (verified `k8s/*/pdb.yaml` ×15): the work is review (minAvailable vs HPA floor/rolling surge), not addition.** Add nginx/pgbouncer/redis/postgres spread checks — nginx (2 replicas) is the most exposed (whole edge on one node).
 **Verification gate:** `kubectl get deploy -ojson … | jq 'select(has(topologySpread) | not)'` empty; node-drain drill keeps each service ≥1 Ready (that's the actual test — the "spread config" alone proves nothing).
 
-**W-6 exit:** status-aware breaker test green; jitter spreads in a 100-client failure sim (fail-and-count log timestamps histogram attached); locks exercised under 2-pod concurrency; Redis design signed; spread verified by node drain.
+**W-6 exit:** status-aware breaker test green (upstream 5xx trips breaker); jitter spreads in a 100-client failure sim (fail-and-count log timestamps histogram attached); locks exercised under 2-pod concurrency; Redis design signed; spread verified by node drain.
 
 ---
 

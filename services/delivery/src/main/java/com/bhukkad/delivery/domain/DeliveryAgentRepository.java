@@ -7,8 +7,12 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface DeliveryAgentRepository extends JpaRepository<DeliveryAgent, Long> {
+
+    /** Legacy fallback pick (ADR-003): the first active agent by id. */
+    Optional<DeliveryAgent> findFirstByIsActiveTrue();
 
     /** Deterministic fallback candidate list (id order = legacy first-agent first). */
     List<DeliveryAgent> findByIsActiveTrueOrderByIdAsc();

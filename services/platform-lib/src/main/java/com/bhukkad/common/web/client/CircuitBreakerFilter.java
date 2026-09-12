@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -110,9 +111,18 @@ public class CircuitBreakerFilter implements ExchangeFilterFunction {
     @Override
     public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
         return Mono.defer(() -> next.exchange(request))
-                // Timeout INSIDE the decoration window: a timed-out call must
-                // be recorded by the breaker (timeout counts as a failure).
                 .timeout(CALL_TIMEOUT)
+                .flatMap(response -> {
+                    if (response.statusCode().is5xxServerError()) {
+                        return Mono.error(WebClientResponseException.create(
+                                response.statusCode().value(),
+                                 "Upstream Server Error",
+                                response.headers().asHttpHeaders(),
+                                null,
+                                null));
+                    }
+                    return Mono.just(response);
+                })
                 .transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
                 .onErrorResume(CallNotPermittedException.class, e -> Mono.just(
                         ClientResponse.create(HttpStatus.SERVICE_UNAVAILABLE)

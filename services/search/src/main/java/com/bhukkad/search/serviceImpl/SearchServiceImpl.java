@@ -112,6 +112,9 @@ public class SearchServiceImpl implements com.bhukkad.search.service.SearchServi
     public static String escapeLike(String raw) {
         return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").toLowerCase(java.util.Locale.ROOT);
     }
+    private static String like(String term) {
+        return term; // patterns applied inside the query (CONCAT)
+    }
 
 
 

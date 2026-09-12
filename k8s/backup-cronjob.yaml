@@ -191,8 +191,8 @@ spec:
               env:
                 - name: S3_BUCKET
                   valueFrom:
-                    configMapKeyRef:
-                      name: bhukkad-config
+                    secretKeyRef:
+                      name: bhukkad-secrets
                       key: S3_BUCKET
                 - name: AWS_REGION
                   valueFrom:
@@ -284,8 +284,8 @@ spec:
               env:
                 - name: S3_BUCKET
                   valueFrom:
-                    configMapKeyRef:
-                      name: bhukkad-config
+                    secretKeyRef:
+                      name: bhukkad-secrets
                       key: S3_BUCKET
                 - name: AWS_REGION
                   valueFrom:
