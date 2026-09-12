@@ -113,9 +113,6 @@ public class PlatformJwtValidator {
     /** Pre-built HS256 verifier — NEVER per-request; null = secret absent/too short in a non-strict profile. */
     @Nullable
     private final MACVerifier macVerifier;
-    /** Logout/password-change revocation epoch (P1); null = not wired (check skipped). */
-    @Nullable
-    private final JwtRevocationService revocationService;
 
 
     private volatile JWKSet cachedJwks;
@@ -166,7 +163,6 @@ public class PlatformJwtValidator {
         this.restClient = restClient;
         this.revocationService = revocationService;
         this.meterRegistry = meterRegistry;
-        this.revocationService = revocationService;
         byte[] secretBytes = properties.secret() == null
                 ? new byte[0] : properties.secret().getBytes(StandardCharsets.UTF_8);
         this.macVerifier = buildMacVerifier(secretBytes, requiredInProfile);

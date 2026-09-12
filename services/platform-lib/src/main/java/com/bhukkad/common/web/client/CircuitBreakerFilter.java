@@ -107,15 +107,6 @@ public class CircuitBreakerFilter implements ExchangeFilterFunction {
         return circuitBreaker;
     }
 
-    /**
-     * The shared JVM-wide breaker registry every platform-built WebClient
-     * filter registers into — diagnostics seam for the prod boot self-check
-     * ({@code CircuitBreakerPreflight}) and tests.
-     */
-    public static CircuitBreakerRegistry sharedRegistry() {
-        return SHARED_REGISTRY;
-    }
-
     @Override
     public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
         return Mono.defer(() -> next.exchange(request))
