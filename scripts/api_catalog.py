@@ -5167,13 +5167,12 @@ BODY_TEMPLATES = {
     },
     "review": {
         "orderId": "{order_id}",
+        "restaurantId": "{restaurant_id}",
         "rating": 5,
         "comment": "Excellent food!",
         "foodRating": 5,
         "deliveryRating": 4,
     },
-    "menu_item_rating": {
-        "orderId": "{order_id}",
         "menuItemId": "{menu_item_id}",
         "rating": 5,
         "comment": "Best paneer tikka!",

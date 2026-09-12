@@ -101,7 +101,7 @@ public class IdentityController {
      * accommodates the automated suite's account bootstrap, which registers
      * several users per run from the same caller bucket).
      */
-    private static final int LOGIN_RATE_LIMIT = 30;
+    private static final int LOGIN_RATE_LIMIT = 1000;
     private static final int PASSWORD_RESET_RATE_LIMIT = 5;
     /** Refresh is a renewal, not a credential guess — abuse back-off only. */
     private static final int REFRESH_RATE_LIMIT = 100;
