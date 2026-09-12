@@ -3,7 +3,11 @@
 # postgres/redis for infrastructure only. This is "test the app locally".
 #
 # Prereqs: docker compose -f services/docker/docker-compose.dev.yml up -d postgres redis
-# Prereq:  ./mvnw -f services/pom.xml package -DskipTests   (fat jars)
+# Prereq:  ./mvnw -f services/pom.xml clean package -DskipTests   (fat jars;
+# `clean` matters: maven never removes stale target/classes from a worktree
+# whose merge deleted a resource (e.g. a renamed Flyway V11), and the orphan
+# silently lands in the jar — duplicated migration versions then hard-fail
+# boot.)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

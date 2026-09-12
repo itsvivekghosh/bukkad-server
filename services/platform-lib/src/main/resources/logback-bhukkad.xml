@@ -9,16 +9,27 @@
   change it here once, fleet-wide.
 
   Deliberately plain Logback (no springProfile/springProperty) so it parses
-  both under Spring Boot and in a bare LoggerContext (platform-lib
-  PiiMaskingLogbackConfigTest). Per-environment levels stay in the services'
-  own configuration (logging.level.* in application[-<profile>].yml), which
-  Spring Boot applies on top of these defaults.
+  under Spring Boot and in a bare Joran boot of the same include path
+  (platform-lib PiiMaskingLogbackConfigTest). Per-environment levels stay in
+  the services' own configuration (logging.level.* in
+  application[-<profile>].yml), which Spring Boot applies on top of these
+  defaults.
 
   Trace correlation: the platform filters seed MDC traceId/spanId
   (com.bhukkad.common.logging.LoggingConstants / TraceContext) — rendered in
   the bracket segment so every line is joinable with the tracing backend.
+
+  Fragment form: the root element MUST be <included>, not <configuration>.
+  Joran parses an <include>d resource as a nested element of the parent
+  document, and logback has no handler for a nested <configuration> —
+  "Ignoring unknown property [configuration]" silently drops the appender,
+  the conversion rule and the logger levels (P1 regression: services booted
+  with zero appenders on root, printing nothing even with
+  -Dlogging.level.root=INFO, which hid a fatal Flyway startup failure in
+  payment behind a silent exit-1). PiiMaskingLogbackConfigTest boots this
+  file through the SAME include path the services use.
 -->
-<configuration>
+<included>
 
     <!-- The redactor: %pii formats the message exactly like %msg, then masks
          emails (***@***) and bare phone digits (**********). Exceptions are
@@ -50,4 +61,4 @@
         <appender-ref ref="CONSOLE"/>
     </root>
 
-</configuration>
+</included>

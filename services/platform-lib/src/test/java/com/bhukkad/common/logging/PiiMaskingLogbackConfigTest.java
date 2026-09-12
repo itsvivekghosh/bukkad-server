@@ -10,8 +10,6 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
-import java.io.InputStream;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -21,12 +19,24 @@ import static org.assertj.core.api.Assertions.assertThat;
  * rendered log lines — {@link PiiMaskingConverter} existed but was dead code
  * while no logback config registered or used it.
  *
- * <p>The test boots the config in an isolated {@link LoggerContext} (plain
- * Joran — the file must stay Spring-tag-free so this proof is possible),
- * emits a PII-bearing log line, and renders it through the CONSOLE
- * appender's OWN encoder/layout to assert what would hit stdout.</p>
+ * <p>The test boots the config the way every service's logback-spring.xml
+ * does — a {@code <configuration>} that {@code <include>}s it (plain Joran;
+ * the file must stay Spring-tag-free and use logback's {@code <included>}
+ * fragment root, so this proof is possible) — emits a PII-bearing log line,
+ * and renders it through the CONSOLE appender's OWN encoder/layout to assert
+ * what would hit stdout.</p>
  */
 class PiiMaskingLogbackConfigTest {
+
+    /**
+     * Regression guard for the silent-exit debug blackout: Joran splices an
+     * included resource as nested content, so a {@code <configuration>} ROOT
+     * in logback-bhukkad.xml would be dropped ("Ignoring unknown property
+     * [configuration]") and every service would boot with zero appenders.
+     * Loading through this exact include wrapper proves the appender mounts.
+     */
+    private static final String SERVICE_INCLUDE_WRAPPER =
+            "<configuration><include resource=\"logback-bhukkad.xml\"/></configuration>";
 
     @Test
     void platformConfig_rendersConsoleLinesWithPiiMasked() throws Exception {
@@ -37,12 +47,12 @@ class PiiMaskingLogbackConfigTest {
         context.setMDCAdapter(new ch.qos.logback.classic.util.LogbackMDCAdapter());
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(context);
-        try (InputStream config = PiiMaskingLogbackConfigTest.class
-                .getClassLoader().getResourceAsStream("logback-bhukkad.xml")) {
-            assertThat(config).as("logback-bhukkad.xml must ship on the platform-lib classpath")
-                    .isNotNull();
-            configurator.doConfigure(config);
-        }
+        assertThat(PiiMaskingLogbackConfigTest.class.getClassLoader()
+                .getResource("logback-bhukkad.xml"))
+                .as("logback-bhukkad.xml must ship on the platform-lib classpath")
+                .isNotNull();
+        configurator.doConfigure(new java.io.ByteArrayInputStream(
+                SERVICE_INCLUDE_WRAPPER.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
         ch.qos.logback.classic.Logger root =
                 context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
