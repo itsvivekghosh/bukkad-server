@@ -101,11 +101,14 @@ data:
         limit_req_zone $binary_remote_addr zone=actuator:10m rate=5r/s;
         limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
 
-        # Upstream - App Service. Round-robin (default) across the app Service;
-        # K8s Service already load-balances across all app replicas, and SSE is
-        # safe because live updates are relayed via Redis pub/sub.
+        # Upstream - API gateway Service (k8s/gateway/service.yaml exposes
+        # bhukkad-gateway:8080). The K8s Service already load-balances across
+        # gateway replicas, and SSE is safe because live updates are relayed via
+        # Redis pub/sub. NOTE: this used to point at `bhukkad-app`, a legacy
+        # monolith Service that no longer exists in this repo (fresh installs
+        # got 502s for every request) — keep it pinned to a manifest-backed name.
         upstream bhukkad_app {
-            server bhukkad-app:8080 max_fails=3 fail_timeout=30s;
+            server bhukkad-gateway:8080 max_fails=3 fail_timeout=30s;
             keepalive 32;
         }
 

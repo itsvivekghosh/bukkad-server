@@ -85,7 +85,12 @@ spec:
         # Circuit breaker open (V-16): any breaker OPEN for 1m is a degraded
         # upstream; 5m means the fallback route is carrying real traffic.
         - alert: CircuitBreakerOpen
-          expr: max by (name) (resilience4j_circuitbreaker_state{name!="",state="open"}) > 0
+          # W-6.1 (CR-18 series-name fix): the WebClient filter exports the
+          # custom gauges circuit_breaker_open (1/0) and circuit_breaker_state
+          # (ordinal). The resilience4j_* series this expression used to query
+          # are never bound (static registry, no R4J micrometer binder) — the
+          # alert could not fire no matter how many breakers opened.
+          expr: max by (name) (circuit_breaker_open{name!=""}) > 0
           for: 5m
           labels:
             severity: warning
@@ -97,13 +102,29 @@ spec:
         # unrouted /api path on gateway_route_unmatched — sustained traffic
         # means a route is missing or a client is pinned to a dead path.
         - alert: GatewayUnmatchedRoutesSustained
-          expr: sum(rate(gateway_route_unmatched[5m])) by (path) > 0.5
+          # Micrometer/Prometheus convention appends _total to counters — the
+          # old suffix-less series never existed (same trap as CircuitBreakerOpen).
+          expr: sum(rate(gateway_route_unmatched_total[5m])) by (path) > 0.5
           for: 15m
           labels:
             severity: warning
             domain: edge
           annotations:
             summary: "Gateway has unmatched /api paths hitting {{ $labels.path }} for 15m"
+
+        # Login-lockout fail-open (W-1.3 / S-6): identity records
+        # auth_lockout_active_total{outcome="failopen"} whenever a Redis error
+        # forces its deliberate fail-open path. Sustained fail-open = the
+        # brute-force window is open while nobody is watching: page security.
+        - alert: AuthLockoutFailOpenSustained
+          expr: sum by (app) (rate(auth_lockout_active_total{outcome="failopen"}[1m])) > 0
+          for: 2m
+          labels:
+            severity: warning
+            domain: auth
+          annotations:
+            summary: "Login lockout failing open on {{ $labels.app }} — Redis outage equals an open brute-force window"
+            runbook: docs/runbooks/auth-lockout-failopen.md
 
         # JWKS refresh failures (V-03): token verification will start failing
         # wholesale if the key cache cannot refresh.

@@ -35,8 +35,23 @@ public class DevAdminBootstrap implements ApplicationRunner {
     public DevAdminBootstrap(AdminRepository adminRepository,
                              PasswordService passwordService,
                              @Value("${app.bootstrap-admin.email:admin@bhukkad.dev}") String email,
-                             @Value("${app.bootstrap-admin.password:Test@123456}") String password,
+                             @Value("${app.bootstrap-admin.password:}") String password,
                              @Value("${app.bootstrap-admin.full-name:Platform Admin}") String fullName) {
+        // P0 remediation (PRODUCTION-READINESS guide Finding 8 / W-1.1): the old
+        // `Test@123456` default was a well-known backdoor the moment the gate
+        // was ever flipped true in a real environment — and the first boot with
+        // it seeds a PERMANENT admin row that later code fixes cannot undo.
+        // There is now no silent default: enabling the bootstrap without an
+        // explicit, non-trivial password fails the boot, loudly.
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "app.bootstrap-admin.enabled=true requires an explicit app.bootstrap-admin.password"
+                            + " — the insecure built-in default was removed (Finding 8).");
+        }
+        if (password.length() < 12 || "Test@123456".equals(password)) {
+            throw new IllegalStateException(
+                    "app.bootstrap-admin.password must be at least 12 characters and not a known dev default");
+        }
         this.adminRepository = adminRepository;
         this.passwordService = passwordService;
         this.email = email;

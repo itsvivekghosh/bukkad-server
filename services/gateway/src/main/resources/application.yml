@@ -17,6 +17,18 @@ spring:
       httpclient:
         connect-timeout: 5000
         response-timeout: 8s
+        # W-5.4 / gateway pool (explicit budget; previously unconfigured =
+        # implicit elastic provider = unbounded upstream connections under
+        # fan-out/retry storms, exhaustion traded for invisible fd/port risk).
+        # Fixed 500/pod × HPA 3..10 bounds in-flight upstream work
+        # (REST + one held connection per live proxied stream); saturation
+        # now surfaces as fast, counted acquire timeouts (503) instead of a
+        # silently melting node.
+        pool:
+          type: fixed
+          max-connections: 500
+          acquire-timeout: 8000
+          max-idle-time: 30000
       # Edge header hardening (DedupeResponseHeader for Access-Control-Allow-*,
       # Proxy-Connection/TE stripping, Set-Cookie HttpOnly+Secure+SameSite=Strict)
       # is implemented via the TransportHeaderHygieneFilter and SecureCookieFilter

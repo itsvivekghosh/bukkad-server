@@ -139,6 +139,10 @@ public class LoginLockoutService {
             }
             return result;
         } catch (RedisConnectionFailureException | RedisSystemException e) {
+            // Fail-open is deliberate (availability beats perfect lockout), but
+            // it MUST be observable: a sustained failopen rate means the
+            // brute-force window is open (W-1.3 / S-6).
+            record(METRIC_AUTH_LOCKOUT_ACTIVE, "failopen");
             log.warn("Login-lockout Redis error; failing open for {}: {}",
                     identityOf(email, ip), e.getMessage());
             return 0;
@@ -162,6 +166,9 @@ public class LoginLockoutService {
             Long ttl = redisTemplate.getExpire(lockKey, java.util.concurrent.TimeUnit.MILLISECONDS);
             return (ttl == null || ttl < 0) ? null : ttl;
         } catch (RedisConnectionFailureException | RedisSystemException e) {
+            // fail-open + fail-LOUD (W-1.3): the alert on this outcome is the
+            // only thing standing between a Redis blip and an invisible brute-force window.
+            record(METRIC_AUTH_LOCKOUT_ACTIVE, "failopen");
             log.warn("Login-lockout Redis error; failing open: {}", e.getMessage());
             return null;
         }
