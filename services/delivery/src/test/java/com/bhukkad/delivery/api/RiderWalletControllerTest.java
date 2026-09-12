@@ -1,8 +1,9 @@
 package com.bhukkad.delivery.api;
 
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.delivery.service.DeliveryOpsService;
-import com.bhukkad.delivery.service.RiderOpsService;
+import com.bhukkad.delivery.api.controller.RiderWalletController;
+import com.bhukkad.delivery.domain.service.impl.DeliveryOpsService;
+import com.bhukkad.delivery.domain.service.impl.RiderOpsService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

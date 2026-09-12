@@ -1,16 +1,16 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.delivery.domain.DeliveryAgent;
-import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.domain.DeliveryAssignmentRepository;
-import com.bhukkad.delivery.domain.RiderDeliveryBatch;
-import com.bhukkad.delivery.domain.RiderDeliveryBatchRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
-import com.bhukkad.delivery.service.RiderOpsService;
+import com.bhukkad.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.delivery.domain.repository.DeliveryAgentRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
+import com.bhukkad.delivery.domain.entity.RiderDeliveryBatch;
+import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchRepository;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.domain.service.impl.RiderOpsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

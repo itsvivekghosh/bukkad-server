@@ -1,11 +1,11 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
-import com.bhukkad.delivery.domain.CityConfig;
-import com.bhukkad.delivery.domain.CityConfigRepository;
-import com.bhukkad.delivery.domain.DeliveryZone;
-import com.bhukkad.delivery.domain.DeliveryZoneRepository;
+import com.bhukkad.delivery.domain.entity.CityConfig;
+import com.bhukkad.delivery.domain.repository.CityConfigRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryZone;
+import com.bhukkad.delivery.domain.repository.DeliveryZoneRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;

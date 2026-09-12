@@ -1,12 +1,14 @@
 package com.bhukkad.delivery.api;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.domain.CityConfig;
-import com.bhukkad.delivery.domain.CityConfigRepository;
-import com.bhukkad.delivery.domain.DeliveryZone;
-import com.bhukkad.delivery.domain.DeliveryZoneRepository;
-import com.bhukkad.delivery.domain.ZoneSurgeRule;
-import com.bhukkad.delivery.domain.ZoneSurgeRuleRepository;
+import com.bhukkad.delivery.api.controller.CityInternalController;
+import com.bhukkad.delivery.api.controller.ServiceabilityController;
+import com.bhukkad.delivery.domain.entity.CityConfig;
+import com.bhukkad.delivery.domain.repository.CityConfigRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryZone;
+import com.bhukkad.delivery.domain.repository.DeliveryZoneRepository;
+import com.bhukkad.delivery.domain.entity.ZoneSurgeRule;
+import com.bhukkad.delivery.domain.repository.ZoneSurgeRuleRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;

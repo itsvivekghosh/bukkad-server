@@ -1,8 +1,9 @@
 package com.bhukkad.delivery.api;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.domain.DeliveryZone;
-import com.bhukkad.delivery.domain.DeliveryZoneRepository;
+import com.bhukkad.delivery.api.controller.ServiceabilityCheckController;
+import com.bhukkad.delivery.domain.entity.DeliveryZone;
+import com.bhukkad.delivery.domain.repository.DeliveryZoneRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

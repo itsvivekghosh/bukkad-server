@@ -1,8 +1,10 @@
 package com.bhukkad.delivery;
 
-import com.bhukkad.delivery.service.EtaDestinationResolver;
-import com.bhukkad.delivery.service.EtaService;
-import com.bhukkad.delivery.service.RoadNetworkDistanceCalculator;
+import com.bhukkad.delivery.config.DeliveryEtaConfig;
+import com.bhukkad.delivery.domain.service.EtaDestinationResolver;
+import com.bhukkad.delivery.domain.service.impl.EtaService;
+import com.bhukkad.delivery.domain.service.impl.RoadNetworkDistanceCalculator;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;

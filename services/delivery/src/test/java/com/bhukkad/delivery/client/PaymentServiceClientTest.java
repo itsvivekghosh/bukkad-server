@@ -1,6 +1,7 @@
 package com.bhukkad.delivery.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
+import com.bhukkad.delivery.infrastructure.client.PaymentServiceClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
