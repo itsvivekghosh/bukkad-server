@@ -161,7 +161,7 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
 
     @Test
     @Transactional
-    void chaos_killBetweenSteps_thenRecoverStaleSweepsAndVerdictCompletesTheSaga_stuckOrdersZero() {
+    void chaos_killBetweenSteps_thenRecoverStaleSweepsAndVerdictCompletesTheSaga_stuckOrdersZero() throws Exception {
         Long settledOrder = createAwaitingPaymentOrder(14L, 33L);
         Long failedOrder = createAwaitingPaymentOrder(15L, 34L);
         when(restaurantClient.releaseStock(any(), any()))
@@ -175,7 +175,11 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
             }
         });
 
-        stuckOrderSweep.sweepStuckOrders();
+        // RAW sweep target (see directSweepTarget javadoc): a proxied call
+        // seconds after context startup is silently skipped by ShedLock's
+        // lockAtLeastFor window opened by the startup tick — the sweep LOGIC
+        // is the contract here, its locking decoration is platform-tested.
+        directSweepTarget().sweepStuckOrders();
 
         // Swept orders are terminal-compensated: the sweep decided their fate
         // so a late verdict cannot resurrect a compensated order.
@@ -201,6 +205,21 @@ class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest
 
         // Stuck-order = 0 across the whole table.
         assertThat(orderRepository.countByStatus(Order.STATUS_AWAITING_PAYMENT)).isZero();
+    }
+
+    /**
+     * Invoke the sweep bypassing its AOP proxy: @EnableScheduling fires
+     * sweepStuckOrders once immediately at context startup, and that run
+     * keeps the shedlock row locked for lockAtLeastFor (10 s) — a proxied
+     * manual call made seconds later is silently skipped by ShedLock's
+     * single-runner guard, which is exactly NOT what this chaos property
+     * tests (ShedLock's wiring itself is covered by the platform-lib
+     * suite). Unwrapping the target makes the sweep invocation
+     * deterministic without weakening any assertion.
+     */
+    private StuckOrderSweep directSweepTarget() throws Exception {
+        return (StuckOrderSweep) ((org.springframework.aop.framework.Advised) stuckOrderSweep)
+                .getTargetSource().getTarget();
     }
 
     private String releaseEnvelope(Long orderId) {

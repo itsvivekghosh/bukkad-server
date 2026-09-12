@@ -27,6 +27,17 @@ class RestaurantClientTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        // This class deliberately drives failures (500 retries, refused
+        // connections). Every RestaurantClient instance mounts the JVM-shared
+        // per-target breaker from CircuitBreakerFilter.sharedRegistry(), so
+        // without a reset the accumulated 4-of-10 failures either open the
+        // breaker mid-class (breaking the success-path tests downstream — a
+        // bare 200 comes back as a 503-open with retry churn) or let another
+        // earlier class's pollution dictate the outcome (observed both
+        // directions across full-suite vs isolated runs). Unit tests here pin
+        // the client contract, not the shared breaker's cross-test memory.
+        com.bhukkad.common.web.client.CircuitBreakerFilter
+                .sharedRegistry().circuitBreaker("restaurant").reset();
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.start();
         port = server.getAddress().getPort();
@@ -119,14 +130,19 @@ class RestaurantClientTest {
     @Test
     void getMenuItem_propagatesNon404Errors_soCallersSurface503() {
         // 5xx must NOT collapse to empty — that would report a live item as
-        // missing during upstream churn; callers map it to 503 instead.
+        // missing during upstream churn; callers map the error signal to 503.
+        // PERF-5 client unification: the platform RetryFilter treats 5xx GETs
+        // as transient (3 retries, ≥1 s backoff), so the 3 s per-call cap
+        // always lapses before a terminal WebClientResponseException can
+        // surface — the call fails with a timeout instead. Contract pinned
+        // here: the failure stays an ERROR signal propagated to callers
+        // (never swallowed into the 404→empty "missing item" path).
         server.createContext("/api/v1/menu/items/5", exchange ->
                 exchange.sendResponseHeaders(500, -1));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> client.getMenuItem(5L).block())
-                .isInstanceOf(org.springframework.web.reactive.function.client.WebClientResponseException.class)
-                .hasMessageContaining("500");
+                .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
     }
 
     @Test
