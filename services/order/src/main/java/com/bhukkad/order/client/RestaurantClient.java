@@ -1,12 +1,10 @@
 package com.bhukkad.order.client;
 
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
-import com.bhukkad.order.client.dto.MenuItemDto;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
 import com.bhukkad.order.client.dto.StockReservationLine;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -22,33 +20,35 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the Restaurant service.
  *
- * <p>Runs on the platform WebClient factory (audit G-13/P-05): bounded shared
- * connection pool, explicit connect/response timeouts, retry (3 attempts,
- * 1s backoff on transient idempotent failures), circuit breaker
- * ({@code restaurant} target, 50% failure threshold, 10s open state) and
- * metrics — with the service base URL added on the copied builder
- * (Spring 6.1 {@code mutate()} preserves connector + filters).</p>
+ * <p>The WebClient comes from the platform factory ({@link
+ * PlatformWebClientBuilderFactory}, audit G-13/P-05): the bounded JVM-wide
+ * connection pool, 2 s connect / 5 s response timeouts, transient-only
+ * idempotent retry (3 attempts, 1s backoff), and a per-target circuit breaker
+ * ({@code restaurant}, 50% failure threshold, 10s open state). Per-call
+ * timeouts on the read surface are kept.</p>
  */
 @Component
 public class RestaurantClient {
 
-    /** Breaker/metric target name — unchanged so breaker state survives the migration. */
-    static final String TARGET = "restaurant";
+    /** Breaker/metric target name — one breaker for all restaurant calls. */
+    private static final String TARGET = "restaurant";
 
     private final WebClient webClient;
     /** Mesh auth for internal-path reads (e.g. the ownership oracle); nullable in tests. */
     private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
-        this(baseUrl, (ObjectProvider<MeterRegistry>) null, (ObjectProvider<ServiceJwtAuthTokenProvider>) null);
+        this(baseUrl, (MeterRegistry) null);
     }
 
     @Autowired
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
-                            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistryProvider) {
-        this.webClient = PlatformWebClientBuilderFactory
-                .forTarget("restaurant",
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
+                            org.springframework.beans.factory.ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this(baseUrl, meterRegistryProvider.getIfAvailable());
+    }
+
+    RestaurantClient(String baseUrl, MeterRegistry meterRegistry) {
+        this.webClient = PlatformWebClientBuilderFactory.forTarget(TARGET, meterRegistry)
                 .build()
                 .mutate()
                 .baseUrl(baseUrl)

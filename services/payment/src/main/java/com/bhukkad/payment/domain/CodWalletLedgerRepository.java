@@ -4,9 +4,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 /**
- * Persistence surface for {@link CodWalletLedger}. The ledger is append-only:
- * nothing in the application reads it inside the money path, so no query
- * methods are declared yet (audit reads go through ops SQL).
+ * Append-only persistence for {@link CodWalletLedger} rows (audit V-02).
+ * Deliberately exposes no delete/update surface — the ledger is evidence.
  */
 @Repository
 public interface CodWalletLedgerRepository extends JpaRepository<CodWalletLedger, Long> {

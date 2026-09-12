@@ -17,15 +17,17 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * Append-only ledger entry for an agent COD wallet mutation (audit V-02
- * finish). One row per committed CREDIT/DEBIT, written in the SAME
- * transaction as the balance change by {@code CodWalletService};
- * {@code balanceAfter} is the balance AS PERSISTED (M-1 rule from V-01),
- * never a recomputed in-memory sum. Never update or delete rows.
+ * Append-only audit ledger for rider COD wallet movements (audit V-02).
+ *
+ * <p>One row per balance mutation, written inside the SAME transaction as the
+ * {@link AgentCodWallet} update by {@code CodWalletService}: the balance and
+ * its evidence can never diverge. Rows are never updated or deleted —
+ * reconciliation replays the (agent_id, created_at) sequence and checks that
+ * {@code balance_after} is consistent with the amounts.</p>
  */
 @Entity
 @Table(name = "cod_wallet_ledger", indexes = {
-        @Index(name = "idx_cod_ledger_agent_created", columnList = "agent_id, created_at")
+        @Index(name = "idx_cod_ledger_agent", columnList = "agent_id, created_at")
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
@@ -39,21 +41,22 @@ public class CodWalletLedger {
     @Column(name = "agent_id", nullable = false)
     private Long agentId;
 
-    /** Optional order attribution (nullable — the amount-only contract stands). */
+    /** Owning delivery order when the movement is order-bound; else null. */
     @Column(name = "order_id")
     private Long orderId;
 
-    /** {@code CREDIT} or {@code DEBIT}; VARCHAR(6) in the schema. */
+    /** CREDIT or DEBIT (VARCHAR(6) domain). */
     @Column(nullable = false, length = 6)
     private String type;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
+    /** The wallet balance AS PERSISTED by this movement. */
     @Column(name = "balance_after", nullable = false, precision = 12, scale = 2)
     private BigDecimal balanceAfter;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime createdAt;
 }

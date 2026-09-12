@@ -36,10 +36,10 @@ public class AgentCodWallet {
     private BigDecimal balance = BigDecimal.ZERO;
 
     /**
-     * Optimistic lock (audit V-02 finish, mirrors WalletBalance/V-01). The
-     * money path keeps its pessimistic FOR UPDATE read (adopted position,
-     * docs §3.7); the version is the second fence: a stale managed write
-     * outside the lock window now fails loudly instead of clobbering the row.
+     * Optimistic lock (audit V-02 finish, runbook step 2). The money path
+     * keeps its pessimistic FOR UPDATE read as the primary serialization; the
+     * version is the second fence: a stale managed write outside the lock
+     * window fails loudly instead of clobbering the row.
      */
     @Version
     @Column(nullable = false)

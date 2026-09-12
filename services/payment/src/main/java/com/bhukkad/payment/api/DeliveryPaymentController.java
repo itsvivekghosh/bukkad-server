@@ -3,7 +3,6 @@ package com.bhukkad.payment.api;
 import com.bhukkad.payment.domain.AgentCodWallet;
 import com.bhukkad.payment.domain.RiderEarning;
 import com.bhukkad.payment.service.CodWalletService;
-import com.bhukkad.payment.service.RiderEarningService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,11 +20,9 @@ import java.util.Map;
  * previously never existed as a bean, leaving these endpoints reachable with
  * any ordinary user JWT.</p>
  *
- * <p>Audit V-02 finish: pure HTTP mapping — transaction demarcation, money
- * guards and the append-only COD ledger live in {@link CodWalletService} and
- * {@link RiderEarningService}. Request paths, parameters and response shapes
- * are contract-frozen ({@code orderId} is an optional attribution added for
- * the ledger; absent it, calls behave exactly as before).</p>
+ * <p>Audit V-02: the money logic and the {@code @Transactional} boundary now
+ * live in {@link CodWalletService}; this controller only maps HTTP ↔ domain
+ * (audit G-02/G-03 controller hygiene). Response shapes are contract-frozen.</p>
  */
 @RestController
 @RequestMapping("/api/v1/internal/delivery")
@@ -33,7 +30,6 @@ import java.util.Map;
 public class DeliveryPaymentController {
 
     private final CodWalletService codWalletService;
-    private final RiderEarningService earningService;
 
     // ============= COD Wallet Operations =============
 
@@ -48,10 +44,8 @@ public class DeliveryPaymentController {
     @PostMapping("/cod-wallet/{agentId}/credit")
     public ResponseEntity<Map<String, Object>> creditCodWallet(
             @PathVariable Long agentId,
-            @RequestParam BigDecimal amount,
-            @RequestParam(required = false) Long orderId) {
-        AgentCodWallet wallet = codWalletService.credit(agentId, amount, orderId);
-
+            @RequestParam BigDecimal amount) {
+        AgentCodWallet wallet = codWalletService.credit(agentId, amount);
         return ResponseEntity.ok(Map.of(
                 "agentId", wallet.getAgentId(),
                 "balance", wallet.getBalance(),
@@ -62,10 +56,8 @@ public class DeliveryPaymentController {
     @PostMapping("/cod-wallet/{agentId}/debit")
     public ResponseEntity<Map<String, Object>> debitCodWallet(
             @PathVariable Long agentId,
-            @RequestParam BigDecimal amount,
-            @RequestParam(required = false) Long orderId) {
-        AgentCodWallet wallet = codWalletService.debit(agentId, amount, orderId);
-
+            @RequestParam BigDecimal amount) {
+        AgentCodWallet wallet = codWalletService.debit(agentId, amount);
         return ResponseEntity.ok(Map.of(
                 "agentId", wallet.getAgentId(),
                 "balance", wallet.getBalance(),
@@ -80,8 +72,8 @@ public class DeliveryPaymentController {
             @RequestParam Long agentId,
             @RequestParam Long orderId,
             @RequestParam BigDecimal amount) {
-        RiderEarningService.EarningResult result = earningService.record(agentId, orderId, amount);
-        if (result.duplicate()) {
+        CodWalletService.EarningRecord record = codWalletService.recordEarning(agentId, orderId, amount);
+        if (record.duplicate()) {
             return ResponseEntity.ok(Map.of(
                     "agentId", agentId,
                     "orderId", orderId,
@@ -89,7 +81,7 @@ public class DeliveryPaymentController {
             ));
         }
 
-        RiderEarning earning = result.earning();
+        RiderEarning earning = record.earning();
         return ResponseEntity.ok(Map.of(
                 "id", earning.getId(),
                 "agentId", earning.getAgentId(),
@@ -102,9 +94,7 @@ public class DeliveryPaymentController {
 
     @GetMapping("/earnings/{agentId}")
     public ResponseEntity<List<Map<String, Object>>> getEarnings(@PathVariable Long agentId) {
-        List<RiderEarning> earnings = earningService.listByAgent(agentId);
-
-        List<Map<String, Object>> response = earnings.stream()
+        List<Map<String, Object>> response = codWalletService.earnings(agentId).stream()
                 .map(e -> Map.<String, Object>of(
                         "id", e.getId(),
                         "agentId", e.getAgentId(),
@@ -121,8 +111,7 @@ public class DeliveryPaymentController {
 
     @PostMapping("/earnings/{earningId}/mark-paid")
     public ResponseEntity<Map<String, Object>> markEarningPaid(@PathVariable Long earningId) {
-        earningService.markPaid(earningId);
-
+        codWalletService.markEarningPaid(earningId);
         return ResponseEntity.ok(Map.of(
                 "id", earningId,
                 "status", "PAID"

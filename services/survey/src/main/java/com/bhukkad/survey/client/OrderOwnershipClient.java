@@ -9,6 +9,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientException;
 
 import java.time.Duration;
 import java.util.Map;
@@ -20,20 +21,24 @@ import java.util.Map;
  * bindings live in the order service, so this is a mesh call to the
  * internal ownership oracle with X-Service-Token.
  *
- * <p>Runs on {@link PlatformWebClientBuilderFactory} (audit G-13/P-05):
- * bounded shared pool, 2 s connect + 3 s response timeout, the {@code order}
- * circuit breaker and metrics. Fail-closed: no answer or no token = not
- * eligible.</p>
+ * <p>The WebClient comes from the platform factory ({@link
+ * PlatformWebClientBuilderFactory}, audit G-13/P-05): the bounded JVM-wide
+ * connection pool, 2 s connect timeout, 3 s response timeout (preserves the
+ * previous 2000 ms/3000 ms request-factory timeouts) and a per-target circuit
+ * breaker ({@code order-ownership}).</p>
+ *
+ * <p>Fail-closed: no answer or no token = not eligible.</p>
  */
 @Component
 public class OrderOwnershipClient {
 
     private static final Logger log = LoggerFactory.getLogger(OrderOwnershipClient.class);
 
-    /** Breaker/metric target name for the order service. */
-    static final String TARGET = "order";
-    /** Ownership probes fail fast into the deny path (was: 3 s read timeout). */
-    static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(3);
+    /** Breaker/metric target name — one breaker for all ownership probes. */
+    private static final String TARGET = "order-ownership";
+
+    /** Read timeout: ownership probes must not stall the submit path (was 3000 ms). */
+    private static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(3);
 
     private final WebClient webClient;
     private final ObjectProvider<ServiceJwtAuthTokenProvider> tokenProvider;
@@ -43,12 +48,10 @@ public class OrderOwnershipClient {
             ObjectProvider<ServiceJwtAuthTokenProvider> tokenProvider,
             ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.tokenProvider = tokenProvider;
-        this.webClient = PlatformWebClientBuilderFactory
-                .forTarget(TARGET, meterRegistryProvider.getIfAvailable())
+        this.webClient = PlatformWebClientBuilderFactory.forTarget(TARGET,
+                        meterRegistryProvider.getIfAvailable())
                 .responseTimeout(RESPONSE_TIMEOUT)
                 .build()
-                // Spring 6.1: mutate() copies the platform connector + filters;
-                // only the mesh base URL is added.
                 .mutate()
                 .baseUrl(orderBaseUrl)
                 .build();
@@ -72,7 +75,7 @@ public class OrderOwnershipClient {
                     .block();
             Object owner = response == null ? null : response.get("customerId");
             return owner instanceof Number n && n.longValue() == customerId;
-        } catch (RuntimeException ex) {
+        } catch (WebClientException | org.springframework.core.codec.DecodingException ex) {
             log.warn("SURVEY_OWNERSHIP_CHECK_FAILED | orderId={} | customer={} | error={}",
                     orderId, customerId, ex.getMessage());
             return false;

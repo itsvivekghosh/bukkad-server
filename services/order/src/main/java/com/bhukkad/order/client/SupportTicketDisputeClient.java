@@ -2,6 +2,7 @@ package com.bhukkad.order.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -16,38 +17,37 @@ import reactor.core.publisher.Mono;
 /**
  * Service-to-service client for the SupportTicket service (dispute operations).
  *
- * <p>Runs on the platform WebClient factory (audit G-13/P-05): shared bounded
- * pool, platform timeouts, retry (3 attempts, 1s backoff on transient
- * idempotent failures), the {@code supportticket} circuit breaker
- * (50% failure threshold, 10s open state) and metrics; the service base URL
- * and mesh-token stamping are applied on the copied builder.
- * Every call carries the mesh service token on {@code X-Service-Token} —
- * supportticket authorizes dispute surfaces behind role guards, so tokenless
- * mesh legs used to be rejected with 401 and silently swallowed into empty
- * responses (the admin dispute console appeared to return no data).</p>
+ * <p>The WebClient comes from the platform factory ({@link
+ * PlatformWebClientBuilderFactory}, audit G-13/P-05): the bounded JVM-wide
+ * connection pool, 2 s connect / 5 s response timeouts, transient-only
+ * idempotent retry (3 attempts, 1s backoff) and a per-target circuit breaker
+ * ({@code supportticket}). Every call carries the mesh service token on
+ * {@code X-Service-Token} — supportticket authorizes dispute surfaces behind
+ * role guards, so tokenless mesh legs used to be rejected with 401 and
+ * silently swallowed into empty responses (the admin dispute console appeared
+ * to return no data).</p>
  */
 @Component
 public class SupportTicketDisputeClient {
 
-    /** Breaker/metric target name — unchanged so breaker state survives the migration. */
-    static final String TARGET = "supportticket";
+    /** Breaker/metric target name — one breaker for all supportticket calls. */
+    private static final String TARGET = "supportticket";
 
     private final WebClient webClient;
     private final ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider;
 
     public SupportTicketDisputeClient(
             @Value("${app.services.supportticket.url}") String baseUrl,
-            ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
-            ObjectProvider<MeterRegistry> meterRegistryProvider) {
+            org.springframework.beans.factory.ObjectProvider<ServiceJwtAuthTokenProvider> authTokenProvider,
+            org.springframework.beans.factory.ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.authTokenProvider = authTokenProvider;
-        this.webClient = PlatformWebClientBuilderFactory
-                .forTarget("supportticket",
-                        meterRegistryProvider == null ? null : meterRegistryProvider.getIfAvailable())
+        // Mesh auth: stamp X-Service-Token when service auth is enabled;
+        // supportticket rejects tokenless dispute calls.
+        this.webClient = PlatformWebClientBuilderFactory.forTarget(TARGET,
+                        meterRegistryProvider.getIfAvailable())
                 .build()
                 .mutate()
                 .baseUrl(baseUrl)
-                // Mesh auth: stamp X-Service-Token when service auth is
-                // enabled; supportticket rejects tokenless dispute calls.
                 .filter((request, next) -> {
                     String token = meshToken();
                     return next.exchange(token == null ? request
