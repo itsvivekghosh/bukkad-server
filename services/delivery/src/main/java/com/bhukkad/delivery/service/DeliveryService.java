@@ -25,7 +25,7 @@ public class DeliveryService {
     private final DeliveryAgentRepository agentRepository;
     private final DeliveryAssignmentRepository assignmentRepository;
     private final DeliveryEventPublisher eventPublisher;
-    private final DeliveryMatchingProperties matchingProperties;
+    private final RiderProximityMatcher proximityMatcher;
 
     /**
      * Assigns the order to an agent atomically (audit B10). The old
@@ -49,13 +49,35 @@ public class DeliveryService {
      */
     @Transactional
     public DeliveryAssignment assign(Long orderId) {
+        // P3 / ADR-003: proximity matching is live behind
+        // app.delivery.geo-matching.enabled, but the mesh call site carries no
+        // anchor coordinates (DeliveryController is frozen for this batch;
+        // order→delivery coordinate hand-off is another batch's data flow).
+        // Without an anchor the matcher returns empty and this stays on the
+        // legacy pick — byte-identical behavior until the anchor arrives.
+        return assign(orderId, null, null);
+    }
+
+    /**
+     * Anchor-aware overload (ADR-003 nearest-rider selection): when
+     * geo-matching is enabled AND an anchor point is supplied, the closest
+     * ACTIVE rider within the freshness window and below the active-assignment
+     * cap is preferred. No match (flag off / no anchor / no fresh candidate /
+     * every eligible rider at cap) falls back to {@code findFirstByIsActiveTrue}
+     * — matching the ADR's explicit "findFirstByIsActiveTrue stays as fallback".
+     * Either way, uniqueness remains arbitrated by the conditional insert.
+     */
+    @Transactional
+    public DeliveryAssignment assign(Long orderId, Double anchorLat, Double anchorLng) {
         // Fast path preserves the friendly contract for the common repeat
         // call without touching the agent pool; it is NOT the arbiter.
         if (assignmentRepository.findByOrderId(orderId).isPresent()) {
             throw new BusinessException("Order already assigned: " + orderId);
         }
 
-        Long agentId = selectAgentIdWithinCap(orderId);
+        DeliveryAgent agent = proximityMatcher.nearestEligible(anchorLat, anchorLng)
+                .orElseGet(() -> agentRepository.findFirstByIsActiveTrue()
+                        .orElseThrow(() -> new BusinessException("No active delivery agent available")));
 
         LocalDateTime now = LocalDateTime.now();
         int inserted = assignmentRepository.insertIfAbsent(orderId, agentId,

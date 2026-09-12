@@ -14,13 +14,13 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Campaign serving backed by the persisted {@code promotion_campaigns} rows
- * (the {@link PromotionCampaign} entity). The previous implementation read
- * Redis keys nobody ever wrote and returned an always-empty list; the
- * repository is the source of truth for GET /campaigns/active and
- * GET /campaigns/{id}.
+ * Campaigns are served straight from the {@code promotion_campaigns} table
+ * (the campaign back-office is the writer; P-08 left no Redis projection and
+ * this module contains no writer for the old {@code growth:campaign*} keys —
+ * reading them in P0 always produced an empty list).
  */
 @Slf4j
 @Service
@@ -33,12 +33,13 @@ public class CampaignServiceImpl implements CampaignService {
     @Override
     @Transactional(readOnly = true)
     public List<CampaignResponse> getActiveCampaigns() {
-        return campaignRepository.findCurrentlyActive(LocalDateTime.now()).stream()
+        return campaignRepository.findActiveCampaigns(LocalDateTime.now()).stream()
                 .map(CampaignServiceImpl::toResponse)
                 .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public double calculateBestDiscount(double subtotal) {
         List<CampaignResponse> activeCampaigns = getActiveCampaigns();
 
@@ -62,12 +63,11 @@ public class CampaignServiceImpl implements CampaignService {
     @Override
     @Transactional(readOnly = true)
     public CampaignResponse getCampaignById(Long campaignId) {
-        if (campaignId == null) {
-            return null;
-        }
-        return campaignRepository.findById(campaignId)
-                .map(CampaignServiceImpl::toResponse)
-                .orElse(null);
+        Optional<PromotionCampaign> campaign =
+                campaignRepository.findActiveCampaign(campaignId, LocalDateTime.now());
+        // Not found AND deactivated/expired campaigns both keep the 404 path
+        // the controller exposes for null.
+        return campaign.map(CampaignServiceImpl::toResponse).orElse(null);
     }
 
     private double calculateDiscountForCampaign(double subtotal, CampaignResponse campaign) {
@@ -92,26 +92,26 @@ public class CampaignServiceImpl implements CampaignService {
         return discount;
     }
 
-    /** Maps the persisted campaign onto the API response (null-tolerant numerics). */
-    static CampaignResponse toResponse(PromotionCampaign campaign) {
+    /** Entity → API DTO. Decimal money/percent columns widen to Double. */
+    static CampaignResponse toResponse(PromotionCampaign c) {
         return CampaignResponse.builder()
-                .id(campaign.getId())
-                .name(campaign.getName())
-                .campaignType(campaign.getCampaignType())
-                .description(campaign.getDescription())
-                .discountPercent(toDouble(campaign.getDiscountPercent()))
-                .flatDiscountAmount(toDouble(campaign.getFlatDiscountAmount()))
-                .minOrderAmount(toDouble(campaign.getMinOrderAmount()))
-                .maxDiscountAmount(toDouble(campaign.getMaxDiscountAmount()))
-                .freeDelivery(campaign.isFreeDelivery())
-                .priority(campaign.getPriority())
-                .isActive(campaign.isActive())
-                .startsAt(campaign.getStartsAt())
-                .endsAt(campaign.getEndsAt())
-                .buyQuantity(campaign.getBuyQuantity())
-                .getQuantity(campaign.getGetQuantity())
-                .getDiscountPercent(campaign.getGetDiscountPercent())
-                .targetSegment(campaign.getTargetSegment())
+                .id(c.getId())
+                .name(c.getName())
+                .campaignType(c.getCampaignType())
+                .description(c.getDescription())
+                .discountPercent(toDouble(c.getDiscountPercent()))
+                .flatDiscountAmount(toDouble(c.getFlatDiscountAmount()))
+                .minOrderAmount(toDouble(c.getMinOrderAmount()))
+                .maxDiscountAmount(toDouble(c.getMaxDiscountAmount()))
+                .freeDelivery(c.isFreeDelivery())
+                .priority(c.getPriority())
+                .isActive(c.isActive())
+                .startsAt(c.getStartsAt())
+                .endsAt(c.getEndsAt())
+                .buyQuantity(c.getBuyQuantity())
+                .getQuantity(c.getGetQuantity())
+                .getDiscountPercent(c.getGetDiscountPercent())
+                .targetSegment(c.getTargetSegment())
                 .build();
     }
 

@@ -35,25 +35,30 @@ public interface RestaurantSearchRepository extends JpaRepository<RestaurantSear
     List<RestaurantSearchEntity> searchNamePrefix(@Param("prefix") String lowercasedEscapedPrefix, Pageable pageable);
 
     /**
-     * ADR-002 fuzzy path (pg_trgm, migration V11): trigram similarity over
-     * the same columns {@link #searchText} targets, typo-tolerant via the
-     * {@code %} operator (pg_trgm.similarity_threshold, default 0.3) and
-     * ranked by best per-column similarity. Only reached when
-     * {@code app.search.fuzzy.enabled=true} — the LIKE path stays default.
+     * P-08 OPTION (P3), off by default: word-similarity ranking over the same
+     * columns as {@link #searchText} (<code>word_similarity</code> — the
+     * per-word trigram measure pg_trgm added for exactly this search use case;
+     * plain {@code similarity()} collapses on long columns and the GUC-bound
+     * {@code %} operator is not per-query tunable). {@code threshold} mirrors
+     * {@code app.search.fuzzy.similarity-threshold}. Only reached when
+     * {@code app.search.fuzzy.enabled=true} — the LIKE path above stays the
+     * shipped default per the V11 decision note. {@code term} is NOT
+     * LIKE-escaped here (no pattern semantics apply to trigram matching).
+     * GIN trigram indexes (V11) stay available for operator forms once
+     * product tunes GUCs.
      */
     @Query(value = """
-            SELECT * FROM restaurant_search
-            WHERE lower(name) % :term
-               OR lower(description) % :term
-               OR lower(cuisine_summary) % :term
-            ORDER BY GREATEST(
-                similarity(lower(name), :term),
-                similarity(lower(description), :term),
-                similarity(lower(cuisine_summary), :term)) DESC
-            LIMIT :limit
+            SELECT r.* FROM restaurant_search r
+            WHERE word_similarity(:term, r.name) > :threshold
+               OR word_similarity(:term, r.description) > :threshold
+               OR word_similarity(:term, r.cuisine_summary) > :threshold
+            ORDER BY GREATEST(word_similarity(:term, r.name),
+                              word_similarity(:term, r.description),
+                              word_similarity(:term, r.cuisine_summary)) DESC
             """, nativeQuery = true)
     List<RestaurantSearchEntity> searchTextFuzzy(@Param("term") String lowercasedTerm,
-                                                 @Param("limit") int limit);
+                                                 @Param("threshold") double threshold,
+                                                 Pageable pageable);
 
     /**
      * ADR-002 search sync: idempotent upsert of the restaurant projection,

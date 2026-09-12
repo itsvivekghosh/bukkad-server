@@ -35,25 +35,26 @@ public interface MenuItemSearchRepository extends JpaRepository<MenuItemSearchEn
     List<MenuItemSearchEntity> searchNamePrefix(@Param("prefix") String lowercasedEscapedPrefix, Pageable pageable);
 
     /**
-     * ADR-002 fuzzy path (pg_trgm, migration V11): trigram similarity over
-     * the name/description/category columns, typo-tolerant via the {@code %}
-     * operator (pg_trgm.similarity_threshold, default 0.3) and ranked by best
-     * per-column similarity. Only reached when
-     * {@code app.search.fuzzy.enabled=true} — the LIKE path stays default.
+     * P-08 OPTION (P3), off by default: word-similarity ranking over the same
+     * columns as {@link #searchText} (see
+     * {@code RestaurantSearchRepository#searchTextFuzzy} for gate and
+     * ranking semantics); {@code term} is plain lowercased text, no LIKE
+     * escaping applies.
      */
     @Query(value = """
-            SELECT * FROM menu_item_search
-            WHERE lower(name) % :term
-               OR lower(description) % :term
-               OR lower(category_name) % :term
-            ORDER BY GREATEST(
-                similarity(lower(name), :term),
-                similarity(lower(description), :term),
-                similarity(lower(category_name), :term)) DESC
-            LIMIT :limit
+            SELECT m.* FROM menu_item_search m
+            WHERE word_similarity(:term, m.name) > :threshold
+               OR word_similarity(:term, m.description) > :threshold
+               OR word_similarity(:term, m.category_name) > :threshold
+               OR word_similarity(:term, m.food_type) > :threshold
+            ORDER BY GREATEST(word_similarity(:term, m.name),
+                              word_similarity(:term, m.description),
+                              word_similarity(:term, m.category_name),
+                              word_similarity(:term, m.food_type)) DESC
             """, nativeQuery = true)
     List<MenuItemSearchEntity> searchTextFuzzy(@Param("term") String lowercasedTerm,
-                                               @Param("limit") int limit);
+                                               @Param("threshold") double threshold,
+                                               Pageable pageable);
 
     /**
      * ADR-002 search sync: idempotent upsert of the full document keyed by

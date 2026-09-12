@@ -4,11 +4,10 @@ import com.bhukkad.growth.config.GrowthProperties;
 import com.bhukkad.growth.dto.CampaignResponse;
 import com.bhukkad.growth.entity.PromotionCampaign;
 import com.bhukkad.growth.repository.PromotionCampaignRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -17,109 +16,117 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
- * Campaign serving reads the persisted promotion_campaigns rows (P3 dead-code
- * fix: the previous implementation read Redis keys nobody wrote and returned
- * an always-empty list).
+ * P3 structural (dead-stub sweep): the campaign reads were placeholder code
+ * reading Redis keys nothing ever wrote. They now serve the
+ * {@code promotion_campaigns} table; these tests pin the honest mapping,
+ * the active-window delegation, and the response-stable DTO shape.
  */
 @ExtendWith(MockitoExtension.class)
 class CampaignServiceImplTest {
 
     @Mock private PromotionCampaignRepository campaignRepository;
-    @Spy private GrowthProperties growthProperties = new GrowthProperties();
-    @InjectMocks private CampaignServiceImpl service;
 
-    private PromotionCampaign campaign(long id, String name, Double discountPercent,
-                                       Double flat, Double min, Double max, int priority) {
+    private CampaignServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new CampaignServiceImpl(campaignRepository, new GrowthProperties());
+    }
+
+    private PromotionCampaign campaign(Long id, String name, String percent, String flat,
+                                       String minOrder, String maxDiscount) {
         PromotionCampaign c = new PromotionCampaign();
         c.setId(id);
         c.setName(name);
         c.setCampaignType("PERCENTAGE");
-        if (discountPercent != null) c.setDiscountPercent(BigDecimal.valueOf(discountPercent));
-        if (flat != null) c.setFlatDiscountAmount(BigDecimal.valueOf(flat));
-        if (min != null) c.setMinOrderAmount(BigDecimal.valueOf(min));
-        if (max != null) c.setMaxDiscountAmount(BigDecimal.valueOf(max));
+        c.setDescription(name + " desc");
+        c.setDiscountPercent(percent == null ? null : new BigDecimal(percent));
+        c.setFlatDiscountAmount(flat == null ? null : new BigDecimal(flat));
+        c.setMinOrderAmount(minOrder == null ? null : new BigDecimal(minOrder));
+        c.setMaxDiscountAmount(maxDiscount == null ? null : new BigDecimal(maxDiscount));
+        c.setFreeDelivery(true);
+        c.setPriority(7);
         c.setActive(true);
-        c.setPriority(priority);
+        c.setBuyQuantity(2);
+        c.setGetQuantity(1);
+        c.setGetDiscountPercent(50);
+        c.setTargetSegment("NEW_USERS");
         return c;
     }
 
     @Test
-    void getActiveCampaigns_mapsPersistedRows() {
-        PromotionCampaign persisted = campaign(7L, "Monsoon Sale", 20.0, null, 100.0, 150.0, 5);
-        persisted.setDescription("20% off");
-        persisted.setFreeDelivery(true);
-        persisted.setBuyQuantity(2);
-        persisted.setGetQuantity(1);
-        persisted.setGetDiscountPercent(50);
-        persisted.setTargetSegment("NEW_USERS");
-        persisted.setStartsAt(LocalDateTime.now().minusDays(1));
-        persisted.setEndsAt(LocalDateTime.now().plusDays(1));
-        when(campaignRepository.findCurrentlyActive(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
-                .thenReturn(List.of(persisted));
+    void getActiveCampaigns_mapsFullResponseIncludingBogofFields() {
+        PromotionCampaign c = campaign(1L, "Summer", "20", null, "100", "500");
+        c.setStartsAt(LocalDateTime.now().minusDays(1));
+        c.setEndsAt(LocalDateTime.now().plusDays(1));
+        when(campaignRepository.findActiveCampaigns(any())).thenReturn(List.of(c));
 
-        List<CampaignResponse> out = service.getActiveCampaigns();
+        List<CampaignResponse> result = service.getActiveCampaigns();
 
-        assertThat(out).hasSize(1);
-        CampaignResponse response = out.get(0);
-        assertThat(response.getId()).isEqualTo(7L);
-        assertThat(response.getName()).isEqualTo("Monsoon Sale");
-        assertThat(response.getDescription()).isEqualTo("20% off");
-        assertThat(response.getDiscountPercent()).isEqualTo(20.0);
-        assertThat(response.getMinOrderAmount()).isEqualTo(100.0);
-        assertThat(response.getMaxDiscountAmount()).isEqualTo(150.0);
-        assertThat(response.getFreeDelivery()).isTrue();
-        assertThat(response.getPriority()).isEqualTo(5);
-        assertThat(response.getIsActive()).isTrue();
-        assertThat(response.getBuyQuantity()).isEqualTo(2);
-        assertThat(response.getGetQuantity()).isEqualTo(1);
-        assertThat(response.getGetDiscountPercent()).isEqualTo(50);
-        assertThat(response.getTargetSegment()).isEqualTo("NEW_USERS");
+        assertThat(result).hasSize(1);
+        CampaignResponse r = result.get(0);
+        assertThat(r.getId()).isEqualTo(1L);
+        assertThat(r.getName()).isEqualTo("Summer");
+        assertThat(r.getDiscountPercent()).isEqualTo(20.0);
+        assertThat(r.getMinOrderAmount()).isEqualTo(100.0);
+        assertThat(r.getMaxDiscountAmount()).isEqualTo(500.0);
+        assertThat(r.getFlatDiscountAmount()).isNull();
+        assertThat(r.getFreeDelivery()).isTrue();
+        assertThat(r.getPriority()).isEqualTo(7);
+        assertThat(r.getIsActive()).isTrue();
+        assertThat(r.getBuyQuantity()).isEqualTo(2);
+        assertThat(r.getGetQuantity()).isEqualTo(1);
+        assertThat(r.getGetDiscountPercent()).isEqualTo(50);
+        assertThat(r.getTargetSegment()).isEqualTo("NEW_USERS");
     }
 
     @Test
-    void getActiveCampaigns_emptyTable_returnsEmptyList() {
-        when(campaignRepository.findCurrentlyActive(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
-                .thenReturn(List.of());
+    void calculateBestDiscount_picksWinnerRespectingMinOrderAndCaps() {
+        // 10% of 1000 = 100 but flat 150 on the bigger cart; min-order gates the small cart.
+        PromotionCampaign pct = campaign(1L, "Pct10", "10", null, null, null);
+        PromotionCampaign flatBig = campaign(2L, "Flat150", null, "150", "800", null);
+        when(campaignRepository.findActiveCampaigns(any())).thenReturn(List.of(pct, flatBig));
 
-        assertThat(service.getActiveCampaigns()).isEmpty();
+        assertThat(service.calculateBestDiscount(500)).isEqualTo(50.0);   // flat gated by min-order
+        assertThat(service.calculateBestDiscount(1000)).isEqualTo(150.0); // flat beats percent
     }
 
     @Test
-    void getCampaignById_returnsMappedRow() {
-        when(campaignRepository.findById(9L)).thenReturn(Optional.of(campaign(9L, "Flat 50", null, 50.0, null, null, 1)));
+    void calculateBestDiscount_clampedToConfiguredMaxDiscountPercent() {
+        GrowthProperties props = new GrowthProperties();
+        props.getCampaign().setMaxDiscountPercent(25);
+        CampaignServiceImpl clamped = new CampaignServiceImpl(campaignRepository, props);
+        PromotionCampaign pct = campaign(1L, "Pct60", "60", null, null, null);
+        when(campaignRepository.findActiveCampaigns(any())).thenReturn(List.of(pct));
 
-        CampaignResponse out = service.getCampaignById(9L);
-
-        assertThat(out).isNotNull();
-        assertThat(out.getName()).isEqualTo("Flat 50");
-        assertThat(out.getFlatDiscountAmount()).isEqualTo(50.0);
+        assertThat(clamped.calculateBestDiscount(1000)).isEqualTo(250.0);
     }
 
     @Test
-    void getCampaignById_unknown_returnsNull() {
-        when(campaignRepository.findById(404L)).thenReturn(Optional.empty());
-
-        assertThat(service.getCampaignById(404L)).isNull();
-        assertThat(service.getCampaignById(null)).isNull();
+    void calculateBestDiscount_noActiveCampaigns_returnsZero() {
+        when(campaignRepository.findActiveCampaigns(any())).thenReturn(List.of());
+        assertThat(service.calculateBestDiscount(100)).isZero();
     }
 
     @Test
-    void calculateBestDiscount_appliesPercentAndCaps() {
-        // 20% of 500 = 100, under max 150 → best = 100.00
-        when(campaignRepository.findCurrentlyActive(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
-                .thenReturn(List.of(campaign(1L, "Pct", 20.0, null, 100.0, 150.0, 2)));
+    void getCampaignById_activeWindowRow_mapsResponse() {
+        PromotionCampaign c = campaign(9L, "Nine", "5", null, null, null);
+        when(campaignRepository.findActiveCampaign(eq(9L), any())).thenReturn(Optional.of(c));
 
-        assertThat(service.calculateBestDiscount(500.0)).isEqualTo(100.0);
+        CampaignResponse r = service.getCampaignById(9L);
+
+        assertThat(r).isNotNull();
+        assertThat(r.getId()).isEqualTo(9L);
     }
 
     @Test
-    void calculateBestDiscount_respectsMinOrderAmount() {
-        when(campaignRepository.findCurrentlyActive(org.mockito.ArgumentMatchers.any(LocalDateTime.class)))
-                .thenReturn(List.of(campaign(1L, "Pct", 20.0, null, 1000.0, null, 2)));
-
-        assertThat(service.calculateBestDiscount(500.0)).isZero();
+    void getCampaignById_inactiveOrExpired_returnsNullKeeping404() {
+        when(campaignRepository.findActiveCampaign(eq(9L), any())).thenReturn(Optional.empty());
+        assertThat(service.getCampaignById(9L)).isNull();
     }
 }

@@ -35,7 +35,7 @@ class DeliveryServiceTest {
     @Mock private DeliveryAgentRepository agentRepository;
     @Mock private DeliveryAssignmentRepository assignmentRepository;
     @Mock private DeliveryEventPublisher eventPublisher;
-    @Spy private DeliveryMatchingProperties matchingProperties = new DeliveryMatchingProperties();
+    @Mock private RiderProximityMatcher proximityMatcher;
     @InjectMocks private DeliveryService service;
 
     private DeliveryAgent agent(long id) {
@@ -235,5 +235,45 @@ class DeliveryServiceTest {
         assertThat(result.getStatus()).isEqualTo(DeliveryAssignment.STATUS_DELIVERED);
         verify(agentRepository, never()).decrementActiveLoad(anyLong());
         verify(eventPublisher, never()).orderDelivered(anyLong(), anyLong());
+    }
+
+    // ---- P3 / ADR-003 proximity wiring -----------------------------------
+
+    @Test
+    void assign_geoMatchPresent_insertsMatchedAgentNotFirstActive() {
+        DeliveryAgent near = new DeliveryAgent();
+        near.setId(42L);
+        near.setIsActive(true);
+        when(assignmentRepository.findByOrderId(10L))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(assignmentWithAgent(10L, 42L)));
+        when(proximityMatcher.nearestEligible(19.1, 72.9)).thenReturn(Optional.of(near));
+        when(assignmentRepository.insertIfAbsent(eq(10L), eq(42L),
+                eq(DeliveryAssignment.STATUS_ASSIGNED), any(LocalDateTime.class))).thenReturn(1);
+
+        DeliveryAssignment result = service.assign(10L, 19.1, 72.9);
+
+        assertThat(result.getAgentId()).isEqualTo(42L);
+        verify(agentRepository, never()).findFirstByIsActiveTrue();
+        verify(eventPublisher).deliveryAssigned(10L, 42L);
+    }
+
+    @Test
+    void assign_geoMatchEmpty_fallsBackToLegacyFirstActive() {
+        when(assignmentRepository.findByOrderId(10L))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(assignment(10L, DeliveryAssignment.STATUS_ASSIGNED)));
+        when(proximityMatcher.nearestEligible(19.1, 72.9)).thenReturn(Optional.empty());
+        when(agentRepository.findFirstByIsActiveTrue()).thenReturn(Optional.of(agent()));
+        when(assignmentRepository.insertIfAbsent(eq(10L), eq(9L), anyString(), any()))
+                .thenReturn(1);
+
+        assertThat(service.assign(10L, 19.1, 72.9).getAgentId()).isEqualTo(9L);
+    }
+
+    private DeliveryAssignment assignmentWithAgent(Long orderId, Long agentId) {
+        DeliveryAssignment a = assignment(orderId, DeliveryAssignment.STATUS_ASSIGNED);
+        a.setAgentId(agentId);
+        return a;
     }
 }

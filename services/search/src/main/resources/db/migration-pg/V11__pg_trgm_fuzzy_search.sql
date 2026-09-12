@@ -1,36 +1,39 @@
--- ADR-002 search engine: pg_trgm similarity substrate for the PostgreSQL
--- search tables. IMPLEMENTED BEHIND FLAG (app.search.fuzzy.enabled, default
--- FALSE) — PRODUCT ROLLOUT PENDING: the compatibility LIKE/prefix path stays
--- the default until the flag has soaked (ADR-002 keeps the bounded LIKE
--- queries as the compatibility surface).
---
--- Additive-only: one extension + GIN trigram indexes on the columns the
--- search queries actually target (name/description/cuisine on
--- restaurant_search; name/description/category on menu_item_search). The
--- landed varchar_pattern_ops prefix indexes (V9) are untouched and remain
--- the default autocomplete path.
---
--- NOTE: CREATE EXTENSION needs elevated privileges (superuser or a
--- pre-approved extension allowlist). The app's migration user must have the
--- extension pre-created or granted; on Testcontainers/dev the test user is
--- the cluster superuser.
+-- P3 / P-08 (open product decision, shipped OFF): trigram fuzzy search.
+-- ============================================================================
+-- DECISION NOTE: the product call between prefix-LIKE and trigram similarity
+-- ranking is NOT made here. This migration is the OPTIONAL groundwork only:
+--   * the default search path remains the bounded lower(...) LIKE queries
+--     backed by the V9 varchar_pattern_ops prefix indexes (untouched);
+--   * similarity()/word_similarity() ranking is used EXCLUSIVELY behind
+--     app.search.fuzzy.enabled (default FALSE) in SearchServiceImpl via
+--     word_similarity() with a bound cutoff (per-word semantics; the plain
+--     similarity()/% pair collapses on long columns at 0.3);
+--   * keep the varchar_pattern_ops prefix indexes as the default until
+--     product flips fuzzy on for an environment.
+-- Additive-only (zero-downtime rules): no unique constraints → no dup-sweep
+-- tripwire needed; every statement is IF NOT EXISTS / IF NOT and forward-safe
+-- to re-run. GIN trigram builds take a SHARE lock (no writes during build) —
+-- on a live fleet apply during low traffic, same posture as V9.
+-- pg_trgm is a TRUSTED extension since PostgreSQL 13 → the per-domain app
+-- role can CREATE it without superuser (dev/CI containers are superuser).
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+-- Columns the LIKE text-search predicates hit (search module repositories):
+-- restaurant_search: name, description, cuisine_summary
 CREATE INDEX IF NOT EXISTS idx_restaurant_search_name_trgm
-    ON public.restaurant_search USING gin ((lower(name)) gin_trgm_ops);
-
+    ON public.restaurant_search USING gin (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_restaurant_search_description_trgm
-    ON public.restaurant_search USING gin ((lower(description)) gin_trgm_ops);
+    ON public.restaurant_search USING gin (description gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_restaurant_search_cuisine_summary_trgm
+    ON public.restaurant_search USING gin (cuisine_summary gin_trgm_ops);
 
-CREATE INDEX IF NOT EXISTS idx_restaurant_search_cuisine_trgm
-    ON public.restaurant_search USING gin ((lower(cuisine_summary)) gin_trgm_ops);
-
+-- menu_item_search: name, description, category_name, food_type
 CREATE INDEX IF NOT EXISTS idx_menu_item_search_name_trgm
-    ON public.menu_item_search USING gin ((lower(name)) gin_trgm_ops);
-
+    ON public.menu_item_search USING gin (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_menu_item_search_description_trgm
-    ON public.menu_item_search USING gin ((lower(description)) gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_menu_item_search_category_trgm
-    ON public.menu_item_search USING gin ((lower(category_name)) gin_trgm_ops);
+    ON public.menu_item_search USING gin (description gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_menu_item_search_category_name_trgm
+    ON public.menu_item_search USING gin (category_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_menu_item_search_food_type_trgm
+    ON public.menu_item_search USING gin (food_type gin_trgm_ops);
