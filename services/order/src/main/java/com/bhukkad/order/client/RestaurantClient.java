@@ -1,5 +1,6 @@
 package com.bhukkad.order.client;
 
+import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
 import com.bhukkad.order.client.dto.MenuSnapshot;
 import com.bhukkad.order.client.dto.RestaurantResponse;
@@ -35,15 +36,26 @@ public class RestaurantClient {
     static final String TARGET = "restaurant";
 
     private final WebClient webClient;
+    /** Mesh auth for internal-path reads (e.g. the ownership oracle); nullable in tests. */
+    private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
-        this(baseUrl, (ObjectProvider<MeterRegistry>) null);
+        this(baseUrl, (ObjectProvider<MeterRegistry>) null, (ObjectProvider<ServiceJwtAuthTokenProvider>) null);
     }
 
     @Autowired
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl,
-                            ObjectProvider<MeterRegistry> meterRegistryProvider) {
+                            ObjectProvider<MeterRegistry> meterRegistryProvider,
+                            ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider) {
         this.webClient = buildWebClient(baseUrl, meterRegistryProvider);
+        this.serviceJwtTokenProvider = serviceJwtTokenProvider;
+    }
+
+    /** Mesh token for {@code /api/v1/internal/**} calls; null when unconfigured (tests). */
+    private String serviceToken() {
+        return serviceJwtTokenProvider == null ? null
+                : java.util.Optional.ofNullable(serviceJwtTokenProvider.getIfAvailable())
+                        .map(ServiceJwtAuthTokenProvider::serviceToken).orElse(null);
     }
 
     private static WebClient buildWebClient(String baseUrl, ObjectProvider<MeterRegistry> meterRegistryProvider) {
@@ -196,6 +208,12 @@ public class RestaurantClient {
     public Mono<Long> getRestaurantOwnerId(Long restaurantId) {
         return webClient.get()
                 .uri("/api/v1/internal/restaurants/{restaurantId}/owner", restaurantId)
+                .headers(headers -> {
+                    String token = serviceToken();
+                    if (token != null && !token.isBlank()) {
+                        headers.set("X-Service-Token", token);
+                    }
+                })
                 .retrieve()
                 .bodyToMono(java.util.Map.class)
                 .map(body -> Long.valueOf(String.valueOf(body.get("ownerId"))))
