@@ -1,4 +1,6 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
+import com.bhukkad.delivery.domain.service.DistanceCalculator;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService;
 
 import org.springframework.stereotype.Component;
 

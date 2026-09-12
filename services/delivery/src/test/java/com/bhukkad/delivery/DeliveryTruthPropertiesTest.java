@@ -1,4 +1,5 @@
 package com.bhukkad.delivery;
+import com.bhukkad.delivery.config.DeliveryTruthProperties;
 
 import org.junit.jupiter.api.Test;
 

@@ -1,7 +1,8 @@
-package com.bhukkad.delivery.live;
+package com.bhukkad.delivery.infrastructure.messaging;
+import com.bhukkad.delivery.infrastructure.cache.OrderLiveReplayStore;
 
 import com.bhukkad.common.error.SseCapacityExceededException;
-import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
+import com.bhukkad.delivery.api.dto.response.OrderLiveUpdate;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -361,15 +362,15 @@ public class OrderSseStreamService {
         streams.clear();
     }
 
-    public void broadcastKitchenLocal(Long restaurantId, com.bhukkad.delivery.dto.response.OrderLiveUpdate update) {
+    public void broadcastKitchenLocal(Long restaurantId, com.bhukkad.delivery.api.dto.response.OrderLiveUpdate update) {
         broadcast(kitchenStreams.get(restaurantId), update);
     }
 
-    public void broadcastRiderLocal(Long agentId, com.bhukkad.delivery.dto.response.OrderLiveUpdate update) {
+    public void broadcastRiderLocal(Long agentId, com.bhukkad.delivery.api.dto.response.OrderLiveUpdate update) {
         broadcast(riderStreams.get(agentId), update);
     }
 
-    public void broadcastCustomerLocal(Long orderId, com.bhukkad.delivery.dto.response.OrderLiveUpdate update) {
+    public void broadcastCustomerLocal(Long orderId, com.bhukkad.delivery.api.dto.response.OrderLiveUpdate update) {
         broadcast(customerStreams.get(orderId), update);
     }
 }

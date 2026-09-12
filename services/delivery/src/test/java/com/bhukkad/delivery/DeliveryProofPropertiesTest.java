@@ -1,4 +1,5 @@
 package com.bhukkad.delivery;
+import com.bhukkad.delivery.config.DeliveryProofProperties;
 
 import com.bhukkad.common.util.Constants;
 import org.junit.jupiter.api.Test;

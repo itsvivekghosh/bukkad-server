@@ -1,8 +1,9 @@
 package com.bhukkad.delivery.service;
+import com.bhukkad.delivery.domain.service.impl.DeliveryOpsService;
 
-import com.bhukkad.delivery.client.PaymentServiceClient;
-import com.bhukkad.delivery.domain.OrderDeliveryProof;
-import com.bhukkad.delivery.domain.OrderDeliveryProofRepository;
+import com.bhukkad.delivery.infrastructure.client.PaymentServiceClient;
+import com.bhukkad.delivery.domain.entity.OrderDeliveryProof;
+import com.bhukkad.delivery.domain.repository.OrderDeliveryProofRepository;
 import com.bhukkad.delivery.domain.entity.ZoneSurgeRule;
 import com.bhukkad.delivery.domain.repository.ZoneSurgeRuleRepository;
 import org.junit.jupiter.api.Test;

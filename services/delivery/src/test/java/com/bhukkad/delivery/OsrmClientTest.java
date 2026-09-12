@@ -1,6 +1,8 @@
 package com.bhukkad.delivery;
+import com.bhukkad.delivery.config.RoadDistanceProperties;
+import com.bhukkad.delivery.infrastructure.client.OsrmClient;
 
-import com.bhukkad.delivery.RoadDistanceService.RoadRoute;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService.RoadRoute;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

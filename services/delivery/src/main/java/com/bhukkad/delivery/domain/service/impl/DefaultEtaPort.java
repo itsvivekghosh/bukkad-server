@@ -1,11 +1,12 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.domain.service.impl;
+import com.bhukkad.delivery.domain.service.EtaPort;
 
-import com.bhukkad.delivery.DeliveryEtaProperties;
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.domain.DeliveryAssignmentRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdate;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
-import com.bhukkad.delivery.service.EtaService;
+import com.bhukkad.delivery.config.DeliveryEtaProperties;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
+import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.domain.service.impl.EtaService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;

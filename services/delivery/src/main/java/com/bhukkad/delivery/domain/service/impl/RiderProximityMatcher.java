@@ -1,12 +1,13 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
+import com.bhukkad.delivery.domain.service.DistanceCalculator;
 
-import com.bhukkad.delivery.GeoMatchingProperties;
-import com.bhukkad.delivery.domain.AgentActiveLoad;
-import com.bhukkad.delivery.domain.DeliveryAgent;
-import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.domain.DeliveryAssignmentRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdate;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.config.GeoMatchingProperties;
+import com.bhukkad.delivery.domain.entity.AgentActiveLoad;
+import com.bhukkad.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.delivery.domain.repository.DeliveryAgentRepository;
+import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
+import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

@@ -1,6 +1,6 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
-import com.bhukkad.delivery.service.DeliveryService;
+import com.bhukkad.delivery.domain.service.impl.DeliveryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;

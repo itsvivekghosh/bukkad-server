@@ -1,9 +1,10 @@
 package com.bhukkad.delivery.service;
+import com.bhukkad.delivery.domain.service.impl.RiderProximityMatcher;
 
 import com.bhukkad.delivery.config.GeoMatchingProperties;
 import com.bhukkad.delivery.domain.entity.AgentActiveLoad;
-import com.bhukkad.delivery.domain.DeliveryAgent;
-import com.bhukkad.delivery.domain.DeliveryAgentRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.delivery.domain.repository.DeliveryAgentRepository;
 import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
 import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
 import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;

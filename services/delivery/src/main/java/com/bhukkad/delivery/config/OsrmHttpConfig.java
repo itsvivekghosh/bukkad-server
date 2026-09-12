@@ -1,4 +1,5 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.config;
+import com.bhukkad.delivery.infrastructure.client.OsrmClient;
 
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;

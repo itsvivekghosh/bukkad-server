@@ -1,4 +1,6 @@
-package com.bhukkad.delivery.domain;
+package com.bhukkad.delivery.domain.repository;
+import com.bhukkad.delivery.domain.entity.AgentActiveLoad;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -25,7 +27,7 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
      * the INSERT...ON CONFLICT (order_id) guard remaining the real double-claim
      * arbiter.
      */
-    @Query("SELECT new com.bhukkad.delivery.domain.AgentActiveLoad(a.agentId, COUNT(a)) "
+    @Query("SELECT new com.bhukkad.delivery.domain.entity.AgentActiveLoad(a.agentId, COUNT(a)) "
             + "FROM DeliveryAssignment a WHERE a.agentId IN :agentIds "
             + "AND UPPER(a.status) <> 'DELIVERED' GROUP BY a.agentId")
     java.util.List<AgentActiveLoad> countActiveLoadByAgentIds(

@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
 
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.outbox.OutboxClient;

@@ -1,9 +1,9 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.scan.AllowFullScan;
-import com.bhukkad.delivery.domain.CityConfig;
-import com.bhukkad.delivery.domain.CityConfigRepository;
+import com.bhukkad.delivery.domain.entity.CityConfig;
+import com.bhukkad.delivery.domain.repository.CityConfigRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;

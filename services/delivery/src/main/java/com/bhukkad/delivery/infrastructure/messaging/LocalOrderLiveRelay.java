@@ -1,6 +1,6 @@
-package com.bhukkad.delivery.live;
+package com.bhukkad.delivery.infrastructure.messaging;
 
-import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
+import com.bhukkad.delivery.api.dto.response.OrderLiveUpdate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

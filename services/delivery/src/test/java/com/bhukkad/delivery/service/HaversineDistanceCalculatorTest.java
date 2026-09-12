@@ -1,4 +1,5 @@
 package com.bhukkad.delivery.service;
+import com.bhukkad.delivery.domain.service.impl.HaversineDistanceCalculator;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

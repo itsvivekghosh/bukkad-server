@@ -19,6 +19,17 @@
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
 
+		<!-- platform-lib's com.bhukkad.common scan (shared by every service app)
+		     instantiates KafkaHealth with compile-time references to spring-kafka
+		     types; the dependency is optional in platform-lib, so each scanning
+		     service declares it (order/restaurant/search/payment contract).
+		     Events stay disabled by default (app.events.external.enabled=false →
+		     type: log) — the Kafka client classes merely need to be loadable. -->
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+		</dependency>
+
 		<!-- SpringDoc OpenAPI. -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

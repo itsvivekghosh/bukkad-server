@@ -3,6 +3,7 @@ package com.bhukkad.delivery;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.delivery.domain.service.impl.DeliveryEventPublisher;
 import com.bhukkad.delivery.domain.service.impl.DeliveryService;
+import com.bhukkad.delivery.domain.service.impl.RiderProximityMatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +39,7 @@ import static org.mockito.Mockito.doAnswer;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(DeliveryService.class)
+@Import({DeliveryService.class, RiderProximityMatcher.class})
 @TestPropertySource(properties = "app.delivery.active-load-cap=1")
 class DeliveryLoadCapPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
 

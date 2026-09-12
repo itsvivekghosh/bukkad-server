@@ -1,7 +1,7 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
-import com.bhukkad.delivery.domain.DeliveryZone;
-import com.bhukkad.delivery.domain.DeliveryZoneRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryZone;
+import com.bhukkad.delivery.domain.repository.DeliveryZoneRepository;
 import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

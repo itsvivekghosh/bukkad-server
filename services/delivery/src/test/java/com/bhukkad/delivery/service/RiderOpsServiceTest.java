@@ -1,8 +1,9 @@
 package com.bhukkad.delivery.service;
+import com.bhukkad.delivery.domain.service.impl.RiderOpsService;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.delivery.config.RiderEarningsProperties;
-import com.bhukkad.delivery.client.PaymentServiceClient;
+import com.bhukkad.delivery.infrastructure.client.PaymentServiceClient;
 import com.bhukkad.delivery.domain.entity.RiderDeliveryBatch;
 import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchOrderRepository;
 import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchRepository;

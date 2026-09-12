@@ -1,8 +1,10 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.config;
+import com.bhukkad.delivery.infrastructure.client.OsrmClient;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService;
 
-import com.bhukkad.delivery.service.DistanceCalculator;
-import com.bhukkad.delivery.service.EtaService;
-import com.bhukkad.delivery.service.RoadNetworkDistanceCalculator;
+import com.bhukkad.delivery.domain.service.DistanceCalculator;
+import com.bhukkad.delivery.domain.service.impl.EtaService;
+import com.bhukkad.delivery.domain.service.impl.RoadNetworkDistanceCalculator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;

@@ -1,9 +1,10 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
+import com.bhukkad.delivery.config.RiderEarningsProperties;
 
 import com.bhukkad.common.security.PrincipalGuard;
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.delivery.service.DeliveryOpsService;
-import com.bhukkad.delivery.service.RiderOpsService;
+import com.bhukkad.delivery.domain.service.impl.DeliveryOpsService;
+import com.bhukkad.delivery.domain.service.impl.RiderOpsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,7 +22,7 @@ import java.util.Map;
  * <p>COD wallet balance/credit/debit and rider earnings are **owned by the
  * payment service** ({@code DeliveryPaymentController}). This service is a
  * thin REST façade that delegates to the payment service via
- * {@link com.bhukkad.delivery.client.PaymentServiceClient}, preserving the
+ * {@link com.bhukkad.delivery.infrastructure.client.PaymentServiceClient}, preserving the
  * single-writer money boundary.</p>
  *
  * <p>Mutations are ADMIN-only, and rider-scoped reads enforce self-or-admin:

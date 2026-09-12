@@ -1,13 +1,13 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
 
-import com.bhukkad.delivery.client.PaymentServiceClient;
-import com.bhukkad.delivery.domain.RiderDeliveryBatch;
-import com.bhukkad.delivery.domain.RiderDeliveryBatchOrder;
-import com.bhukkad.delivery.domain.RiderDeliveryBatchOrderRepository;
-import com.bhukkad.delivery.domain.RiderDeliveryBatchRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdate;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
-import com.bhukkad.delivery.RiderEarningsProperties;
+import com.bhukkad.delivery.infrastructure.client.PaymentServiceClient;
+import com.bhukkad.delivery.domain.entity.RiderDeliveryBatch;
+import com.bhukkad.delivery.domain.entity.RiderDeliveryBatchOrder;
+import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchOrderRepository;
+import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchRepository;
+import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.config.RiderEarningsProperties;
 import com.bhukkad.common.error.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

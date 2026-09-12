@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.domain;
+package com.bhukkad.delivery.domain.entity;
 
 /**
  * JPQL constructor-expression result: number of not-yet-delivered

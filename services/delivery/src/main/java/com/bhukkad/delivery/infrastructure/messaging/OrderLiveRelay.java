@@ -1,6 +1,6 @@
-package com.bhukkad.delivery.live;
+package com.bhukkad.delivery.infrastructure.messaging;
 
-import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
+import com.bhukkad.delivery.api.dto.response.OrderLiveUpdate;
 
 public interface OrderLiveRelay {
 

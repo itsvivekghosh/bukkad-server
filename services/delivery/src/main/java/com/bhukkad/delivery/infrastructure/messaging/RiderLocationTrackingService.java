@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.live;
+package com.bhukkad.delivery.infrastructure.messaging;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

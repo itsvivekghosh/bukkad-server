@@ -1,6 +1,11 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
+import com.bhukkad.delivery.config.DeliveryEtaConfig;
+import com.bhukkad.delivery.config.OsrmHttpConfig;
+import com.bhukkad.delivery.config.RoadDistanceProperties;
+import com.bhukkad.delivery.domain.service.DistanceCalculator;
+import com.bhukkad.delivery.infrastructure.client.OsrmClient;
 
-import com.bhukkad.delivery.RoadDistanceService;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService;
 import lombok.RequiredArgsConstructor;
 
 /**

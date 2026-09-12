@@ -1,4 +1,4 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.config;
 
 import com.bhukkad.common.security.PlatformJwtAuthFilter;
 import com.bhukkad.common.security.PlatformJwtProperties;

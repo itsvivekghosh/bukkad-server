@@ -1,11 +1,11 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.delivery.domain.DeliveryAgent;
-import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.service.RiderOpsService;
+import com.bhukkad.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.delivery.domain.repository.DeliveryAgentRepository;
+import com.bhukkad.delivery.domain.service.impl.RiderOpsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,9 +35,9 @@ public class RiderSelfController {
 
     private final DeliveryAgentRepository agentRepository;
     private final RiderOpsService riderOpsService;
-    private final com.bhukkad.delivery.domain.RiderLocationUpdateRepository locationRepository;
-    private final com.bhukkad.delivery.domain.DeliveryAssignmentRepository assignmentRepository;
-    private final com.bhukkad.delivery.domain.RiderDeliveryBatchRepository batchRepository;
+    private final com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository locationRepository;
+    private final com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository assignmentRepository;
+    private final com.bhukkad.delivery.domain.repository.RiderDeliveryBatchRepository batchRepository;
     private final AgentProvisioner agentProvisioner;
 
     public record AgentProfileRequest(String name, String phone, String vehicleType,
@@ -203,7 +203,7 @@ public class RiderSelfController {
         Long agentId = currentAgent(principal).getId();
         var assignment = assignmentRepository.findByOrderId(orderId)
                 .orElseGet(() -> {
-                    var fresh = new com.bhukkad.delivery.domain.DeliveryAssignment();
+                    var fresh = new com.bhukkad.delivery.domain.entity.DeliveryAssignment();
                     fresh.setOrderId(orderId);
                     fresh.setStatus("READY_FOR_PICKUP");
                     fresh.setAssignedAt(LocalDateTime.now());

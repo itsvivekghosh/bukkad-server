@@ -1,8 +1,9 @@
 package com.bhukkad.delivery;
+import com.bhukkad.delivery.domain.service.impl.RiderProximityMatcher;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.domain.DeliveryAgent;
-import com.bhukkad.delivery.domain.DeliveryAgentRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.delivery.domain.repository.DeliveryAgentRepository;
 import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
 import com.bhukkad.delivery.domain.service.impl.DeliveryEventPublisher;
 import com.bhukkad.delivery.domain.service.impl.DeliveryService;

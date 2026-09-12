@@ -1,4 +1,6 @@
 package com.bhukkad.delivery.service;
+import com.bhukkad.delivery.domain.service.impl.RiderLocationRetentionScheduler;
+import com.bhukkad.delivery.domain.service.impl.RiderLocationRetentionService;
 
 import com.bhukkad.delivery.config.RiderLocationRetentionProperties;
 import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;

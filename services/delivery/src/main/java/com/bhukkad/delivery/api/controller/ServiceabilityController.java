@@ -1,9 +1,9 @@
-package com.bhukkad.delivery.api;
+package com.bhukkad.delivery.api.controller;
 
-import com.bhukkad.delivery.domain.DeliveryZone;
-import com.bhukkad.delivery.domain.DeliveryZoneRepository;
-import com.bhukkad.delivery.domain.ZoneSurgeRule;
-import com.bhukkad.delivery.domain.ZoneSurgeRuleRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryZone;
+import com.bhukkad.delivery.domain.repository.DeliveryZoneRepository;
+import com.bhukkad.delivery.domain.entity.ZoneSurgeRule;
+import com.bhukkad.delivery.domain.repository.ZoneSurgeRuleRepository;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;

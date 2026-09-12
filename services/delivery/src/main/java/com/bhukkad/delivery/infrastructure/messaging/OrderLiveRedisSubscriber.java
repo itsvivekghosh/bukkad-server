@@ -1,6 +1,6 @@
-package com.bhukkad.delivery.live;
+package com.bhukkad.delivery.infrastructure.messaging;
 
-import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
+import com.bhukkad.delivery.api.dto.response.OrderLiveUpdate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;

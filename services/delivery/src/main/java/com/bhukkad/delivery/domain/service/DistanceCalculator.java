@@ -1,4 +1,5 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService;
 
 /**
  * Distance calculator abstraction (port of monolith {@code RoadDistanceService}

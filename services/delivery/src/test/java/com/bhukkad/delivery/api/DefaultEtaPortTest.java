@@ -1,4 +1,7 @@
 package com.bhukkad.delivery.api;
+import com.bhukkad.delivery.domain.service.DistanceCalculator;
+import com.bhukkad.delivery.domain.service.EtaPort;
+import com.bhukkad.delivery.domain.service.impl.DefaultEtaPort;
 
 import com.bhukkad.delivery.config.DeliveryEtaConfig;
 import com.bhukkad.delivery.config.DeliveryEtaProperties;

@@ -1,4 +1,6 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.config;
+import com.bhukkad.delivery.domain.service.impl.DefaultEtaPort;
+import com.bhukkad.delivery.domain.service.impl.EtaService;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

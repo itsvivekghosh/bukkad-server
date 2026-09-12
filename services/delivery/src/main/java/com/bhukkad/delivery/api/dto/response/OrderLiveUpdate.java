@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.dto.response;
+package com.bhukkad.delivery.api.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

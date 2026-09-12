@@ -1,4 +1,5 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.config;
+import com.bhukkad.delivery.domain.service.impl.DeliveryService;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

@@ -1,4 +1,4 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>By default no OSRM endpoint is configured and the app falls back to the
  * haversine straight-line distance — exactly the legacy behaviour. When an
  * {@code osrmUrl} is provided (e.g. a self-hosted OSRM instance), the
- * {@link com.bhukkad.delivery.RoadDistanceService} uses real road distance and
+ * {@link com.bhukkad.delivery.infrastructure.client.RoadDistanceService} uses real road distance and
  * travel time for ETA and rider dispatch.</p>
  */
 @Data

@@ -1,4 +1,5 @@
-package com.bhukkad.delivery.domain;
+package com.bhukkad.delivery.domain.repository;
+import com.bhukkad.delivery.domain.entity.RiderDeliveryBatch;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 

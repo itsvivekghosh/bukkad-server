@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.client;
+package com.bhukkad.delivery.infrastructure.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import lombok.extern.slf4j.Slf4j;

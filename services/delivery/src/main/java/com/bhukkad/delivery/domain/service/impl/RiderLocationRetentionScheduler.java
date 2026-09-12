@@ -1,4 +1,5 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
+import com.bhukkad.delivery.config.RiderLocationRetentionProperties;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

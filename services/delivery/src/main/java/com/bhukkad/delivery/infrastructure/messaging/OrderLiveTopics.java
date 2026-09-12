@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.live;
+package com.bhukkad.delivery.infrastructure.messaging;
 
 public final class OrderLiveTopics {
 

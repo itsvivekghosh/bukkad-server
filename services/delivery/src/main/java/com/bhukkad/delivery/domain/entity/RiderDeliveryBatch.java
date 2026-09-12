@@ -1,4 +1,4 @@
-package com.bhukkad.delivery.domain;
+package com.bhukkad.delivery.domain.entity;
 
 import jakarta.persistence.*;
 import lombok.Getter;

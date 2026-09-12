@@ -1,7 +1,7 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
 
-import com.bhukkad.delivery.RiderLocationRetentionProperties;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.config.RiderLocationRetentionProperties;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

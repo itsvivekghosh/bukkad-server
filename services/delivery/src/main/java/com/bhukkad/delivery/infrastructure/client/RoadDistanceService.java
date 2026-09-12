@@ -1,6 +1,6 @@
-package com.bhukkad.delivery;
+package com.bhukkad.delivery.infrastructure.client;
 
-import com.bhukkad.delivery.RoadDistanceProperties;
+import com.bhukkad.delivery.config.RoadDistanceProperties;
 import com.bhukkad.delivery.util.DistanceCalculator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

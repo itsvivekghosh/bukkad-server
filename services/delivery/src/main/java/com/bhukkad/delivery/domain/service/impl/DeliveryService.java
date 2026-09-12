@@ -1,12 +1,13 @@
-package com.bhukkad.delivery.service;
+package com.bhukkad.delivery.domain.service.impl;
+import com.bhukkad.delivery.api.controller.DeliveryController;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.delivery.config.DeliveryMatchingProperties;
-import com.bhukkad.delivery.domain.DeliveryAgent;
-import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.domain.DeliveryAssignmentRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.delivery.domain.repository.DeliveryAgentRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
