@@ -127,4 +127,39 @@ class AdminCqrsEventConsumerTest {
         verifyNoInteractions(idempotencyRecords);
         verify(statRepository, never()).upsertIncrement(anyLong(), any());
     }
+
+    /** OrderCreated without a totalAmount projects a zero delta, not poison. */
+    @Test
+    void orderCreated_withoutTotalAmount_projectionsZeroTotal() throws Exception {
+        PlatformEventMessage event = PlatformEventMessage.of(
+                "OrderCreated", "42", "{\"restaurantId\":10}");
+
+        consumer.onOrderEvent(objectMapper.writeValueAsString(event));
+
+        verify(statRepository).upsertIncrement(eq(10L), eq(BigDecimal.ZERO));
+    }
+
+    /** No dedupe token at all is poison — silent re-projection is worse. */
+    @Test
+    void orderCreated_withoutEventId_isPoison() throws Exception {
+        PlatformEventMessage event = new PlatformEventMessage(
+                " ", "OrderCreated", 1, java.time.Instant.now(), "42", null, null,
+                "{\"restaurantId\":10,\"totalAmount\":5.0}");
+
+        assertThatThrownBy(() -> consumer.onOrderEvent(objectMapper.writeValueAsString(event)))
+                .isInstanceOf(PoisonEventException.class)
+                .hasMessageContaining("eventId");
+        verify(statRepository, never()).upsertIncrement(anyLong(), any());
+    }
+
+    /** A valid envelope can still carry a corrupt payload JSON string. */
+    @Test
+    void orderCreated_corruptPayloadJson_throwsPoison() throws Exception {
+        PlatformEventMessage event = PlatformEventMessage.of(
+                "OrderCreated", "42", "{truncated");
+
+        assertThatThrownBy(() -> consumer.onOrderEvent(objectMapper.writeValueAsString(event)))
+                .isInstanceOf(PoisonEventException.class)
+                .hasMessageContaining("Malformed event payload");
+    }
 }

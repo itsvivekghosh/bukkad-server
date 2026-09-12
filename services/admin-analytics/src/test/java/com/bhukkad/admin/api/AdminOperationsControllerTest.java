@@ -84,4 +84,29 @@ class AdminOperationsControllerTest {
 
         assertThat(controller.getFlag("dark-mode")).isFalse();
     }
+
+    @Test
+    void createApiKey_missingNameInBothForms_isRejected() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> controller.createApiKey(java.util.Map.of("ttl", 1), null, 30))
+                .isInstanceOf(com.bhukkad.common.error.BusinessException.class)
+                .hasMessageContaining("name is required");
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> controller.createApiKey(null, null, 30))
+                .isInstanceOf(com.bhukkad.common.error.BusinessException.class)
+                .hasMessageContaining("name is required");
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> controller.createApiKey(null, "   ", 30))
+                .isInstanceOf(com.bhukkad.common.error.BusinessException.class)
+                .hasMessageContaining("name is required");
+    }
+
+    @Test
+    void listApiKeys_delegates() {
+        var views = List.of(new ApiKeyService.ApiKeyView(
+                1L, "ci", "ACTIVE", java.time.LocalDateTime.now(), null));
+        when(apiKeyService.list()).thenReturn(views);
+
+        assertThat(controller.listApiKeys()).isSameAs(views);
+    }
 }

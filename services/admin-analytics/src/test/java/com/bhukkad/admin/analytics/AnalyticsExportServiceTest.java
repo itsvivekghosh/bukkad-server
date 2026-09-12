@@ -193,6 +193,42 @@ class AnalyticsExportServiceTest {
 
     // ---- helpers ----
 
+    @Test
+    void streamPaymentsCsv_bindsDateAndStatusFilters() throws Exception {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
+        RowCallbackHandler captured = capture();
+
+        service.streamPaymentsCsv(pw, "2026-01-01", "2026-02-01T10:30:00", "SUCCESS");
+        captured.processRow(stubRs("id", "1", "provider_ref", "P-1"));
+        pw.flush();
+
+        var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        var paramsCaptor = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        org.mockito.Mockito.verify(jdbcTemplate).query(
+                sqlCaptor.capture(), any(RowCallbackHandler.class), paramsCaptor.capture());
+        assertTrue(sqlCaptor.getValue().contains("AND p.created_at >= ?"));
+        assertTrue(sqlCaptor.getValue().contains("AND p.created_at <= ?"));
+        assertTrue(sqlCaptor.getValue().contains("AND p.status = ?"));
+        assertEquals(3, paramsCaptor.getValue().length);
+        assertTrue(sw.toString().contains("P-1"));
+    }
+
+    @Test
+    void csv_formulaInjectionGuard_prefixesApostrophe() throws Exception {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        AnalyticsExportService service = new AnalyticsExportService(jdbcTemplate);
+        RowCallbackHandler captured = capture();
+
+        service.streamOrdersCsv(pw, null, null);
+        captured.processRow(stubRs("restaurant_name", "=cmd|'/C calc'!A0"));
+        pw.flush();
+
+        assertTrue(sw.toString().contains("'=cmd"));
+    }
+
     /** Sets up the mock to capture the RowCallbackHandler and returns it. */
     private RowCallbackHandler capture() {
         final RowCallbackHandler[] captured = new RowCallbackHandler[1];

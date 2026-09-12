@@ -65,4 +65,25 @@ class ApiKeyServiceTest {
 
         assertThat(service.isValid("bhk-unknown-key")).isFalse();
     }
+
+    @Test
+    void list_returnsBoundedNewestPageAsSafeViews() {
+        ApiKey key = new ApiKey();
+        key.setId(2L);
+        key.setName("ci-bot");
+        key.setStatus(ApiKey.STATUS_ACTIVE);
+        key.setCreatedAt(LocalDateTime.now().minusDays(1));
+        key.setExpiresAt(LocalDateTime.now().plusDays(1));
+        when(apiKeyRepository.findAll(org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(key)));
+
+        var views = service.list();
+
+        assertThat(views).hasSize(1);
+        assertThat(views.get(0).id()).isEqualTo(2L);
+        assertThat(views.get(0).name()).isEqualTo("ci-bot");
+        assertThat(views.get(0).status()).isEqualTo(ApiKey.STATUS_ACTIVE);
+        assertThat(views.get(0).expiresAt()).isNotNull();
+        assertThat(views.get(0)).isEqualTo(views.get(0));
+    }
 }
