@@ -3,6 +3,7 @@ package com.bhukkad.common.outbox;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Configuration for the per-service outbox poller/relay.
@@ -102,10 +103,20 @@ public record OutboxProperties(
         return batchSize > 0 && !pollInterval.isZero();
     }
 
-    /** Exponential backoff for the row's next attempt after {@code failedAttempts} failures. */
+    /**
+     * Exponential backoff for the row's next attempt after {@code failedAttempts}
+     * failures, with ±30 % jitter (Finding 12 / W-6.2). Before the jitter, every
+     * relay in the fleet re-armed the SAME set of rows at the SAME instants —
+     * synchronised retries hammer the broker exactly while it is recovering
+     * (thundering herd on a flapping Kafka). Jitter is applied BEFORE the
+     * {@code processingTimeout} cap, so the hard bound still holds.
+     */
     public Duration backoffFor(int failedAttempts) {
         int exponent = Math.min(Math.max(failedAttempts - 1, 0), 16);
-        Duration backoff = retryBackoff.multipliedBy(1L << exponent);
+        long exponentialMs = retryBackoff.toMillis() << exponent;
+        double jitter = 0.7 + ThreadLocalRandom.current().nextDouble(0.6); // [0.7, 1.3)
+        long jitteredMs = Math.round(exponentialMs * jitter);
+        Duration backoff = Duration.ofMillis(jitteredMs);
         return backoff.compareTo(processingTimeout) > 0 ? processingTimeout : backoff;
     }
 }

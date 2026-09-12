@@ -247,9 +247,14 @@ class OutboxPollPublisherTest {
     void properties_maxRetriesAndBackoffDefaults() {
         OutboxProperties p = OutboxProperties.defaults();
         assertThat(p.maxRetries()).isEqualTo(5);
-        assertThat(p.backoffFor(1)).isEqualTo(p.retryBackoff());
+        // Backoff is exponential ±30 % jitter (Finding 12: synchronised relay
+        // retries herd a recovering broker) — assert the band, not an instant.
+        long base = p.retryBackoff().toMillis();
+        assertThat(p.backoffFor(1).toMillis()).isBetween(base * 7 / 10, base * 13 / 10);
         assertThat(p.backoffFor(2).toMillis())
-                .isEqualTo(p.retryBackoff().multipliedBy(2).toMillis());
+                .isBetween(base * 2 * 7 / 10, base * 2 * 13 / 10);
+        // Jitter must not break the hard cap either way.
+        assertThat(p.backoffFor(17)).isLessThanOrEqualTo(p.processingTimeout());
         // Unset (0/null) values normalise to defaults so a service without any
         // outbox yml block still relays (PERF-2 wake-the-wire fix).
         OutboxProperties unset = new OutboxProperties(0, null, null, null, 0, 0, null);
