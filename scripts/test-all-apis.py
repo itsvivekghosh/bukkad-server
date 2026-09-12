@@ -2078,18 +2078,6 @@ def main() -> int:
                     pass
                 setup_flags["invoice_pdf"] = True
 
-        result = run_test(spec, args.base_url, state, args.timeout, args.verbose)
-        state.results.append(result)
-
-        # After main order flow, preserve main order_id for review/invoice tests and prepare cancel-order id
-        if spec["name"] == "Agent — Mark Delivered" and result.passed:
-            if state.vars.get("order_id"):
-                main_order_id = state.vars["order_id"]
-            try:
-                create_cancel_order(args.base_url, state, args.timeout)
-            except ConnectionError:
-                pass  # cancel-order setup is best-effort
-
         # Stateful edge-case probes run just before the destructive teardown
         # ("Delete Account" deactivates the suite customer, invalidating its
         # token), while the live customer token is still valid.
@@ -2119,6 +2107,19 @@ def main() -> int:
                     request_body=None, status_code=None, response_body="",
                     passed=False, skipped=False, error=str(e)))
                 print(f"  {RED}✗ E2E journey aborted: {e}{RESET}")
+
+        result = run_test(spec, args.base_url, state, args.timeout, args.verbose)
+        state.results.append(result)
+
+        # After main order flow, preserve main order_id for review/invoice tests and prepare cancel-order id
+        if spec["name"] == "Agent — Mark Delivered" and result.passed:
+            if state.vars.get("order_id"):
+                main_order_id = state.vars["order_id"]
+            try:
+                create_cancel_order(args.base_url, state, args.timeout)
+            except ConnectionError:
+                pass  # cancel-order setup is best-effort
+
 
     # Summary
     passed = sum(1 for r in state.results if r.passed and not r.skipped)
