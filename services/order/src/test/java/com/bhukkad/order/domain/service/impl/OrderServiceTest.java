@@ -53,7 +53,7 @@ class OrderServiceTest {
     @Mock private PaymentServiceClient paymentServiceClient;
     @Mock private ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
     /** Real defaults (async-saga OFF → synchronous path, the property-gate contract). */
-    @org.mockito.Spy private com.bhukkad.order.OrderSagaProperties asyncSaga = new com.bhukkad.order.OrderSagaProperties();
+    @org.mockito.Spy private com.bhukkad.order.config.OrderSagaProperties asyncSaga = new com.bhukkad.order.config.OrderSagaProperties();
 
     @InjectMocks private OrderService service;
 
@@ -148,7 +148,7 @@ class OrderServiceTest {
                 .thenReturn(reactor.core.publisher.Mono.just(List.of()));
         lenient().when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
                 .thenReturn(reactor.core.publisher.Mono.just(
-                        new com.bhukkad.order.client.dto.ChargeResponse(9L, "CHARGED")));
+                        new com.bhukkad.order.infrastructure.client.ChargeResponse(9L, "CHARGED")));
         lenient().when(sagaCoordinator.executeSaga(anyString(), anyString(), anyString(), anyList()))
                 .thenAnswer(inv -> {
                     @SuppressWarnings("unchecked")
@@ -161,7 +161,7 @@ class OrderServiceTest {
         service.createOrder(request(2));
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<com.bhukkad.order.client.dto.StockReservationLine>> linesCaptor =
+        ArgumentCaptor<List<com.bhukkad.order.infrastructure.client.StockReservationLine>> linesCaptor =
                 ArgumentCaptor.forClass(List.class);
         verify(restaurantClient).reserveStock(linesCaptor.capture(), any());
         assertThat(linesCaptor.getValue().get(0).menuItemName()).isEqualTo("Paneer");

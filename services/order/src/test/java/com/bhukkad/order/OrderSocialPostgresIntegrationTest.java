@@ -1,6 +1,7 @@
 package com.bhukkad.order;
 
-import com.bhukkad.order.domain.*;
+import com.bhukkad.order.domain.entity.*;
+import com.bhukkad.order.domain.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

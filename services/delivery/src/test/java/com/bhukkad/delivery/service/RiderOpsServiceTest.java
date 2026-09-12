@@ -1,13 +1,13 @@
 package com.bhukkad.delivery.service;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.RiderEarningsProperties;
+import com.bhukkad.delivery.config.RiderEarningsProperties;
 import com.bhukkad.delivery.client.PaymentServiceClient;
-import com.bhukkad.delivery.domain.RiderDeliveryBatch;
-import com.bhukkad.delivery.domain.RiderDeliveryBatchOrderRepository;
-import com.bhukkad.delivery.domain.RiderDeliveryBatchRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdate;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.domain.entity.RiderDeliveryBatch;
+import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchOrderRepository;
+import com.bhukkad.delivery.domain.repository.RiderDeliveryBatchRepository;
+import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

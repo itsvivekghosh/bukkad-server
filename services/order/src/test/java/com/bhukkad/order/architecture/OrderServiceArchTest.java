@@ -56,9 +56,9 @@ class OrderServiceArchTest {
      * annotations move; new controllers are blocked.
      */
     private static final Set<String> LEGACY_TRANSACTIONAL_CONTROLLERS = Set.of(
-            "com.bhukkad.order.api.AdminOrderInternalController",
-            "com.bhukkad.order.api.OrderAdjunctController",
-            "com.bhukkad.order.api.OrderOpsController");
+            "com.bhukkad.order.api.controller.AdminOrderInternalController",
+            "com.bhukkad.order.api.controller.OrderAdjunctController",
+            "com.bhukkad.order.api.controller.OrderOpsController");
 
     private static final DescribedPredicate<JavaClass> nonExemptControllers =
             new DescribedPredicate<>("controllers without a legacy @Transactional exemption") {

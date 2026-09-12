@@ -1,15 +1,15 @@
 package com.bhukkad.delivery.api;
 
-import com.bhukkad.delivery.DeliveryEtaConfig;
-import com.bhukkad.delivery.DeliveryEtaProperties;
-import com.bhukkad.delivery.RoadDistanceProperties;
-import com.bhukkad.delivery.RoadDistanceService;
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.domain.DeliveryAssignmentRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdate;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
-import com.bhukkad.delivery.service.EtaService;
-import com.bhukkad.delivery.service.RoadNetworkDistanceCalculator;
+import com.bhukkad.delivery.config.DeliveryEtaConfig;
+import com.bhukkad.delivery.config.DeliveryEtaProperties;
+import com.bhukkad.delivery.config.RoadDistanceProperties;
+import com.bhukkad.delivery.infrastructure.client.RoadDistanceService;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
+import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.domain.service.impl.EtaService;
+import com.bhukkad.delivery.domain.service.impl.RoadNetworkDistanceCalculator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;

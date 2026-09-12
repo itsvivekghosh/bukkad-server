@@ -1,6 +1,6 @@
 package com.bhukkad.delivery.live;
 
-import com.bhukkad.delivery.api.EtaPort;
+import com.bhukkad.delivery.domain.service.EtaPort;
 import com.bhukkad.delivery.dto.response.OrderLiveUpdate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

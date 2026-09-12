@@ -2,7 +2,7 @@ package com.bhukkad.personalization.api;
 
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.personalization.service.RecommendationService;
+import com.bhukkad.personalization.domain.service.RecommendationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

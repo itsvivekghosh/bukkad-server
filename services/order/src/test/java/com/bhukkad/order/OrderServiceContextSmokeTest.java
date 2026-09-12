@@ -13,7 +13,7 @@ class OrderServiceContextSmokeTest extends AbstractOrderPostgresTest {
 
     @LocalServerPort private int port;
 
-    @Autowired private com.bhukkad.order.domain.OrderRepository orderRepository;
+    @Autowired private com.bhukkad.order.domain.repository.OrderRepository orderRepository;
 
     @Test
     void healthEndpointResponds() {

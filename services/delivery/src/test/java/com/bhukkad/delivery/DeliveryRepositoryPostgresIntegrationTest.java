@@ -2,8 +2,8 @@ package com.bhukkad.delivery;
 
 import com.bhukkad.delivery.domain.DeliveryAgent;
 import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.domain.DeliveryAssignmentRepository;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.repository.DeliveryAssignmentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

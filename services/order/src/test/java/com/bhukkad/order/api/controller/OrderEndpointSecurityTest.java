@@ -1,8 +1,14 @@
 package com.bhukkad.order.api.controller;
 
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.order.domain.*;
-import com.bhukkad.order.service.*;
+import com.bhukkad.order.domain.entity.*;
+import com.bhukkad.order.domain.repository.*;
+import com.bhukkad.order.domain.service.impl.*;
+import com.bhukkad.order.api.dto.request.CreateOrderRequest;
+import com.bhukkad.order.api.dto.request.OrderItemRequest;
+import com.bhukkad.order.api.dto.response.OrderResponse;
+import com.bhukkad.order.api.RestaurantPricedItemResolver;
+import com.bhukkad.order.api.RestaurantOwnerResolver;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -194,7 +200,7 @@ class OrderEndpointSecurityTest {
 
         @Test
         void byCode_returnsMaskedView_withoutPurchaserId() {
-            com.bhukkad.order.domain.GiftCard card = new com.bhukkad.order.domain.GiftCard();
+            com.bhukkad.order.domain.entity.GiftCard card = new com.bhukkad.order.domain.entity.GiftCard();
             card.setCode("GC-9");
             card.setStatus("ACTIVE");
             card.setBalance(new BigDecimal("30"));

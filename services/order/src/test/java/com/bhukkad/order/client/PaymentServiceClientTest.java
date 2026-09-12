@@ -1,7 +1,9 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.order.client.dto.ChargeResponse;
-import com.bhukkad.order.client.dto.RefundResponse;
+import com.bhukkad.order.infrastructure.client.ChargeResponse;
+import com.bhukkad.order.infrastructure.client.PaymentServiceClient;
+import com.bhukkad.order.infrastructure.client.ChargeRequest;
+import com.bhukkad.order.infrastructure.client.RefundResponse;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

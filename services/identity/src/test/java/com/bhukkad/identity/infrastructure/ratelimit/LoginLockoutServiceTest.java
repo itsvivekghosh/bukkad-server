@@ -1,6 +1,4 @@
-package com.bhukkad.identity.unit.service;
-
-import com.bhukkad.identity.infrastructure.ratelimit.LoginLockoutService;
+package com.bhukkad.identity.infrastructure.ratelimit;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;

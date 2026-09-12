@@ -12,8 +12,8 @@ import com.bhukkad.order.api.dto.response.OrderResponse;
 import com.bhukkad.order.api.RestaurantPricedItemResolver;
 import com.bhukkad.order.infrastructure.client.PaymentServiceClient;
 import com.bhukkad.order.infrastructure.client.RestaurantClient;
-import com.bhukkad.order.client.dto.ChargeResponse;
-import com.bhukkad.order.client.dto.StockReservationLine;
+import com.bhukkad.order.infrastructure.client.ChargeResponse;
+import com.bhukkad.order.infrastructure.client.StockReservationLine;
 import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.repository.OrderItemRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
@@ -82,7 +82,7 @@ class OrderSagaExecutionTest {
         service = new OrderService(orderRepository, orderItemRepository, timelineRepository,
                 coordinator, eventPublisher, restaurantClient,
                 new RestaurantPricedItemResolver(restaurantClient), paymentServiceClient,
-                tokenProvider, new com.bhukkad.order.OrderSagaProperties());
+                tokenProvider, new com.bhukkad.order.config.OrderSagaProperties());
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);

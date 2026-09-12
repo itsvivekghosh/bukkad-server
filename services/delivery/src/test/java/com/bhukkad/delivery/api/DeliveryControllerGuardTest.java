@@ -1,7 +1,7 @@
 package com.bhukkad.delivery.api;
 
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.service.DeliveryService;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.service.impl.DeliveryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

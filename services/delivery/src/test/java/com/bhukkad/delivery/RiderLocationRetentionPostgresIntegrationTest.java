@@ -2,9 +2,9 @@ package com.bhukkad.delivery;
 
 import com.bhukkad.delivery.domain.DeliveryAgent;
 import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.domain.RiderLocationUpdate;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
-import com.bhukkad.delivery.service.RiderLocationRetentionService;
+import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.domain.service.impl.RiderLocationRetentionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

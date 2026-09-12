@@ -68,7 +68,7 @@ class PaymentServiceArchTest {
      * entry here when the extraction lands. New controllers are blocked.
      */
     private static final Set<String> LEGACY_TRANSACTIONAL_CONTROLLERS = Set.of(
-            "com.bhukkad.payment.api.DeliveryPaymentController");
+            "com.bhukkad.payment.api.controller.DeliveryPaymentController");
 
     private static final DescribedPredicate<JavaClass> nonExemptControllers =
             new DescribedPredicate<>("controllers without a legacy @Transactional exemption") {

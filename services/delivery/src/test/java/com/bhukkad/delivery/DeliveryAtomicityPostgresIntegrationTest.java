@@ -3,9 +3,9 @@ package com.bhukkad.delivery;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.delivery.domain.DeliveryAgent;
 import com.bhukkad.delivery.domain.DeliveryAgentRepository;
-import com.bhukkad.delivery.domain.DeliveryAssignment;
-import com.bhukkad.delivery.service.DeliveryEventPublisher;
-import com.bhukkad.delivery.service.DeliveryService;
+import com.bhukkad.delivery.domain.entity.DeliveryAssignment;
+import com.bhukkad.delivery.domain.service.impl.DeliveryEventPublisher;
+import com.bhukkad.delivery.domain.service.impl.DeliveryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +45,7 @@ import static org.mockito.Mockito.doAnswer;
 // RiderProximityMatcher is required by DeliveryService's constructor; with
 // app.delivery.geo-matching.enabled left false it always defers to the legacy
 // findFirst pick exercised by these tests.
-@Import({DeliveryService.class, com.bhukkad.delivery.service.RiderProximityMatcher.class})
+@Import({DeliveryService.class, com.bhukkad.delivery.domain.service.impl.RiderProximityMatcher.class})
 class DeliveryAtomicityPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
 
     @Autowired private DeliveryService deliveryService;

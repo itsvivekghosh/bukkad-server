@@ -2,6 +2,7 @@ package com.bhukkad.order.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.UpstreamUnavailableException;
+import com.bhukkad.order.api.RestaurantPricedItemResolver;
 import com.bhukkad.order.infrastructure.client.RestaurantClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

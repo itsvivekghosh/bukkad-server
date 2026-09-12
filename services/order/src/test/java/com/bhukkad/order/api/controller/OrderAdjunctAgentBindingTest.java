@@ -2,11 +2,11 @@ package com.bhukkad.order.api.controller;
 
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.domain.entity.Order;
-import com.bhukkad.order.domain.OrderDeliveryProof;
-import com.bhukkad.order.domain.OrderDeliveryProofRepository;
+import com.bhukkad.order.domain.entity.OrderDeliveryProof;
+import com.bhukkad.order.domain.repository.OrderDeliveryProofRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import com.bhukkad.order.domain.service.impl.OrderInvoiceService;
-import com.bhukkad.order.domain.service.OrderService;
+import com.bhukkad.order.domain.service.impl.OrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

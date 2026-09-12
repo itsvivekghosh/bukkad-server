@@ -1,6 +1,7 @@
 package com.bhukkad.order.client;
 
-import com.bhukkad.order.client.dto.RestaurantResponse;
+import com.bhukkad.order.infrastructure.client.RestaurantResponse;
+import com.bhukkad.order.infrastructure.client.RestaurantClient;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -159,10 +160,10 @@ class RestaurantClientTest {
 
     // ---- stock reservation surface (order saga RESERVE_STOCK step) ----
 
-    private java.util.List<com.bhukkad.order.client.dto.StockReservationLine> reservationLines() {
+    private java.util.List<com.bhukkad.order.infrastructure.client.StockReservationLine> reservationLines() {
         return java.util.List.of(
-                com.bhukkad.order.client.dto.StockReservationLine.of(100L, "Paneer", 1),
-                com.bhukkad.order.client.dto.StockReservationLine.of(101L, "Roti", 2));
+                com.bhukkad.order.infrastructure.client.StockReservationLine.of(100L, "Paneer", 1),
+                com.bhukkad.order.infrastructure.client.StockReservationLine.of(101L, "Roti", 2));
     }
 
     @Test

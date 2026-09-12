@@ -52,9 +52,9 @@ class DeliveryServiceArchTest {
      * annotations move; new controllers are blocked.
      */
     private static final Set<String> LEGACY_TRANSACTIONAL_CONTROLLERS = Set.of(
-            "com.bhukkad.delivery.api.AdminZoneController",
-            "com.bhukkad.delivery.api.CityInternalController",
-            "com.bhukkad.delivery.api.RiderSelfController");
+            "com.bhukkad.delivery.api.controller.AdminZoneController",
+            "com.bhukkad.delivery.api.controller.CityInternalController",
+            "com.bhukkad.delivery.api.controller.RiderSelfController");
 
     private static final DescribedPredicate<JavaClass> nonExemptControllers =
             new DescribedPredicate<>("controllers without a legacy @Transactional exemption") {

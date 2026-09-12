@@ -4,7 +4,7 @@ import com.bhukkad.order.api.controller.OrderController;
 import com.bhukkad.order.api.dto.response.OrderDetailsResponse;
 
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.order.domain.service.OrderService;
+import com.bhukkad.order.domain.service.impl.OrderService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

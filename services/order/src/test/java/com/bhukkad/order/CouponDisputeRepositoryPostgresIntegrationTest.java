@@ -1,9 +1,9 @@
 package com.bhukkad.order;
 
-import com.bhukkad.order.domain.Coupon;
-import com.bhukkad.order.domain.CouponRepository;
-import com.bhukkad.order.domain.CouponUsage;
-import com.bhukkad.order.domain.CouponUsageRepository;
+import com.bhukkad.order.domain.entity.Coupon;
+import com.bhukkad.order.domain.repository.CouponRepository;
+import com.bhukkad.order.domain.entity.CouponUsage;
+import com.bhukkad.order.domain.repository.CouponUsageRepository;
 import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;

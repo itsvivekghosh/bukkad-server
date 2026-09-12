@@ -2,8 +2,8 @@ package com.bhukkad.order.domain.service.impl;
 
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.order.domain.entity.Order;
-import com.bhukkad.order.domain.OrderInvoice;
-import com.bhukkad.order.domain.OrderInvoiceRepository;
+import com.bhukkad.order.domain.entity.OrderInvoice;
+import com.bhukkad.order.domain.repository.OrderInvoiceRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

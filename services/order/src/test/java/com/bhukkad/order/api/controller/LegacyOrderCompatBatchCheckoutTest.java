@@ -4,10 +4,12 @@ import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.error.UpstreamUnavailableException;
 import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.order.api.dto.request.CreateOrderRequest;
+import com.bhukkad.order.api.dto.response.OrderResponse;
 import com.bhukkad.order.infrastructure.client.RestaurantClient;
 import com.bhukkad.order.domain.entity.CartItem;
 import com.bhukkad.order.domain.service.impl.CartService;
-import com.bhukkad.order.domain.service.OrderService;
+import com.bhukkad.order.domain.service.impl.OrderService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -43,10 +45,10 @@ class LegacyOrderCompatBatchCheckoutTest {
 
     @Mock private OrderService orderService;
     @Mock private CartService cartService;
-    @Mock private com.bhukkad.order.domain.OrderRepository orderRepository;
+    @Mock private com.bhukkad.order.domain.repository.OrderRepository orderRepository;
     @Mock private RestaurantClient restaurantClient;
-    @Mock private com.bhukkad.order.service.OrderCreateJobService orderCreateJobService;
-    @Mock private com.bhukkad.order.service.AsyncOrderCreateService asyncOrderCreateService;
+    @Mock private com.bhukkad.order.domain.service.impl.OrderCreateJobService orderCreateJobService;
+    @Mock private com.bhukkad.order.domain.service.impl.AsyncOrderCreateService asyncOrderCreateService;
 
     private LegacyOrderCompatController controller() {
         return new LegacyOrderCompatController(orderService, cartService, orderRepository,

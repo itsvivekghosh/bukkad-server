@@ -1,7 +1,7 @@
 package com.bhukkad.delivery.service;
 
-import com.bhukkad.delivery.RiderLocationRetentionProperties;
-import com.bhukkad.delivery.domain.RiderLocationUpdateRepository;
+import com.bhukkad.delivery.config.RiderLocationRetentionProperties;
+import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -7,10 +7,10 @@ import com.bhukkad.order.api.dto.request.CreateOrderRequest;
 import com.bhukkad.order.api.dto.request.OrderItemRequest;
 import com.bhukkad.order.infrastructure.client.PaymentServiceClient;
 import com.bhukkad.order.infrastructure.client.RestaurantClient;
-import com.bhukkad.order.client.dto.StockReservationLine;
+import com.bhukkad.order.infrastructure.client.StockReservationLine;
 import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.repository.OrderRepository;
-import com.bhukkad.order.domain.service.OrderService;
+import com.bhukkad.order.domain.service.impl.OrderService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -58,7 +58,7 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
     private org.springframework.context.ApplicationContext context;
 
     @Autowired
-    private com.bhukkad.order.service.OrderSagaCompensationService compensationService;
+    private com.bhukkad.order.domain.service.impl.OrderSagaCompensationService compensationService;
 
     @MockBean
     private RestaurantClient restaurantClient;
@@ -89,7 +89,7 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 1))));
         when(paymentServiceClient.charge(any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new com.bhukkad.order.client.dto.ChargeResponse(5L, "CHARGED")));
+                .thenReturn(Mono.just(new com.bhukkad.order.infrastructure.client.ChargeResponse(5L, "CHARGED")));
 
         var request = new CreateOrderRequest(
                 1L, 10L, List.of(
@@ -133,7 +133,7 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
         // The gate is a singleton bean the service reads per createOrder call,
         // so flipping it flips the branch (and the property-gate test below
         // restores it).
-        var gate = context.getBean(com.bhukkad.order.OrderSagaProperties.class);
+        var gate = context.getBean(com.bhukkad.order.config.OrderSagaProperties.class);
         gate.setEnabled(true);
         try {
             var response = service.createOrder(new CreateOrderRequest(
@@ -169,7 +169,7 @@ class OrderSagaEventContractPostgresIntegrationTest extends AbstractOrderPostgre
         when(restaurantClient.reserveStock(any(), any()))
                 .thenReturn(Mono.just(List.of(StockReservationLine.of(100L, "Burger", 2))));
 
-        var gate = context.getBean(com.bhukkad.order.OrderSagaProperties.class);
+        var gate = context.getBean(com.bhukkad.order.config.OrderSagaProperties.class);
         gate.setEnabled(true);
         try {
             var response = orderService.createOrder(new CreateOrderRequest(

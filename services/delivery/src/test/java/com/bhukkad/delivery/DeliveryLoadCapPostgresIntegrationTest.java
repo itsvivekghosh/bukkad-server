@@ -1,8 +1,8 @@
 package com.bhukkad.delivery;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.delivery.service.DeliveryEventPublisher;
-import com.bhukkad.delivery.service.DeliveryService;
+import com.bhukkad.delivery.domain.service.impl.DeliveryEventPublisher;
+import com.bhukkad.delivery.domain.service.impl.DeliveryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
