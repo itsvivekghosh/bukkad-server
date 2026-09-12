@@ -21,6 +21,14 @@
 			<groupId>com.bhukkad</groupId>
 			<artifactId>platform-lib</artifactId>
 		</dependency>
+		<!-- platform-lib's HealthController$KafkaHealth (@Component, scanned via
+		     com.bhukkad.common) needs KafkaAdmin on the classpath; without this the
+		     service context fails to boot (same pattern as order/restaurant). -->
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
