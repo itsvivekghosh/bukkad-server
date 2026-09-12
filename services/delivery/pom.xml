@@ -18,6 +18,11 @@
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId></dependency>
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+		<!-- Event backbone: delivery emits via the platform-lib transactional
+		     outbox (DeliveryEventPublisher, migration V8); KafkaHealth/
+		     KafkaPlatformConfig reference spring-kafka types unconditionally,
+		     so the broker client must be on the classpath to boot at all. -->
+		<dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
 
 		<!-- SpringDoc OpenAPI. -->
 		<dependency>

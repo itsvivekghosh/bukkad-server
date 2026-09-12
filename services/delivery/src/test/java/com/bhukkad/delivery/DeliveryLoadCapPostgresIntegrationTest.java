@@ -38,7 +38,7 @@ import static org.mockito.Mockito.doAnswer;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(DeliveryService.class)
+@Import({DeliveryService.class, com.bhukkad.delivery.service.RiderProximityMatcher.class})
 @TestPropertySource(properties = "app.delivery.active-load-cap=1")
 class DeliveryLoadCapPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
 
