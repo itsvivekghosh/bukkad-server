@@ -1,14 +1,29 @@
 -- W1-LOYALTY (feature #4 / ADR-005): referral binding integrity + reward ledger.
 --
--- 1. A referred customer can never be re-bound: partial unique index on the
---    referee column (NULL rows — customers who have not used a code — stay
---    free to apply later).
+-- 1. One row per customer. user_referral_codes is keyed by customer (the
+--    referee); without this unique index a concurrent apply could create
+--    several rows for the same new customer and bind/reward more than once.
+--    (The baseline ships only a plain index here.)
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_user_referral_codes_referred_by
-    ON public.user_referral_codes (referred_by)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_referral_codes_customer
+    ON public.user_referral_codes (customer_id);
+
+-- 2. One ACTIVE referral per new customer (ADR-005: "a referred customer can
+--    never be re-bound"). Partial unique on the referee side, guarded by the
+--    conditional UPDATE ... WHERE referred_by IS NULL in the service.
+--    NOTE (deviation from the ADR's literal SQL): the ADR sketches
+--    UNIQUE(referred_by) WHERE referred_by IS NOT NULL, but in this schema
+--    referred_by carries the REFERRER's customer id (countByReferredBy is the
+--    referrer's referralsCount), so that index would cap every referrer at a
+--    single lifetime referral and break the maxReferralsPerUser contract.
+--    The referee-side partial index below implements the ADR's stated
+--    guarantee instead.
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_referral_codes_active_binding
+    ON public.user_referral_codes (customer_id)
     WHERE referred_by IS NOT NULL;
 
--- 2. Durable referral reward ledger (exactly-once reward accounting):
+-- 3. Durable referral reward ledger (exactly-once reward accounting):
 --    one row per credited reward, idempotent by (event_type, event_id) —
 --    e.g. ("REFERRAL_APPLY", "apply:<customerId>") or
 --    ("REFERRAL_COMPLETE", "order:<orderId>") — and at most one reward of a
