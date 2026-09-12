@@ -27,6 +27,11 @@ resources:
   - ../../secret-store.yaml
   - ../../external-secret.yaml
   - ../../postgres/pvc.yaml
+  # WAL spool consumed by the postgres pod's walg-archive sidecar — must be
+  # present here too (the base deployment references the claim). Minikube keeps
+  # archiving effectively OFF: the conf patch has archive_mode=off and the
+  # sidecar discard-guard covers the CHANGE_ME WALG_S3_PREFIX placeholder.
+  - ../../postgres/pvc-wal-spool.yaml
   - ../../postgres/configmap.yaml
   - ../../postgres/deployment.yaml
   - ../../postgres/service.yaml
@@ -62,6 +67,12 @@ resources:
   - ../../admin-analytics/service.yaml
   - ../../gateway/deployment.yaml
   - ../../gateway/service.yaml
+  - ../../realtime/deployment.yaml
+  - ../../realtime/service.yaml
+  - ../../personalization/deployment.yaml
+  - ../../personalization/service.yaml
+  - ../../growth/deployment.yaml
+  - ../../growth/service.yaml
   - ../../logging/fluent-bit-configmap.yaml
   - ../../logging/fluent-bit-rbac.yaml
   - ../../logging/fluent-bit-daemonset.yaml

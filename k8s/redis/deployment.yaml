@@ -36,16 +36,32 @@ spec:
           # requirepass is injected on the command line rather than baked into
           # redis.conf so the secret is never stored in a ConfigMap. `sh -c` is
           # required for $REDIS_PASSWORD expansion.
+          #
+          # TLS (k8s/tls/README-TLS.md): TLS_ARGS appends the tls-port ONLY
+          # when TLS_ENABLED=true; with the default false this exec line is
+          # byte-identical to the pre-TLS launcher. During the cutover window
+          # BOTH ports answer (6379 plaintext as shipped today + 6380 TLS);
+          # the plaintext port is retired per README step 6, not by this flag.
           env:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: REDIS_PASSWORD
+            - name: TLS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: bhukkad-config
+                  key: TLS_ENABLED
           command:
             - sh
             - -c
-            - exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD"
+            - |
+              TLS_ARGS=""
+              if [ "${TLS_ENABLED:-false}" = "true" ]; then
+                TLS_ARGS="--tls-port 6380 --tls-cert-file /etc/redis/tls/tls.crt --tls-key-file /etc/redis/tls/tls.key --tls-ca-cert-file /etc/redis/tls/ca.crt --tls-auth-clients no"
+              fi
+              exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD" ${TLS_ARGS}
           resources:
             requests:
               cpu: 100m
@@ -87,6 +103,11 @@ spec:
             - name: redis-config
               mountPath: /etc/redis/redis.conf
               subPath: redis.conf
+            # cert-manager leaf (Secret bhukkad-redis-tls, k8s/tls/) — OPTIONAL
+            # and only READ when TLS_ENABLED=true (README-TLS.md).
+            - name: tls-cert
+              mountPath: /etc/redis/tls
+              readOnly: true
       volumes:
         - name: redis-data
           persistentVolumeClaim:
@@ -94,3 +115,8 @@ spec:
         - name: redis-config
           configMap:
             name: bhukkad-redis-config
+        - name: tls-cert
+          secret:
+            secretName: bhukkad-redis-tls
+            optional: true
+            defaultMode: 0440

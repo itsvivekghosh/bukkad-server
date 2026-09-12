@@ -51,18 +51,19 @@ spec:
               value: "false"
             - name: HEALTH_PATH
               value: /api/v1/health/ping
-            # Datasource: services/realtime reads POSTGRES_HOST/PORT/DB
-            # (database-per-service: `realtime`, created by the postgres
-            # initdb/00-create-databases.sql bootstrap) and the per-service
-            # credentials from bhukkad-secrets (mapped in
-            # k8s/external-secret.yaml — creationPolicy: Owner replaces the
-            # target secret, so every referenced key must be mapped there).
+            # realtime/personalization/growth compose their datasource from the
+            # generic POSTGRES_* env vars (application.yml), unlike the older
+            # services that read a single <SVC>_DB_URL — so the host/db name
+            # are inline non-secret and only the credentials come from
+            # bhukkad-secrets. The realtime database itself is provisioned
+            # out-of-band like every other service DB (initdb/
+            # 00-create-databases.sql lists it for the compose stack).
             - name: POSTGRES_HOST
-              value: bhukkad-postgresql
+              value: "bhukkad-postgresql"
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_DB
-              value: realtime
+              value: "realtime"
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
@@ -73,6 +74,14 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: REALTIME_DB_PASSWORD
+            # The in-cluster Redis runs with requirepass (k8s/redis/
+            # deployment.yaml); application.yml maps spring.data.redis
+            # WITHOUT a password placeholder, so bind it via relaxed env.
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -91,19 +100,15 @@ spec:
             # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
             - name: JWKS_URL
               value: http://bhukkad-identity/.well-known/jwks.json
-            # SSE stream authz: order ownership-oracle base URL
-            # (app.live.order-base-url). The code default (http://order:8092)
-            # is not a valid in-cluster DNS name — point it at the order
-            # ClusterIP Service (port 80 → targetPort 8092,
-            # k8s/order/service.yaml).
+            # Order-ownership oracle for SSE stream authz (yml default is the
+            # compose host:port; k8s Service is port 80 → targetPort 8092).
             - name: ORDER_SERVICE_URL
-              value: http://bhukkad-order
-            # Kafka consumer: realtime is the SSE relay feed
-            # (OrderLiveEventConsumer on order.events.v1, group
-            # realtime-platform-consumer). APP_EVENTS_EXTERNAL_ENABLED=true +
-            # APP_EVENTS_EXTERNAL_TYPE=kafka + KAFKA_BOOTSTRAP_SERVERS arrive
-            # via envFrom (bhukkad-config) and override the application.yml
-            # defaults — no per-deployment override needed.
+              value: http://bhukkad-order.bhukkad.svc.cluster.local
+            # Events: the Kafka consumer (order.events.v1 → SSE fan-out) is
+            # driven by APP_EVENTS_EXTERNAL_ENABLED/_TYPE +
+            # KAFKA_BOOTSTRAP_SERVERS from bhukkad-config (enabled fleet-wide
+            # since the P0 config audit). order.events.v1(.dlt) are already
+            # seeded by the redpanda topics-init Job — no new topics needed.
             # P-09 JVM<->container contract: Guaranteed QoS (memory
             # requests==limits), CPU requests with NO limit (a limit throttles
             # GC threads), and the canonical -XX flag set (perf guide §4.1).

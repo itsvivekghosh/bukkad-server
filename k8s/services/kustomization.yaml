@@ -34,6 +34,9 @@ resources:
   - ../order
   - ../payment
   - ../delivery
+  - ../realtime
+  - ../personalization
+  - ../growth
 
 labels:
   - includeSelectors: false

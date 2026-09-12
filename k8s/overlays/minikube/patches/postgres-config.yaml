@@ -14,3 +14,9 @@ data:
     wal_buffers = 4MB
     synchronous_commit = off
     log_min_duration_statement = 2000
+    # Minikube ships WITHOUT WAL archiving: the base bhukkad-postgres-config
+    # enables archive_mode/archive_command for PITR, but this patch REPLACES
+    # the whole file and there is no object store locally. The walg-archive
+    # sidecar additionally discards (never crashes) on the CHANGE_ME
+    # WALG_S3_PREFIX placeholder — local stacks keep zero backup behavior.
+    archive_mode = off

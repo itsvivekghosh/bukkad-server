@@ -34,16 +34,23 @@ data:
     # Separate logical DBs: 0=cache, 1=locks/rate-limit/idempotency (see
     # application.yml spring.data.redis.database). Eviction only affects DB 0.
     # Requires clients to select DB explicitly; default stays 0 for cache.
-    # --- TLS (flag-gated, k8s/README-TLS.md) --------------------------------
-    # COMMENTED-READY: the tls-internal component mounts the server cert
-    # (bhukkad-redis-tls secret at /etc/redis-tls in the redis pod) but the
-    # server keeps serving plaintext 6379 until ops flips BOTH sides of the
-    # block below (server: uncomment here + rollout restart; clients:
-    # SPRING_DATA_REDIS_SSL_ENABLED=true in bhukkad-config). Flipping swaps
-    # 6379 from plaintext to TLS in one restart — plan the window with the
-    # client flip (RedisCacheService/RateLimitService reconnect with TLS).
-    # port 0
-    # tls-port 6379
-    # tls-cert-file /etc/redis-tls/tls.crt
-    # tls-key-file /etc/redis-tls/tls.key
-    # tls-ca-cert-file /etc/redis-tls/ca.crt
+    #
+    # -----------------------------------------------------------------------
+    # TLS (PLACEHOLDER — DO NOT ENABLE HERE; k8s/tls/README-TLS.md).
+    # requirepass is injected in k8s/redis/deployment.yaml and the TLS flags
+    # ride on the same command line, gated by TLS_ENABLED (default false →
+    # this file is served verbatim and only plaintext 6379 answers). What the
+    # flip appends there:
+    #   --tls-port 6380 --tls-cert-file /etc/redis/tls/tls.crt \
+    #   --tls-key-file /etc/redis/tls/tls.key --tls-ca-cert-file /etc/redis/tls/ca.crt \
+    #   --tls-auth-clients no
+    # Deliberately kept OFF in redis.conf so the optional-Secret mount of a
+    # not-yet-issued certificate (cert-manager absent) can never crash redis at
+    # parse time on a config-file directive.
+    # -----------------------------------------------------------------------
+    # port 6379                      # kept during the TLS cutover window only
+    # tls-port 6380                  # (or `port 0` + tls-port 6379 when done)
+    # tls-cert-file /etc/redis/tls/tls.crt
+    # tls-key-file /etc/redis/tls/tls.key
+    # tls-ca-cert-file /etc/redis/tls/ca.crt
+    # tls-auth-clients no

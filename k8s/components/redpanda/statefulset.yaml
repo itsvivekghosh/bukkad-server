@@ -51,6 +51,26 @@ spec:
             - --rpc-addr=0.0.0.0:33145
             - --advertise-rpc-addr=redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:33145
             - --controller-addr=0.0.0.0:33146
+            # -------------------------------------------------------------------------
+            # TLS + SASL (PLACEHOLDER — k8s/tls/README-TLS.md step 5). OFF by default:
+            # the live args list above is PLAINTEXT-only, byte-identical to the pre-TLS
+            # broker. TLS for redpanda v23.3 is NODE-CONFIG based (tls block entries
+            # keyed per kafka_api listener), NOT a start-flag — so the flip is:
+            #   1. Add an SSL listener to the addr lists instead of uncommenting:
+            #      - --kafka-addr=SSL://0.0.0.0:9093,PLAINTEXT://0.0.0.0:9092
+            #      - --advertise-kafka-addr=SSL://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9093,PLAINTEXT://redpanda-$(POD_ORDINAL).redpanda-headless.bhukkad.svc.cluster.local:9092
+            #   2. Mount Secret bhukkad-redpanda-tls (k8s/tls/certificates.yaml; the
+            #      leaf covers *.redpanda-headless) at /var/lib/redpanda/certs
+            #      (group-readable by uid 101 via fsGroup) and pre-bake a redpanda
+            #      config where kafka_api's SSL listener carries:
+            #        tls: {key_file: ..., cert_file: ..., truststore_file: ..., enabled: true}
+            #   3. SASL bootstrap (PLACEHOLDER — provision via Vault, never a real
+            #      value committed): --set-seed-properties=superuser=SCRAM-SHA-512://CHANGE_ME_SASL_USER:CHANGE_ME_SASL_PASS
+            #      plus client-side sasl_mechanism/sasl_username/sasl_password wiring.
+            # Exact node-config/flag shape MUST be re-verified against
+            # `redpanda start --help` + vendor docs for the PINNED image at flip
+            # time — the placeholder above is intentionally inert until then.
+            # -------------------------------------------------------------------------
           env:
             - name: POD_ORDINAL
               valueFrom:

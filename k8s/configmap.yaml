@@ -158,3 +158,19 @@ data:
   # traced) which is prohibitive at fleet traffic levels; 0.1 = 10% sampling
   # for prod. Raise temporarily when chasing a specific incident.
   TRACING_SAMPLE_PROBABILITY: "0.1"
+
+  # ---------------------------------------------------------------------------
+  # In-cluster TLS master flag (k8s/tls/README-TLS.md). "false" is the
+  # DEFAULT everywhere: postgres ships plain TCP, redpanda keeps the single
+  # PLAINTEXT listener, redis keeps port 6379 + requirepass, and every JDBC /
+  # Lettuce / Kafka client url stays sslmode=disable / non-TLS. Flipping to
+  # "true" is a multi-step cutover (cert-manager + k8s/tls/ component +
+  # per-client sslmode); follow README-TLS.md's order exactly. This key ONLY
+  # gates the server-side wrappers — nothing else consumes it until flipped.
+  # ---------------------------------------------------------------------------
+  TLS_ENABLED: "false"
+  # DOCUMENTATION PLACEHOLDER for that same flip: the JDBC target once TLS is
+  # on is sslmode=verify-full against bhukkad-postgresql. The app does NOT
+  # read this key today — the live source of truth is the inline ssl=false in
+  # DB_URL / DB_REPLICA_URL above (see README-TLS.md step 4 for the URL rewrite).
+  DB_JDBC_SSLMODE: "disable"

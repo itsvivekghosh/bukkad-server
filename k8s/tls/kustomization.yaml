@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ---------------------------------------------------------------------------
+# In-cluster TLS assets (cert-manager). INTENTIONALLY NOT wired into the base
+# k8s/kustomization.yaml resources: the Issuer/Certificate CRDs only resolve on
+# a cluster that has cert-manager installed, so referencing them from the base
+# would break `kubectl apply -k k8s/` everywhere else. Enable TLS by applying
+# this directory EXPLICITLY, then flipping TLS_ENABLED — exact order in
+# README-TLS.md. `kustomize build k8s/tls` still validates offline.
+# ---------------------------------------------------------------------------
+namespace: bhukkad
+
+resources:
+  - issuer.yaml
+  - certificates.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      managed-by: kustomize
+      project: bhukkad

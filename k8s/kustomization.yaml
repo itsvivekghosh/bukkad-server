@@ -21,6 +21,8 @@ resources:
   - secret-store.yaml
   - external-secret.yaml
   - postgres/pvc.yaml
+  # WAL archiving spool for the wal-g sidecar (PITR, k8s/docs/RUNBOOK-PITR.md).
+  - postgres/pvc-wal-spool.yaml
   - postgres/configmap.yaml
   - postgres/deployment.yaml
   - postgres/service.yaml
@@ -88,8 +90,9 @@ resources:
   - admin-analytics/service.yaml
   - admin-analytics/pdb.yaml
   - admin-analytics/hpa.yaml
-  # P2 fleet completion: realtime (SSE relay, port 8077), personalization
-  # (8088) and growth (8089) — modeled on the survey base.
+  # Fleet completion (P2): the three remaining Spring services. Ports follow
+  # each service's application.yml server.port (realtime 8077, personalization
+  # 8088, growth 8089) and match the Service targetPorts.
   - realtime/deployment.yaml
   - realtime/service.yaml
   - realtime/pdb.yaml
@@ -164,11 +167,10 @@ resources:
 # ---------------------------------------------------------------------------
 components:
   - components/redpanda
-  # P2 Kafka consumer-lag exporter + ServiceMonitor (alerts live in
-  # monitoring/kafka-lag-rules.yaml, registered above). Toggle TOGETHER with
-  # that rules file. Connects to PLAINTEXT :9092 — unchanged when the
-  # tls-internal component is enabled.
-  - components/kafka-exporter
+  # P2 backlog: Kafka consumer-lag poller feeding bhukkad.events alerts
+  # (kafka_consumergroup_* metrics). Toggle = remove this line (see its
+  # kustomization header; no-op on the fleet if the redpanda line is removed too).
+  - components/kafka-lag-exporter
 
 labels:
   - includeSelectors: true

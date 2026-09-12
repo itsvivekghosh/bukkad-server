@@ -29,22 +29,35 @@ data:
     effective_io_concurrency = 200
     default_statistics_target = 200
 
-    # --- PITR (WAL archiving, k8s/README-PITR.md) --------------------------
-    # wal_level=replica (default) already streams to the read replica; these
-    # settings additionally archive every completed WAL segment to a shared
-    # emptyDir spool, where the wal-g sidecar (k8s/postgres/deployment.yaml)
-    # uploads it to S3 (WALG_S3_PREFIX). Idempotent form: `test -f` returns 0
-    # when the segment is already spooled (crash between cp and the archive
-    # status update) so archiving never wedges on a retry loop; a FAILED cp
-    # (spool full / pod restarting) returns non-zero and PostgreSQL retries —
-    # pg_wal then grows, so the nightly wal-verify (k8s/backup-cronjob.yaml)
-    # and the S3-freshness guardrails in README-PITR are the tripwires.
+    # ---------------------------------------------------------------------------
+    # PITR (roadmap #15 follow-through): continuous WAL archiving.
+    #
+    # wal_level=replica is the PG16 default and is REQUIRED for archival —
+    # stated explicitly so a future tune cannot silently break the chain.
+    # archive_mode is postmaster-level: enabling it needs a pod restart
+    # (kubectl rollout restart deploy/bhukkad-postgresql), and every base
+    # backup MUST be taken AFTER archiving is confirmed working
+    # (k8s/docs/RUNBOOK-PITR.md).
+    #
+    # archive_command stages the segment onto the shared WAL spool volume only —
+    # it must NEVER talk to an object store directly (a network hiccup would
+    # stall archiving and bloat pg_wal). The wal-g sidecar in
+    # k8s/postgres/deployment.yaml drains /wal-spool to the object store
+    # (WALG_S3_PREFIX); with an idle drain loop the cp completes instantly and
+    # archiving is effectively decoupled from S3 availability. Until real
+    # WALG_S3_PREFIX/AWS credentials are provisioned the sidecar drains the
+    # spool by DISCARDING segments behind a loud WARN — equivalent to the
+    # pre-PITR status quo (pg_wal never bloats, no chain is kept); take the
+    # first base backup only AFTER backing-config is live (RUNBOOK-PITR.md).
+    # archive_timeout=60s bounds RPO during quiet periods (force-switch WAL
+    # so an idle primary still ships a segment every minute worst-case).
+    # NOTE: the minikube overlay patch replaces this whole file and keeps
+    # archiving OFF (no object store to point at locally).
+    # ---------------------------------------------------------------------------
+    wal_level = replica
     archive_mode = on
-    archive_command = 'test -f /wal-spool/pending/%f || cp %p /wal-spool/pending/%f'
-    # Force a segment switch every 60s: a quiet primary otherwise waits for a
-    # full 16MB segment, stretching the WAL RPO to hours. 60s bounds the
-    # archive-upload RPO to roughly the sidecar poll interval + 60s.
-    archive_timeout = 60s
+    archive_timeout = 60
+    archive_command = 'test ! -f /wal-spool/%f && cp %p /wal-spool/%f'
 ---
 # -----------------------------------------------------------------------------
 # PostgreSQL bootstrap, mounted at /docker-entrypoint-initdb.d/01-init.sql.

@@ -51,18 +51,17 @@ spec:
               value: "false"
             - name: HEALTH_PATH
               value: /api/v1/health/ping
-            # Datasource: services/personalization reads POSTGRES_HOST/PORT/DB
-            # (database-per-service: `personalization`, created by the postgres
-            # initdb/00-create-databases.sql bootstrap) and the per-service
-            # credentials from bhukkad-secrets (mapped in
-            # k8s/external-secret.yaml — creationPolicy: Owner replaces the
-            # target secret, so every referenced key must be mapped there).
+            # personalization composes its datasource from the generic
+            # POSTGRES_* env vars (application.yml) — host/db-name inline
+            # non-secret, credentials from bhukkad-secrets. The database is
+            # provisioned out-of-band like every other service DB (listed in
+            # initdb/00-create-databases.sql for the compose stack).
             - name: POSTGRES_HOST
-              value: bhukkad-postgresql
+              value: "bhukkad-postgresql"
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_DB
-              value: personalization
+              value: "personalization"
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
@@ -73,6 +72,14 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: PERSONALIZATION_DB_PASSWORD
+            # The in-cluster Redis runs with requirepass (k8s/redis/
+            # deployment.yaml); application.yml maps spring.data.redis
+            # WITHOUT a password placeholder, so bind it via relaxed env.
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -89,12 +96,10 @@ spec:
                   key: SERVICE_JWT_SECRET
             # RS256 verification: identity's JWKS via the ClusterIP Service
             # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
+            # Explicit here even though the yml has an in-cluster default, to
+            # keep the fleet wiring pattern identical.
             - name: JWKS_URL
               value: http://bhukkad-identity/.well-known/jwks.json
-            # Kafka: personalization registers no @KafkaListener, but the
-            # platform outbox producer still publishes over the broker.
-            # APP_EVENTS_EXTERNAL_ENABLED=true + APP_EVENTS_EXTERNAL_TYPE=kafka
-            # + KAFKA_BOOTSTRAP_SERVERS arrive via envFrom (bhukkad-config).
             # P-09 JVM<->container contract: Guaranteed QoS (memory
             # requests==limits), CPU requests with NO limit (a limit throttles
             # GC threads), and the canonical -XX flag set (perf guide §4.1).

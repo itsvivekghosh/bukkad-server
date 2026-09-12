@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-kafka-lag-exporter-config
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: kafka-lag-exporter
+data:
+  # Kafka Lag Exporter (seglo/kafka-lag-exporter) config — Typesafe/HOCON,
+  # mounted at /opt/docker/conf/ and passed via the documented launcher args
+  # (see deployment.yaml; shape mirrors the upstream Helm chart's 030-
+  # ConfigMap template for the same image tag line).
+  application.conf: |
+    kafka-lag-exporter {
+      port = 8000
+      reporters.prometheus.port = 8000
+      sinks = ["PrometheusEndpointSink"]
+
+      # Poll cadence; matches the ServiceMonitors interval below.
+      poll-interval = 30 seconds
+      client-group-id = "kafka-lag-exporter"
+      kafka-client-timeout = 10 seconds
+      kafka-retries = 2
+
+      clusters = [
+        {
+          # cluster_name label = "bhukkad" on every series.
+          name = "bhukkad"
+          # MUST stay in sync with KAFKA_BOOTSTRAP_SERVERS (k8s/configmap.yaml):
+          # the per-broker headless DNS of the redpanda StatefulSet, so lag
+          # collection follows broker rescheduling exactly like the clients.
+          # PLAINTEXT while redpanda TLS/SASL is off (k8s/tls/README-TLS.md);
+          # at that flip add security_protocol + sasl_* to BOTH property maps
+          # below (client-group-id needs DESCRIBE ACLs: group/topic/cluster).
+          bootstrap-brokers = "redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9092,redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9092"
+          consumer-properties = {
+          }
+          admin-client-properties = {
+          }
+          labels = {
+          }
+        }
+      ]
+
+      lookup-table.memory = {
+        size = 60
+      }
+
+      watchers = {
+        strimzi = "false"
+      }
+
+      metric-whitelist = [".*"]
+    }
+
+    akka {
+      loggers = ["akka.event.slf4j.Slf4jLogger"]
+      loglevel = "INFO"
+      logging-filter = "akka.event.slf4j.Slf4jLoggingFilter"
+    }
+  logback.xml: |
+    <configuration>
+        <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <logger name="org.apache.kafka" level="INFO"/>
+        <logger name="com.lightbend.kafkalagexporter" level="INFO"/>
+        <root level="INFO">
+            <appender-ref ref="STDOUT" />
+        </root>
+    </configuration>

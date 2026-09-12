@@ -1,0 +1,20 @@
+# Dedicated staging volume for PostgreSQL WAL archiving (PITR).
+# archive_command (k8s/postgres/configmap.yaml) copies segments here and the
+# wal-g sidecar (k8s/postgres/deployment.yaml) drains it to the object store.
+# A PVC (not emptyDir) keeps the chain durable across pod restarts — losing
+# staged-but-unpushed segments silently creates PITR chain gaps.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bhukkad-wal-spool-pvc
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard

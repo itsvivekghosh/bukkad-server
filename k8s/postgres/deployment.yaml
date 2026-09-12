@@ -21,31 +21,10 @@ spec:
         component: postgres
     spec:
       terminationGracePeriodSeconds: 90
+      # fsGroup 70 = the postgres image's uid, so the wal-spool PVC written by
+      # archive_command (uid 70) is also readable by the wal-g sidecar.
       securityContext:
-        # fsGroup aligns the shared wal-spool emptyDir (and any future TLS
-        # key mounts, k8s/README-TLS.md) with the postgres uid/gid (999 in
-        # the official image) so the sidecar can read spooled segments. The
-        # official postgres entrypoint starts as root and steps down to 999,
-        # so no runAsUser override here.
-        fsGroup: 999
-      initContainers:
-        # Copy the wal-g binary from the pinned image into the shared
-        # emptyDir so the always-on push loop can run on a tiny pinned
-        # busybox image. IMAGE NOTE (documented choice, 2026-09): the wal-g
-        # project publishes NO official container image, so we pin the
-        # KubeBlocks/ApeCloud build (multi-arch, actively maintained).
-        # Supply-chain strict clusters should mirror/rebuild this image per
-        # the wal-g release binaries (github.com/wal-g/wal-g/releases).
-        - name: wal-g-init
-          image: apecloud/wal-g:postgres-1.2
-          imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -c
-            - cp "$(command -v wal-g)" /wal-g-bin/wal-g && chmod 0755 /wal-g-bin/wal-g
-          volumeMounts:
-            - name: wal-g-bin
-              mountPath: /wal-g-bin
+        fsGroup: 70
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -73,9 +52,27 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: POSTGRES_REPLICATION_PASSWORD
+            # In-cluster TLS master flag (k8s/tls/README-TLS.md). "false" (the
+            # bhukkad-config default) keeps the launch argv BELOW identical to
+            # the pre-TLS state — zero behavior change until flipped.
+            - name: TLS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: bhukkad-config
+                  key: TLS_ENABLED
+          # The wrapper produces EXACTLY the old argv when TLS_ENABLED is not
+          # "true" (exec docker-entrypoint.sh postgres -c config_file=... —
+          # same as the image CMD + the previous args list). When flipped, the
+          # cert-manager Certificate secret (mounted optional below) is wired
+          # in via -c overrides so postgresql.conf itself stays TLS-free.
+          command: ["/bin/sh", "-c"]
           args:
-            - -c
-            - config_file=/etc/postgresql/postgresql.conf
+            - |
+              TLS_ARGS=""
+              if [ "${TLS_ENABLED:-false}" = "true" ]; then
+                TLS_ARGS="-c ssl=on -c ssl_cert_file=/etc/postgresql/tls/tls.crt -c ssl_key_file=/etc/postgresql/tls/tls.key -c ssl_ca_file=/etc/postgresql/tls/ca.crt"
+              fi
+              exec docker-entrypoint.sh postgres -c config_file=/etc/postgresql/postgresql.conf ${TLS_ARGS}
           resources:
             requests:
               cpu: 300m
@@ -91,12 +88,17 @@ spec:
             - name: postgres-config
               mountPath: /etc/postgresql/postgresql.conf
               subPath: postgresql.conf
-            # WAL archive spool shared with the wal-g sidecar (see the
-            # archive_command in k8s/postgres/configmap.yaml). emptyDir: the
-            # spool is transient — un-pushed segments are re-archived from
-            # pg_wal after a pod restart; the S3 copy is the durable one.
+            # WAL spool — archive_command stage area drained by the wal-g
+            # sidecar (PITR, k8s/docs/RUNBOOK-PITR.md).
             - name: wal-spool
               mountPath: /wal-spool
+            # In-cluster TLS material (k8s/tls/). OPTIONAL: with the tls
+            # toggle off (Certificate not applied / cert-manager absent) the
+            # secret does not exist, kubelet mounts an empty dir, and the
+            # launch wrapper above never points at it — zero behavior change.
+            - name: ssl-cert
+              mountPath: /etc/postgresql/tls
+              readOnly: true
           startupProbe:
             exec:
               command:
@@ -124,99 +126,116 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
-        # ---
-        # PITR WAL shipper (k8s/README-PITR.md): polls the shared spool for
-        # segments deposited by archive_command and uploads them to S3 with
-        # `wal-g wal-push`. Upload failures leave the segment in place for
-        # retry — the WAL RPO is bounded by the poll interval, the S3
-        # freshness is verified nightly by the wal-verify container in
-        # k8s/backup-cronjob.yaml.
-        - name: wal-g-push
-          image: busybox:1.36
+        # -------------------------------------------------------------------------
+        # wal-g sidecar (PITR — k8s/docs/RUNBOOK-PITR.md). Continuous WAL
+        # archiving uses the "local spool" pattern: postgresql.conf's
+        # archive_command only STAGES segments onto the shared /wal-spool
+        # volume (instant success), and this sidecar is the sole object-store
+        # talker — so S3 hiccups never stall the primary or bloat pg_wal.
+        #
+        # Guard: while WALG_S3_PREFIX is missing/still a CHANGE_ME placeholder
+        # the drain loop DELETES staged segments behind a per-segment WARN
+        # instead of pushing. That keeps pg_wal bounded — the status quo ante
+        # for an un-backup-configured cluster (archiving is ON but the chain is
+        # intentionally not kept). Do NOT take a base backup against this
+        # state; RUNBOOK-PITR.md step 0 verifies the guard is silent first.
+        # -------------------------------------------------------------------------
+        - name: walg-archive
+          # Official WAL-G PostgreSQL distribution (wal-g binary + PG client
+          # tools). Pin the exact released tag on first apply (verify with
+          # `skopeo inspect`) and keep the PG major aligned with the server
+          # (16 here).
+          image: quay.io/wal/wal-g:postgresql-latest
           imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -c
+          command: ["/bin/sh", "-c"]
+          args:
             - |
               set -eu
-              SPOOL=/wal-spool/pending
-              mkdir -p "${SPOOL}" /wal-spool/done
-              echo "[wal-g-push] shipping ${SPOOL} -> ${WALG_S3_PREFIX}"
+              case "${WALG_S3_PREFIX:-}" in
+                ""|*CHANGE_ME*)
+                  echo "[walg] ERROR: WALG_S3_PREFIX unset/placeholder — WAL segments will be DISCARDED, PITR is NOT configured. Set it in Vault (bhukkad/prod/backup) + k8s/secrets.yaml." >&2
+                  while true; do
+                    for f in /wal-spool/*; do
+                      [ -e "$f" ] || continue
+                      echo "[walg] WARN: archiving UNCONFIGURED — discarding $(basename "$f") (no PITR chain)" >&2
+                      rm -f "$f"
+                    done
+                    sleep 30
+                  done
+                  ;;
+              esac
+              # Push every staged segment, delete on success, keep the chain
+              # ordered by retrying failures on the next pass (oldest first —
+              # the glob sorts by segment name). wal-push exit !=0 stops PG
+              # recycling of pg_wal only in direct-archive mode; in spool mode
+              # the cp already succeeded, so a FAILED push must keep the file
+              # HERE (unpushed) and surface the error — the next iteration
+              # retries it before newer segments (no gaps pushed out of order).
               while true; do
-                for f in "${SPOOL}"/*; do
-                  [ -f "${f}" ] || continue
-                  seg="$(basename "${f}")"
-                  if /wal-g-bin/wal-g wal-push "${f}"; then
-                    mv "${f}" "/wal-spool/done/${seg}"
+                for f in /wal-spool/*; do
+                  [ -e "$f" ] || continue
+                  if wal-g wal-push "$f"; then
+                    rm -f "$f"
                   else
-                    echo "[wal-g-push] wal-push failed for ${seg}; will retry" >&2
+                    echo "[walg] ERROR: wal-push $f failed — retrying next pass" >&2
+                    break
                   fi
                 done
-                sleep 10
+                sleep 15
               done
           env:
-            # WALG_S3_PREFIX is composed from the fleet S3_BUCKET
-            # (bhukkad-config) — the same bucket the nightly dump sync uses,
-            # under a dedicated WAL prefix. $(S3_BUCKET) is kubelet env
-            # expansion and resolves because S3_BUCKET is defined first.
-            - name: S3_BUCKET
-              valueFrom:
-                configMapKeyRef:
-                  name: bhukkad-config
-                  key: S3_BUCKET
+            # All WALG keys OPTIONAL: a missing key resolves to "" which the
+            # guard treats as UNCONFIGURED (discard mode) — a half-provisioned
+            # cluster (Vault keys absent) must still boot its database.
             - name: WALG_S3_PREFIX
-              value: s3://$(S3_BUCKET)/postgres-wal
-            - name: AWS_REGION
               valueFrom:
-                configMapKeyRef:
-                  name: bhukkad-config
-                  key: AWS_REGION
-            # Same object-store credentials as the backup CronJob s3-sync
-            # container (Vault bhukkad/prod/backup via bhukkad-secrets).
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: WALG_S3_PREFIX
+                  optional: true
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: AWS_ACCESS_KEY_ID
+                  optional: true
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: AWS_SECRET_ACCESS_KEY
-            # Connection info for wal-g commands that query the server.
-            - name: PGHOST
-              value: localhost
-            - name: PGPORT
-              value: "5432"
-            - name: PGUSER
-              valueFrom:
-                secretKeyRef:
-                  name: bhukkad-secrets
-                  key: DB_USERNAME
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: bhukkad-secrets
-                  key: DB_PASSWORD
-            - name: PGDATABASE
+                  optional: true
+            - name: AWS_REGION
               valueFrom:
                 configMapKeyRef:
                   name: bhukkad-config
-                  key: DB_NAME
+                  key: AWS_REGION
+            # Compression kept explicit so WAL and base backups share one
+            # format (see RUNBOOK-PITR.md). Spool mode means wal-push here has
+            # NO database dependency — it only reads /wal-spool and uploads.
+            - name: WALG_COMPRESSION_METHOD
+              value: "zstd"
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
               memory: 128Mi
+            limits:
+              memory: 256Mi
           volumeMounts:
             - name: wal-spool
               mountPath: /wal-spool
-            - name: wal-g-bin
-              mountPath: /wal-g-bin
-              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
       volumes:
+        # Spool is a dedicated PVC (NOT emptyDir): an emptyDir wipe during a
+        # pod eviction would silently DELETE archived WAL and break the PITR
+        # chain; a PVC survives pod churn. Small — 5Gi ≈ 320 default 16MB
+        # segments of push backlog before action is needed.
+        - name: wal-spool
+          persistentVolumeClaim:
+            claimName: bhukkad-wal-spool-pvc
         - name: postgres-data
           persistentVolumeClaim:
             claimName: bhukkad-postgres-pvc
@@ -229,11 +248,10 @@ spec:
         - name: postgres-config
           configMap:
             name: bhukkad-postgres-config
-        # Shared WAL archive spool (postgres → wal-g sidecar).
-        - name: wal-spool
-          emptyDir: {}
-        # The wal-g binary, copied out of the pinned wal-g image by the
-        # wal-g-init init container so the always-on push loop can run on a
-        # tiny pinned busybox image.
-        - name: wal-g-bin
-          emptyDir: {}
+        # cert-manager leaf (Secret bhukkad-postgres-tls, k8s/tls/). OPTIONAL,
+        # and only ever READ when TLS_ENABLED=true — no secret, no failure.
+        - name: ssl-cert
+          secret:
+            secretName: bhukkad-postgres-tls
+            optional: true
+            defaultMode: 0440
