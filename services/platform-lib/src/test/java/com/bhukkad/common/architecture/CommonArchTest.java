@@ -58,7 +58,7 @@ class CommonArchTest {
     void commonDoesNotDependOnMonolith() {
         ArchRule rule = noClasses()
                 .that().resideInAPackage("com.bhukkad.common..")
-                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.serviceImpl..", "com.bhukkad.entity..");
+                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.service..", "com.bhukkad.domain..");
         rule.check(COMMON_CLASSES);
     }
 

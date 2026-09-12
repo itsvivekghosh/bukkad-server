@@ -96,23 +96,23 @@ class KafkaTopicParityTest {
     private static Map<String, Map<String, Map<String, String>>> buildListeners() {
         Map<String, Map<String, Map<String, String>>> listeners = new LinkedHashMap<>();
         // services/notification/.../NotificationEventConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/notification/src/main/java/com/bhukkad/notification/service/NotificationEventConsumer.java",
+        listeners.put("services/notification/src/main/java/com/bhukkad/notification/infrastructure/messaging/NotificationEventConsumer.java",
                 Map.of("order.events.v1", Map.of("OrderCreated", "order")));
         // services/realtime/.../OrderLiveEventConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/realtime/src/main/java/com/bhukkad/realtime/service/OrderLiveEventConsumer.java",
+        listeners.put("services/realtime/src/main/java/com/bhukkad/realtime/domain/service/impl/OrderLiveEventConsumer.java",
                 Map.of("order.events.v1", Map.of("OrderCreated", "order", "OrderStatusChanged", "order")));
         // services/admin-analytics/.../AdminCqrsEventConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/admin-analytics/src/main/java/com/bhukkad/admin/service/AdminCqrsEventConsumer.java",
+        listeners.put("services/admin-analytics/src/main/java/com/bhukkad/admin/infrastructure/messaging/AdminCqrsEventConsumer.java",
                 Map.of("order.events.v1", Map.of("OrderCreated", "order")));
         // services/survey/.../OrderItemsSnapshotConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/survey/src/main/java/com/bhukkad/survey/kafka/OrderItemsSnapshotConsumer.java",
+        listeners.put("services/survey/src/main/java/com/bhukkad/survey/infrastructure/messaging/OrderItemsSnapshotConsumer.java",
                 Map.of("order.events.v1", Map.of("ORDER_ITEMS_SNAPSHOT", "order")));
         // services/order/.../PaymentSagaEventConsumer.java (TOPIC_PAYMENT_EVENTS + TOPIC_ORDER_EVENTS)
-        listeners.put("services/order/src/main/java/com/bhukkad/order/service/PaymentSagaEventConsumer.java",
+        listeners.put("services/order/src/main/java/com/bhukkad/order/domain/service/impl/PaymentSagaEventConsumer.java",
                 Map.of("payment.events.v1", Map.of("payment_settled", "payment", "payment_failed", "payment"),
                         "order.events.v1", Map.of("stock_release_requested", "order")));
         // services/search/.../SearchSyncEventConsumer.java (TOPIC_RESTAURANT_EVENTS)
-        listeners.put("services/search/src/main/java/com/bhukkad/search/sync/SearchSyncEventConsumer.java",
+        listeners.put("services/search/src/main/java/com/bhukkad/search/infrastructure/messaging/SearchSyncEventConsumer.java",
                 Map.of("restaurant.events.v1",
                         Map.of("restaurant_updated", "restaurant",
                                 "menu_item_changed", "restaurant",
@@ -121,9 +121,9 @@ class KafkaTopicParityTest {
         // everyListenerTopicIsProducedBySomeService; per-type pairing omitted
         // (payment_requested is order-produced; dispute_resolved has no
         // producer yet — cross-batch, see class javadoc).
-        listeners.put("services/payment/src/main/java/com/bhukkad/payment/consumer/PaymentRequestedConsumer.java",
+        listeners.put("services/payment/src/main/java/com/bhukkad/payment/infrastructure/messaging/PaymentRequestedConsumer.java",
                 Map.of("payment.events.v1", Map.of()));
-        listeners.put("services/payment/src/main/java/com/bhukkad/payment/consumer/DisputeResolvedConsumer.java",
+        listeners.put("services/payment/src/main/java/com/bhukkad/payment/infrastructure/messaging/DisputeResolvedConsumer.java",
                 Map.of("payment.events.v1", Map.of()));
         return listeners;
     }
@@ -238,7 +238,7 @@ class KafkaTopicParityTest {
                                                      KafkaTemplate<String, String> template) {
         var properties = new KafkaPlatformProperties(true, "kafka",
                 new KafkaPlatformProperties.Kafka("localhost:9092", service + "-group",
-                        topic, topic + ".dlt"));
+                        topic, topic + ".dlt"), false);
         return new KafkaPlatformConfig().kafkaPlatformEventPublisher(template, properties);
     }
 

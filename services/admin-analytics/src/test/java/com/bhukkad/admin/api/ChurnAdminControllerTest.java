@@ -1,7 +1,8 @@
 package com.bhukkad.admin.api;
+import com.bhukkad.admin.api.controller.ChurnAdminController;
 
-import com.bhukkad.admin.domain.ChurnScore;
-import com.bhukkad.admin.service.ChurnService;
+import com.bhukkad.admin.domain.entity.ChurnScore;
+import com.bhukkad.admin.domain.service.ChurnService;
 import com.bhukkad.common.dto.response.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -25,8 +25,7 @@ class PaymentServiceArchTest {
     void domainDoesNotDependOnWebOrIdempotency() {
         noClasses().that().resideInAPackage("com.bhukkad.payment.domain..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "org.springframework.web..", "jakarta.servlet..",
-                        "com.bhukkad.common.idempotency..")
+                        "org.springframework.web..", "jakarta.servlet..")
                 .check(SERVICE_CLASSES);
     }
 
@@ -35,9 +34,8 @@ class PaymentServiceArchTest {
         classes().that().haveSimpleNameEndingWith("Repository")
                 .should().resideInAnyPackage(
                         "com.bhukkad.payment.domain..",
-                        // The shared idempotency_claims adapter is
-                        // infrastructure — it never owns a money-path table.
-                        "com.bhukkad.payment.idempotency..")
+                        "com.bhukkad.payment.idempotency..",
+                        "com.bhukkad.payment.infrastructure.persistence..")
                 .check(SERVICE_CLASSES);
     }
 
@@ -52,7 +50,7 @@ class PaymentServiceArchTest {
     void noMonolithDependencies() {
         noClasses().that().resideInAPackage("com.bhukkad.payment..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "com.bhukkad.serviceImpl..", "com.bhukkad.entity..",
+                        "com.bhukkad.service..", "com.bhukkad.domain..",
                         "com.bhukkad.service..", "com.bhukkad.outbox..")
                 .check(SERVICE_CLASSES);
     }

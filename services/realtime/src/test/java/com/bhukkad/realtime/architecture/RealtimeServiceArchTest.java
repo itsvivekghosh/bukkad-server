@@ -10,10 +10,10 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 /**
- * Boundary guardrails for the realtime service, mirroring the order-service
- * pattern: controllers live in the {@code api} layer, consumers/services live
- * in the {@code service} layer (never scattered in the root package), and the
- * realtime service never reaches into monolith packages.
+ * Boundary guardrails for the realtime service: controllers live in the
+ * {@code api.controller} layer, consumers/services live in the
+ * {@code domain.service.impl} layer, and the realtime service never reaches
+ * into monolith packages.
  */
 class RealtimeServiceArchTest {
 
@@ -32,7 +32,7 @@ class RealtimeServiceArchTest {
     @Test
     void consumersAreInServicePackage() {
         classes().that().haveSimpleNameEndingWith("Consumer")
-                .should().resideInAPackage("com.bhukkad.realtime.service..")
+                .should().resideInAPackage("com.bhukkad.realtime.domain.service.impl..")
                 .check(SERVICE_CLASSES);
     }
 
@@ -40,7 +40,7 @@ class RealtimeServiceArchTest {
     void noMonolithDependencies() {
         noClasses().that().resideInAPackage("com.bhukkad.realtime..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "com.bhukbad.serviceImpl..", "com.bhukbad.entity..", "com.bhukad.dto..")
+                        "com.bhukbad.serviceImpl..", "com.bhukbad.entity..", "com.bhukkad.dto..")
                 .check(SERVICE_CLASSES);
     }
 

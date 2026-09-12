@@ -1,13 +1,13 @@
 package com.bhukkad.payment.api;
 
-import com.bhukkad.payment.domain.DunningRun;
-import com.bhukkad.payment.domain.Payment;
-import com.bhukkad.payment.domain.RestaurantSettlement;
-import com.bhukkad.payment.service.AutoRefundService;
-import com.bhukkad.payment.service.CommissionTierService;
-import com.bhukkad.payment.service.DunningService;
-import com.bhukkad.payment.service.SettlementService;
-import com.bhukkad.payment.domain.SettlementRun;
+import com.bhukkad.payment.domain.entity.DunningRun;
+import com.bhukkad.payment.domain.entity.Payment;
+import com.bhukkad.payment.domain.entity.RestaurantSettlement;
+import com.bhukkad.payment.domain.service.AutoRefundService;
+import com.bhukkad.payment.domain.service.CommissionTierService;
+import com.bhukkad.payment.domain.service.DunningService;
+import com.bhukkad.payment.domain.service.SettlementService;
+import com.bhukkad.payment.domain.entity.SettlementRun;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -15,6 +15,8 @@ import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.bhukkad.payment.api.dto.response.PaymentResponse;
+import com.bhukkad.payment.api.dto.response.RestaurantSettlementResponse;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,7 +32,7 @@ class PaymentOperationsControllerTest {
     @Mock private DunningService dunningService;
     @Mock private CommissionTierService commissionTierService;
     @Mock private SettlementService settlementService;
-    @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
+    @Mock private com.bhukkad.payment.domain.mapper.PaymentMapper paymentMapper;
     @Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
     @InjectMocks private PaymentOperationsController controller;
 

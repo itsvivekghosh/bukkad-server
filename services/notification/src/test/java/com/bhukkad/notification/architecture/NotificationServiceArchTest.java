@@ -32,7 +32,7 @@ class NotificationServiceArchTest {
     @Test
     void noMonolithDependencies() {
         noClasses().that().resideInAPackage("com.bhukkad.notification..")
-                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.serviceImpl..", "com.bhukkad.entity..")
+                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.service..", "com.bhukkad.domain..")
                 .check(SERVICE_CLASSES);
     }
 

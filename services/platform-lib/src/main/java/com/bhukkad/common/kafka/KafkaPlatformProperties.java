@@ -11,12 +11,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * for logging only. Kafka connection details live in the nested {@link Kafka}
  * record (relaxed kebab-case binding: {@code bootstrap-servers} etc.).</p>
  *
- * @param enabled master switch for the external event pipeline
- * @param type    transport type ({@code kafka} or {@code log})
- * @param kafka   Kafka connection and topic configuration
+ * <p>CR-14 / W-2: {@code consumer-startup} controls whether bare
+ * {@code @KafkaListener} containers auto-start when the backbone is enabled.
+ * The default is {@code false} so a backbone-on service starts with consumers
+ * paused until an operator explicitly starts them (staged waves).</p>
+ *
+ * @param enabled         master switch for the external event pipeline
+ * @param type            transport type ({@code kafka} or {@code log})
+ * @param kafka           Kafka connection and topic configuration
+ * @param consumerStartup whether listeners auto-start on boot (default false)
  */
 @ConfigurationProperties(prefix = "app.events.external")
-public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka) {
+public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka, boolean consumerStartup) {
 
     /** Kafka connection and topic settings. */
     public record Kafka(String bootstrapServers, String consumerGroup, String platformTopic, String dlqTopic) {
@@ -29,6 +35,6 @@ public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka)
 
     /** Safe default representing a fully disabled external event pipeline. */
     public static KafkaPlatformProperties disabled() {
-        return new KafkaPlatformProperties(false, "log", new Kafka("", "", "", ""));
+        return new KafkaPlatformProperties(false, "log", new Kafka("", "", "", ""), false);
     }
 }

@@ -506,4 +506,20 @@ public class PlatformJwtValidator {
         this.lastFetchMillis = 0L;
         this.lastFailedFetchMillis = 0L;
     }
+
+    /** Timestamp of the last successful JWKS fetch (millis since epoch). */
+    public long lastFetchMillis() {
+        return lastFetchMillis;
+    }
+
+    /** Configured JWKS cache TTL in milliseconds. */
+    public long jwksTtlMillis() {
+        return JWKS_TTL_MILLIS;
+    }
+
+    /** Trigger a JWKS refresh. Returns true if a refresh was scheduled. */
+    public boolean refreshJwks() {
+        scheduleRefresh();
+        return true;
+    }
 }

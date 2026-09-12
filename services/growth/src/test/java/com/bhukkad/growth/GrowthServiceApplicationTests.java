@@ -1,7 +1,7 @@
 package com.bhukkad.growth;
 
-import com.bhukkad.growth.dto.LoyaltyPointsResponse;
-import com.bhukkad.growth.dto.ReferralStatsResponse;
+import com.bhukkad.growth.api.dto.response.LoyaltyPointsResponse;
+import com.bhukkad.growth.api.dto.response.ReferralStatsResponse;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

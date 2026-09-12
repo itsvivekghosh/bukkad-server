@@ -1,6 +1,5 @@
 package com.bhukkad.restaurant;
 
-import com.bhukkad.restaurant.domain.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +12,22 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.bhukkad.restaurant.domain.entity.CustomizationChoice;
+import com.bhukkad.restaurant.domain.repository.CustomizationChoiceRepository;
+import com.bhukkad.restaurant.domain.entity.CustomizationOption;
+import com.bhukkad.restaurant.domain.repository.CustomizationOptionRepository;
+import com.bhukkad.restaurant.domain.entity.DynamicPricingRule;
+import com.bhukkad.restaurant.domain.repository.DynamicPricingRuleRepository;
+import com.bhukkad.restaurant.domain.entity.InventoryAlert;
+import com.bhukkad.restaurant.domain.repository.InventoryAlertRepository;
+import com.bhukkad.restaurant.domain.entity.MenuItem;
+import com.bhukkad.restaurant.domain.repository.MenuItemRatingRepository;
+import com.bhukkad.restaurant.domain.repository.MenuItemRepository;
+import com.bhukkad.restaurant.domain.repository.MenuVersionRepository;
+import com.bhukkad.restaurant.domain.entity.Restaurant;
+import com.bhukkad.restaurant.domain.repository.RestaurantRepository;
+import com.bhukkad.restaurant.domain.entity.Review;
+import com.bhukkad.restaurant.domain.repository.ReviewRepository;
 
 /**
  * Validates Batch C depth tables (reviews, ratings, customizations,

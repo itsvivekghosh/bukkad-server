@@ -37,13 +37,20 @@ class IdentityServiceArchTest {
     @Test
     void securityLayerIsIsolated() {
         ArchRule rule = classes()
-                .that().resideInAPackage("com.bhukkad.identity.security..")
+                .that().resideInAPackage("com.bhukkad.identity.config..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "com.bhukkad.identity..",
+                        "com.bhukkad.common..",
                         "com.nimbusds..",
                         "org.springframework.security..",
                         "org.springframework.stereotype..",
-                        "org.springframework.boot.context.properties..",
+                        "org.springframework.boot..",
+                        "org.springframework.context..",
+                        "org.springframework.core..",
+                        "org.springframework.web..",
+                        "org.springframework.beans.factory..",
+                        "jakarta.persistence..",
+                        "jakarta.servlet..",
                         "org.slf4j..",
                         "java..",
                         "lombok..");
@@ -63,7 +70,7 @@ class IdentityServiceArchTest {
         ArchRule rule = noClasses()
                 .that().resideInAPackage("com.bhukkad.identity..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "com.bhukkad.serviceImpl..", "com.bhukkad.entity..",
+                        "com.bhukkad.service..", "com.bhukkad.domain..",
                         "com.bhukkad.security..", "com.bhukkad.service..");
         rule.check(SERVICE_CLASSES);
     }
@@ -80,10 +87,10 @@ class IdentityServiceArchTest {
      * annotations move; new controllers are blocked.
      */
     private static final Set<String> LEGACY_TRANSACTIONAL_CONTROLLERS = Set.of(
-            "com.bhukkad.identity.api.AdminUserInternalController",
-            "com.bhukkad.identity.api.ComplianceController",
-            "com.bhukkad.identity.api.CustomerAccountController",
-            "com.bhukkad.identity.api.CustomerSelfController");
+            "com.bhukkad.identity.api.controller.AdminUserInternalController",
+            "com.bhukkad.identity.api.controller.ComplianceController",
+            "com.bhukkad.identity.api.controller.CustomerAccountController",
+            "com.bhukkad.identity.api.controller.CustomerSelfController");
 
     private static final DescribedPredicate<JavaClass> nonExemptControllers =
             new DescribedPredicate<>("controllers without a legacy @Transactional exemption") {

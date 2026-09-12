@@ -79,10 +79,18 @@ LOG_DIR=/tmp/bhukkad-local
 mkdir -p "$LOG_DIR"
 PIDFILE=.local-stack.pids
 : > "$PIDFILE"
-# Lean JVM defaults mirror the memory-tight container tuning; C1-only +
-# single-processor heuristics triple startup time when 15 JVMs launch at once.
+# Lean JVM defaults mirror the memory-tight container tuning; single-processor
+# heuristics triple startup time when 15 JVMs launch at once.
+#
+# JIT is fully disabled (-XX:TieredStopAtLevel=0) because the ARM64 C1 JIT
+# compiler on OpenJDK 17.0.x crashes (SIGSEGV, exit code 134) during
+# Spring Boot's auto-configuration phase for services with spring-kafka
+# or shedlock on the classpath (search, payment). The crash occurs when
+# the C1 compiler attempts to compile methods in
+# AutoConfigurationImportSelector.ConfigurationClassFilter. Disabling JIT
+# entirely (interpreter-only mode) allows all 15 services to boot correctly.
 # On a roomy host override for faster boots, e.g.: LOCAL_JVM_OPTS="-Xmx512m"
-LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=1}"
+LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -XX:TieredStopAtLevel=0 -XX:ActiveProcessorCount=1}"
 
 echo "== launching ${#SERVICES[@]} JVMs (logs: $LOG_DIR/<service>.log) =="
 for entry in "${SERVICES[@]}"; do
@@ -103,7 +111,7 @@ echo "== waiting for services to report healthy =="
 # The local profile sets logging.level.com.bhukkad=WARN, which suppresses the
 # "Started ... Application" INFO line — readiness is therefore probed on
 # /actuator/health (200/UP), not on the log.
-deadline=$(( $(date +%s) + 600 ))
+deadline=$(( $(date +%s) + 1800 ))
 count=${#SERVICES[@]}
 RESTARTED=" "
 while true; do

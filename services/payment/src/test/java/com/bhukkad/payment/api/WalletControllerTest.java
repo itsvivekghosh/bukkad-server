@@ -1,16 +1,19 @@
 package com.bhukkad.payment.api;
 
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.payment.domain.Payment;
-import com.bhukkad.payment.domain.WalletBalance;
-import com.bhukkad.payment.service.PaymentService;
-import com.bhukkad.payment.service.WalletService;
+import com.bhukkad.payment.domain.entity.Payment;
+import com.bhukkad.payment.domain.entity.WalletBalance;
+import com.bhukkad.payment.domain.service.PaymentService;
+import com.bhukkad.payment.domain.service.WalletService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.bhukkad.payment.api.dto.request.WalletTopUpRequest;
+import com.bhukkad.payment.api.dto.response.WalletResponse;
+import com.bhukkad.payment.api.dto.response.WalletTransactionResponse;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +28,7 @@ class WalletControllerTest {
 
     @Mock private WalletService walletService;
     @Mock private PaymentService paymentService;
-    @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
+    @Mock private com.bhukkad.payment.domain.mapper.PaymentMapper paymentMapper;
     @InjectMocks private WalletController controller;
 
     private TokenPrincipal principal(Long userId) {

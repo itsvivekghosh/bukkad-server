@@ -1,0 +1,98 @@
+package com.bhukkad.admin.config;
+
+import com.bhukkad.common.security.PlatformJwtAuthFilter;
+import com.bhukkad.common.security.PlatformJwtProperties;
+import com.bhukkad.common.security.ServiceAuthProperties;
+import com.bhukkad.common.security.ServiceJwtAuthFilter;
+import com.bhukkad.common.web.SecurityHeadersFilter;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.nio.charset.StandardCharsets;
+
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@EnableConfigurationProperties({
+        PlatformJwtProperties.class,
+        ServiceAuthProperties.class,
+        com.bhukkad.admin.config.FeatureFlagProperties.class,
+        com.bhukkad.admin.config.ComplianceProperties.class,
+        com.bhukkad.admin.config.ExperimentProperties.class
+})
+public class SecurityConfig {
+
+    /**
+     * Dev-only basic-auth service account so the monolith's compliance clients
+     * can call the customer compliance surface; replaced by service JWTs at
+     * the identity cutover (same lifecycle as survey/referral/support).
+     */
+
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   SecurityHeadersFilter securityHeadersFilter,
+                                                   ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
+                                                   ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter)
+            throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .httpBasic(basic -> {})
+                .formLogin(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/cache/health", "/api/v1/cache/stats").permitAll()
+                        // StreamingResponseBody CSV exports run their body on an
+                        // ASYNC dispatch after authorization has already passed on
+                        // the REQUEST dispatch; re-asserting authenticated() on the
+                        // async dispatch aborted mid-stream with AccessDeniedException
+                        // after the response was committed (PrematureCloseException
+                        // upstream, 500 to the client). Authorization for /api/v1/analytics/**
+                        // happens on the initial request dispatch.
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC,
+                                jakarta.servlet.DispatcherType.ERROR).permitAll()
+                        // Unauthenticated error forward (404s/401s to /error) must keep
+                        // their real status — otherwise MVC "no handler" 404s surface as 401.
+                        .requestMatchers("/error").permitAll()
+                        .anyRequest().authenticated());
+
+        // Security headers must run first
+        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+
+        // Service-to-service JWT filter (must run before user JWT filter)
+        ServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
+        if (serviceFilter != null) {
+            http.addFilterBefore(serviceFilter, UsernamePasswordAuthenticationFilter.class);
+        }
+
+        PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
+        if (filter != null) {
+            http.addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);
+        }
+        return http.build();
+    }
+
+    @Bean
+    public AuthenticationEntryPoint restAuthenticationEntryPoint() {
+        return (request, response, authException) -> {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            response.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");
+        };
+    }
+}

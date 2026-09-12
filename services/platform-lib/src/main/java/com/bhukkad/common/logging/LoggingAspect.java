@@ -40,8 +40,8 @@ public class LoggingAspect {
     @Pointcut("within(com.bhukkad..api..*)")
     public void controllerMethods() {}
 
-    @Pointcut("within(com.bhukkad..serviceImpl..*)")
-    public void serviceImplMethods() {}
+    @Pointcut("within(com.bhukkad..service..*)")
+    public void serviceMethods() {}
 
     @Pointcut("within(com.bhukkad..domain..*) || within(com.bhukkad..repository..*)")
     public void repositoryMethods() {}
@@ -81,7 +81,7 @@ public class LoggingAspect {
 
     // ==================== SERVICE - DEBUG ONLY (dev only), WARN for slow ====================
 
-    @Around("serviceImplMethods()")
+    @Around("serviceMethods()")
     public Object logService(ProceedingJoinPoint joinPoint) throws Throwable {
         String className = joinPoint.getTarget().getClass().getSimpleName();
         String methodName = joinPoint.getSignature().getName();
@@ -152,7 +152,7 @@ public class LoggingAspect {
      * "UNHANDLED_EXCEPTION" is misleading noise. Only genuinely unexpected
      * exceptions are logged at ERROR.</p>
      */
-    @AfterThrowing(pointcut = "controllerMethods() || serviceImplMethods()", throwing = "exception")
+    @AfterThrowing(pointcut = "controllerMethods() || serviceMethods()", throwing = "exception")
     public void logException(JoinPoint joinPoint, Exception exception) {
         if (isHandledDomainException(exception)) {
             return; // handled by GlobalExceptionHandler; already WARN-logged there

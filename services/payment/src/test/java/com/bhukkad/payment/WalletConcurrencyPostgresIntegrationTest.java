@@ -1,8 +1,8 @@
 package com.bhukkad.payment;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.payment.domain.WalletTransaction;
-import com.bhukkad.payment.service.WalletService;
+import com.bhukkad.payment.domain.entity.WalletTransaction;
+import com.bhukkad.payment.domain.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +41,7 @@ class WalletConcurrencyPostgresIntegrationTest extends AbstractPaymentPostgresTe
     private static final long CUSTOMER = 4242L;
 
     @Autowired private WalletService walletService;
-    @Autowired private com.bhukkad.payment.domain.WalletBalanceRepository balanceRepository;
+    @Autowired private com.bhukkad.payment.domain.repository.WalletBalanceRepository balanceRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
@@ -104,7 +104,7 @@ class WalletConcurrencyPostgresIntegrationTest extends AbstractPaymentPostgresTe
     void concurrentCredits_accumulateExactly_underVersionAndRowLock() throws Exception {
         // Seed at zero directly through the repository: credit(ZERO) is a
         // domain error by design, so create the row without the service.
-        com.bhukkad.payment.domain.WalletBalance seed = new com.bhukkad.payment.domain.WalletBalance();
+        com.bhukkad.payment.domain.entity.WalletBalance seed = new com.bhukkad.payment.domain.entity.WalletBalance();
         seed.setCustomerId(CUSTOMER);
         seed.setBalance(BigDecimal.ZERO);
         seed.setUpdatedAt(java.time.LocalDateTime.now());

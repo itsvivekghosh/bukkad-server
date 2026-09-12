@@ -1,11 +1,11 @@
 package com.bhukkad.admin;
 
-import com.bhukkad.admin.domain.AuditEvent;
-import com.bhukkad.admin.domain.AuditEventRepository;
-import com.bhukkad.admin.domain.FraudEvent;
-import com.bhukkad.admin.domain.FraudEventRepository;
-import com.bhukkad.admin.domain.RestaurantOrderStat;
-import com.bhukkad.admin.domain.RestaurantOrderStatRepository;
+import com.bhukkad.admin.domain.entity.AuditEvent;
+import com.bhukkad.admin.domain.repository.AuditEventRepository;
+import com.bhukkad.admin.domain.entity.FraudEvent;
+import com.bhukkad.admin.domain.repository.FraudEventRepository;
+import com.bhukkad.admin.domain.entity.RestaurantOrderStat;
+import com.bhukkad.admin.domain.repository.RestaurantOrderStatRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

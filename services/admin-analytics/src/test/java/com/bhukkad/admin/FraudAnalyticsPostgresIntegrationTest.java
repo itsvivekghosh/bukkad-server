@@ -1,6 +1,9 @@
 package com.bhukkad.admin;
+import com.bhukkad.admin.domain.entity.FraudReviewAction;
+import com.bhukkad.admin.domain.entity.AnalyticsExportTask;
+import com.bhukkad.admin.domain.repository.FraudReviewActionRepository;
+import com.bhukkad.admin.domain.repository.AnalyticsExportTaskRepository;
 
-import com.bhukkad.admin.domain.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

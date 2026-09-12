@@ -23,6 +23,21 @@ spec:
         app: bhukkad
         component: gateway
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: gateway
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: gateway
       serviceAccountName: bhukkad-app
       terminationGracePeriodSeconds: 90  # G-16: SSE + in-flight requests need the full drain window (was 45)
       securityContext:

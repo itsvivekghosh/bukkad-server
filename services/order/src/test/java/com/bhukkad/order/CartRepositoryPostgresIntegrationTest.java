@@ -1,10 +1,10 @@
 package com.bhukkad.order;
 
-import com.bhukkad.order.domain.Cart;
-import com.bhukkad.order.domain.CartItem;
-import com.bhukkad.order.domain.CartItemRepository;
-import com.bhukkad.order.domain.CartRepository;
-import com.bhukkad.order.service.CartService;
+import com.bhukkad.order.domain.entity.Cart;
+import com.bhukkad.order.domain.entity.CartItem;
+import com.bhukkad.order.domain.repository.CartItemRepository;
+import com.bhukkad.order.domain.repository.CartRepository;
+import com.bhukkad.order.domain.service.impl.CartService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

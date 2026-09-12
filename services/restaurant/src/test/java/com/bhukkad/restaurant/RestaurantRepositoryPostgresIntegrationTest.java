@@ -1,9 +1,9 @@
 package com.bhukkad.restaurant;
 
-import com.bhukkad.restaurant.domain.MenuItem;
-import com.bhukkad.restaurant.domain.MenuItemRepository;
-import com.bhukkad.restaurant.domain.Restaurant;
-import com.bhukkad.restaurant.domain.RestaurantRepository;
+import com.bhukkad.restaurant.domain.entity.MenuItem;
+import com.bhukkad.restaurant.domain.repository.MenuItemRepository;
+import com.bhukkad.restaurant.domain.entity.Restaurant;
+import com.bhukkad.restaurant.domain.repository.RestaurantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

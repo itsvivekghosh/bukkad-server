@@ -1,9 +1,9 @@
 package com.bhukkad.search;
 
-import com.bhukkad.search.entity.MenuItemSearchEntity;
-import com.bhukkad.search.entity.RestaurantSearchEntity;
-import com.bhukkad.search.repository.MenuItemSearchRepository;
-import com.bhukkad.search.repository.RestaurantSearchRepository;
+import com.bhukkad.search.domain.entity.MenuItemSearchEntity;
+import com.bhukkad.search.domain.entity.RestaurantSearchEntity;
+import com.bhukkad.search.domain.repository.MenuItemSearchRepository;
+import com.bhukkad.search.domain.repository.RestaurantSearchRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

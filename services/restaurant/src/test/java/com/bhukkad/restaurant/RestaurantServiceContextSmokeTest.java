@@ -1,7 +1,7 @@
 package com.bhukkad.restaurant;
 
 import com.bhukkad.common.outbox.OutboxEventRepository;
-import com.bhukkad.restaurant.domain.RestaurantRepository;
+import com.bhukkad.restaurant.domain.repository.RestaurantRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

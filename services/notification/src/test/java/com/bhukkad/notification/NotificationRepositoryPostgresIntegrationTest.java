@@ -1,7 +1,7 @@
 package com.bhukkad.notification;
 
-import com.bhukkad.notification.domain.Notification;
-import com.bhukkad.notification.domain.NotificationRepository;
+import com.bhukkad.notification.domain.entity.Notification;
+import com.bhukkad.notification.domain.repository.NotificationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,9 +1,13 @@
 package com.bhukkad.identity.config;
 
-import com.bhukkad.identity.domain.Admin;
-import com.bhukkad.identity.domain.AdminRepository;
-import com.bhukkad.identity.domain.User;
-import com.bhukkad.identity.security.PasswordService;
+import com.bhukkad.identity.domain.entity.Admin;
+import com.bhukkad.identity.domain.repository.AdminRepository;
+import com.bhukkad.identity.config.PasswordService;
+
+import com.bhukkad.identity.domain.entity.Admin;
+import com.bhukkad.identity.domain.repository.AdminRepository;
+import com.bhukkad.identity.domain.entity.User;
+import com.bhukkad.identity.config.PasswordService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.slf4j.Logger;

@@ -1,7 +1,7 @@
 package com.bhukkad.payment;
 
 import com.bhukkad.common.error.BusinessException;
-import com.bhukkad.payment.service.CodWalletService;
+import com.bhukkad.payment.domain.service.CodWalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

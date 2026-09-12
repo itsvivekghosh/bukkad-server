@@ -1,6 +1,11 @@
 package com.bhukkad.admin;
+import com.bhukkad.admin.domain.entity.ExperimentExposure;
+import com.bhukkad.admin.domain.entity.ChurnScore;
+import com.bhukkad.admin.domain.entity.DataExportRequest;
+import com.bhukkad.admin.domain.repository.ExperimentExposureRepository;
+import com.bhukkad.admin.domain.repository.ChurnScoreRepository;
+import com.bhukkad.admin.domain.repository.DataExportRequestRepository;
 
-import com.bhukkad.admin.domain.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +26,7 @@ class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ChurnScoreRepository churnRepository;
-    @Autowired private com.bhukkad.admin.experiment.domain.ExperimentExposureRepository experimentRepository;
+    @Autowired private ExperimentExposureRepository experimentRepository;
     @Autowired private DataExportRequestRepository exportRepository;
 
     @BeforeEach
@@ -54,8 +59,8 @@ class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     @Test
     void experimentExposureMonolithSchemaPersists() {
-        com.bhukkad.admin.experiment.domain.ExperimentExposure exposure =
-                new com.bhukkad.admin.experiment.domain.ExperimentExposure();
+        ExperimentExposure exposure =
+                new ExperimentExposure();
         exposure.setExperimentKey("checkout-cta-copy");
         exposure.setUserId(7L);
         exposure.setVariant("treatment");
@@ -75,16 +80,16 @@ class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     @Test
     void experimentExposure_uniquePerExperimentAndUser() {
-        com.bhukkad.admin.experiment.domain.ExperimentExposure first =
-                new com.bhukkad.admin.experiment.domain.ExperimentExposure();
+        ExperimentExposure first =
+                new ExperimentExposure();
         first.setExperimentKey("checkout-cta-copy");
         first.setUserId(9L);
         first.setVariant("control");
         first.setBucket(4193);
         experimentRepository.saveAndFlush(first);
 
-        com.bhukkad.admin.experiment.domain.ExperimentExposure duplicate =
-                new com.bhukkad.admin.experiment.domain.ExperimentExposure();
+        ExperimentExposure duplicate =
+                new ExperimentExposure();
         duplicate.setExperimentKey("checkout-cta-copy");
         duplicate.setUserId(9L);
         duplicate.setVariant("treatment");

@@ -1,0 +1,41 @@
+package com.bhukkad.admin.api.controller;
+
+import com.bhukkad.admin.domain.entity.AuditEvent;
+import com.bhukkad.admin.domain.entity.FraudEvent;
+import com.bhukkad.admin.domain.entity.RestaurantOrderStat;
+import com.bhukkad.admin.domain.service.AdminQueryService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
+
+@RestController
+@RequestMapping("/api/v1/admin")
+@RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
+public class AdminController {
+
+    private final AdminQueryService queryService;
+
+    @GetMapping("/audit")
+    public List<AuditEvent> audit(@RequestParam String entityType, @RequestParam Long entityId) {
+        return queryService.auditTrail(entityType, entityId);
+    }
+
+    @GetMapping("/fraud")
+    public List<FraudEvent> fraud(@RequestParam(required = false) String status) {
+        return queryService.fraudAlerts(status);
+    }
+
+    @PostMapping("/fraud")
+    public FraudEvent flagFraud(@RequestParam Long customerId, @RequestParam String rule,
+                                 @RequestParam(defaultValue = "HIGH") String severity) {
+        return queryService.flagFraud(customerId, rule, severity);
+    }
+
+    @GetMapping("/restaurants/stats")
+    public List<RestaurantOrderStat> restaurantStats() {
+        return queryService.restaurantStats();
+    }
+}

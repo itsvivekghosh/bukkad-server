@@ -1,9 +1,10 @@
 package com.bhukkad.admin.api;
+import com.bhukkad.admin.api.controller.AdminController;
 
-import com.bhukkad.admin.domain.AuditEvent;
-import com.bhukkad.admin.domain.FraudEvent;
-import com.bhukkad.admin.domain.RestaurantOrderStat;
-import com.bhukkad.admin.service.AdminQueryService;
+import com.bhukkad.admin.domain.entity.AuditEvent;
+import com.bhukkad.admin.domain.entity.FraudEvent;
+import com.bhukkad.admin.domain.entity.RestaurantOrderStat;
+import com.bhukkad.admin.domain.service.AdminQueryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

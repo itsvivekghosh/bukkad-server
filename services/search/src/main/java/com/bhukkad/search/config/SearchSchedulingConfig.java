@@ -1,6 +1,6 @@
 package com.bhukkad.search.config;
 
-import com.bhukkad.search.sync.SearchSyncProperties;
+import com.bhukkad.search.config.SearchSyncProperties;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider;
 import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock;

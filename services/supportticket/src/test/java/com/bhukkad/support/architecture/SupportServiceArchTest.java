@@ -39,7 +39,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  *       {@code @Modifying} query from supportticket code. Reads (find*, get*,
  *       count*, exists*) stay legal — that is the sanctioned read-model path;</li>
  *   <li>every Spring Data repository declared here must persist ONLY entities
- *       owned by this service (com.bhukkad.support.entity);</li>
+ *       owned by this service (com.bhukkad.support.domain);</li>
  *   <li>domain persistence stays inside the repository package.</li>
  * </ol>
  *
@@ -157,7 +157,7 @@ class SupportServiceArchTest {
         // Any repository interface declared here must reference entity types
         // from this service's owned entity package — a foreign entity type
         // parameter is a copy-in write path, even inside a local interface.
-        ArchRule rule = classes().that().resideInAPackage("com.bhukkad.support.repository..")
+        ArchRule rule = classes().that().resideInAPackage("com.bhukkad.support.domain.repository..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "com.bhukkad.support..",       // owned entities + enums
                         "com.bhukkad.common..",        // platform-lib value types
@@ -174,10 +174,10 @@ class SupportServiceArchTest {
     @Test
     void entitiesLiveInOwnedEntityPackage() {
         // The dispute aggregate — the table ADR-001 assigns to supportticket —
-        // stays in com.bhukkad.support.entity; nothing may shadow it elsewhere.
+        // stays in com.bhukkad.support.domain; nothing may shadow it elsewhere.
         classes().that().haveSimpleName("Dispute")
                 .or().haveSimpleName("SupportTicket")
-                .should().resideInAPackage("com.bhukkad.support.entity..")
+                .should().resideInAPackage("com.bhukkad.support.domain..")
                 .check(SERVICE_CLASSES);
     }
 

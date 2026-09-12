@@ -2,7 +2,7 @@ package com.bhukkad.order.api;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.UpstreamUnavailableException;
-import com.bhukkad.order.client.RestaurantClient;
+import com.bhukkad.order.infrastructure.client.RestaurantClient;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.stereotype.Component;

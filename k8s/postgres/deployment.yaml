@@ -20,6 +20,21 @@ spec:
         app: bhukkad
         component: postgres
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: postgres
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: postgres
       terminationGracePeriodSeconds: 90
       # fsGroup 70 (postgres uid/gid in the alpine image) gives the shared
       # wal-spool emptyDir group ownership so both the postgres process and

@@ -1,10 +1,10 @@
 package com.bhukkad.search;
 
 import com.bhukkad.search.config.SearchFuzzyProperties;
-import com.bhukkad.search.entity.MenuItemSearchEntity;
-import com.bhukkad.search.repository.MenuItemSearchRepository;
-import com.bhukkad.search.repository.RestaurantSearchRepository;
-import com.bhukkad.search.serviceImpl.SearchServiceImpl;
+import com.bhukkad.search.domain.entity.MenuItemSearchEntity;
+import com.bhukkad.search.domain.repository.MenuItemSearchRepository;
+import com.bhukkad.search.domain.repository.RestaurantSearchRepository;
+import com.bhukkad.search.domain.service.impl.SearchServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;

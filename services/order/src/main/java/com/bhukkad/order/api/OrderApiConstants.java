@@ -1,8 +1,9 @@
 package com.bhukkad.order.api;
+import com.bhukkad.order.domain.entity.Order;
 
 /**
  * Order-status vocabulary shared across domains. Cross-domain code must use
- * these constants instead of importing {@code com.bhukkad.entity.Order} for
+ * these constants instead of importing {@code com.bhukkad.order.domain.entity.Order} for
  * its enum.
  */
 public final class OrderApiConstants {

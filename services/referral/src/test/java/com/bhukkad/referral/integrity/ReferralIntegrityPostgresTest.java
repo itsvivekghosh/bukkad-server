@@ -1,10 +1,10 @@
 package com.bhukkad.referral.integrity;
 
 import com.bhukkad.referral.AbstractReferralPostgresTest;
-import com.bhukkad.referral.entity.ReferralRewardLedger;
-import com.bhukkad.referral.repository.ReferralRewardLedgerRepository;
-import com.bhukkad.referral.repository.UserReferralCodeRepository;
-import com.bhukkad.referral.service.ReferralService;
+import com.bhukkad.referral.domain.entity.ReferralRewardLedger;
+import com.bhukkad.referral.domain.repository.ReferralRewardLedgerRepository;
+import com.bhukkad.referral.domain.repository.UserReferralCodeRepository;
+import com.bhukkad.referral.domain.service.ReferralService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

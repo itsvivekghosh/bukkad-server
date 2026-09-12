@@ -1,7 +1,8 @@
 package com.bhukkad.admin.service;
+import com.bhukkad.admin.domain.service.DataExportService;
 
-import com.bhukkad.admin.domain.DataExportRequest;
-import com.bhukkad.admin.domain.DataExportRequestRepository;
+import com.bhukkad.admin.domain.entity.DataExportRequest;
+import com.bhukkad.admin.domain.repository.DataExportRequestRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

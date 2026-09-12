@@ -175,6 +175,11 @@
 			<version>5.16.0</version>
 			<optional>true</optional>
 		</dependency>
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-provider-jdbc-template</artifactId>
+			<version>5.16.0</version>
+		</dependency>
 
 		<!-- SLF4J API only — binding is chosen by the consuming service. -->
 		<dependency>

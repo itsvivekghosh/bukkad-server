@@ -1,6 +1,6 @@
 package com.bhukkad.realtime;
 
-import com.bhukkad.realtime.dto.OrderLiveUpdate;
+import com.bhukkad.realtime.domain.event.OrderLiveUpdate;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

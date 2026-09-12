@@ -1,4 +1,5 @@
 package com.bhukkad.admin.experiment.service;
+import com.bhukkad.admin.config.ExperimentProperties;
 
 import org.junit.jupiter.api.Test;
 

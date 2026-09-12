@@ -1,7 +1,7 @@
 package com.bhukkad.payment;
 
 import com.bhukkad.common.outbox.OutboxEventService;
-import com.bhukkad.payment.idempotency.WebhookIdempotencyService;
+import com.bhukkad.payment.infrastructure.persistence.WebhookIdempotencyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

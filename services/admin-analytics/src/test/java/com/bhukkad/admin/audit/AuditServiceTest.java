@@ -1,7 +1,8 @@
 package com.bhukkad.admin.audit;
+import com.bhukkad.admin.domain.service.AuditService;
 
-import com.bhukkad.admin.domain.AuditEvent;
-import com.bhukkad.admin.domain.AuditEventRepository;
+import com.bhukkad.admin.domain.entity.AuditEvent;
+import com.bhukkad.admin.domain.repository.AuditEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

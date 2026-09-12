@@ -1,7 +1,8 @@
 package com.bhukkad.admin.service;
+import com.bhukkad.admin.domain.service.ChurnService;
 
-import com.bhukkad.admin.domain.ChurnScore;
-import com.bhukkad.admin.domain.ChurnScoreRepository;
+import com.bhukkad.admin.domain.entity.ChurnScore;
+import com.bhukkad.admin.domain.repository.ChurnScoreRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

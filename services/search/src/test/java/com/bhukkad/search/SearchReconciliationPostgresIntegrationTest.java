@@ -1,10 +1,10 @@
 package com.bhukkad.search;
 
-import com.bhukkad.search.entity.MenuItemSearchEntity;
-import com.bhukkad.search.repository.MenuItemSearchRepository;
-import com.bhukkad.search.sync.SearchReconciliationSweep;
-import com.bhukkad.search.sync.SearchSourceClient;
-import com.bhukkad.search.sync.SearchSyncProjectionService;
+import com.bhukkad.search.domain.entity.MenuItemSearchEntity;
+import com.bhukkad.search.domain.repository.MenuItemSearchRepository;
+import com.bhukkad.search.domain.service.impl.SearchReconciliationSweep;
+import com.bhukkad.search.infrastructure.client.SearchSourceClient;
+import com.bhukkad.search.domain.service.impl.SearchSyncProjectionService;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;

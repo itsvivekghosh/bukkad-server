@@ -36,7 +36,7 @@ class AdminServiceArchTest {
     @Test
     void noMonolithDependencies() {
         noClasses().that().resideInAPackage("com.bhukkad.admin..")
-                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.serviceImpl..", "com.bhukkad.entity..")
+                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.service..", "com.bhukkad.domain..")
                 .check(SERVICE_CLASSES);
     }
 
@@ -52,8 +52,8 @@ class AdminServiceArchTest {
      * annotations move; new controllers are blocked.
      */
     private static final Set<String> LEGACY_TRANSACTIONAL_CONTROLLERS = Set.of(
-            "com.bhukkad.admin.api.AdminOpsController",
-            "com.bhukkad.admin.api.AdminPromotionController");
+            "com.bhukkad.admin.api.controller.AdminOpsController",
+            "com.bhukkad.admin.api.controller.AdminPromotionController");
 
     private static final DescribedPredicate<JavaClass> nonExemptControllers =
             new DescribedPredicate<>("controllers without a legacy @Transactional exemption") {

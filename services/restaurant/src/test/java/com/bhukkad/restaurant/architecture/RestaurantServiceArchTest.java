@@ -36,7 +36,7 @@ class RestaurantServiceArchTest {
     @Test
     void serviceLayerDependsOnlyOnDomainAndCommon() {
         ArchRule rule = classes()
-                .that().resideInAPackage("com.bhukkad.restaurant.service..")
+                .that().resideInAPackage("com.bhukkad.restaurant.domain.service..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "com.bhukkad.restaurant..",
                         "com.bhukkad.common..",
@@ -77,13 +77,13 @@ class RestaurantServiceArchTest {
      * annotations move; new controllers are blocked.
      */
     private static final Set<String> LEGACY_TRANSACTIONAL_CONTROLLERS = Set.of(
-            "com.bhukkad.restaurant.api.AdminRestaurantController",
-            "com.bhukkad.restaurant.api.MenuBulkController",
-            "com.bhukkad.restaurant.api.MenuCategoryCompatController",
-            "com.bhukkad.restaurant.api.MenuOpsController",
-            "com.bhukkad.restaurant.api.MenuVersionController",
-            "com.bhukkad.restaurant.api.PublicBrowseController",
-            "com.bhukkad.restaurant.api.RestaurantOwnerController");
+            "com.bhukkad.restaurant.api.controller.AdminRestaurantController",
+            "com.bhukkad.restaurant.api.controller.MenuBulkController",
+            "com.bhukkad.restaurant.api.controller.MenuCategoryCompatController",
+            "com.bhukkad.restaurant.api.controller.MenuOpsController",
+            "com.bhukkad.restaurant.api.controller.MenuVersionController",
+            "com.bhukkad.restaurant.api.controller.PublicBrowseController",
+            "com.bhukkad.restaurant.api.controller.RestaurantOwnerController");
 
     private static final DescribedPredicate<JavaClass> nonExemptControllers =
             new DescribedPredicate<>("controllers without a legacy @Transactional exemption") {

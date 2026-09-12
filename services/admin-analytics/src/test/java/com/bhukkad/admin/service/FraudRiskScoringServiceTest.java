@@ -1,4 +1,5 @@
 package com.bhukkad.admin.service;
+import com.bhukkad.admin.domain.service.FraudRiskScoringService;
 
 import org.junit.jupiter.api.Test;
 

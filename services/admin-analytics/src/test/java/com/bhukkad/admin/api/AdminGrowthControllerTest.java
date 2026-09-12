@@ -1,8 +1,9 @@
 package com.bhukkad.admin.api;
+import com.bhukkad.admin.api.controller.AdminGrowthController;
 
-import com.bhukkad.admin.domain.RestaurantOrderStat;
-import com.bhukkad.admin.domain.RestaurantOrderStatRepository;
-import com.bhukkad.admin.service.AdminQueryService;
+import com.bhukkad.admin.domain.entity.RestaurantOrderStat;
+import com.bhukkad.admin.domain.repository.RestaurantOrderStatRepository;
+import com.bhukkad.admin.domain.service.AdminQueryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

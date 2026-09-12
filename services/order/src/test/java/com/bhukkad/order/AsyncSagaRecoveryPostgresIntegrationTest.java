@@ -1,16 +1,16 @@
 package com.bhukkad.order;
 
 import com.bhukkad.common.event.PlatformEventMessage;
-import com.bhukkad.order.api.CreateOrderRequest;
-import com.bhukkad.order.api.OrderItemRequest;
-import com.bhukkad.order.client.PaymentServiceClient;
-import com.bhukkad.order.client.RestaurantClient;
+import com.bhukkad.order.api.dto.request.CreateOrderRequest;
+import com.bhukkad.order.api.dto.request.OrderItemRequest;
+import com.bhukkad.order.infrastructure.client.PaymentServiceClient;
+import com.bhukkad.order.infrastructure.client.RestaurantClient;
 import com.bhukkad.order.client.dto.StockReservationLine;
-import com.bhukkad.order.domain.Order;
-import com.bhukkad.order.domain.OrderRepository;
-import com.bhukkad.order.domain.OrderTimelineEventRepository;
-import com.bhukkad.order.domain.OrderTimelineEvent;
-import com.bhukkad.order.service.OrderService;
+import com.bhukkad.order.domain.entity.Order;
+import com.bhukkad.order.domain.repository.OrderRepository;
+import com.bhukkad.order.domain.repository.OrderTimelineEventRepository;
+import com.bhukkad.order.domain.entity.OrderTimelineEvent;
+import com.bhukkad.order.domain.service.OrderService;
 import com.bhukkad.order.service.PaymentSagaEventConsumer;
 import com.bhukkad.order.service.StuckOrderSweep;
 import org.junit.jupiter.api.Test;

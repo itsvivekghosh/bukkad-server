@@ -1,5 +1,6 @@
 package com.bhukkad.identity.api;
 
+
 /**
  * Narrow write port from the identity domain into the wallet domain
  * (WAVE 2): referral bonus crediting and referral-bonus balance lookup.

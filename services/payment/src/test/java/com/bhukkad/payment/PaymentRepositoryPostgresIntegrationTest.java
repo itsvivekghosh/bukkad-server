@@ -1,9 +1,9 @@
 package com.bhukkad.payment;
 
-import com.bhukkad.payment.domain.Payment;
-import com.bhukkad.payment.domain.PaymentRepository;
-import com.bhukkad.payment.domain.WalletBalance;
-import com.bhukkad.payment.domain.WalletBalanceRepository;
+import com.bhukkad.payment.domain.entity.Payment;
+import com.bhukkad.payment.domain.repository.PaymentRepository;
+import com.bhukkad.payment.domain.entity.WalletBalance;
+import com.bhukkad.payment.domain.repository.WalletBalanceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

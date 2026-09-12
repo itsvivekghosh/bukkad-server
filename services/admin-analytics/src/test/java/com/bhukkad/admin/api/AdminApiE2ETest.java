@@ -1,8 +1,8 @@
 package com.bhukkad.admin.api;
 
 import com.bhukkad.admin.AbstractAdminPostgresTest;
-import com.bhukkad.admin.domain.ChurnScore;
-import com.bhukkad.admin.domain.ChurnScoreRepository;
+import com.bhukkad.admin.domain.entity.ChurnScore;
+import com.bhukkad.admin.domain.repository.ChurnScoreRepository;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;

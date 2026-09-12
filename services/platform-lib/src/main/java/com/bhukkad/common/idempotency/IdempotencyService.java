@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,9 +25,11 @@ public class IdempotencyService {
     private static final String PAYMENT_PREFIX = "idempotency:payment:";
     private static final String UNLOCK_LUA =
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+    private static final Duration HTTP_IDEMPOTENCY_TTL = Duration.ofHours(24);
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final ConcurrentMap<String, String> lockTokens = new ConcurrentHashMap<>();
 
     public <T> Optional<T> getOrderResult(String idempotencyKey, Class<T> type) {
@@ -43,6 +46,25 @@ public class IdempotencyService {
 
     public void storePaymentResult(String idempotencyKey, Object result, Duration ttl) {
         store(PAYMENT_PREFIX, idempotencyKey, result, ttl);
+    }
+
+    public com.bhukkad.common.error.DuplicateRequestException maybeRejectDuplicate(String idempotencyKey) {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            return null;
+        }
+        LocalDateTime expiresAt = LocalDateTime.now().plus(HTTP_IDEMPOTENCY_TTL);
+        int inserted = idempotencyRecordRepository.insertIfAbsent(
+                idempotencyKey,
+                IdempotencyRecord.IdempotencyScope.HTTP_REQUEST.name(),
+                null,
+                IdempotencyRecord.IdempotencyStatus.IN_PROGRESS.name(),
+                null,
+                expiresAt);
+        if (inserted == 0) {
+            return new com.bhukkad.common.error.DuplicateRequestException(
+                    "Duplicate request detected for idempotency key: " + idempotencyKey);
+        }
+        return null;
     }
 
     /**

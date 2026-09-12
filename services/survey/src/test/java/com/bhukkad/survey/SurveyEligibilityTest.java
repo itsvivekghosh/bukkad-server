@@ -1,9 +1,9 @@
 package com.bhukkad.survey;
 
-import com.bhukkad.survey.client.OrderOwnershipClient;
-import com.bhukkad.survey.entity.DeliverySurvey;
-import com.bhukkad.survey.repository.DeliverySurveyRepository;
-import com.bhukkad.survey.serviceImpl.SurveyServiceImpl;
+import com.bhukkad.survey.infrastructure.client.OrderOwnershipClient;
+import com.bhukkad.survey.domain.entity.DeliverySurvey;
+import com.bhukkad.survey.domain.repository.DeliverySurveyRepository;
+import com.bhukkad.survey.domain.service.impl.SurveyServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

@@ -1,11 +1,11 @@
 package com.bhukkad.order;
 
-import com.bhukkad.order.domain.Order;
-import com.bhukkad.order.domain.OrderItem;
-import com.bhukkad.order.domain.OrderItemRepository;
-import com.bhukkad.order.domain.OrderRepository;
-import com.bhukkad.order.domain.OrderTimelineEvent;
-import com.bhukkad.order.domain.OrderTimelineEventRepository;
+import com.bhukkad.order.domain.entity.Order;
+import com.bhukkad.order.domain.entity.OrderItem;
+import com.bhukkad.order.domain.repository.OrderItemRepository;
+import com.bhukkad.order.domain.repository.OrderRepository;
+import com.bhukkad.order.domain.entity.OrderTimelineEvent;
+import com.bhukkad.order.domain.repository.OrderTimelineEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

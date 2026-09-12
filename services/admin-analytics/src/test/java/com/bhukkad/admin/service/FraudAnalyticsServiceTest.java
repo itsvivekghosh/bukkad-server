@@ -1,9 +1,10 @@
 package com.bhukkad.admin.service;
+import com.bhukkad.admin.domain.service.FraudAnalyticsService;
 
-import com.bhukkad.admin.domain.AnalyticsExportTask;
-import com.bhukkad.admin.domain.AnalyticsExportTaskRepository;
-import com.bhukkad.admin.domain.FraudReviewAction;
-import com.bhukkad.admin.domain.FraudReviewActionRepository;
+import com.bhukkad.admin.domain.entity.AnalyticsExportTask;
+import com.bhukkad.admin.domain.repository.AnalyticsExportTaskRepository;
+import com.bhukkad.admin.domain.entity.FraudReviewAction;
+import com.bhukkad.admin.domain.repository.FraudReviewActionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

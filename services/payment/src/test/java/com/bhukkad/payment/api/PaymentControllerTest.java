@@ -1,14 +1,16 @@
 package com.bhukkad.payment.api;
 
 import com.bhukkad.common.security.TokenPrincipal;
-import com.bhukkad.payment.domain.Payment;
-import com.bhukkad.payment.service.PaymentService;
+import com.bhukkad.payment.domain.entity.Payment;
+import com.bhukkad.payment.domain.service.PaymentService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.bhukkad.payment.api.dto.request.PaymentRequest;
+import com.bhukkad.payment.api.dto.response.PaymentResponse;
 import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,7 +22,7 @@ import static org.mockito.Mockito.when;
 class PaymentControllerTest {
 
     @Mock private PaymentService paymentService;
-    @Mock private com.bhukkad.payment.mapper.PaymentMapper paymentMapper;
+    @Mock private com.bhukkad.payment.domain.mapper.PaymentMapper paymentMapper;
     @InjectMocks private PaymentController controller;
 
     private TokenPrincipal principal(Long userId) {

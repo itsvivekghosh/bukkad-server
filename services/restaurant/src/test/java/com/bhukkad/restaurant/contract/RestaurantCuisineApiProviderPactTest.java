@@ -1,9 +1,9 @@
 package com.bhukkad.restaurant.contract;
 
 import com.bhukkad.common.tracing.TraceContext;
-import com.bhukkad.restaurant.api.CuisineController;
-import com.bhukkad.restaurant.domain.Cuisine;
-import com.bhukkad.restaurant.service.CuisineService;
+import com.bhukkad.restaurant.api.controller.CuisineController;
+import com.bhukkad.restaurant.domain.entity.Cuisine;
+import com.bhukkad.restaurant.domain.service.impl.CuisineService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;

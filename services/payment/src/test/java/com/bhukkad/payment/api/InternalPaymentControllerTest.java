@@ -1,6 +1,6 @@
 package com.bhukkad.payment.api;
 
-import com.bhukkad.payment.service.InternalPaymentService;
+import com.bhukkad.payment.domain.service.InternalPaymentService;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;

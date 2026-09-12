@@ -1,6 +1,11 @@
 package com.bhukkad.payment;
 
-import com.bhukkad.payment.domain.*;
+import com.bhukkad.payment.domain.entity.Payment;
+import com.bhukkad.payment.domain.entity.CommissionTier;
+import com.bhukkad.payment.domain.entity.DunningRun;
+import com.bhukkad.payment.domain.repository.PaymentRepository;
+import com.bhukkad.payment.domain.repository.CommissionTierRepository;
+import com.bhukkad.payment.domain.repository.DunningRunRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

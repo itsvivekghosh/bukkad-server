@@ -1,7 +1,9 @@
 package com.bhukkad.admin.experiment.service;
+import com.bhukkad.admin.domain.service.ExperimentAssignmentService;
+import com.bhukkad.admin.config.ExperimentProperties;
 
-import com.bhukkad.admin.experiment.domain.ExperimentExposure;
-import com.bhukkad.admin.experiment.domain.ExperimentExposureRepository;
+import com.bhukkad.admin.domain.entity.ExperimentExposure;
+import com.bhukkad.admin.domain.repository.ExperimentExposureRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

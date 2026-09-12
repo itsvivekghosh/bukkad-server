@@ -1,15 +1,15 @@
 package com.bhukkad.restaurant;
 
-import com.bhukkad.restaurant.domain.CampaignUsage;
-import com.bhukkad.restaurant.domain.CampaignUsageRepository;
-import com.bhukkad.restaurant.domain.MenuCategory;
-import com.bhukkad.restaurant.domain.MenuCategoryRepository;
-import com.bhukkad.restaurant.domain.MenuItem;
-import com.bhukkad.restaurant.domain.MenuItemRepository;
-import com.bhukkad.restaurant.domain.PromotionCampaign;
-import com.bhukkad.restaurant.domain.PromotionCampaignRepository;
-import com.bhukkad.restaurant.domain.Restaurant;
-import com.bhukkad.restaurant.domain.RestaurantRepository;
+import com.bhukkad.restaurant.domain.entity.CampaignUsage;
+import com.bhukkad.restaurant.domain.repository.CampaignUsageRepository;
+import com.bhukkad.restaurant.domain.entity.MenuCategory;
+import com.bhukkad.restaurant.domain.repository.MenuCategoryRepository;
+import com.bhukkad.restaurant.domain.entity.MenuItem;
+import com.bhukkad.restaurant.domain.repository.MenuItemRepository;
+import com.bhukkad.restaurant.domain.entity.PromotionCampaign;
+import com.bhukkad.restaurant.domain.repository.PromotionCampaignRepository;
+import com.bhukkad.restaurant.domain.entity.Restaurant;
+import com.bhukkad.restaurant.domain.repository.RestaurantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

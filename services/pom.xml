@@ -21,11 +21,12 @@
 		(docs/architecture-microservices-postgresql.md §4). The monolith root pom
 		remains the standalone "before" build until the teardown phase.</description>
 
-	<modules>
-		<module>platform-lib</module>
-		<!-- Edge gateway (P0). Built last-relevant; routes by path to per-service
-		     k8s DNS names so strangler flips are route-only edits. -->
-		<module>gateway</module>
+<modules>
+ 		<module>platform-lib</module>
+ 		<module>test-support</module>
+ 		<!-- Edge gateway (P0). Built last-relevant; routes by path to per-service
+ 		     k8s DNS names so strangler flips are route-only edits. -->
+ 		<module>gateway</module>
 		<module>restaurant</module>
 		<module>identity</module>
 		<module>order</module>
@@ -43,6 +44,7 @@
 		<module>realtime</module>
 		<module>personalization</module>
 		<module>growth</module>
+		<module>test-app</module>
 	</modules>
 
  	<properties>
@@ -73,11 +75,16 @@
 				<scope>import</scope>
 			</dependency>
 			<!-- Shared platform library consumed by every service module. -->
-			<dependency>
-				<groupId>com.bhukkad</groupId>
-				<artifactId>platform-lib</artifactId>
-				<version>${project.version}</version>
-			</dependency>
+ 		<dependency>
+ 			<groupId>com.bhukkad</groupId>
+ 			<artifactId>platform-lib</artifactId>
+ 			<version>${project.version}</version>
+ 		</dependency>
+ 		<dependency>
+ 			<groupId>com.bhukkad</groupId>
+ 			<artifactId>test-support</artifactId>
+ 			<version>${project.version}</version>
+ 		</dependency>
 			<dependency>
 				<groupId>net.bytebuddy</groupId>
 				<artifactId>byte-buddy</artifactId>
@@ -107,7 +114,9 @@
 						<!-- Data containers, generated code and bootstrap are
 						     excluded; business logic stays in scope. -->
 						<exclude>com/bhukkad/*/dto/**</exclude>
+						<exclude>com/bhukkad/*/api/dto/**</exclude>
 						<exclude>com/bhukkad/*/entity/**</exclude>
+						<exclude>com/bhukkad/*/domain/entity/**</exclude>
 						<exclude>com/bhukkad/*/*Application.class</exclude>
 						<exclude>com/bhukkad/common/**/*Config.class</exclude>
 					</excludes>
@@ -225,7 +234,9 @@
 							<!-- Data containers, generated code and bootstrap are
 							     excluded; business logic stays in scope. -->
 							<exclude>com/bhukkad/*/dto/**</exclude>
+							<exclude>com/bhukkad/*/api/dto/**</exclude>
 							<exclude>com/bhukkad/*/entity/**</exclude>
+							<exclude>com/bhukkad/*/domain/entity/**</exclude>
 							<exclude>com/bhukkad/*/*Application.class</exclude>
 							<exclude>com/bhukkad/common/**/config/*Properties*</exclude>
 							<exclude>com/bhukkad/common/**/*Config.class</exclude>

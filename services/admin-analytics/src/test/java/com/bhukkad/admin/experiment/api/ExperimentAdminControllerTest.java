@@ -1,6 +1,7 @@
 package com.bhukkad.admin.experiment.api;
+import com.bhukkad.admin.api.controller.ExperimentAdminController;
 
-import com.bhukkad.admin.experiment.service.ExperimentAssignmentService;
+import com.bhukkad.admin.domain.service.ExperimentAssignmentService;
 import com.bhukkad.common.dto.response.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

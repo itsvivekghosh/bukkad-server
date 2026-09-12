@@ -1,7 +1,8 @@
 package com.bhukkad.admin;
+import com.bhukkad.admin.domain.entity.ApiKey;
+import com.bhukkad.admin.domain.repository.ApiKeyRepository;
 
-import com.bhukkad.admin.domain.*;
-import com.bhukkad.admin.service.ApiKeyService;
+import com.bhukkad.admin.domain.service.ApiKeyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

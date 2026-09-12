@@ -17,7 +17,7 @@ import org.springframework.util.StringUtils;
  *
  * <p>Refuses a <strong>prod</strong> startup when the Razorpay webhook secret
  * is unset/blank or still carries the {@code dev-webhook-secret} default:
- * {@link com.bhukkad.payment.gateway.RazorpayWebhookVerifier} authenticates
+ * {@link com.bhukkad.payment.infrastructure.client.RazorpayWebhookVerifier} authenticates
  * provider callbacks with that secret via a constant-time HMAC compare, so a
  * known default turns every unprotected deployment into an open money
  * endpoint (anyone can POST a forged {@code payment.captured}).</p>

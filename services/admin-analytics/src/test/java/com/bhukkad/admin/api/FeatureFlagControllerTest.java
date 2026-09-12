@@ -1,6 +1,7 @@
 package com.bhukkad.admin.api;
+import com.bhukkad.admin.api.controller.FeatureFlagController;
 
-import com.bhukkad.admin.service.FeatureFlagService;
+import com.bhukkad.admin.domain.service.FeatureFlagService;
 import com.bhukkad.common.dto.response.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

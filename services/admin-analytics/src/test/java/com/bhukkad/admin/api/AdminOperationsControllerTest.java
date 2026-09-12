@@ -1,11 +1,12 @@
 package com.bhukkad.admin.api;
+import com.bhukkad.admin.api.controller.AdminOperationsController;
 
-import com.bhukkad.admin.domain.AnalyticsExportTask;
-import com.bhukkad.admin.domain.FraudReviewAction;
-import com.bhukkad.admin.service.AdminQueryService;
-import com.bhukkad.admin.service.ApiKeyService;
-import com.bhukkad.admin.service.FeatureFlagService;
-import com.bhukkad.admin.service.FraudAnalyticsService;
+import com.bhukkad.admin.domain.entity.AnalyticsExportTask;
+import com.bhukkad.admin.domain.entity.FraudReviewAction;
+import com.bhukkad.admin.domain.service.AdminQueryService;
+import com.bhukkad.admin.domain.service.ApiKeyService;
+import com.bhukkad.admin.domain.service.FeatureFlagService;
+import com.bhukkad.admin.domain.service.FraudAnalyticsService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

@@ -1,6 +1,7 @@
 package com.bhukkad.admin.service;
+import com.bhukkad.admin.infrastructure.messaging.AdminCqrsEventConsumer;
 
-import com.bhukkad.admin.domain.RestaurantOrderStatRepository;
+import com.bhukkad.admin.domain.repository.RestaurantOrderStatRepository;
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.idempotency.IdempotencyRecord;
 import com.bhukkad.common.idempotency.IdempotencyRecordRepository;

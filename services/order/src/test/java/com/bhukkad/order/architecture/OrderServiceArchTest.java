@@ -40,7 +40,7 @@ class OrderServiceArchTest {
     void noMonolithDependencies() {
         noClasses().that().resideInAPackage("com.bhukkad.order..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        "com.bhukkad.serviceImpl..", "com.bhukkad.entity..")
+                        "com.bhukkad.service..", "com.bhukkad.domain..")
                 .check(SERVICE_CLASSES);
     }
 

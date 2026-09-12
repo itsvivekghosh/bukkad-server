@@ -1,6 +1,7 @@
 package com.bhukkad.admin.api;
+import com.bhukkad.admin.api.controller.FraudScoringController;
 
-import com.bhukkad.admin.service.FraudRiskScoringService;
+import com.bhukkad.admin.domain.service.FraudRiskScoringService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

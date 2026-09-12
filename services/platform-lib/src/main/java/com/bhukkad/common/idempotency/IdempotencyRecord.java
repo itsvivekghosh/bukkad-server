@@ -67,7 +67,9 @@ public class IdempotencyRecord {
         /** Admin CQRS projection dedupe (PERF-2/V-12: replay must not double count). */
         ADMIN_PROJECTION,
         /** Growth loyalty points credit (ADR-005 / audit feature #4). */
-        LOYALTY_CREDIT
+        LOYALTY_CREDIT,
+        /** Generic HTTP envelope dedupe for POST/PUT/PATCH (W-7). */
+        HTTP_REQUEST
     }
 
     public enum IdempotencyStatus {

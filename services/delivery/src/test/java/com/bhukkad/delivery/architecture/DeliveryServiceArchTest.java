@@ -36,7 +36,7 @@ class DeliveryServiceArchTest {
     @Test
     void noMonolithDependencies() {
         noClasses().that().resideInAPackage("com.bhukkad.delivery..")
-                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.serviceImpl..", "com.bhukkad.entity..")
+                .should().dependOnClassesThat().resideInAnyPackage("com.bhukkad.service..", "com.bhukkad.domain..")
                 .check(SERVICE_CLASSES);
     }
 

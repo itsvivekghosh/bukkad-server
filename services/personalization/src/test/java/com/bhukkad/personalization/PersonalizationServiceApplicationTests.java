@@ -1,7 +1,7 @@
 package com.bhukkad.personalization;
 
-import com.bhukkad.personalization.dto.RecommendationResponse;
-import com.bhukkad.personalization.dto.FeedRankResponse;
+import com.bhukkad.personalization.api.dto.response.RecommendationResponse;
+import com.bhukkad.personalization.api.dto.response.FeedRankResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

@@ -1,6 +1,8 @@
 package com.bhukkad.order.api;
 
 import java.util.Optional;
+import com.bhukkad.order.api.dto.response.OrderSummary;
+import com.bhukkad.order.domain.service.impl.OrderApiAdapter;
 
 /**
  * Read access to the order domain for other services. Cross-domain consumers
