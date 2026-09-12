@@ -103,4 +103,15 @@ class AuditServiceTest {
         assertThat(event.getNewState()).isNull();
         assertThat(event.getAction()).isEqualTo("LOGIN");
     }
+
+    @Test
+    void record_nonNumericResourceId_keepsStringResourceId() {
+        service.record("EXPORT", "REPORT", "exp-2026-07", null, null);
+
+        ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditEventRepository).save(captor.capture());
+        AuditEvent event = captor.getValue();
+        assertThat(event.getResourceId()).isEqualTo("exp-2026-07");
+        assertThat(event.getEntityId()).isNull();
+    }
 }

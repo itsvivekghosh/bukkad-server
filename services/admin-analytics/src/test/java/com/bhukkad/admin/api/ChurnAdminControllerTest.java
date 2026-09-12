@@ -94,6 +94,21 @@ class ChurnAdminControllerTest {
     }
 
     @Test
+    void rescore_belowMediumBandReturnsLow() {
+        ChurnScore score = new ChurnScore();
+        score.setId(3L);
+        score.setCustomerId(21L);
+        score.setScore(0.10);
+        score.setComputedAt(LocalDateTime.of(2026, 9, 5, 3, 0));
+        when(churnService.rescore(21L)).thenReturn(score);
+
+        var data = controller.rescore(21L).getBody().getData();
+
+        assertThat(data.score()).isEqualTo(10);
+        assertThat(data.riskLevel()).isEqualTo("LOW");
+    }
+
+    @Test
     void rescore_delegatesPathVariableToService() {
         when(churnService.rescore(12345L)).thenReturn(null);
 
