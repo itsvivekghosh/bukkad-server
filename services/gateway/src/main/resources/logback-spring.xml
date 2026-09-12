@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Service logging bootstrap: includes the canonical platform template
-  (platform-lib: logback/bhukkad-logback-base.xml) which registers the %pii
-  PII-masking converter, the CONSOLE appender and the INFO root logger.
-  Service-specific appenders/loggers may be added BELOW the include.
+  This service logs exclusively through the shared platform configuration in
+  platform-lib's classpath resource logback-bhukkad.xml — console layout with
+  the PII redactor (%pii) and trace-id correlation. Per-profile levels are set
+  with logging.level.* in application(.yml|<profile>) as usual.
 -->
 <configuration>
-    <include resource="logback/bhukkad-logback-base.xml"/>
+    <include resource="logback-bhukkad.xml"/>
 </configuration>

@@ -1,108 +1,144 @@
 package com.bhukkad.common.security;
 
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * P1 REVOCATION: epoch store behaviour — key format
+ * {@code jwt:revoked-before:<userId>}, ISO-8601 value with a TTL, monotonic
+ * (never shortened) epochs, best-effort writes and propagating reads.
+ */
+@SuppressWarnings("unchecked")
 class JwtRevocationServiceTest {
 
-    private static final Duration TTL = Duration.ofMinutes(15);
-    private static final long USER_ID = 42L;
-
-    private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-    @SuppressWarnings("unchecked")
+    private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     private final ValueOperations<String, String> valueOps = mock(ValueOperations.class);
-    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
-    private JwtRevocationService service() {
-        when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        return new JwtRevocationService(redisTemplate, meterRegistry, TTL);
+    JwtRevocationServiceTest() {
+        when(redis.opsForValue()).thenReturn(valueOps);
     }
 
-    @Test
-    void isConfigured_reflectsRedisWiring() {
-        assertThat(new JwtRevocationService(null, meterRegistry, TTL).isConfigured()).isFalse();
-        assertThat(service().isConfigured()).isTrue();
-    }
+    private static ObjectProvider<StringRedisTemplate> providerOf(StringRedisTemplate template) {
+        return new ObjectProvider<>() {
+            @Override
+            public StringRedisTemplate getObject() {
+                return template;
+            }
 
-    @Test
-    void storedEpoch_isParsedAndReturned() {
-        JwtRevocationService service = service();
-        Instant epoch = Instant.parse("2026-09-11T12:00:00Z");
-        when(valueOps.get(JwtRevocationService.EPOCH_KEY_PREFIX + USER_ID)).thenReturn(epoch.toString());
+            @Override
+            public StringRedisTemplate getObject(Object... args) {
+                return template;
+            }
 
-        assertThat(service.revocationEpoch(USER_ID)).isEqualTo(Optional.of(epoch));
-    }
+            @Override
+            public StringRedisTemplate getIfAvailable() {
+                return template;
+            }
 
-    @Test
-    void noEpochStored_returnsEmpty() {
-        JwtRevocationService service = service();
-        when(valueOps.get(anyString())).thenReturn(null);
-
-        assertThat(service.revocationEpoch(USER_ID)).isEmpty();
-        assertThat(meterRegistry.counter(JwtRevocationService.METRIC_BYPASS_REDIS_ERROR).count())
-                .isZero();
-    }
-
-    @Test
-    void redisUnreachable_failsOpen_andCountsBypass() {
-        JwtRevocationService service = service();
-        when(valueOps.get(anyString()))
-                .thenThrow(new RedisConnectionFailureException("connection refused"));
-
-        assertThat(service.revocationEpoch(USER_ID)).isEmpty();
-        assertThat(meterRegistry.counter(JwtRevocationService.METRIC_BYPASS_REDIS_ERROR).count())
-                .as("the fail-open bypass must be observable")
-                .isEqualTo(1.0);
-    }
-
-    @Test
-    void redisNotConfigured_checkSkippedEntirely() {
-        JwtRevocationService service = new JwtRevocationService(null, meterRegistry, TTL);
-
-        assertThat(service.revocationEpoch(USER_ID)).isEmpty();
-        assertThatCode(() -> service.revokeTokensIssuedBefore(USER_ID)).doesNotThrowAnyException();
-        verify(redisTemplate, never()).opsForValue();
-    }
-
-    @Test
-    void revokeWritesNowWithEpochTtl() {
-        JwtRevocationService service = service();
-        Instant before = Instant.now();
-
-        service.revokeTokensIssuedBefore(USER_ID);
-
-        org.mockito.ArgumentCaptor<String> stored = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(valueOps).set(eq(JwtRevocationService.EPOCH_KEY_PREFIX + USER_ID), stored.capture(), eq(TTL));
-        Instant written = Instant.parse(stored.getValue());
-        assertThat(written).isBetween(before.minusSeconds(5), Instant.now().plusSeconds(5));
-    }
-
-    @Test
-    void revokeWriteFailure_neverThrows() {
-        JwtRevocationService service = service();
-        org.mockito.stubbing.Answer<Void> boom = invocation -> {
-            throw new RedisConnectionFailureException("down");
+            @Override
+            public StringRedisTemplate getIfUnique() {
+                return template;
+            }
         };
-        org.mockito.Mockito.doAnswer(boom).when(valueOps)
-                .set(anyString(), anyString(), any(Duration.class));
+    }
 
-        assertThatCode(() -> service.revokeTokensIssuedBefore(USER_ID)).doesNotThrowAnyException();
+    private JwtRevocationService service(Duration ttl) {
+        return new JwtRevocationService(providerOf(redis), ttl);
+    }
+
+    @Test
+    void revoke_storesTruncatedEpochUnderPrefixedKeyWithTtl() {
+        when(valueOps.get("jwt:revoked-before:42")).thenReturn(null);
+
+        service(Duration.ofMinutes(15)).revoke(42L,
+                Instant.parse("2026-09-11T10:00:00.123456789Z"));
+
+        // Seconds precision — matches JWT iat granularity.
+        verify(valueOps).set(eq("jwt:revoked-before:42"),
+                eq("2026-09-11T10:00:00Z"), eq(Duration.ofMinutes(15)));
+    }
+
+    @Test
+    void revoke_neverShortensAnExistingLaterEpoch() {
+        when(valueOps.get("jwt:revoked-before:7")).thenReturn("2026-09-11T11:00:00Z");
+
+        service(Duration.ofMinutes(15)).revoke(7L, Instant.parse("2026-09-11T09:00:00Z"));
+
+        verify(valueOps).set("jwt:revoked-before:7", "2026-09-11T11:00:00Z", Duration.ofMinutes(15));
+    }
+
+    @Test
+    void revoke_advancesToALaterEpoch() {
+        when(valueOps.get("jwt:revoked-before:7")).thenReturn("2026-09-11T09:00:00Z");
+
+        service(Duration.ofMinutes(15)).revoke(7L, Instant.parse("2026-09-11T10:30:00Z"));
+
+        verify(valueOps).set("jwt:revoked-before:7", "2026-09-11T10:30:00Z", Duration.ofMinutes(15));
+    }
+
+    @Test
+    void revoke_swallowsRedisFailures_logoutMustNotBreak() {
+        when(valueOps.get(any())).thenThrow(new RuntimeException("connection refused"));
+        JwtRevocationService service = service(Duration.ofMinutes(15));
+
+        assertThatCode(() -> service.revoke(3L, Instant.now())).doesNotThrowAnyException();
+        verify(valueOps, never()).set(any(), any(), any(Duration.class));
+    }
+
+    @Test
+    void revokedBefore_parsesTheStoredInstant() {
+        when(valueOps.get("jwt:revoked-before:5")).thenReturn("2026-09-11T09:15:30Z");
+
+        assertThat(service(Duration.ofMinutes(15)).revokedBefore(5L))
+                .isEqualTo(Instant.parse("2026-09-11T09:15:30Z"));
+    }
+
+    @Test
+    void revokedBefore_absentKeyIsNotRevoked() {
+        when(valueOps.get("jwt:revoked-before:5")).thenReturn(null);
+
+        assertThat(service(Duration.ofMinutes(15)).revokedBefore(5L)).isNull();
+    }
+
+    @Test
+    void revokedBefore_propagatesRedisErrors_forTheValidatorFailOpenPolicy() {
+        when(valueOps.get(any())).thenThrow(new RuntimeException("MOVED 12345"));
+
+        assertThatThrownBy(() -> service(Duration.ofMinutes(15)).revokedBefore(5L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("MOVED");
+    }
+
+    @Test
+    void noRedisTemplate_contextsStayInertAndBootClean() {
+        JwtRevocationService inert = new JwtRevocationService(providerOf(null));
+
+        assertThat(inert.isAvailable()).isFalse();
+        assertThatCode(() -> inert.revoke(1L, Instant.now())).doesNotThrowAnyException();
+        assertThat(inert.revokedBefore(1L)).isNull();
+    }
+
+    @Test
+    void nonPositiveTtl_fallsBackToTheDefaultKeyTtl() {
+        when(valueOps.get("jwt:revoked-before:8")).thenReturn(null);
+
+        service(Duration.ZERO).revoke(8L, Instant.parse("2026-09-11T08:00:00Z"));
+
+        verify(valueOps).set("jwt:revoked-before:8", "2026-09-11T08:00:00Z", Duration.ofMinutes(15));
     }
 }

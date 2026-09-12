@@ -62,12 +62,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       {@code app.auth.jwt.hmac-grace-enabled} is true (default). Flipping
  *       that property to false rejects HS256 outright. {@code alg=none} and
  *       HS384/HS512 downgrade attempts are always rejected.</li>
- *   <li>P1 logout revocation: access tokens whose {@code iat} predates the
- *       user's revocation epoch ({@link JwtRevocationService}, written on
- *       logout / password change / deactivation) are rejected with a ±2 s
- *       clock-slack grace; the check fails OPEN when Redis is unreachable and
- *       is skipped entirely when Redis is not configured.</li>
- * </ul>
+ *   <li>P1 REVOCATION: when a {@link JwtRevocationService} bean exists, an
+ *       access token whose {@code iat} precedes the account's
+ *       revoked-before epoch is rejected — logout/password-change stops the
+ *       15-minute grace without waiting for TTL. A Redis failure FAILS OPEN
+ *       (request accepted) and increments {@code jwt_revocation_check_bypass};
+ *       no bean (auth-less slice contexts) = pre-P1 behaviour, no lookups.</li>
+  * </ul>
  */
 @Component
 public class PlatformJwtValidator {
@@ -91,16 +92,31 @@ public class PlatformJwtValidator {
     /** jjwt/HS256 minimum: 256 bits of secret material (RFC 7518 §3.2). */
     static final int MIN_HMAC_SECRET_BYTES = 32;
 
+    /**
+     * P1 REVOCATION: incremented every time a Redis epoch read fails and the
+     * check is bypassed (fail-open — availability beats a hard 401 storm
+     * during a Redis outage, and the bypass must be observable).
+     */
+    static final String METRIC_REVOCATION_BYPASS = "jwt_revocation_check_bypass";
+
     private final PlatformJwtProperties properties;
     private final RestClient restClient;
     @Nullable
     private final MeterRegistry meterRegistry;
+    /**
+     * Login/credential-change access-token revocation store; {@code null} when
+     * no {@link JwtRevocationService} bean exists (auth-less slice contexts) —
+     * the validator then behaves exactly as before P1: revocation-unaware.
+     */
+    @Nullable
+    private final JwtRevocationService revocationService;
     /** Pre-built HS256 verifier — NEVER per-request; null = secret absent/too short in a non-strict profile. */
     @Nullable
     private final MACVerifier macVerifier;
     /** Logout/password-change revocation epoch (P1); null = not wired (check skipped). */
     @Nullable
     private final JwtRevocationService revocationService;
+
 
     private volatile JWKSet cachedJwks;
     private volatile long lastFetchMillis;
@@ -120,11 +136,11 @@ public class PlatformJwtValidator {
     @Autowired
     public PlatformJwtValidator(PlatformJwtProperties properties,
                                 Environment environment,
-                                ObjectProvider<JwtRevocationService> revocationServiceProvider,
-                                ObjectProvider<MeterRegistry> meterRegistryProvider) {
+                                ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                ObjectProvider<JwtRevocationService> revocationServiceProvider) {
         this(properties, defaultRestClient(),
-                properties.requiredInProfile(environment),
-                revocationServiceProvider.getIfAvailable(), meterRegistryProvider.getIfAvailable());
+                properties.requiredInProfile(environment), meterRegistryProvider.getIfAvailable(),
+                revocationServiceProvider == null ? null : revocationServiceProvider.getIfAvailable());
     }
 
     /** Convenience for non-Spring construction (tests): permissive profile, no metrics. */
@@ -137,23 +153,25 @@ public class PlatformJwtValidator {
         this(properties, restClient, false, null, null);
     }
 
-    /** Test seam: injected revocation service (null = epoch check skipped). */
     PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
-                         @Nullable JwtRevocationService revocationService) {
-        this(properties, restClient, false, revocationService, null);
+                         boolean requiredInProfile, @Nullable MeterRegistry meterRegistry) {
+        this(properties, restClient, requiredInProfile, meterRegistry, null);
     }
 
+    /** P1 REVOCATION test seam: validator with an explicit revocation store. */
     PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
-                         boolean requiredInProfile, @Nullable JwtRevocationService revocationService,
-                         @Nullable MeterRegistry meterRegistry) {
+                         boolean requiredInProfile, @Nullable MeterRegistry meterRegistry,
+                         @Nullable JwtRevocationService revocationService) {
         this.properties = properties;
         this.restClient = restClient;
         this.revocationService = revocationService;
         this.meterRegistry = meterRegistry;
+        this.revocationService = revocationService;
         byte[] secretBytes = properties.secret() == null
                 ? new byte[0] : properties.secret().getBytes(StandardCharsets.UTF_8);
         this.macVerifier = buildMacVerifier(secretBytes, requiredInProfile);
     }
+
 
     /**
      * V-15: build the HMAC key exactly once; a configured-but-weak secret in a
@@ -256,9 +274,12 @@ public class PlatformJwtValidator {
                 log.debug("JWT rejected: subject is not numeric");
                 return Optional.empty();
             }
-            if (predatesRevocationEpoch(userId, claims)) {
+            // P1 REVOCATION: the subject survived every signature/claims step
+            // — this is the user's ACCESS token. Reject anything issued before
+            // the user's last logout / credential change / deactivation epoch.
+            if (revocationService != null && isRevokedAccess(userId, claims)) {
                 recordRejection("revoked");
-                log.debug("JWT rejected: issued before the user's revocation epoch (logout/password change)");
+                log.debug("JWT rejected: issued before the account's revocation epoch (userId={})", userId);
                 return Optional.empty();
             }
             return Optional.of(new TokenPrincipal(userId,
@@ -272,29 +293,39 @@ public class PlatformJwtValidator {
     }
 
     /**
-     * P1 logout revocation: a token minted BEFORE the user's revocation
-     * epoch (logout, password change, deactivation) is rejected — the
-     * ±{@link #REVOCATION_CLOCK_SLACK_SECONDS} grace absorbs issuer/verifier
-     * clock drift so a just-logged-out session is not half-broken. No
-     * revocation service wired, no epoch stored, an unreachable Redis
-     * (fail-open inside the service) or a token without an {@code iat} claim
-     * all leave the token valid — this is hardening on top of signature +
-     * expiry, never the sole gate.
+     * Revocation-epoch comparison. Fails OPEN when the epoch store is
+     * unreachable: an outage may not turn every authenticated request into a
+     * 401, but the bypass must be observable
+     * ({@link #METRIC_REVOCATION_BYPASS}).
      */
-    private boolean predatesRevocationEpoch(long userId, JWTClaimsSet claims) throws java.text.ParseException {
-        if (revocationService == null) {
+    private boolean isRevokedAccess(long userId, JWTClaimsSet claims) {
+        try {
+            Instant revokedBefore = revocationService.revokedBefore(userId);
+            if (revokedBefore == null) {
+                return false;
+            }
+            Instant issuedAt = claims.getIssueTime() == null
+                    ? null : claims.getIssueTime().toInstant();
+            if (issuedAt == null) {
+                // No iat to compare against — nothing to revoke by epoch; the
+                // existing exp/nbf checks still bound this token.
+                return false;
+            }
+            return issuedAt.isBefore(revokedBefore);
+        } catch (Exception e) {
+            recordRevocationBypass(e);
             return false;
         }
-        Optional<Instant> epoch = revocationService.revocationEpoch(userId);
-        if (epoch.isEmpty()) {
-            return false;
-        }
-        Date issuedAt = claims.getIssueTime();
-        if (issuedAt == null) {
-            return false; // cannot evaluate — fail open (tokens always carry iat)
-        }
-        return issuedAt.toInstant().isBefore(epoch.get().minusSeconds(REVOCATION_CLOCK_SLACK_SECONDS));
     }
+
+    /** Fail-open bookkeeping: a Redis error must bypass the check, visibly. */
+    private void recordRevocationBypass(Exception e) {
+        if (meterRegistry != null) {
+            meterRegistry.counter(METRIC_REVOCATION_BYPASS).increment();
+        }
+        log.warn("JWT revocation check failed, token accepted without it (fail-open): {}", e.getMessage());
+    }
+
 
     /**
      * ADR-004: identity now stamps {@code role} alongside the legacy

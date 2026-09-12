@@ -60,16 +60,17 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- StepVerifier for reactive filter tests (V-13 kill-switch offload). -->
-		<dependency>
-			<groupId>io.projectreactor</groupId>
-			<artifactId>reactor-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<!-- BlockHound (P1): proves the kill switch never runs the (blocking)
-		     JWT subject lookup on a non-blocking thread. Test scope only;
-		     1.0.8.RELEASE is the JDK 17-compatible line (not managed by the
-		     Boot/Reactor BOM). -->
+
+		<!-- P1 REACTOR-HYGIENE: BlockHound — tests assert the edge filters do
+		     zero blocking work on event-loop/non-blocking scheduler threads
+		     (Audit V-13 offload contract machine-verified). Not managed by the
+		     Boot 3.2 / reactor BOM — pinned explicitly. TEST scope only: the
+		     agent is installed inside the test JVM, the shipped edge runs
+		     uninstrumented (BlockHound warns are not free in prod).
+		     Instrumentation only arms under the JDK-activated
+		     blockhound-jvm-flags profile below; elsewhere the tagged test
+		     skips by assumption. A CI flake escape hatch:
+		     mvn test -DexcludedGroups=blockhound -->
 		<dependency>
 			<groupId>io.projectreactor.tools</groupId>
 			<artifactId>blockhound</artifactId>
@@ -134,4 +135,31 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- BlockHound (test scope above) needs
+		     -XX:+AllowRedefinitionToAddDeleteMethods on JDKs 13–21; outside
+		     that window passing the flag breaks JVM startup outright. The
+		     profile re-states the parent's surefire argLine, adds the flag,
+		     and arms the tests via -Dblockhound.armed=true. EdgeFiltersBlockHoundTest
+		     ASSUMPTION-SKIPS when the property is absent, so a future JDK
+		     move downgrades these proofs to visible skips — never a CI break. -->
+		<profile>
+			<id>blockhound-jvm-flags</id>
+			<activation>
+				<jdk>[13,22)</jdk>
+			</activation>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dblockhound.armed=true</argLine>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>

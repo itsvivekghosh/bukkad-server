@@ -1,111 +1,78 @@
 package com.bhukkad.common.logging;
 
 import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
 import ch.qos.logback.classic.joran.JoranConfigurator;
-import ch.qos.logback.classic.PatternLayout;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.ConsoleAppender;
+import ch.qos.logback.core.Layout;
 import ch.qos.logback.core.read.ListAppender;
-import ch.qos.logback.core.status.Status;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
-import java.io.StringReader;
-import java.util.List;
+import java.io.InputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * P1 PII log-masking registration: the canonical logback template
- * ({@code logback/bhukkad-logback-base.xml} in platform-lib, the file every
- * service's {@code logback-spring.xml} includes) must register the
- * {@code %pii} conversion rule without errors, mount a CONSOLE appender on an
- * INFO root, and mask emails and phone numbers through the real pattern
- * pipeline.
+ * P1 PII-LOGS: the fleet-wide console configuration
+ * (src/main/resources/logback-bhukkad.xml, included by every service's
+ * logback-spring.xml) must actually REDACT phone numbers and emails from
+ * rendered log lines — {@link PiiMaskingConverter} existed but was dead code
+ * while no logback config registered or used it.
+ *
+ * <p>The test boots the config in an isolated {@link LoggerContext} (plain
+ * Joran — the file must stay Spring-tag-free so this proof is possible),
+ * emits a PII-bearing log line, and renders it through the CONSOLE
+ * appender's OWN encoder/layout to assert what would hit stdout.</p>
  */
 class PiiMaskingLogbackConfigTest {
 
-    private static final String SERVICE_STYLE_CONFIG =
-            "<configuration><include resource=\"logback/bhukkad-logback-base.xml\"/></configuration>";
-
-    private LoggerContext context;
-    private ListAppender<ILoggingEvent> capture;
-
-    @BeforeEach
-    void configureFromCanonicalInclude() throws Exception {
-        // Isolated context, but configured EXACTLY like every service's
-        // logback-spring.xml (include the shared base fragment). The isolated
-        // context needs its own MDC adapter — the template's %X{traceId}
-        // converter uses it.
-        context = new LoggerContext();
+    @Test
+    void platformConfig_rendersConsoleLinesWithPiiMasked() throws Exception {
+        LoggerContext context = new LoggerContext();
+        context.setName("bhukkad-pii-proof");
+        // Standalone contexts must wire the MDC adapter Boot installs for real
+        // services (the pattern renders %X{traceId}; no adapter = NPE there).
         context.setMDCAdapter(new ch.qos.logback.classic.util.LogbackMDCAdapter());
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(context);
-        configurator.doConfigure(new org.xml.sax.InputSource(new StringReader(SERVICE_STYLE_CONFIG)));
+        try (InputStream config = PiiMaskingLogbackConfigTest.class
+                .getClassLoader().getResourceAsStream("logback-bhukkad.xml")) {
+            assertThat(config).as("logback-bhukkad.xml must ship on the platform-lib classpath")
+                    .isNotNull();
+            configurator.doConfigure(config);
+        }
 
-        List<Status> statuses = context.getStatusManager().getCopyOfStatusList();
-        assertThat(statuses)
-                .as("the canonical template must configure cleanly (conversionRule, appender, root)")
-                .noneMatch(status -> status.getLevel() == Status.ERROR);
+        ch.qos.logback.classic.Logger root =
+                context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        ConsoleAppender<ILoggingEvent> console =
+                (ConsoleAppender<ILoggingEvent>) root.getAppender("CONSOLE");
+        assertThat(console).as("shared config must mount the CONSOLE appender on root").isNotNull();
+        assertThat(console.isStarted()).isTrue();
+        Layout<ILoggingEvent> layout =
+                ((ch.qos.logback.core.encoder.LayoutWrappingEncoder<ILoggingEvent>)
+                        console.getEncoder()).getLayout();
 
-        Logger probe = context.getLogger("PiiMaskingProbe");
-        capture = new ListAppender<>();
+        // The config's console layout must reach the appender — capture events
+        // with an extra ListAppender, then RENDER them through the file's own
+        // layout to prove what would hit stdout.
+        ListAppender<ILoggingEvent> capture = new ListAppender<>();
         capture.start();
-        probe.addAppender(capture);
-    }
+        root.addAppender(capture);
 
-    @Test
-    void template_mountsConsoleAppenderOnInfoRoot() {
-        Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
-        assertThat(root.getLevel()).isEqualTo(Level.INFO);
-        assertThat(root.getAppender("CONSOLE"))
-                .isInstanceOf(ConsoleAppender.class);
-    }
+        org.slf4j.Logger logger = context.getLogger("com.bhukkad.proof");
+        logger.info("login attempt for phone=9876543210 email=vivek.ghosh+pay@bhukkad.com ok");
+        logger.info("plain operational line untouched");
 
-    @Test
-    void conversionRule_resolves_andPatternWrapsMessageWithPii() {
-        Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
-        ConsoleAppender<?> console = (ConsoleAppender<?>) root.getAppender("CONSOLE");
-        PatternLayoutEncoder encoder = (PatternLayoutEncoder) console.getEncoder();
+        assertThat(capture.list).hasSizeGreaterThanOrEqualTo(2);
+        String maskedLine = layout.doLayout(capture.list.get(0));
 
-        assertThat(encoder.getPattern())
-                .as("the pattern must route messages through the masking converter")
-                .contains("%pii");
-
-        // The rule must be resolvable in THIS context: a layout using the
-        // template's pattern formats without the unknown-converter fallback.
-        PatternLayout layout = new PatternLayout();
-        layout.setContext(context);
-        layout.setPattern(encoder.getPattern());
-        layout.start();
-
-        assertThat(context.getStatusManager().getCopyOfStatusList())
-                .noneMatch(status -> status.getLevel() == Status.ERROR);
-    }
-
-    @Test
-    void loggedPhoneAndEmail_areMasked_inFormattedOutput() {
-        Logger probe = context.getLogger("PiiMaskingProbe");
-        probe.info("otp sent to phone=9876543210 email=customer@bhukkad.in");
-
-        assertThat(capture.list).hasSize(1);
-
-        Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
-        PatternLayoutEncoder encoder = (PatternLayoutEncoder) ((ConsoleAppender<?>) root.getAppender("CONSOLE")).getEncoder();
-        PatternLayout layout = new PatternLayout();
-        layout.setContext(context);
-        layout.setPattern(encoder.getPattern());
-        layout.start();
-
-        String formatted = layout.doLayout(capture.list.get(0));
-
-        assertThat(formatted)
-                .contains("***@***")
-                .contains("**********")
-                .doesNotContain("customer@bhukkad.in")
-                .doesNotContain("9876543210");
+        assertThat(maskedLine)
+                .contains("***@***")                  // email redacted
+                .contains("**********")                // phone redacted
+                .doesNotContain("9876543210")
+                .doesNotContain("vivek.ghosh+pay@bhukkad.com");
+        assertThat(layout.doLayout(capture.list.get(1))).contains("plain operational line untouched");
     }
 }

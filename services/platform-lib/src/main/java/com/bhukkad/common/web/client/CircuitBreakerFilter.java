@@ -56,6 +56,16 @@ public class CircuitBreakerFilter implements ExchangeFilterFunction {
     /** Per-target breaker instances shared by all filters built with the same name. */
     private static final CircuitBreakerRegistry SHARED_REGISTRY = CircuitBreakerRegistry.ofDefaults();
 
+    /**
+     * The JVM-shared per-target registry every platform WebClient breaker
+     * mounts into — exposed for the boot self-check
+     * ({@link CircuitBreakerPreflight}) and diagnostics.
+     */
+    public static CircuitBreakerRegistry sharedRegistry() {
+        return SHARED_REGISTRY;
+    }
+
+
     /** Upper bound for a single upstream call; a breach is recorded as a failure. */
     private static final Duration CALL_TIMEOUT = Duration.ofSeconds(5);
 

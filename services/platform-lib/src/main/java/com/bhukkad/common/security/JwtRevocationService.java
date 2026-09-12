@@ -1,133 +1,123 @@
 package com.bhukkad.common.security;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.RedisConnectionFailureException;
-import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
-import java.util.Optional;
+import java.time.temporal.ChronoUnit;
 
 /**
- * Logout / credential-change token-revocation epoch (P1): a Redis key
- * {@code revocation:token-epoch:<userId>} holds the {@link Instant} of the
- * latest logout, password change or account deactivation. Validators reject
- * any access token whose {@code iat} predates that epoch, closing the
- * "access tokens live up to 15 min after logout" window — without a
- * per-token denylist.
+ * Redis-backed JWT revocation epochs (P1 REVOCATION, closes the
+ * "logged-out user's access token lives to its 15-min TTL" gap).
  *
- * <p>Degradation contract:
- * <ul>
- *   <li><b>Redis not configured</b> (no {@link StringRedisTemplate} bean —
- *       minimal test contexts): the check is skipped entirely, writes are
- *       no-ops. Revocation is an availability-neutral hardening layer, so
- *       its absence never blocks a boot.</li>
- *   <li><b>Redis unreachable</b>: fail-OPEN on reads (tokens keep
- *       authenticating — same posture as the rate limiter V-18) and the
- *       bypass is observable via the {@link #METRIC_BYPASS_REDIS_ERROR}
- *       counter. Writes never throw: a logout must not fail because Redis
- *       is down (the refresh-token row revocation still happened).</li>
- * </ul>
+ * <p>One epoch per user: {@code jwt:revoked-before:<userId>} holds an
+ * ISO-8601 {@link Instant} string. A validator rejects any access token whose
+ * {@code iat} is strictly before the stored epoch — i.e. everything issued
+ * before the user's last logout / credential change / deactivation. Tokens
+ * issued AFTER the epoch (a fresh login) keep working.</p>
  *
- * <p>The epoch key TTL ({@code app.auth.jwt.revocation-epoch-ttl-minutes},
- * default 15) MUST be at least the issuer's access-token TTL: after it the
- * newest pre-epoch token has expired anyway, so letting the key lapse loses
- * nothing.</p>
+ * <p>Key TTL semantics: the key only needs to outlive every token it
+ * invalidates, so it MUST be configured at least as long as the platform's
+ * maximum access-token TTL (default
+ * {@code app.auth.jwt.revocation-key-ttl=15m} aligns with identity's
+ * {@code app.jwt.access-ttl-minutes=15}; raise both together, never one).
+ * Once the key expires, every still-alive token was necessarily issued after
+ * the last revocation.</p>
+ *
+ * <p>Availability: writes are best-effort — a Redis failure degrades to the
+ * pre-P1 behaviour (token dies with its TTL) instead of breaking logout.
+ * Reads deliberately PROPAGATE failures: {@link PlatformJwtValidator} owns the
+ * documented fail-open + {@code jwt_revocation_check_bypass} counter so the
+ * bypass is observable at exactly one place. In contexts without a
+ * {@link StringRedisTemplate} (unit/slice contexts) the service is inert:
+ * writes no-op, reads report "no epoch", nothing blocks or fails.</p>
  */
 @Component
 public class JwtRevocationService {
 
     private static final Logger log = LoggerFactory.getLogger(JwtRevocationService.class);
 
-    /** Redis key prefix — one epoch per principal. */
-    public static final String EPOCH_KEY_PREFIX = "revocation:token-epoch:";
+    /** Redis key prefix; the full key is {@code jwt:revoked-before:<userId>}. */
+    public static final String KEY_PREFIX = "jwt:revoked-before:";
 
-    /** Observable bypass counter (fail-open on a Redis outage). */
-    public static final String METRIC_BYPASS_REDIS_ERROR = "jwt_revocation_check_bypass";
-
-    private final StringRedisTemplate redisTemplate; // nullable: Redis not configured
-    private final MeterRegistry meterRegistry;       // nullable: contexts without actuator
-    private final Duration epochTtl;
+    private final ObjectProvider<StringRedisTemplate> redisProvider;
+    private final Duration keyTtl;
 
     @Autowired
-    public JwtRevocationService(ObjectProvider<StringRedisTemplate> redisTemplateProvider,
-                                ObjectProvider<MeterRegistry> meterRegistryProvider,
-                                @Value("${app.auth.jwt.revocation-epoch-ttl-minutes:15}") long epochTtlMinutes) {
-        this(redisTemplateProvider.getIfAvailable(), meterRegistryProvider.getIfAvailable(),
-                Duration.ofMinutes(epochTtlMinutes));
+    public JwtRevocationService(ObjectProvider<StringRedisTemplate> redisProvider,
+                                @Value("${app.auth.jwt.revocation-key-ttl:15m}") Duration keyTtl) {
+        this.redisProvider = redisProvider;
+        // A zero/negative TTL would delete the key on write (or throw) — treat
+        // it as unset so a misconfiguration degrades to the safe default.
+        this.keyTtl = (keyTtl == null || keyTtl.isNegative() || keyTtl.isZero())
+                ? Duration.ofMinutes(15) : keyTtl;
     }
 
-    /** Test constructor: bypassing the Spring ObjectProvider. */
-    JwtRevocationService(StringRedisTemplate redisTemplate, MeterRegistry meterRegistry, Duration epochTtl) {
-        this.redisTemplate = redisTemplate;
-        this.meterRegistry = meterRegistry;
-        this.epochTtl = epochTtl;
-    }
-
-    /** True when a Redis template is wired (check active); false = skip entirely. */
-    public boolean isConfigured() {
-        return redisTemplate != null;
+    /** Non-Spring convenience (tests): 15-minute key TTL. */
+    public JwtRevocationService(ObjectProvider<StringRedisTemplate> redisProvider) {
+        this(redisProvider, Duration.ofMinutes(15));
     }
 
     /**
-     * The principal's revocation epoch, or empty when none is stored, Redis
-     * is not configured, or Redis is unreachable (fail-open, counted).
+     * Stamps {@code userId}'s revocation epoch to {@code epoch} (seconds
+     * precision — matching JWT {@code iat} granularity). Monotonic: a call
+     * with an EARLIER instant never shortens an existing epoch; each accepted
+     * revocation restarts the key TTL so the epoch outlives every token it
+     * kills. Best-effort by design: Redis errors are logged, never thrown —
+     * a logout must not fail because the epoch store is down.
      */
-    public Optional<Instant> revocationEpoch(long userId) {
-        if (redisTemplate == null) {
-            return Optional.empty();
+    public void revoke(long userId, Instant epoch) {
+        StringRedisTemplate redis = redisProvider.getIfAvailable();
+        if (redis == null || epoch == null) {
+            return; // inert context (no Redis) — nothing to stamp
         }
+        Instant candidate = epoch.truncatedTo(ChronoUnit.SECONDS);
         try {
-            String stored = redisTemplate.opsForValue().get(EPOCH_KEY_PREFIX + userId);
-            if (stored == null) {
-                return Optional.empty();
-            }
-            return Optional.of(Instant.parse(stored));
-        } catch (RedisConnectionFailureException | RedisSystemException | DateTimeParseException
-                 | IllegalStateException e) {
-            // RedisConnectionFailureException + RedisSystemException: the Redis-outage
-            // class (same mapping as RedisRateLimitService). IllegalStateException wraps
-            // a lazy Lettuce "connection closed" surface on some code paths.
-            return bypassedByRedisError(userId, e);
+            Instant existing = readEpoch(redis, userId);
+            Instant effective = (existing == null || candidate.isAfter(existing)) ? candidate : existing;
+            redis.opsForValue().set(KEY_PREFIX + userId, effective.toString(), keyTtl);
+        } catch (RuntimeException e) {
+            log.warn("JWT revocation write failed userId={} epoch={} (access token will expire "
+                    + "with its TTL instead of being revoked early): {}", userId, candidate, e.toString());
         }
     }
 
     /**
-     * Advances the principal's revocation epoch to now(): every access token
-     * minted BEFORE this call becomes invalid after the ±2 s clock-slack
-     * grace. No-op when Redis is not configured; Redis failures are logged
-     * and swallowed (fail-open for the validator, never breaks the caller's
-     * transaction).
+     * The current revocation epoch for {@code userId}, or {@code null} when no
+     * epoch is stored (never revoked / inert context). {@link RuntimeException}
+     * propagates on Redis failure — callers decide the failure posture (see
+     * class javadoc; the validator fail-opens with a bypass counter).
      */
-    public void revokeTokensIssuedBefore(long userId) {
-        if (redisTemplate == null) {
-            return;
+    public Instant revokedBefore(long userId) {
+        StringRedisTemplate redis = redisProvider.getIfAvailable();
+        if (redis == null) {
+            return null;
+        }
+        return readEpoch(redis, userId);
+    }
+
+    private Instant readEpoch(StringRedisTemplate redis, long userId) {
+        String value = redis.opsForValue().get(KEY_PREFIX + userId);
+        if (value == null || value.isBlank()) {
+            return null;
         }
         try {
-            redisTemplate.opsForValue().set(EPOCH_KEY_PREFIX + userId,
-                    Instant.now().toString(), epochTtl);
-            log.info("TOKEN_REVOCATION_EPOCH_SET userId={} ttlMinutes={}", userId, epochTtl.toMinutes());
-        } catch (RedisConnectionFailureException | RedisSystemException | IllegalStateException e) {
-            log.warn("TOKEN_REVOCATION_EPOCH_WRITE_FAILED userId={} — pre-epoch tokens stay valid "
-                    + "until their access TTL: {}", userId, e.getMessage());
+            return Instant.parse(value);
+        } catch (RuntimeException e) {
+            // Corrupt epoch values must never turn into an auth 500 storm;
+            // behave like a Redis failure and let the caller's policy decide.
+            throw new IllegalStateException("Unparsable JWT revocation epoch userId=" + userId, e);
         }
     }
 
-    private Optional<Instant> bypassedByRedisError(long userId, Exception cause) {
-        if (meterRegistry != null) {
-            meterRegistry.counter(METRIC_BYPASS_REDIS_ERROR).increment();
-        }
-        // DEBUG (not WARN): a Redis outage turns this into a hot-path log
-        // storm; the counter is the outage signal.
-        log.debug("Token-revocation epoch check bypassed (Redis error) userId={}: {}", userId, cause.getMessage());
-        return Optional.empty();
+    /** Whether this instance can actually store epochs (a Redis template exists). */
+    public boolean isAvailable() {
+        return redisProvider.getIfAvailable() != null;
     }
 }

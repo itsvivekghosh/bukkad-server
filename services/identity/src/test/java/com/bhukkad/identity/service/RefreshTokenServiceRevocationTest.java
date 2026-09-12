@@ -5,90 +5,126 @@ import com.bhukkad.identity.domain.RefreshToken;
 import com.bhukkad.identity.domain.RefreshTokenRepository;
 import com.bhukkad.identity.security.JwtProperties;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * P1 logout revocation: every logout variant (single-session and all-sessions)
- * and the password-change/reset path ({@code revokeAllForCustomer}) must
- * advance the user's access-token revocation epoch, so validators reject
- * already-issued access tokens immediately instead of for up to the access
- * TTL.
+ * P1 REVOCATION: access-token epochs must be stamped wherever this service
+ * kills sessions — per-device logout ({@code revoke}), account-wide kill
+ * ({@code revokeAllForCustomer}: full logout, password change/reset, accounts
+ * found deactivated at refresh time) — and never on unknown tokens.
  */
-@ExtendWith(MockitoExtension.class)
+@SuppressWarnings("unchecked")
 class RefreshTokenServiceRevocationTest {
 
-    @Mock
-    private RefreshTokenRepository repository;
-    @Mock
-    private JwtProperties jwtProperties;
-    @Mock
-    private JwtRevocationService revocationService;
-    @Mock
-    private TransactionTemplate tx;
+    private final RefreshTokenRepository repository = mock(RefreshTokenRepository.class);
+    private final JwtProperties jwtProperties = mock(JwtProperties.class);
+    private final JwtRevocationService revocations = mock(JwtRevocationService.class);
+    private final RefreshTokenService service = new RefreshTokenService(
+            new TransactionTemplate(), repository, jwtProperties,
+            new ObjectProvider<>() {
+                @Override
+                public JwtRevocationService getObject() {
+                    return revocations;
+                }
 
-    @InjectMocks
-    private RefreshTokenService service;
+                @Override
+                public JwtRevocationService getObject(Object... args) {
+                    return revocations;
+                }
 
-    @Test
-    void singleSessionLogout_advancesRevocationEpoch() {
-        RefreshToken row = RefreshToken.of(7L, "abc", java.time.Instant.now().plusSeconds(600));
-        when(repository.findByTokenHash(anyString())).thenReturn(Optional.of(row));
-        when(repository.revokeIfLive(anyString(), any())).thenReturn(1);
+                @Override
+                public JwtRevocationService getIfAvailable() {
+                    return revocations;
+                }
 
-        service.revoke("presented-raw-token");
+                @Override
+                public JwtRevocationService getIfUnique() {
+                    return revocations;
+                }
+            });
 
-        verify(repository).revokeIfLive(anyString(), any());
-        verify(revocationService).revokeTokensIssuedBefore(7L);
+    private static RefreshToken row(long customerId) {
+        return RefreshToken.of(customerId, "hash-1", Instant.now().plusSeconds(3600));
     }
 
     @Test
-    void allSessionsLogout_advancesRevocationEpoch() {
-        when(repository.revokeAllByCustomer(org.mockito.ArgumentMatchers.eq(7L), any())).thenReturn(2);
+    void revokeAllForCustomer_stampsAccessEpoch() {
+        when(repository.revokeAllByCustomer(eq(7L), any(Instant.class))).thenReturn(2);
 
-        service.revokeAllForCustomer(7L);
+        int killed = service.revokeAllForCustomer(7L);
 
-        verify(revocationService).revokeTokensIssuedBefore(7L);
+        assertThat(killed).isEqualTo(2);
+        verify(revocations).revoke(eq(7L), any(Instant.class));
     }
 
     @Test
-    void unknownRefreshToken_staysNoOp_withoutEpochWrite() {
-        when(repository.findByTokenHash(anyString())).thenReturn(Optional.empty());
+    void singleSessionLogout_stampsEpochOfTheTokenOwner() {
+        when(repository.findByTokenHash(any())).thenReturn(Optional.of(row(9L)));
 
-        service.revoke("unknown-token");
+        service.revoke("presented-token");
 
-        verify(repository, never()).revokeIfLive(anyString(), any());
-        verify(revocationService, never()).revokeTokensIssuedBefore(any(Long.class));
+        verify(repository).revokeIfLive(eq("hash-1"), any(Instant.class));
+        verify(revocations).revoke(eq(9L), any(Instant.class));
     }
 
     @Test
-    void redisAbsentRevocationService_logoutStillSucceeds() {
-        // The platform service is a no-op when Redis is not configured — the
-        // logout flow must complete unchanged in minimal contexts.
-        @SuppressWarnings("unchecked")
-        ObjectProvider<org.springframework.data.redis.core.StringRedisTemplate> absentRedis =
-                mock(ObjectProvider.class);
-        when(absentRedis.getIfAvailable()).thenReturn(null);
-        JwtRevocationService noRedis = new JwtRevocationService(
-                absentRedis, mock(ObjectProvider.class), 15);
-        RefreshTokenService serviceWithoutRedis =
-                new RefreshTokenService(tx, repository, jwtProperties, noRedis);
-        when(repository.revokeAllByCustomer(any(Long.class), any())).thenReturn(2);
+    void unknownToken_isNoOp_neverStampsEpoch() {
+        when(repository.findByTokenHash(any())).thenReturn(Optional.empty());
 
-        assertThat(serviceWithoutRedis.revokeAllForCustomer(7L)).isEqualTo(2);
+        service.revoke("never-issued");
+
+        verify(revocations, never()).revoke(anyLong(), any(Instant.class));
+    }
+
+    @Test
+    void blankToken_shortCircuits() {
+        service.revoke("  ");
+
+        verify(repository, never()).findByTokenHash(any());
+        verify(revocations, never()).revoke(anyLong(), any(Instant.class));
+    }
+
+    @Test
+    void absentRevocationStore_neverBreaksTheSessionKill() {
+        RefreshTokenService noEpochStore = new RefreshTokenService(
+                new TransactionTemplate(), repository, jwtProperties,
+                new ObjectProvider<>() {
+                    @Override
+                    public JwtRevocationService getObject() {
+                        throw new IllegalStateException("no bean");
+                    }
+
+                    @Override
+                    public JwtRevocationService getObject(Object... args) {
+                        throw new IllegalStateException("no bean");
+                    }
+
+                    @Override
+                    public JwtRevocationService getIfAvailable() {
+                        return null;
+                    }
+
+                    @Override
+                    public JwtRevocationService getIfUnique() {
+                        return null;
+                    }
+                });
+        when(repository.revokeAllByCustomer(eq(3L), any(Instant.class))).thenReturn(1);
+
+        assertThatCode(() -> noEpochStore.revokeAllForCustomer(3L)).doesNotThrowAnyException();
     }
 }
