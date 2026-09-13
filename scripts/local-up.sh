@@ -69,6 +69,10 @@ export GROWTH_SERVICE_URL=http://localhost:8089
 # delivery's PaymentServiceClient reads app.services.payment.url (no
 # PAYMENT_SERVICE_URL indirection): env alias for the same target.
 export APP_SERVICES_PAYMENT_URL=http://localhost:8093
+# supportticket's OrderServiceClient reads app.services.order.url the same
+# way (its yml placeholder is nested under payment by mistake, so the
+# ORDER_SERVICE_URL env never reaches it) — alias for the order target.
+export APP_SERVICES_ORDER_URL=http://localhost:8092
 
 # "name port" pairs (gateway port overridable via GATEWAY_PORT)
 ALL_SERVICES=(

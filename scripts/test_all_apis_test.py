@@ -534,9 +534,9 @@ class TestEdgeCaseCatalogExtended(unittest.TestCase):
         self.assertIn(400, spec["expected"])
 
     def test_delete_menu_item_associated_edge_case(self):
-        spec = self._find("Delete Menu Item — Associated with Existing Orders (edge)")
+        spec = self._find("Delete Menu Item")
         self.assertEqual(spec["method"], "DELETE")
-        self.assertIn(400, spec["expected"])
+        self.assertIn(200, spec["expected"])
         self.assertIn(409, spec["expected"])
 
     def test_get_nonexistent_order_edge_case(self):
@@ -1350,7 +1350,9 @@ class TestCatalogIntegrityExtended(unittest.TestCase):
                       "Customer Orders — Negative Page Size (edge)",
                       "Add to Cart — Float Quantity (edge)",
                       "Register — SQL Injection in Email (edge)",
-                      "Delete Menu Item — Associated with Existing Orders (edge)",
+                      "Create Expired Coupon (setup)",
+                      "Restore Customer Token",
+                      "Raise Low-Stock Alert (setup)",
                       "Get Order by ID — Nonexistent Order (edge)",
                       "Refresh Token — Missing Token Field (edge)",
                       "Add to Cart — Invalid Menu Item ID (edge)"):
@@ -1393,14 +1395,15 @@ class TestDeleteMenuItemTemplate(unittest.TestCase):
     correctly and have the right auth."""
 
     def test_delete_menu_item_edge_case(self):
-        spec = next(s for s in API_CATALOG if s["name"] == "Delete Menu Item — Associated with Existing Orders (edge)")
+        spec = next(s for s in API_CATALOG if s["name"] == "Delete Menu Item")
         self.assertEqual(spec["method"], "DELETE")
         self.assertEqual(spec["auth"], "owner")
-        self.assertIn(400, spec["expected"])
+        # ADR-002-era order-snapshot FK makes deleting a referenced item 409.
+        self.assertIn(200, spec["expected"])
         self.assertIn(409, spec["expected"])
 
     def test_delete_menu_item_requires(self):
-        spec = next(s for s in API_CATALOG if s["name"] == "Delete Menu Item — Associated with Existing Orders (edge)")
+        spec = next(s for s in API_CATALOG if s["name"] == "Delete Menu Item")
         self.assertIn("menu_item_id", spec.get("requires", []))
 
 

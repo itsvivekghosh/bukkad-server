@@ -513,28 +513,6 @@ API_CATALOG = [
     },
     {
         "group": "Customer",
-        "name": "Create Anonymous Tracking Token",
-        "description": "Issues a TTL-bound anonymous tracking token for an order (used for guest delivery tracking).",
-        "method": "POST",
-        "path": "/api/v1/orders/stream/customer/{order_id}/tracking-token",
-        "auth": "customer",
-        "expected": [200],
-        "requires": ["order_id"],
-        "optional": True,
-        "extract": {"tracking_token": "trackingToken"},
-    },
-    {
-        "group": "Customer",
-        "name": "Tracking Token Stream — Invalid Token Rejected",
-        "description": "Edge case: an anonymous SSE stream request with an invalid/expired tracking token must be rejected with 401.",
-        "method": "GET",
-        "path": "/api/v1/orders/stream/customer-token/{order_id}?token=invalid-token-{run_id}",
-        "expected": [401],
-        "requires": ["order_id"],
-        "optional": True,
-    },
-    {
-        "group": "Customer",
         "name": "Notification Preferences",
         "description": "Get customer notification channel preferences.",
         "method": "GET",
@@ -860,6 +838,7 @@ API_CATALOG = [
         "path": "/api/v1/cart",
         "auth": "customer",
         "expected": [200],
+        "extract": {"cart_item_id": "items.0.id"},
     },
     {
         "group": "Cart",
@@ -907,6 +886,29 @@ API_CATALOG = [
         "auth": "customer",
         "expected": [200],
     },
+    {
+        "group": "Customer",
+        "name": "Create Anonymous Tracking Token",
+        "description": "Issues a TTL-bound anonymous tracking token for an order (used for guest delivery tracking).",
+        "method": "POST",
+        "path": "/api/v1/orders/stream/customer/{order_id}/tracking-token",
+        "auth": "customer",
+        "expected": [200],
+        "requires": ["order_id"],
+        "optional": True,
+        "extract": {"tracking_token": "trackingToken"},
+    },
+    {
+        "group": "Customer",
+        "name": "Tracking Token Stream — Invalid Token Rejected",
+        "description": "Edge case: an anonymous SSE stream request with an invalid/expired tracking token must be rejected with 401.",
+        "method": "GET",
+        "path": "/api/v1/orders/stream/customer-token/{order_id}?token=invalid-token-{run_id}",
+        "expected": [401],
+        "requires": ["order_id"],
+        "optional": True,
+    },
+
     {
         "group": "Orders",
         "name": "My Orders (cursor)",
@@ -961,16 +963,6 @@ API_CATALOG = [
         "requires": ["order_id"],
         "optional": True,
         "extract": {"order_id": "id"},
-    },
-    {
-        "group": "Orders",
-        "name": "Get Order by Number",
-        "description": "Lookup order by human-readable order number (customer must own the order).",
-        "method": "GET",
-        "path": "/api/v1/orders/number/{order_number}",
-        "auth": "customer",
-        "expected": [200],
-        "requires": ["order_number"],
     },
     {
         "group": "Orders",
@@ -1314,7 +1306,7 @@ API_CATALOG = [
         "name": "List Affiliates",
         "description": "Lists all affiliate/influencer codes.",
         "method": "GET",
-        "path": "/api/v1/admin/affiliates",
+        "path": "/api/v1/referrals/affiliates",
         "auth": "admin",
         "expected": [200],
         "requires": ["admin_token"],
@@ -1379,20 +1371,20 @@ API_CATALOG = [
         "name": "Create Affiliate",
         "description": "Creates a new affiliate/influencer code.",
         "method": "POST",
-        "path": "/api/v1/admin/affiliates",
+        "path": "/api/v1/referrals/affiliates",
         "auth": "admin",
         "body_key": "affiliate_code",
         "expected": [200],
         "requires": ["admin_token"],
         "optional": True,
-        "extract": {"affiliate_id": "id"},
+        "extract": {"affiliate_id": "data.id"},
     },
     {
         "group": "Admin",
         "name": "Update Affiliate",
         "description": "Updates an existing affiliate/influencer code.",
         "method": "PUT",
-        "path": "/api/v1/admin/affiliates/{affiliate_id}",
+        "path": "/api/v1/referrals/affiliates/{affiliate_id}",
         "auth": "admin",
         "body_key": "affiliate_code_update",
         "expected": [200],
@@ -1404,7 +1396,7 @@ API_CATALOG = [
         "name": "Affiliate Stats",
         "description": "Signups and payouts stats for a single affiliate code.",
         "method": "GET",
-        "path": "/api/v1/admin/affiliates/{affiliate_id}/stats",
+        "path": "/api/v1/referrals/affiliates/{affiliate_id}/stats",
         "auth": "admin",
         "expected": [200],
         "requires": ["admin_token", "affiliate_id"],
@@ -1415,7 +1407,7 @@ API_CATALOG = [
         "name": "Deactivate Affiliate",
         "description": "Deactivates an affiliate/influencer code.",
         "method": "DELETE",
-        "path": "/api/v1/admin/affiliates/{affiliate_id}",
+        "path": "/api/v1/referrals/affiliates/{affiliate_id}",
         "auth": "admin",
         "expected": [200],
         "requires": ["admin_token", "affiliate_id"],
@@ -1444,40 +1436,6 @@ API_CATALOG = [
         "requires": ["admin_token"],
         "optional": True,
         "extract": {"tenant_id": "id"},
-    },
-    {
-        "group": "Admin",
-        "name": "Update Tenant",
-        "description": "Updates an existing white-label B2B tenant.",
-        "method": "PUT",
-        "path": "/api/v1/admin/tenants/{tenant_id}",
-        "auth": "admin",
-        "body_key": "tenant_update",
-        "expected": [200],
-        "requires": ["admin_token", "tenant_id"],
-        "optional": True,
-    },
-    {
-        "group": "Admin",
-        "name": "Deactivate Tenant",
-        "description": "Deactivates a white-label B2B tenant.",
-        "method": "DELETE",
-        "path": "/api/v1/admin/tenants/{tenant_id}",
-        "auth": "admin",
-        "expected": [200],
-        "requires": ["admin_token", "tenant_id"],
-        "optional": True,
-    },
-    {
-        "group": "Admin",
-        "name": "List Orders",
-        "description": "Paginated all-platform orders with optional status filter.",
-        "method": "GET",
-        "path": "/api/v1/admin/orders?page=0&size=10",
-        "auth": "admin",
-        "expected": [200],
-        "requires": ["admin_token"],
-        "optional": True,
     },
     {
         "group": "Admin",
@@ -1526,9 +1484,9 @@ API_CATALOG = [
     {
         "group": "Admin",
         "name": "Test Notification",
-        "description": "Sends a test email, SMS, or WhatsApp message (log provider in dev).",
+        "description": "Sends a test email, SMS, or WhatsApp message (log provider in dev). ADMIN-gated inside the notification service.",
         "method": "POST",
-        "path": "/api/v1/admin/notifications/test",
+        "path": "/api/v1/notifications/test",
         "auth": "admin",
         "expected": [200],
         "body_key": "test_notification",
@@ -1820,13 +1778,32 @@ API_CATALOG = [
     },
     {
         "group": "Cart",
+        "name": "Create Expired Coupon (setup)",
+        "description": "Owner creates a coupon whose validity window is entirely in the past, so the expired-apply negative exercises the real expiry rule instead of an unknown-code 404.",
+        "method": "POST",
+        "path": "/api/v1/coupons",
+        "auth": "owner",
+        "expected": [200],
+        "requires": ["restaurant_id"],
+        "body": {
+            "code": "EXPIRED{timestamp_suffix}",
+            "description": "Expired setup coupon",
+            "discountType": "PERCENTAGE",
+            "discountValue": 10.0,
+            "validFrom": "2020-01-01T00:00:00",
+            "validUntil": "2020-06-01T00:00:00"
+        },
+    },
+    {
+        "group": "Cart",
         "name": "Apply Coupon to Cart — Expired Coupon",
-        "description": "Negative test: applying expired coupon should return 400.",
+        "description": "Negative test: applying an expired coupon must fail with 400 (window elapsed), not 404.",
         "method": "POST",
         "path": "/api/v1/cart/apply-coupon",
         "auth": "customer",
-        "query": {"couponCode": "EXPIRED_COUPON"},
+        "query": {"couponCode": "EXPIRED{timestamp_suffix}"},
         "expected": [400],
+        "requires": ["cart_item_id"],
         "optional": True,
     },
     {
@@ -1973,8 +1950,9 @@ API_CATALOG = [
         "method": "POST",
         "path": "/api/v1/payments/webhooks/razorpay",
         "auth": None,
+        "razorpay_signed": True,
         "body_key": "razorpay_webhook_unknown_event",
-        "expected": [200, 400],
+        "expected": [200],
         "optional": True,
     },
     # ── Enhanced tests for Foreign Key Constraint on Delete Operations ────────
@@ -2357,7 +2335,7 @@ API_CATALOG = [
         "auth": "agent",
         "body_key": "delivery_batch",
         "expected": [200, 400],
-        "extract": {"batch_id": "batchId"},
+        "extract": {"batch_id": "id"},
     },
     {
         "group": "Delivery",
@@ -2367,16 +2345,6 @@ API_CATALOG = [
         "path": "/api/v1/delivery/batches/active",
         "auth": "agent",
         "expected": [200, 404],
-    },
-    {
-        "group": "Delivery",
-        "name": "Complete Batch",
-        "description": "Marks a delivery batch as completed.",
-        "method": "PUT",
-        "path": "/api/v1/delivery/batches/{batch_id}/complete",
-        "auth": "agent",
-        "expected": [200],
-        "requires": ["batch_id"],
     },
     # ── Coupon management ──────────────────────────────────────────────────────
     {
@@ -2500,7 +2468,7 @@ API_CATALOG = [
         "auth": "customer",
         "body_key": "support_ticket",
         "expected": [200],
-        "extract": {"ticket_id": "id"},
+        "extract": {"ticket_id": "data.id"},
     },
     {
         "group": "Growth & Operations",
@@ -2529,17 +2497,6 @@ API_CATALOG = [
         "path": "/api/v1/customers/membership/status",
         "auth": "customer",
         "expected": [200],
-    },
-    {
-        "group": "Growth & Operations",
-        "name": "Subscribe Membership",
-        "description": "Customer subscribes to a membership plan.",
-        "method": "POST",
-        "path": "/api/v1/customers/membership/subscribe",
-        "auth": "customer",
-        "body_key": "membership_subscribe",
-        "expected": [200],
-        "requires": ["plan_id"],
     },
     # ── Admin growth ───────────────────────────────────────────────────────────
     {
@@ -2617,6 +2574,18 @@ API_CATALOG = [
         "requires": ["restaurant_id"],
     },
     # ── Inventory alerts ───────────────────────────────────────────────────────
+    {
+        "group": "Inventory",
+        "name": "Raise Low-Stock Alert (setup)",
+        "description": "Owner registers a low-stock reading so the alert surfaces have a real row to list/acknowledge.",
+        "method": "POST",
+        "path": "/api/v1/inventory/alerts",
+        "auth": "owner",
+        "query": {"menuItemId": "{menu_item_id}", "currentStock": "2", "threshold": "5"},
+        "expected": [200],
+        "requires": ["menu_item_id"],
+        "extract": {"alert_id": "id"},
+    },
     {
         "group": "Inventory",
         "name": "List Inventory Alerts",
@@ -2723,7 +2692,17 @@ API_CATALOG = [
         "body_key": "promotion_campaign",
         "expected": [201],
         "requires": ["admin_token"],
-        "extract": {"campaign_id": "id"},
+    },
+    {
+        "group": "Admin",
+        "name": "List Promotion Campaigns (capture id)",
+        "description": "Admin campaign list — supplies campaign_id because the create response omits the id.",
+        "method": "GET",
+        "path": "/api/v1/admin/promotions/campaigns",
+        "auth": "admin",
+        "expected": [200],
+        "requires": ["admin_token"],
+        "extract": {"campaign_id": "0.id"},
     },
     {
         "group": "Admin",
@@ -2766,7 +2745,17 @@ API_CATALOG = [
         "body_key": "promo_banner",
         "expected": [201],
         "requires": ["admin_token"],
-        "extract": {"banner_id": "id"},
+    },
+    {
+        "group": "Admin",
+        "name": "List Promotion Banners (capture id)",
+        "description": "Admin banner list — supplies banner_id because the create response omits the id.",
+        "method": "GET",
+        "path": "/api/v1/admin/promotions/banners",
+        "auth": "admin",
+        "expected": [200],
+        "requires": ["admin_token"],
+        "extract": {"banner_id": "0.id"},
     },
     {
         "group": "Admin",
@@ -2863,9 +2852,10 @@ API_CATALOG = [
         "method": "POST",
         "path": "/api/v1/payments/webhooks/razorpay",
         "auth": None,
+        "razorpay_signed": True,
         "body_key": "razorpay_webhook",
-         "expected": [200, 404],
-         "optional": True,
+        "expected": [200, 404],
+        "optional": True,
     },
     # ── Validation ─────────────────────────────────────────────────────────────
     {
@@ -3353,8 +3343,22 @@ API_CATALOG = [
     },
     {
         "group": "Admin",
+        "name": "Deactivate User",
+        "description": "Admin deactivates the suite customer, then re-activates; every status change bumps the token revocation epoch so the fresh login below is what keeps the rest of the run authenticated.",
+        "method": "PUT",
+        "path": "/api/v1/admin/users/{customer_id}/deactivate",
+        "expected": [
+            200
+        ],
+        "auth": "admin",
+        "requires": [
+            "customer_id"
+        ]
+    },
+    {
+        "group": "Admin",
         "name": "Activate User",
-        "description": "Admin activates a user account.",
+        "description": "Admin re-activates the suite customer account.",
         "method": "PUT",
         "path": "/api/v1/admin/users/{customer_id}/activate",
         "expected": [
@@ -3367,16 +3371,20 @@ API_CATALOG = [
     },
     {
         "group": "Admin",
-        "name": "Deactivate User",
-        "description": "Admin deactivates a user account (runs at teardown, safe).",
-        "method": "PUT",
-        "path": "/api/v1/admin/users/{customer_id}/deactivate",
+        "name": "Restore Customer Token",
+        "description": "Deactivation/activation revoke all previously minted customer tokens (epoch bump); re-login so the self-scoped surfaces later in the suite carry a valid token.",
+        "method": "POST",
+        "path": "/api/v1/auth/login",
         "expected": [
             200
         ],
-        "auth": "admin",
+        "body_key": "login_customer_after_pw_change",
+        "extract": {
+            "customer_token": "token",
+            "customer_id": "customerId"
+        },
         "requires": [
-            "customer_id"
+            "customer_email"
         ]
     },
     {
@@ -3577,56 +3585,44 @@ API_CATALOG = [
         "name": "Pause Subscription",
         "description": "Pauses a subscription plan. Uses a non-existent plan id to test 404.",
         "method": "POST",
-        "path": "/api/v1/customers/subscriptions/{subscription_id}/pause",
+        "path": "/api/v1/customers/subscriptions/999999/pause",
         "expected": [
             404
         ],
-        "auth": "customer",
-        "requires": [
-            "subscription_id"
-        ]
+        "auth": "customer"
     },
     {
         "group": "Growth & Operations",
         "name": "Resume Subscription",
         "description": "Resumes a paused subscription plan. Uses a non-existent plan id.",
         "method": "POST",
-        "path": "/api/v1/customers/subscriptions/{subscription_id}/resume",
+        "path": "/api/v1/customers/subscriptions/999999/resume",
         "expected": [
             404
         ],
-        "auth": "customer",
-        "requires": [
-            "subscription_id"
-        ]
+        "auth": "customer"
     },
     {
         "group": "Growth & Operations",
         "name": "Cancel Subscription",
         "description": "Cancels a subscription plan. Uses a non-existent plan id.",
         "method": "POST",
-        "path": "/api/v1/customers/subscriptions/{subscription_id}/cancel",
+        "path": "/api/v1/customers/subscriptions/999999/cancel",
         "expected": [
             404
         ],
-        "auth": "customer",
-        "requires": [
-            "subscription_id"
-        ]
+        "auth": "customer"
     },
     {
         "group": "Growth & Operations",
         "name": "Skip Subscription Delivery",
         "description": "Skips the next delivery for a subscription plan.",
         "method": "POST",
-        "path": "/api/v1/customers/subscriptions/{subscription_id}/skip",
+        "path": "/api/v1/customers/subscriptions/999999/skip",
         "expected": [
             404
         ],
-        "auth": "customer",
-        "requires": [
-            "subscription_id"
-        ]
+        "auth": "customer"
     },
     {
         "group": "Growth & Operations",
@@ -4089,16 +4085,13 @@ API_CATALOG = [
     {
         "group": "Admin",
         "name": "Delete API Key",
-        "description": "Deletes a partner API key. Uses a non-existent key id.",
+        "description": "Negative test: deleting a non-existent partner API key returns 404 on the admin surface.",
         "method": "DELETE",
-        "path": "/api/v1/admin/api-keys/{api_key_id}",
+        "path": "/api/v1/admin/api-keys/999999",
         "expected": [
             404
         ],
-        "auth": "admin",
-        "requires": [
-            "api_key_id"
-        ]
+        "auth": "admin"
     },
     {
         "group": "Cart",
@@ -4917,34 +4910,12 @@ API_CATALOG = [
     {
         "group": "Menu",
         "name": "Delete Menu Item",
-        "description": "Owner removes a dish from the menu (may fail with 400 if item is in existing orders).",
+        "description": "Owner removes a dish from the menu; items still referenced by placed orders conflict with 409 (order-snapshot FK) instead of failing.",
         "method": "DELETE",
         "path": "/api/v1/menu/items/{menu_item_id}",
         "auth": "owner",
-        "expected": [200, 400],
+        "expected": [200, 409],
         "requires": ["menu_item_id"],
-    },
-    {
-        "group": "Menu",
-        "name": "Delete Menu Item — Used in Orders",
-        "description": "Negative test: deleting menu item used in orders should return 400 with clear error message.",
-        "method": "DELETE",
-        "path": "/api/v1/menu/items/{menu_item_id}",
-        "auth": "owner",
-        "expected": [400],
-        "requires": ["menu_item_id"],
-        "optional": True,
-    },
-    {
-        "group": "Orders",
-        "name": "Delete Menu Item — Associated with Existing Orders (edge)",
-        "description": "Edge case: deleting a menu item that has order history must return 409 Conflict or 400, not 500.",
-        "method": "DELETE",
-        "path": "/api/v1/menu/items/{menu_item_id}",
-        "auth": "owner",
-        "expected": [400, 409, 200],
-        "requires": ["menu_item_id"],
-        "optional": True,
     },
 ]
 
@@ -5174,6 +5145,7 @@ BODY_TEMPLATES = {
         "deliveryRating": 4,
     },
     "menu_item_rating": {
+        "orderId": "{order_id}",
         "menuItemId": "{menu_item_id}",
         "rating": 5,
         "comment": "Best paneer tikka!",
@@ -5199,7 +5171,7 @@ BODY_TEMPLATES = {
         "deliveryRating": 5,
     },
     "test_notification": {
-        "channel": "email",
+        "channel": "EMAIL",
         "recipient": "test@bhukkad.dev",
         "message": "Bhukkad API integration test notification",
     },

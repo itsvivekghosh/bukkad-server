@@ -22,6 +22,8 @@ Server must be running (Docker or local mvn spring-boot:run).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -73,6 +75,15 @@ NUMERIC_JSON_KEYS = frozenset({
     "calories", "rating", "foodRating", "deliveryRating", "averageDeliveryTime",
     "freeDeliveryAbove", "tipAmount", "stockQuantity",
 })
+
+# Razorpay webhook signing (dev contract): the payment service verifies
+# X-Razorpay-Signature as HMAC-SHA256(body, RAZORPAY_WEBHOOK_SECRET), whose
+# application.yml dev default is 'dev-webhook-secret'. Specs flagged
+# "razorpay_signed" get a real signature over the exact serialized body so
+# non-rejection tests can assert the business outcome (200/404) instead of a
+# transport-level 400.
+def razorpay_webhook_secret() -> bytes:
+    return os.getenv("RAZORPAY_WEBHOOK_SECRET", "dev-webhook-secret").encode()
 
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
@@ -407,6 +418,9 @@ def run_test(
         if body_key and body_key.startswith("razorpay_webhook") and "paymentId" in body_obj:
             body_obj["paymentId"] = state.next_webhook_payment_id()
         body_bytes = json.dumps(body_obj).encode("utf-8")
+        if spec.get("razorpay_signed") and body_bytes is not None:
+            headers["X-Razorpay-Signature"] = hmac.new(
+                razorpay_webhook_secret(), body_bytes, hashlib.sha256).hexdigest()
     elif spec.get("body"):
         # Inline body (placeholders resolved like templates). Used by recovered
         # and edge-case specs that do not need a named template.
