@@ -49,10 +49,11 @@ class LegacyOrderCompatBatchCheckoutTest {
     @Mock private RestaurantClient restaurantClient;
     @Mock private com.bhukkad.order.domain.service.impl.OrderCreateJobService orderCreateJobService;
     @Mock private com.bhukkad.order.domain.service.impl.AsyncOrderCreateService asyncOrderCreateService;
+    @Mock private com.bhukkad.order.domain.service.impl.OrderCreateIdempotencyService idempotencyService;
 
     private LegacyOrderCompatController controller() {
         return new LegacyOrderCompatController(orderService, cartService, orderRepository,
-                restaurantClient, orderCreateJobService, asyncOrderCreateService);
+                restaurantClient, orderCreateJobService, asyncOrderCreateService, idempotencyService);
     }
 
     private static final TokenPrincipal CUSTOMER =

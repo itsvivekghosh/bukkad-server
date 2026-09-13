@@ -24,6 +24,7 @@ import com.bhukkad.order.domain.entity.CartItem;
 import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import com.bhukkad.order.domain.service.impl.AsyncOrderCreateService;
+import com.bhukkad.order.domain.service.impl.OrderCreateIdempotencyService;
 import com.bhukkad.order.domain.service.impl.OrderCreateJobService;
 import com.bhukkad.order.infrastructure.client.RestaurantClient;
 
@@ -37,6 +38,9 @@ import com.bhukkad.order.infrastructure.client.RestaurantClient;
 @RequestMapping("/api/v1/orders/customer")
 public class LegacyOrderCompatController {
 
+    private static final org.slf4j.Logger legacyCreateLog =
+            org.slf4j.LoggerFactory.getLogger(LegacyOrderCompatController.class);
+
     private static final String SCOPE_ADMIN = "ADMIN";
 
     private final OrderService orderService;
@@ -45,27 +49,46 @@ public class LegacyOrderCompatController {
     private final RestaurantClient restaurantClient;
     private final OrderCreateJobService orderCreateJobService;
     private final AsyncOrderCreateService asyncOrderCreateService;
+    private final OrderCreateIdempotencyService idempotencyService;
 
     public LegacyOrderCompatController(OrderService orderService, CartService cartService,
                                        OrderRepository orderRepository,
                                        RestaurantClient restaurantClient,
                                        OrderCreateJobService orderCreateJobService,
-                                       AsyncOrderCreateService asyncOrderCreateService) {
+                                       AsyncOrderCreateService asyncOrderCreateService,
+                                       OrderCreateIdempotencyService idempotencyService) {
         this.orderService = orderService;
         this.cartService = cartService;
         this.orderRepository = orderRepository;
         this.restaurantClient = restaurantClient;
         this.orderCreateJobService = orderCreateJobService;
         this.asyncOrderCreateService = asyncOrderCreateService;
+        this.idempotencyService = idempotencyService;
     }
 
     @PostMapping("/create")
-    public OrderResponse create(@AuthenticationPrincipal TokenPrincipal principal,
-                                @RequestBody CreateOrderRequest request) {
+    public org.springframework.http.ResponseEntity<OrderResponse> create(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody CreateOrderRequest request) {
         Long customerId = subjectId(principal);
         if (request == null || request.restaurantId() == null) {
             // Empty/invalid order bodies must 400 (never NPE → 500).
             throw new com.bhukkad.common.error.BusinessException("restaurantId is required");
+        }
+        String key = (idempotencyKey == null || idempotencyKey.isBlank())
+                ? null : idempotencyKey.trim();
+        if (key != null) {
+            // Claim BEFORE the cart is read: a replay of an already-placed
+            // order must return the stored response even though the first
+            // call emptied the cart (the historical duplicate-saga bug).
+            OrderCreateIdempotencyService.Claim claim =
+                    idempotencyService.claim(customerId, key, request);
+            if (!claim.fresh()) {
+                return org.springframework.http.ResponseEntity
+                        .status(claim.httpStatus())
+                        .body(claim.replay());
+            }
         }
         java.util.List<OrderItemRequest> items = request.items();
         boolean fromCart = false;
@@ -79,15 +102,47 @@ public class LegacyOrderCompatController {
             fromCart = true;
         }
         if (items.isEmpty()) {
-            throw new com.bhukkad.common.error.BusinessException(
-                    "Order requires at least one item");
+            com.bhukkad.common.error.BusinessException emptyCart =
+                    new com.bhukkad.common.error.BusinessException(
+                            "Order requires at least one item");
+            failClaim(key, customerId, emptyCart);
+            throw emptyCart;
         }
-        OrderResponse response = orderService.createOrder(
-                new CreateOrderRequest(customerId, request.restaurantId(), items));
-        if (fromCart) {
-            cartService.clear(customerId);
+        CreateOrderRequest scoped =
+                new CreateOrderRequest(customerId, request.restaurantId(), items);
+        OrderResponse response;
+        try {
+            response = orderService.createOrder(scoped);
+            if (fromCart) {
+                cartService.clear(customerId);
+            }
+        } catch (RuntimeException failure) {
+            failClaim(key, customerId, failure);
+            throw failure;
         }
-        return response;
+        if (key != null) {
+            try {
+                idempotencyService.complete(customerId, key, request, 200, response);
+            } catch (RuntimeException storeFailure) {
+                // The order EXISTS — answering 500 here would invite a retry
+                // that the claim then 409s. Log and return the fresh success.
+                legacyCreateLog.warn("IDEMPOTENT_CREATE_STORE_FAILED | key={} | {}",
+                        key, storeFailure.getMessage());
+            }
+        }
+        return org.springframework.http.ResponseEntity.ok(response);
+    }
+
+    /** Best-effort FAILED marking; the original failure must surface unchanged. */
+    private void failClaim(String key, Long customerId, RuntimeException original) {
+        if (key == null) {
+            return;
+        }
+        try {
+            idempotencyService.markFailed(customerId, key);
+        } catch (RuntimeException claimFailure) {
+            original.addSuppressed(claimFailure);
+        }
     }
 
     /**

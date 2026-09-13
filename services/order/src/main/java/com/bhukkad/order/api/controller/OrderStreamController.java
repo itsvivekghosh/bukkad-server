@@ -79,13 +79,19 @@ public class OrderStreamController {
         return Map.of("token", token, "expiresIn", 3600);
     }
 
+    /**
+     * Anonymous (token-based) tracking stream for guests. A valid token opens
+     * the same registered SSE stream as the authenticated surfaces (initial
+     * frame included); an invalid/expired token is rejected with 401 before
+     * any stream is opened.
+     */
     @GetMapping(value = "/customer-token/{orderId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<Void> customerToken(@PathVariable Long orderId,
-                                              @RequestParam(required = false) String token) {
+    public ResponseEntity<SseEmitter> customerToken(@PathVariable Long orderId,
+                                                    @RequestParam(required = false) String token) {
         if (token == null || !orderId.equals(trackingTokens.get(token))) {
             return ResponseEntity.status(401).build();
         }
-        return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).build();
+        return ResponseEntity.ok(openStream());
     }
 
     // ------------------------------------------------------------------
@@ -135,7 +141,33 @@ public class OrderStreamController {
 
     /** Opens a 30-minute SSE stream (client reconnects refresh it). */
     private SseEmitter openStream() {
-        return sseRegistry.register(new SseEmitter(30 * 60_000L));
+        SseEmitter emitter = sseRegistry.register(newEmitter());
+        flushInitialFrame(emitter);
+        return emitter;
+    }
+
+    /** Emitter factory (package-private seam: tests assert the initial frame). */
+    SseEmitter newEmitter() {
+        return new SseEmitter(30 * 60_000L);
+    }
+
+    /**
+     * Writes the opening comment frame ({@code :connected}). Without a single
+     * body write the container never flushes the SSE response headers, so the
+     * edge's 8s response-timeout kills an idle-but-valid stream with 504
+     * before the first real event can land. The send happens before the
+     * emitter is returned to MVC, so it is buffered as an early send and
+     * flushed the moment the response is attached; the registry performs no
+     * concurrent writes of its own, so there is nothing to race.
+     */
+    private static void flushInitialFrame(SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event().comment("connected"));
+        } catch (java.io.IOException | IllegalStateException flushFailure) {
+            // Client vanished before the first frame: close the stream cleanly
+            // instead of leaking a half-registered emitter.
+            emitter.completeWithError(flushFailure);
+        }
     }
 
     private static String newToken() {
