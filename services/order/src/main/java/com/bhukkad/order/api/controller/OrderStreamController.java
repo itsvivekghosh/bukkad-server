@@ -41,6 +41,7 @@ public class OrderStreamController {
 
     private final com.bhukkad.order.domain.repository.OrderRepository orderRepository;
     private final OrderSseRegistry sseRegistry;
+    private final com.bhukkad.order.api.RestaurantOwnerResolver ownerResolver;
 
     /** Anonymous tracking tokens minted per order (short-lived, HMAC-free dev secrets). */
     private final Map<String, Long> trackingTokens = new ConcurrentHashMap<>();
@@ -110,6 +111,18 @@ public class OrderStreamController {
         if (!"RESTAURANT_OWNER".equalsIgnoreCase(scope) && !"ADMIN".equalsIgnoreCase(scope)) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Kitchen stream requires the restaurant owner");
+        }
+        // Audit HIGH-IDOR (kitchen stream): scope alone is not ownership — an
+        // owner of restaurant X must not watch restaurant Y's kitchen. The
+        // oracle resolves ownerIdOf(restaurantId): a genuine 404 yields null
+        // and unknown/foreign restaurants 403 WITHOUT 404-shaped data leaks;
+        // mesh outages fail closed as 503 (UpstreamUnavailableException).
+        if (!"ADMIN".equalsIgnoreCase(scope)) {
+            Long owner = ownerResolver.ownerIdOf(restaurantId);
+            if (owner == null || !owner.equals(principal.userId())) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Kitchen stream requires the restaurant owner");
+            }
         }
     }
 

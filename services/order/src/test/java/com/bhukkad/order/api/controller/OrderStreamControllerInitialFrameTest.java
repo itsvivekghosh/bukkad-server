@@ -2,6 +2,7 @@ package com.bhukkad.order.api.controller;
 
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.api.OrderSseRegistry;
+import com.bhukkad.order.api.RestaurantOwnerResolver;
 import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.when;
 class OrderStreamControllerInitialFrameTest {
 
     @Mock private OrderRepository orderRepository;
+    @Mock private RestaurantOwnerResolver ownerResolver;
 
     private final OrderSseRegistry registry = new OrderSseRegistry(null);
 
@@ -64,8 +66,9 @@ class OrderStreamControllerInitialFrameTest {
     private static class TestableController extends OrderStreamController {
         final List<RecordingEmitter> created = new ArrayList<>();
 
-        TestableController(OrderRepository orders, OrderSseRegistry registry) {
-            super(orders, registry);
+        TestableController(OrderRepository orders, OrderSseRegistry registry,
+                           RestaurantOwnerResolver resolver) {
+            super(orders, registry, resolver);
         }
 
         @Override
@@ -77,7 +80,7 @@ class OrderStreamControllerInitialFrameTest {
     }
 
     private TestableController controller() {
-        return new TestableController(orderRepository, registry);
+        return new TestableController(orderRepository, registry, ownerResolver);
     }
 
     private static void assertInitialFrame(SseEmitter emitter, TestableController controller) {
@@ -88,6 +91,7 @@ class OrderStreamControllerInitialFrameTest {
 
     @Test
     void kitchenStream_writesInitialCommentFrame() {
+        when(ownerResolver.ownerIdOf(9L)).thenReturn(1L); // OWNER.userId() holds restaurant 9
         TestableController controller = controller();
         SseEmitter emitter = controller.kitchen(OWNER, 9L);
         assertInitialFrame(emitter, controller);
@@ -101,6 +105,34 @@ class OrderStreamControllerInitialFrameTest {
         when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
         TestableController controller = controller();
         SseEmitter emitter = controller.customer(CUSTOMER, 42L);
+        assertInitialFrame(emitter, controller);
+    }
+
+    // Regression (audit HIGH-IDOR kitchen stream): scope-only checks let any
+    // authenticated owner stream ANY restaurant kitchen. Ownership now resolved
+    // by the same oracle as the ops surface; unknown -> 403 without 404 leak.
+    @Test
+    void kitchenStream_deniesForeignOwner() {
+        when(ownerResolver.ownerIdOf(9L)).thenReturn(2L);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller().kitchen(OWNER, 9L))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+    }
+
+    @Test
+    void kitchenStream_unknownRestaurant_deniesWithoutLeak() {
+        when(ownerResolver.ownerIdOf(24L)).thenReturn(null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller().kitchen(OWNER, 24L))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+    }
+
+    // The admin scope keeps fleet-wide kitchen visibility (unchanged behaviour):
+    // no ownership oracle call at all — verified by stubbing none + asserting
+    // the stream opened despite 999L being unknown.
+    @Test
+    void kitchenStream_admin_seesAnyKitchenWithoutOwnershipQuery() {
+        TokenPrincipal admin = new TokenPrincipal(5L, "a@bhukkad.dev", "ADMIN");
+        TestableController controller = controller();
+        SseEmitter emitter = controller.kitchen(admin, 999L);
         assertInitialFrame(emitter, controller);
     }
 
