@@ -1,9 +1,13 @@
 package com.bhukkad.order.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.domain.service.impl.OrderService;
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,7 +15,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import com.bhukkad.order.api.dto.request.CreateOrderRequest;
 import com.bhukkad.order.api.dto.response.OrderResponse;
 
@@ -50,10 +59,20 @@ public class CustomerOrderController {
     }
 
     @GetMapping
-    public List<OrderResponse> myOrders(@AuthenticationPrincipal TokenPrincipal principal,
-                                        @PathVariable Long customerId) {
+    public Map<String, Object> myOrders(@AuthenticationPrincipal TokenPrincipal principal,
+                                        @PathVariable Long customerId,
+                                        @RequestParam(defaultValue = "0") int page,
+                                        @RequestParam(defaultValue = "20") int size) {
         requireSelfOrAdmin(principal, customerId);
-        return this.orderService.getOrdersForCustomer(customerId);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(size, 100), Sort.Direction.DESC, "id");
+        Page<OrderResponse> result = orderService.getOrdersForCustomer(customerId, pageable);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("items", result.getContent());
+        body.put("page", result.getNumber());
+        body.put("size", result.getSize());
+        body.put("totalElements", result.getTotalElements());
+        body.put("hasNext", result.hasNext());
+        return body;
     }
 
     private static void requireSelfOrAdmin(TokenPrincipal principal, Long customerId) {

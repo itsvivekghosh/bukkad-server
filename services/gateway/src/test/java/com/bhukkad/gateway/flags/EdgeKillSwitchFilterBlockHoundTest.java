@@ -1,6 +1,7 @@
 package com.bhukkad.gateway.flags;
 
 import com.bhukkad.common.security.PlatformJwtValidator;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -71,6 +72,9 @@ class EdgeKillSwitchFilterBlockHoundTest {
 
     @BeforeAll
     static void installBlockHound() {
+        if (Runtime.version().feature() > 21) {
+            return;
+        }
         // Installed exactly once per surefire fork (see the module's agent
         // preload); a second install call is a no-op.
         BlockHoundInstaller.installOnce();
@@ -78,6 +82,8 @@ class EdgeKillSwitchFilterBlockHoundTest {
 
     @Test
     void subjectIdOffload_neverBlocksTheNonBlockingThread() {
+        Assumptions.assumeTrue(Runtime.version().feature() <= 21,
+                "BlockHound not supported on JDK " + Runtime.version().feature());
         PlatformJwtValidator blockingValidator = mock(PlatformJwtValidator.class);
         when(blockingValidator.validate(any())).thenAnswer(invocation -> {
             Thread.sleep(100); // stands in for a JWKS fetch — blocking, allowed ONLY on boundedElastic
@@ -99,6 +105,8 @@ class EdgeKillSwitchFilterBlockHoundTest {
 
     @Test
     void harnessGuard_blockHoundDetectsBlockingCallOnNonBlockingThread() {
+        Assumptions.assumeTrue(Runtime.version().feature() <= 21,
+                "BlockHound not supported on JDK " + Runtime.version().feature());
         reactor.test.StepVerifier.create(Mono.fromCallable(() -> {
                     Thread.sleep(10);
                     return 1;

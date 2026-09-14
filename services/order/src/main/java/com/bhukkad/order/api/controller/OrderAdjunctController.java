@@ -128,9 +128,9 @@ public class OrderAdjunctController {
         proof.setOtpHash(hashOtp(otp));
         proof.setOtpIssuedAt(java.time.LocalDateTime.now());
         proofRepository.save(proof);
-        // Dev build returns the OTP inline (no SMS gateway); prod sends it
-        // over the notification channel and never echoes it.
-        return Map.of("orderId", orderId, "otp", otp, "expiresIn", 600);
+        // OTP is delivered exclusively through the notification channel (SMS/push).
+        // The response confirms issuance without echoing the secret.
+        return Map.of("orderId", orderId, "expiresIn", 600);
     }
 
     /** Upload-url slot for the rider's proof-of-delivery photo. */

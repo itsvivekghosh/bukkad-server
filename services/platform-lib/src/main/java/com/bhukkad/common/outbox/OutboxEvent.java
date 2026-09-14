@@ -25,7 +25,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "outbox_events", indexes = {
         @Index(name = "idx_outbox_status_created", columnList = "status, createdAt"),
-        @Index(name = "idx_outbox_aggregate", columnList = "aggregateType, aggregateId")
+        @Index(name = "idx_outbox_aggregate", columnList = "aggregateType, aggregateId"),
+        @Index(name = "idx_outbox_partition", columnList = "partition_id, status, created_at")
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
@@ -72,6 +73,14 @@ public class OutboxEvent {
      */
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
+
+    /**
+     * Partition shard for parallel relay (0..relayThreads-1). Populated at
+     * insert time via {@code hashtext(aggregate_id) % relayThreads} so each
+     * parallel scheduler claims a disjoint key space.
+     */
+    @Column(nullable = false)
+    private int partitionId;
 
     public enum OutboxStatus {
         PENDING, PROCESSING, PUBLISHED, FAILED

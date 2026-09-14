@@ -20,12 +20,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param type            transport type ({@code kafka} or {@code log})
  * @param kafka           Kafka connection and topic configuration
  * @param consumerStartup whether listeners auto-start on boot (default false)
+ * @param listenerConcurrency number of concurrent Kafka listener threads (default 1)
  */
 @ConfigurationProperties(prefix = "app.events.external")
-public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka, boolean consumerStartup) {
+public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka, boolean consumerStartup, int listenerConcurrency) {
 
     /** Kafka connection and topic settings. */
-    public record Kafka(String bootstrapServers, String consumerGroup, String platformTopic, String dlqTopic) {
+    public record Kafka(String bootstrapServers, String consumerGroup, String platformTopic, String dlqTopic, int listenerConcurrency) {
     }
 
     /** True only when the pipeline is enabled AND the transport is Kafka. */
@@ -35,6 +36,6 @@ public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka,
 
     /** Safe default representing a fully disabled external event pipeline. */
     public static KafkaPlatformProperties disabled() {
-        return new KafkaPlatformProperties(false, "log", new Kafka("", "", "", ""), false);
+        return new KafkaPlatformProperties(false, "log", new Kafka("", "", "", "", 1), false, 1);
     }
 }

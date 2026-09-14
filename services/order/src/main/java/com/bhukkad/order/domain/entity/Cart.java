@@ -17,7 +17,10 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "carts", indexes = {@Index(name = "idx_carts_customer", columnList = "customerId")})
+@Table(name = "carts", indexes = {
+        @Index(name = "idx_carts_customer", columnList = "customerId"),
+        @Index(name = "idx_carts_customer_status", columnList = "customerId, status")
+})
 @EntityListeners(AuditingEntityListener.class)
 @Getter @Setter
 public class Cart {

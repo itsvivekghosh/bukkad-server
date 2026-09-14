@@ -1,5 +1,6 @@
 package com.bhukkad.order.api.controller;
 
+import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.entity.OrderDeliveryProof;
@@ -17,6 +18,8 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -44,6 +47,8 @@ class OrderAdjunctAgentBindingTest {
             new TokenPrincipal(13L, "other@bhukkad.dev", "DELIVERY_AGENT");
     private static final TokenPrincipal ADMIN =
             new TokenPrincipal(1L, "admin@bhukkad.dev", "ADMIN");
+    private static final TokenPrincipal CUSTOMER =
+            new TokenPrincipal(42L, "customer@bhukkad.dev", "CUSTOMER");
 
     @Mock private OrderService orderService;
     @Mock private OrderInvoiceService invoiceService;
@@ -59,6 +64,7 @@ class OrderAdjunctAgentBindingTest {
         order.setId(ORDER_ID);
         order.setStatus("OUT_FOR_DELIVERY");
         order.setDeliveryAgentId(ASSIGNED_AGENT);
+        order.setCustomerId(42L);
     }
 
     private OrderDeliveryProof issuedProof() {
@@ -116,6 +122,43 @@ class OrderAdjunctAgentBindingTest {
                 .isInstanceOf(AccessDeniedException.class);
         // The OTP must remain unconsumed.
         verify(proofRepository, never()).save(anyProof());
+    }
+
+    @Test
+    void issueOtp_ownerSucceeds_doesNotEchoOtpInResponse() {
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderService.getOrder(ORDER_ID)).thenReturn(
+                new com.bhukkad.order.api.dto.response.OrderResponse(ORDER_ID, 42L, 1L, "OUT_FOR_DELIVERY", BigDecimal.ZERO, List.of()));
+
+        Map<String, Object> body = controller.issueOtp(CUSTOMER, ORDER_ID);
+
+        assertThat(body).containsEntry("orderId", ORDER_ID);
+        assertThat(body).containsKey("expiresIn");
+        // OTP must never be returned in the response body (security audit).
+        assertThat(body).doesNotContainKey("otp");
+    }
+
+    @Test
+    void issueOtp_nonOwner_denied() {
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderService.getOrder(ORDER_ID)).thenReturn(
+                new com.bhukkad.order.api.dto.response.OrderResponse(ORDER_ID, 42L, 1L, "OUT_FOR_DELIVERY", BigDecimal.ZERO, List.of()));
+
+        assertThatThrownBy(() -> controller.issueOtp(OTHER_RIDER, ORDER_ID))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(proofRepository, never()).save(anyProof());
+    }
+
+    @Test
+    void issueOtp_wrongStatus_denied() {
+        order.setStatus("DELIVERED");
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+        when(orderService.getOrder(ORDER_ID)).thenReturn(
+                new com.bhukkad.order.api.dto.response.OrderResponse(ORDER_ID, 42L, 1L, "DELIVERED", BigDecimal.ZERO, List.of()));
+
+        assertThatThrownBy(() -> controller.issueOtp(CUSTOMER, ORDER_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("out for delivery");
     }
 
     private static OrderDeliveryProof anyProof() {

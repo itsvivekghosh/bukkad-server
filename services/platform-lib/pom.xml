@@ -323,4 +323,29 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<!-- BlockHound 1.0.8.RELEASE does not support JDK 26+ (class file major
+	     version 70). On modern JDKs the agent crashes the forked JVM during
+	     premain. This profile removes the BlockHound -javaagent on JDK 26+
+	     so tests can still execute; the BlockHound-specific integration tests
+	     are skipped automatically when the agent is absent. -->
+	<profiles>
+		<profile>
+			<id>skip-blockhound-on-jdk26-plus</id>
+			<activation>
+				<jdk>[26,)</jdk>
+			</activation>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods</argLine>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>

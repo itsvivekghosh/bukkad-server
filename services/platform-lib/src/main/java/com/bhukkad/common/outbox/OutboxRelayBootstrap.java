@@ -77,13 +77,20 @@ public class OutboxRelayBootstrap {
         // finish, so a slow broker never stacks overlapping drains on a replica.
         this.pollHandle = scheduler.scheduleWithFixedDelay(relay::poll, pollInterval);
         this.recoveryHandle = scheduler.scheduleWithFixedDelay(relay::recoverStale, recoveryInterval);
+        // Parallel relay: start N schedulers, each calling poll() on the same
+        // relay instance; the underlying claim query uses SKIP LOCKED so each
+        // scheduler claims disjoint batches.
+        for (int i = 0; i < properties.relayThreads(); i++) {
+            int partition = i;
+            scheduler.scheduleWithFixedDelay(() -> relay.poll(partition), pollInterval);
+        }
         if (wakeContainer != null) {
             wakeContainer.afterPropertiesSet();
             wakeContainer.start();
             log.info("OUTBOX_WAKE_SUBSCRIBED | channel={}", wakeChannel);
         }
-        log.info("OUTBOX_RELAY_STARTED | pollInterval={} | recoveryInterval={} | pool=relay-",
-                pollInterval, recoveryInterval);
+        log.info("OUTBOX_RELAY_STARTED | pollInterval={} | recoveryInterval={} | relayThreads={} | pool=relay-",
+                pollInterval, recoveryInterval, properties.relayThreads());
     }
 
     @EventListener(ContextClosedEvent.class)

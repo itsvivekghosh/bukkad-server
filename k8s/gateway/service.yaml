@@ -6,12 +6,16 @@ metadata:
   labels:
     app: bhukkad
     component: gateway
+  annotations:
+    cloud.google.com/load-balancer-type: "External"
 spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
   selector:
     app: bhukkad
     component: gateway
   ports:
-    - port: 8080
+    - port: 80
       targetPort: 8080
+      protocol: TCP
       name: http
-  type: ClusterIP

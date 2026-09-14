@@ -11,8 +11,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: bhukkad-restaurant
-  minReplicas: 3
-  maxReplicas: 12
+  minReplicas: 10
+  maxReplicas: 50
   metrics:
     # CPU only in base HPA — memory is unreliable for JVM heap (heap ≠ RSS).
     # Custom metrics overlay (k8s/overlays/custom-metrics-hpa) adds

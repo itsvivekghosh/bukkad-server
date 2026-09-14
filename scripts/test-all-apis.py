@@ -40,6 +40,7 @@ from typing import Any
 from http.client import IncompleteRead
 from socket import timeout as SocketTimeoutError
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 # Allow running from repo root or scripts/
@@ -369,7 +370,7 @@ def run_test(
         query_parts = []
         for key, value in resolved_query.items():
             if value is not None and str(value) != "":
-                query_parts.append(f"{key}={value}")
+                query_parts.append(f"{quote(str(key), safe='')}={quote(str(value), safe='')}")
         if query_parts:
             url += "?" + "&".join(query_parts)
 

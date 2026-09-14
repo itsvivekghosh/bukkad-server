@@ -5,6 +5,7 @@ import com.bhukkad.common.scan.AllowFullScan;
 import com.bhukkad.delivery.domain.entity.CityConfig;
 import com.bhukkad.delivery.domain.repository.CityConfigRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,6 +31,7 @@ public class CityInternalController {
     private final CityConfigRepository cityConfigRepository;
 
     @GetMapping
+    @PreAuthorize("hasRole('SERVICE') or hasRole('ADMIN')")
     @Transactional(readOnly = true)
     @AllowFullScan(reason = "G-6 reviewed: city registry is a small bounded reference table (admin-managed)")
     public List<CityConfig> cities() {
@@ -37,6 +39,7 @@ public class CityInternalController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('SERVICE') or hasRole('ADMIN')")
     @Transactional
     public Map<String, Object> createCity(@org.springframework.web.bind.annotation.RequestBody(
             required = false) Map<String, Object> body) {

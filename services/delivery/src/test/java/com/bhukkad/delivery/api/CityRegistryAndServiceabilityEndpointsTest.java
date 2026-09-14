@@ -15,7 +15,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.prepost.PreAuthorize;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.util.List;
@@ -104,5 +106,55 @@ class CityRegistryAndServiceabilityEndpointsTest {
         List<ZoneSurgeRule> active = List.of(rule);
         when(surgeRepository.findByZoneIdAndActiveTrue(4L)).thenReturn(active);
         assertThat(serviceabilityController.activeSurge(4L)).isEqualTo(active);
+    }
+
+    // ------------------------------------------------------------------
+    // Security annotation audits (HIGH-IDOR: mutations must be ADMIN-only)
+    // ------------------------------------------------------------------
+
+    @Test
+    void serviceability_createZone_isAdminGated() throws Exception {
+        PreAuthorize gate = findMethod(ServiceabilityController.class, "createZone", String.class)
+                .getAnnotation(PreAuthorize.class);
+        assertThat(gate).as("createZone must carry @PreAuthorize").isNotNull();
+        assertThat(gate.value()).contains("ADMIN");
+    }
+
+    @Test
+    void serviceability_addSurge_isAdminGated() throws Exception {
+        PreAuthorize gate = findMethod(ServiceabilityController.class, "addSurge",
+                Long.class, java.time.LocalTime.class, java.time.LocalTime.class, BigDecimal.class)
+                .getAnnotation(PreAuthorize.class);
+        assertThat(gate).as("addSurge must carry @PreAuthorize").isNotNull();
+        assertThat(gate.value()).contains("ADMIN");
+    }
+
+    @Test
+    void cityInternal_cities_isServiceOrAdminGated() throws Exception {
+        PreAuthorize gate = findMethod(CityInternalController.class, "cities")
+                .getAnnotation(PreAuthorize.class);
+        assertThat(gate).as("cities must carry @PreAuthorize").isNotNull();
+        assertThat(gate.value()).contains("SERVICE").contains("ADMIN");
+    }
+
+    @Test
+    void cityInternal_createCity_isServiceOrAdminGated() throws Exception {
+        PreAuthorize gate = findMethod(CityInternalController.class, "createCity", Map.class)
+                .getAnnotation(PreAuthorize.class);
+        assertThat(gate).as("createCity must carry @PreAuthorize").isNotNull();
+        assertThat(gate.value()).contains("SERVICE").contains("ADMIN");
+    }
+
+    private static Method findMethod(Class<?> clazz, String name, Class<?>... paramTypes) throws Exception {
+        try {
+            return clazz.getDeclaredMethod(name, paramTypes);
+        } catch (NoSuchMethodException e) {
+            for (Method m : clazz.getDeclaredMethods()) {
+                if (m.getName().equals(name)) {
+                    return m;
+                }
+            }
+            throw new AssertionError("missing method " + name + " in " + clazz.getName());
+        }
     }
 }

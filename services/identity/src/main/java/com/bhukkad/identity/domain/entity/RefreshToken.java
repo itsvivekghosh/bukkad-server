@@ -23,6 +23,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "refresh_tokens", indexes = {
         @Index(name = "idx_refresh_tokens_customer", columnList = "customer_id"),
+        @Index(name = "idx_refresh_tokens_customer_expires", columnList = "customer_id, expires_at"),
         @Index(name = "idx_refresh_tokens_family", columnList = "family_id"),
         @Index(name = "idx_refresh_tokens_expires", columnList = "expires_at")
 })

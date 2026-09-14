@@ -1,0 +1,39 @@
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export const options = {
+  stages: [
+    { duration: '60s', target: 500 },
+    { duration: '180s', target: 500 },
+    { duration: '60s', target: 0 },
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<500'],
+    http_req_failed: ['rate<0.01'],
+  },
+};
+
+const BASE = __ENV.BASE_URL || 'http://localhost:8080';
+
+export default function () {
+  // Health
+  http.get(`${BASE}/api/v1/health/ping`);
+
+  // Restaurant read surface (heaviest read path)
+  http.get(`${BASE}/api/v1/feed`);
+  http.get(`${BASE}/api/v1/restaurants/1`);
+  http.get(`${BASE}/api/v1/menu/1`);
+
+  // Serviceability
+  http.get(`${BASE}/api/v1/serviceability/check?restaurantId=1&latitude=12.9716&longitude=77.5946&subtotal=500`);
+
+  // Auth probe (rate-limited, expect some 429s)
+  http.post(`${BASE}/api/v1/auth/login`, JSON.stringify({
+    email: 'loadtest@example.com',
+    password: 'loadtest123'
+  }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  sleep(1);
+}

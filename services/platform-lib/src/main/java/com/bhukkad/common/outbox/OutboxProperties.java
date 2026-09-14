@@ -47,16 +47,18 @@ public record OutboxProperties(
         Duration sendTimeout,
         int maxErrorLength,
         int maxRetries,
-        Duration retryBackoff
+        Duration retryBackoff,
+        int relayThreads
 ) {
 
-    private static final int DEFAULT_BATCH_SIZE = 100;
-    private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(5);
+    private static final int DEFAULT_BATCH_SIZE = 500;
+    private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(1);
     private static final Duration DEFAULT_PROCESSING_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration DEFAULT_SEND_TIMEOUT = Duration.ofSeconds(10);
     private static final int DEFAULT_MAX_ERROR_LENGTH = 1000;
     private static final int DEFAULT_MAX_RETRIES = 5;
     private static final Duration DEFAULT_RETRY_BACKOFF = Duration.ofSeconds(2);
+    private static final int DEFAULT_RELAY_THREADS = 4;
 
     public OutboxProperties {
         if (batchSize <= 0) {
@@ -80,6 +82,9 @@ public record OutboxProperties(
         if (retryBackoff == null || retryBackoff.isZero() || retryBackoff.isNegative()) {
             retryBackoff = DEFAULT_RETRY_BACKOFF;
         }
+        if (relayThreads <= 0) {
+            relayThreads = DEFAULT_RELAY_THREADS;
+        }
     }
 
     public static OutboxProperties defaults() {
@@ -90,7 +95,8 @@ public record OutboxProperties(
                 DEFAULT_SEND_TIMEOUT,
                 DEFAULT_MAX_ERROR_LENGTH,
                 DEFAULT_MAX_RETRIES,
-                DEFAULT_RETRY_BACKOFF);
+                DEFAULT_RETRY_BACKOFF,
+                DEFAULT_RELAY_THREADS);
     }
 
     /**

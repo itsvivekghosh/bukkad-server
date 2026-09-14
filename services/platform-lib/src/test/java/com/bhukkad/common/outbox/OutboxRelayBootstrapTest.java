@@ -45,7 +45,7 @@ class OutboxRelayBootstrapTest {
         try {
             OutboxRelayBootstrap bootstrap = new OutboxRelayBootstrap(relay,
                     new OutboxProperties(10, Duration.ofMillis(100), Duration.ofMillis(100),
-                            Duration.ofSeconds(5), 100, 3, Duration.ofMillis(50)),
+                            Duration.ofSeconds(5), 100, 3, Duration.ofMillis(50), 2),
                     scheduler);
 
             bootstrap.start();

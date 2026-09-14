@@ -71,6 +71,12 @@ public class EdgeRateLimitFilter implements GlobalFilter, Ordered {
             // Order create (money path; also the legacy customer-scoped shape).
             rule("edge-order-create", HttpMethod.POST, "/api/v1/orders", 20, 60),
             rule("edge-order-create", HttpMethod.POST, "/api/v1/customers/*/orders", 20, 60),
+            // Customer wallet operations.
+            rule("edge-customer-wallet", HttpMethod.POST, "/api/v1/customers/*/wallet/**", 60, 60),
+            // Payment operations.
+            rule("edge-payment", HttpMethod.POST, "/api/v1/payments/**", 100, 60),
+            // Notification preferences.
+            rule("edge-notification", HttpMethod.POST, "/api/v1/notifications/**", 120, 60),
             // Razorpay webhook callbacks — generous enough for gateway bursts,
             // closed enough to cap replay floods (V-11 mount point).
             rule("edge-webhook", HttpMethod.POST, "/api/v1/payments/webhooks/**", 600, 60));

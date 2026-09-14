@@ -129,9 +129,11 @@ public class KafkaPlatformConfig {
     @ConditionalOnMissingBean(name = "kafkaListenerContainerFactory")
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
             ConsumerFactory<String, String> consumerFactory,
-            KafkaTemplate<String, String> kafkaTemplate) {
+            KafkaTemplate<String, String> kafkaTemplate,
+            KafkaPlatformProperties properties) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
         factory.setConsumerFactory(consumerFactory);
+        factory.setConcurrency(Math.max(1, properties.kafka().listenerConcurrency()));
         factory.setCommonErrorHandler(kafkaListenerErrorHandler(kafkaTemplate));
         return factory;
     }

@@ -1,6 +1,8 @@
 package com.bhukkad.common.security;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import reactor.blockhound.BlockHound;
 import reactor.blockhound.BlockingOperationError;
@@ -24,6 +26,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>The first test is a HARNESS GUARD: it proves BlockHound actually detects
  * a known blocking call in this JVM, so a green warm-path test cannot be the
  * result of a silently inert agent.</p>
+ *
+ * <p>This test class is skipped on JDK versions that BlockHound 1.0.8.RELEASE
+ * does not support (JDK 22+). See {@link BlockHoundSupport}.</p>
  */
 class PlatformJwtValidatorBlockHoundTest {
 
@@ -34,6 +39,9 @@ class PlatformJwtValidatorBlockHoundTest {
 
     @BeforeAll
     static void installAndWarm() throws Exception {
+        if (!BlockHoundSupport.isSupported()) {
+            return;
+        }
         BlockHoundSupport.installOnce();
 
         // The warm-up's cold JWKS fetch (blocking HTTP) runs on the MAIN test
@@ -66,6 +74,8 @@ class PlatformJwtValidatorBlockHoundTest {
 
     @Test
     void harnessGuard_blockHoundDetectsBlockingCallOnNonBlockingThread() {
+        Assumptions.assumeTrue(BlockHoundSupport.isSupported(),
+                "BlockHound not supported on JDK " + Runtime.version().feature());
         reactor.test.StepVerifier.create(Mono.fromCallable(() -> {
                     Thread.sleep(20); // known blocking call on a non-blocking thread
                     return 1;
@@ -76,6 +86,8 @@ class PlatformJwtValidatorBlockHoundTest {
 
     @Test
     void warmJwksPath_validate_neverBlocks() {
+        Assumptions.assumeTrue(BlockHoundSupport.isSupported(),
+                "BlockHound not supported on JDK " + Runtime.version().feature());
         reactor.test.StepVerifier.create(
                         Mono.fromCallable(() -> warmValidator.validate(warmToken))
                                 .subscribeOn(Schedulers.parallel()))
@@ -85,6 +97,8 @@ class PlatformJwtValidatorBlockHoundTest {
 
     @Test
     void hs256WarmPath_validate_neverBlocks() throws Exception {
+        Assumptions.assumeTrue(BlockHoundSupport.isSupported(),
+                "BlockHound not supported on JDK " + Runtime.version().feature());
         // HMAC verification path (no JWKS cache): pure CPU, must also be
         // non-blocking.
         PlatformJwtValidator hmacValidator = new PlatformJwtValidator(

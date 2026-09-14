@@ -13,6 +13,9 @@ import com.bhukkad.restaurant.infrastructure.cache.RestaurantCacheKeys;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +35,7 @@ import java.util.List;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RestaurantQueryService {
 
     private final RestaurantRepository restaurantRepository;
@@ -98,5 +102,65 @@ public class RestaurantQueryService {
     private MenuItemDto toDto(MenuItem m) {
         return new MenuItemDto(m.getId(), m.getName(), m.getDescription(), m.getPrice(),
                 Boolean.TRUE.equals(m.getIsAvailable()));
+    }
+
+    /** Pre-warm all active restaurant menu snapshots into Redis on startup (Phase 7). */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional(readOnly = true)
+    public void preWarmMenuCache() {
+        RedisCacheService cache = cacheProvider.getIfAvailable();
+        if (cache == null) {
+            return;
+        }
+        log.info("PREWARM_MENU_CACHE_START");
+        restaurantRepository.findByIsActiveTrue().forEach(r -> {
+            try {
+                cache.getOrCompute(
+                        RestaurantCacheKeys.menuSnapshot(r.getId()),
+                        String.class,
+                        RestaurantCacheKeys.MENU_SNAPSHOT_TTL_SECONDS,
+                        () -> writeSnapshot(loadMenuSnapshot(r.getId()))
+                );
+            } catch (Exception ex) {
+                log.warn("PREWARM_MENU_CACHE_FAILED restaurantId={} error={}", r.getId(), ex.getMessage());
+            }
+        });
+        log.info("PREWARM_MENU_CACHE_COMPLETE");
+    }
+
+    /** Pre-warm the composite feed projection into Redis on startup (Phase 7). */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional(readOnly = true)
+    public void preWarmFeedCache() {
+        RedisCacheService cache = cacheProvider.getIfAvailable();
+        if (cache == null) {
+            return;
+        }
+        log.info("PREWARM_FEED_CACHE_START");
+        try {
+            cache.getOrCompute(
+                    RestaurantCacheKeys.FEED,
+                    String.class,
+                    RestaurantCacheKeys.FEED_TTL_SECONDS,
+                    () -> {
+                        try {
+                            return objectMapper.writeValueAsString(buildFeedProjection());
+                        } catch (JsonProcessingException e) {
+                            throw new IllegalStateException("Feed pre-warm serialization failed", e);
+                        }
+                    }
+            );
+        } catch (Exception ex) {
+            log.warn("PREWARM_FEED_CACHE_FAILED error={}", ex.getMessage());
+        }
+        log.info("PREWARM_FEED_CACHE_COMPLETE");
+    }
+
+    private java.util.Map<String, Object> buildFeedProjection() {
+        List<RestaurantSummary> restaurants = restaurantRepository.findByIsActiveTrue().stream()
+                .map(this::toSummary).toList();
+        java.util.Map<String, Object> projection = new java.util.LinkedHashMap<>();
+        projection.put("restaurants", restaurants);
+        return projection;
     }
 }

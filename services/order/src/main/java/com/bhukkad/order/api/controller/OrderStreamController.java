@@ -92,6 +92,13 @@ public class OrderStreamController {
         if (token == null || !orderId.equals(trackingTokens.get(token))) {
             return ResponseEntity.status(401).build();
         }
+        // Tracking tokens are advertised as "expires with the order": verify the
+        // order still exists and prune the token if the order was deleted/completed
+        // so the map cannot grow unboundedly.
+        if (!orderRepository.existsById(orderId)) {
+            trackingTokens.remove(token);
+            return ResponseEntity.status(401).build();
+        }
         return ResponseEntity.ok(openStream());
     }
 

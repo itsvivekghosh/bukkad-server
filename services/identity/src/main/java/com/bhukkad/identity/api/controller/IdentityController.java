@@ -112,7 +112,8 @@ public class IdentityController {
      * accommodates the automated suite's account bootstrap, which registers
      * several users per run from the same caller bucket).
      */
-    private static final int LOGIN_RATE_LIMIT = 1000;
+    private static final int LOGIN_RATE_LIMIT = 30;
+    private static final int REGISTER_RATE_LIMIT = 1000;
     private static final int PASSWORD_RESET_RATE_LIMIT = 5;
     /** Refresh is a renewal, not a credential guess — abuse back-off only. */
     private static final int REFRESH_RATE_LIMIT = 100;
@@ -120,7 +121,7 @@ public class IdentityController {
 
     @PostMapping("/auth/register")
     @com.bhukkad.common.ratelimit.RateLimited(bucket = "auth-register",
-            limit = LOGIN_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
+            limit = REGISTER_RATE_LIMIT, windowSeconds = AUTH_RATE_WINDOW_SECONDS)
     public AuthResponse register(
             @Valid @RequestBody RegisterRequest request,
             @org.springframework.web.bind.annotation.RequestHeader(

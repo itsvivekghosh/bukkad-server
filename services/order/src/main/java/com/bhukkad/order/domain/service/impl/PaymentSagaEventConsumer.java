@@ -59,7 +59,7 @@ public class PaymentSagaEventConsumer {
     private static final String TYPE_STOCK_RELEASE_REQUESTED = "stock_release_requested";
 
     /** Outer bound for a compensation RPC (matches OrderService's saga RPC bound). */
-    private static final Duration RELEASE_RPC_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration RELEASE_RPC_TIMEOUT = Duration.ofSeconds(5);
 
     private final OrderRepository orderRepository;
     private final OrderSagaCompensationService compensationService;

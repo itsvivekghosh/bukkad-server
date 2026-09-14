@@ -15,11 +15,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.access.AccessDeniedException;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -52,7 +57,8 @@ class OrderOpsRestaurantOwnershipTest {
     @Test
     void owner_ofRestaurant_readsRestaurantOrders() {
         when(restaurantOwnerResolver.ownerIdOf(RESTAURANT_ID)).thenReturn(7L);
-        when(orderRepository.findByRestaurantId(RESTAURANT_ID)).thenReturn(List.of());
+        Page<Order> emptyPage = new PageImpl<>(List.of());
+        when(orderRepository.findByRestaurantId(eq(RESTAURANT_ID), any(Pageable.class))).thenReturn(emptyPage);
 
         assertThat(controller.restaurantOrders(OWNER, RESTAURANT_ID, 0, 10))
                 .containsKey("items");
@@ -65,7 +71,7 @@ class OrderOpsRestaurantOwnershipTest {
         assertThatThrownBy(() -> controller.restaurantOrders(OTHER_OWNER, RESTAURANT_ID, 0, 10))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Not your restaurant");
-        verify(orderRepository, never()).findByRestaurantId(any());
+        verify(orderRepository, never()).findByRestaurantId(any(Long.class), any(Pageable.class));
     }
 
     @Test
@@ -88,7 +94,8 @@ class OrderOpsRestaurantOwnershipTest {
 
     @Test
     void admin_bypassesOwnershipProbe() {
-        when(orderRepository.findByRestaurantId(RESTAURANT_ID)).thenReturn(List.of());
+        Page<Order> emptyPage = new PageImpl<>(List.of());
+        when(orderRepository.findByRestaurantId(eq(RESTAURANT_ID), any(Pageable.class))).thenReturn(emptyPage);
 
         assertThat(controller.restaurantOrders(ADMIN, RESTAURANT_ID, 0, 10))
                 .containsKey("items");

@@ -39,6 +39,7 @@ public class OsrmHttpConfig {
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig)
                 .evictIdleConnections(Timeout.ofSeconds(30))
+                .disableAutomaticRetries()
                 .build();
 
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);

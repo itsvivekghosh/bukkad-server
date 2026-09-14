@@ -9,7 +9,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "delivery_agents")
+@Table(name = "delivery_agents", indexes = {
+        @Index(name = "idx_delivery_agent_active", columnList = "is_active")
+})
 @EntityListeners(AuditingEntityListener.class)
 @Getter @Setter
 public class DeliveryAgent {

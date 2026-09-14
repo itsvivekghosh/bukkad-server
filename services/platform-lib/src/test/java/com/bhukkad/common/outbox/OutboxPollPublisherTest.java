@@ -239,7 +239,7 @@ class OutboxPollPublisherTest {
 
         assertThat(relay.drainBatch()).isZero();
         ArgumentCaptor<LocalDateTime> now = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(repository).findPendingForProcessing(eq("PENDING"), eq(100), now.capture());
+        verify(repository).findPendingForProcessing(eq("PENDING"), eq(500), now.capture());
         assertThat(now.getValue()).isBetween(LocalDateTime.now().minusSeconds(30), LocalDateTime.now());
     }
 
@@ -257,9 +257,9 @@ class OutboxPollPublisherTest {
         assertThat(p.backoffFor(17)).isLessThanOrEqualTo(p.processingTimeout());
         // Unset (0/null) values normalise to defaults so a service without any
         // outbox yml block still relays (PERF-2 wake-the-wire fix).
-        OutboxProperties unset = new OutboxProperties(0, null, null, null, 0, 0, null);
-        assertThat(unset.batchSize()).isEqualTo(100);
-        assertThat(unset.pollInterval().toSeconds()).isEqualTo(5);
+        OutboxProperties unset = new OutboxProperties(0, null, null, null, 0, 0, null, 0);
+        assertThat(unset.batchSize()).isEqualTo(500);
+        assertThat(unset.pollInterval().toSeconds()).isEqualTo(1);
         assertThat(unset.maxRetries()).isEqualTo(5);
         assertThat(unset.retryBackoff().toSeconds()).isEqualTo(2);
     }

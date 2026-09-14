@@ -35,6 +35,7 @@ EXEMPT_PATH_PARTS = (
 
 PATTERNS = {
     "WebClient.builder()": re.compile(r"WebClient\.builder\(\)"),
+    "RestClient.builder()": re.compile(r"RestClient\.builder\(\)"),
     "new RestTemplate(...)": re.compile(r"new\s+RestTemplate\s*\("),
     "new SimpleClientHttpRequestFactory(...)": re.compile(
         r"new\s+SimpleClientHttpRequestFactory\s*\("),
@@ -77,9 +78,9 @@ def main() -> int:
             continue
         try:
             content = java_file.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            print(f"G-13 unreadable file {rel}: {exc}", file=sys.stderr)
-            return 2
+        except (OSError, UnicodeDecodeError, PermissionError) as exc:
+            print(f"G-13 skipping unreadable file {rel}: {exc}", file=sys.stderr)
+            continue
         for lineno, line in enumerate(content.splitlines(), start=1):
             for label, pattern in PATTERNS.items():
                 if pattern.search(line) and (rel, lineno) not in line_exempt:

@@ -26,6 +26,8 @@ import com.bhukkad.order.config.OrderSagaProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -339,6 +341,16 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersForCustomer(Long customerId) {
         List<Order> orders = orderRepository.findByCustomerId(customerId);
+        return enrichOrders(orders);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> getOrdersForCustomer(Long customerId, Pageable pageable) {
+        Page<Order> page = orderRepository.findByCustomerId(customerId, pageable);
+        return page.map(this::toResponse);
+    }
+
+    private List<OrderResponse> enrichOrders(List<Order> orders) {
         if (orders.isEmpty()) {
             return List.of();
         }
@@ -398,6 +410,18 @@ public class OrderService {
         orderRepository.save(order);
         recordTimeline(orderId, "DELIVERY_ASSIGNED");
         return toResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> getOrdersPaged(Pageable pageable) {
+        Page<Order> page = orderRepository.findAll(pageable);
+        List<Long> orderIds = page.getContent().stream().map(Order::getId).toList();
+        if (orderIds.isEmpty()) {
+            return page.map(o -> toResponse(o, List.of()));
+        }
+        Map<Long, List<OrderItem>> itemsByOrderId = orderItemRepository.findByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+        return page.map(order -> toResponse(order, itemsByOrderId.getOrDefault(order.getId(), List.of())));
     }
 
     /** Entity projection for ops listings (avoids N+1 item loads). */

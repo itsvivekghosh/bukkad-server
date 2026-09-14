@@ -2,6 +2,7 @@ package com.bhukkad.search.infrastructure.client;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestClientCustomizer;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -28,8 +29,12 @@ public class SearchSourceClient {
     private final RestClient restClient;
 
     public SearchSourceClient(@Value("${app.service.restaurant-url}") String restaurantBaseUrl) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(2));
+        factory.setReadTimeout(Duration.ofSeconds(3));
         this.restClient = RestClient.builder()
                 .baseUrl(restaurantBaseUrl)
+                .requestFactory(factory)
                 .build();
     }
 

@@ -12,8 +12,16 @@
 # WebClient factory (com.bhukkad.common.web.client.PlatformWebClientBuilderFactory).
 #
 # ── delivery service: OsrmRestTemplate bean (owner: W3-DELIVERY batch) ──────
-services/delivery/src/main/java/com/bhukkad/delivery/OsrmHttpConfig.java
+# NOTE: file moved to services/delivery/src/main/java/com/bhukkad/delivery/config/
+# The stale path below is intentionally left as a no-op reference until the
+# owning batch updates it.
+# services/delivery/src/main/java/com/bhukkad/delivery/OsrmHttpConfig.java
+services/delivery/src/main/java/com/bhukkad/delivery/config/OsrmHttpConfig.java
 #
 # ── platform-lib security (NOT web/client): JWKS fetch via RestClient ───────
 # Owner: the security-package batch (W3-RESTRUCTURE owns security packaging).
 services/platform-lib/src/main/java/com/bhukkad/common/security/PlatformJwtValidator.java
+#
+# ── search service: RestaurantSourceClient — RestClient with explicit timeouts ─
+# Owner: search batch. Timeouts are configured via SimpleClientHttpRequestFactory.
+services/search/src/main/java/com/bhukkad/search/infrastructure/client/SearchSourceClient.java

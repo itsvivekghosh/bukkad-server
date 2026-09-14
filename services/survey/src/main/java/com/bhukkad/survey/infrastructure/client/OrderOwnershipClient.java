@@ -9,7 +9,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientException;
 
 import java.time.Duration;
 import java.util.Map;
@@ -75,7 +74,7 @@ public class OrderOwnershipClient {
                     .block();
             Object owner = response == null ? null : response.get("customerId");
             return owner instanceof Number n && n.longValue() == customerId;
-        } catch (WebClientException | org.springframework.core.codec.DecodingException ex) {
+        } catch (Exception ex) {
             log.warn("SURVEY_OWNERSHIP_CHECK_FAILED | orderId={} | customer={} | error={}",
                     orderId, customerId, ex.getMessage());
             return false;

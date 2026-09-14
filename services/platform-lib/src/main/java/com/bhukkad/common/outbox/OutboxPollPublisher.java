@@ -141,6 +141,29 @@ public class OutboxPollPublisher {
         });
     }
 
+    /** Partition-scoped claim for parallel relay (PERF-2). */
+    private List<OutboxEvent> claimBatchByPartition(int partitionId) {
+        return transactionTemplate.execute(status -> {
+            List<OutboxEvent> pending = repository.findPendingForProcessingByPartition(
+                    partitionId,
+                    OutboxEvent.OutboxStatus.PENDING.name(),
+                    properties.batchSize(),
+                    LocalDateTime.now());
+            if (pending.isEmpty()) {
+                return List.<OutboxEvent>of();
+            }
+            List<Long> ids = pending.stream().map(OutboxEvent::getId).toList();
+            LocalDateTime now = LocalDateTime.now();
+            int flipped = repository.markProcessing(ids, now);
+            if (flipped != ids.size()) {
+                log.warn("OUTBOX_CLAIM_PARTITION_PARTIAL | partition={} | selected={} | flipped={}",
+                        partitionId, ids.size(), flipped);
+            }
+            pending.forEach(e -> e.setStatus(OutboxEvent.OutboxStatus.PROCESSING));
+            return pending;
+        });
+    }
+
     // ── Phase 2: publish (no transaction) ────────────────────────────────────
 
     /** Routes each claimed row into published / retry / dead-letter groups. */
@@ -239,6 +262,20 @@ public class OutboxPollPublisher {
             drainBatch();
         } catch (Exception e) {
             log.error("OUTBOX_POLL_FAILED | error={}", e.getMessage(), e);
+        }
+    }
+
+    /** Partition-scoped poll for parallel relay threads (PERF-2). */
+    public void poll(int partitionId) {
+        try {
+            List<OutboxEvent> claimed = claimBatchByPartition(partitionId);
+            if (claimed.isEmpty()) {
+                return;
+            }
+            Outcome outcome = publishOutsideTx(claimed);
+            persistOutcome(outcome);
+        } catch (Exception e) {
+            log.error("OUTBOX_POLL_PARTITION_FAILED | partition={} | error={}", partitionId, e.getMessage(), e);
         }
     }
 

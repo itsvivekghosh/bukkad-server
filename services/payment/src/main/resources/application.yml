@@ -1,13 +1,24 @@
 server:
   port: 8093
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+    min-response-size: 1024
   tomcat:
     threads:
       max: 100
     accept-count: 200
+    connection-timeout: 10s
+    max-swallow-size: 2MB
+  max-http-request-header-size: 8KB
 
 spring:
   application:
     name: payment
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
   task:
     scheduling:
       pool:

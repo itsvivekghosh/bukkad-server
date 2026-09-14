@@ -9,8 +9,10 @@ import com.bhukkad.order.domain.entity.Order;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import com.bhukkad.order.domain.service.impl.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,31 +70,35 @@ public class OrderOpsController {
                                                 @RequestParam(defaultValue = "0") int page,
                                                 @RequestParam(defaultValue = "10") int size) {
         requireRestaurantOwnerOrAdmin(principal, restaurantId);
-        List<Order> orders = orderRepository.findByRestaurantId(restaurantId);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(size, 100), Sort.Direction.DESC, "id");
+        Page<Order> orders = orderRepository.findByRestaurantId(restaurantId, pageable);
         return paginate(orders, page, safeSize(size));
     }
 
     @GetMapping("/api/v1/orders/restaurant/{restaurantId}/kitchen-queue")
     @Transactional(readOnly = true)
-    public List<OrderResponse> kitchenQueue(@AuthenticationPrincipal TokenPrincipal principal,
-                                            @PathVariable Long restaurantId) {
+    public Page<OrderResponse> kitchenQueue(@AuthenticationPrincipal TokenPrincipal principal,
+                                            @PathVariable Long restaurantId,
+                                            @RequestParam(defaultValue = "0") int page,
+                                            @RequestParam(defaultValue = "20") int size) {
         requireRestaurantOwnerOrAdmin(principal, restaurantId);
-        return orderRepository.findByRestaurantId(restaurantId).stream()
-                .filter(o -> isActiveKitchenStatus(o.getStatus()))
-                .map(orderService::toResponseCompat)
-                .toList();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(size, 100), Sort.Direction.DESC, "id");
+        List<String> statuses = List.of(Order.STATUS_CONFIRMED, Order.STATUS_PREPARING, Order.STATUS_READY_FOR_PICKUP);
+        return orderRepository.findByRestaurantIdAndStatusIn(restaurantId, statuses, pageable)
+                .map(orderService::toResponseCompat);
     }
 
     @GetMapping("/api/v1/orders/restaurant/{restaurantId}/pending")
     @Transactional(readOnly = true)
-    public List<OrderResponse> pendingOrders(@AuthenticationPrincipal TokenPrincipal principal,
-                                             @PathVariable Long restaurantId) {
+    public Page<OrderResponse> pendingOrders(@AuthenticationPrincipal TokenPrincipal principal,
+                                             @PathVariable Long restaurantId,
+                                             @RequestParam(defaultValue = "0") int page,
+                                             @RequestParam(defaultValue = "20") int size) {
         requireRestaurantOwnerOrAdmin(principal, restaurantId);
-        return orderRepository.findByRestaurantId(restaurantId).stream()
-                .filter(o -> Order.STATUS_CREATED.equals(o.getStatus())
-                        || Order.STATUS_PLACED.equals(o.getStatus()))
-                .map(orderService::toResponseCompat)
-                .toList();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(size, 100), Sort.Direction.DESC, "id");
+        List<String> statuses = List.of(Order.STATUS_CREATED, Order.STATUS_PLACED);
+        return orderRepository.findByRestaurantIdAndStatusIn(restaurantId, statuses, pageable)
+                .map(orderService::toResponseCompat);
     }
 
     @GetMapping("/api/v1/orders/restaurant/{restaurantId}/cursor")
@@ -156,7 +162,8 @@ public class OrderOpsController {
                                             @RequestParam(defaultValue = "0") int page,
                                             @RequestParam(defaultValue = "10") int size) {
         Long agentId = requireAgent(principal);
-        List<Order> orders = orderRepository.findByDeliveryAgentId(agentId);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(size, 100), Sort.Direction.DESC, "id");
+        Page<Order> orders = orderRepository.findByDeliveryAgentId(agentId, pageable);
         return paginate(orders, page, safeSize(size));
     }
 
@@ -210,6 +217,20 @@ public class OrderOpsController {
                 || Order.STATUS_READY_FOR_PICKUP.equals(status);
     }
 
+    private Map<String, Object> paginate(Page<Order> page, int requestedPage, int size) {
+        List<OrderResponse> items = page.getContent().stream()
+                .map(orderService::toResponseCompat)
+                .toList();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("items", items);
+        body.put("page", page.getNumber());
+        body.put("size", page.getSize());
+        body.put("totalElements", page.getTotalElements());
+        body.put("hasNext", page.hasNext());
+        return body;
+    }
+
+    @Deprecated
     private Map<String, Object> paginate(List<Order> orders, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.max(Math.min(size, 100), 1);

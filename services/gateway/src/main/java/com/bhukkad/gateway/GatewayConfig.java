@@ -1,6 +1,7 @@
 package com.bhukkad.gateway;
 
 import com.bhukkad.gateway.flags.EdgeKillSwitchFilter;
+import com.bhukkad.gateway.sse.ConsistentHashSseFilter;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
@@ -239,7 +240,9 @@ public class GatewayConfig {
                         "/api/v1/cuisines/**",
                         "/api/v1/menu/**",
                         "/api/v1/reviews/**",
-                        "/api/v1/feed/**").uri(restaurantUri))
+                        "/api/v1/feed/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("restaurant")))
+                        .uri(restaurantUri))
                 // Identity cut-over (P3): auth endpoints served by the identity
                 // service. Declared before the broad slices so /api/v1/auth/**
                 // and /api/v1/customers/** win their respective path matches.
@@ -248,7 +251,9 @@ public class GatewayConfig {
                         "/api/v1/customers/**",
                         "/api/v1/tenants/**",
                         "/api/v1/affiliate/**",
-                        "/api/v1/health/**").uri(identityUri))
+                        "/api/v1/health/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("identity")))
+                        .uri(identityUri))
                 // Personalization service: recommendation feed ranking +
                 // item-to-item similarity served by the personalization service.
                 .route("personalization", r -> r.path(
@@ -266,19 +271,25 @@ public class GatewayConfig {
                         "/api/v1/orders/**",
                         "/api/v1/delivery-truth/**",
                         "/api/v1/coupons/**",
-                        "/api/v1/gift-cards/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
+                        "/api/v1/gift-cards/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("order")))
+                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
                         .uri(orderUri))
                 // Payment service (P6): payment endpoints.
                 .route("payment", r -> r.path(
                         "/api/v1/payments/**",
-                        "/api/v1/wallet/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.payment.enabled")
+                        "/api/v1/wallet/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("payment")))
+                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.payment.enabled")
                         .uri(paymentUri))
                 // Delivery service (P7): delivery endpoints.
                 .route("delivery", r -> r.path(
                         "/api/v1/delivery/**",
                         "/api/v1/deliveries/**",
                         "/api/v1/zones/**",
-                        "/api/v1/serviceability/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.delivery.enabled")
+                        "/api/v1/serviceability/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("delivery")))
+                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.delivery.enabled")
                         .uri(deliveryUri))
                 // Restaurant administration (platform-admin actions on the
                 // restaurant domain) — narrower than /api/v1/admin/**. The
@@ -394,5 +405,14 @@ public class GatewayConfig {
 
     private static boolean isIdSegment(String segment) {
         return DIGITS.matcher(segment).matches() || UUID_SEGMENT.matcher(segment).matches();
+    }
+
+    /**
+     * Registers the consistent-hash SSE filter so /api/v1/live/{userId}
+     * requests are pinned to a stable realtime pod.
+     */
+    @Bean
+    public ConsistentHashSseFilter consistentHashSseFilter() {
+        return new ConsistentHashSseFilter();
     }
 }

@@ -11,8 +11,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: bhukkad-search
-  minReplicas: 3
-  maxReplicas: 12
+  minReplicas: 10
+  maxReplicas: 50
   metrics:
     - type: Resource
       resource:

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: bhukkad
+spec:
+  replicas: 3
+  serviceName: loki-headless
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: loki
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.2.1
+          ports:
+            - containerPort: 3100
+              name: http
+            - containerPort: 9095
+              name: grpc
+          volumeMounts:
+            - name: loki-data
+              mountPath: /loki
+          args:
+            - -config.file=/etc/loki/config.yaml
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki
+      volumes:
+        - name: loki-config
+          configMap:
+            name: loki-config
+  volumeClaimTemplates:
+    - metadata:
+        name: loki-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

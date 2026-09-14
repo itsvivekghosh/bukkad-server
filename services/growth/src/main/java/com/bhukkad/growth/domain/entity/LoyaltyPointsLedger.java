@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -26,7 +27,9 @@ import java.time.LocalDateTime;
 @Setter
 @NoArgsConstructor
 @Entity
-@Table(name = "loyalty_points_ledger")
+@Table(name = "loyalty_points_ledger", indexes = {
+        @Index(name = "idx_loyalty_ledger_customer", columnList = "customer_id, created_at")
+})
 public class LoyaltyPointsLedger {
 
     public static final String TYPE_CREDIT = "CREDIT";

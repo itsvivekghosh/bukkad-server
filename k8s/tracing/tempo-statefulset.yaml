@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tempo
+  namespace: bhukkad
+spec:
+  replicas: 3
+  serviceName: tempo-headless
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: tempo
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: tempo
+    spec:
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.6.1
+          ports:
+            - containerPort: 3200
+              name: http
+            - containerPort: 9095
+              name: grpc
+          volumeMounts:
+            - name: tempo-data
+              mountPath: /tempo
+          args:
+            - -config.file=/etc/tempo/config.yaml
+          volumeMounts:
+            - name: tempo-config
+              mountPath: /etc/tempo
+      volumes:
+        - name: tempo-config
+          configMap:
+            name: tempo-config
+  volumeClaimTemplates:
+    - metadata:
+        name: tempo-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

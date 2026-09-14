@@ -32,6 +32,12 @@ import java.util.Set;
  *   <li><b>No blocking KEYS:</b> pattern deletes iterate with bounded SCAN
  *   batches instead of {@code KEYS}, which blocks the Redis instance for the
  *   duration of the scan.</li>
+ *   <li><b>Security namespace isolation:</b> cache invalidation events share the
+ *   {@code bhukkad:} key prefix with security state such as
+ *   {@code bhukkad:auth:lockout:*} and {@code bhukkad:ratelimit:*}. The
+ *   subscriber rejects any event whose normalized key falls under a protected
+ *   security namespace so a misconfigured or malicious cache event cannot wipe
+ *   active lockout/rate-limit budgets cluster-wide.</li>
  * </ul>
  */
 @Component
@@ -41,6 +47,10 @@ public class CacheInvalidationSubscriber implements MessageListener {
     private static final Logger log = LoggerFactory.getLogger(CacheInvalidationSubscriber.class);
     private static final String CHANNEL = "bhukkad:cache:invalidation";
     private static final int SCAN_BATCH_SIZE = 200;
+    private static final Set<String> PROTECTED_PREFIXES = Set.of(
+            "bhukkad:auth:",
+            "bhukkad:ratelimit:"
+    );
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -68,6 +78,14 @@ public class CacheInvalidationSubscriber implements MessageListener {
             String fullKey = event.getKey();
             if (!fullKey.startsWith("bhukkad:")) {
                 fullKey = "bhukkad:" + fullKey;
+            }
+
+            for (String protectedPrefix : PROTECTED_PREFIXES) {
+                if (fullKey.startsWith(protectedPrefix)) {
+                    log.warn("CACHE_INVALIDATION_SKIP_PROTECTED key={} cacheName={} prefix={}",
+                            fullKey, event.getCacheName(), protectedPrefix);
+                    return;
+                }
             }
 
             if (event.isPattern()) {

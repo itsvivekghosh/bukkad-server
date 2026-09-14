@@ -80,18 +80,20 @@ spec:
                   rpk topic create "$1" -p "$2" -r "$3" -X brokers "$BROKERS"
                 fi
               }
-              # Primary catalog topics.
-              create order.events.v1           6 3
-              create bhukkad.platform.events   6 3
+              # Primary catalog topics (scaled to 24 partitions for 1M+ TPS).
+              create order.events.v1           24 3
+              create bhukkad.platform.events   24 3
               # Live listener streams (see the routing comment above).
-              create payment.events.v1         6 3
-              create restaurant.events.v1      6 3
+              create payment.events.v1         24 3
+              create restaurant.events.v1      12 3
+              create notification.events.v1    12 3
               # DLT routes (G-9: every listener declares a dead-letter route;
               # V-10 per-factory DefaultErrorHandler). 1:1 with sources.
-              create order.events.v1.dlt           6 3
-              create bhukkad.platform.events.dlt   6 3
-              create payment.events.v1.dlt         6 3
-              create restaurant.events.v1.dlt      6 3
+              create order.events.v1.dlt           24 3
+              create bhukkad.platform.events.dlt   24 3
+              create payment.events.v1.dlt         24 3
+              create restaurant.events.v1.dlt      12 3
+              create notification.events.v1.dlt    12 3
               echo "topic seeding complete:"
               rpk topic list -X brokers "$BROKERS"
           resources:

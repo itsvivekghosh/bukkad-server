@@ -1,5 +1,6 @@
 package com.bhukkad.payment.api;
 
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.payment.api.dto.response.PaymentResponse;
 import com.bhukkad.payment.domain.entity.Payment;
@@ -61,5 +62,16 @@ class PaymentControllerOrderLookupTest {
 
         assertThat(controller.byOrder(
                 new TokenPrincipal(9L, "admin@x.io", "ADMIN"), 77L).getId()).isEqualTo(100L);
+    }
+
+    @Test
+    void byOrder_unpaidOrder_throws404() {
+        when(paymentService.getPaymentByOrder(77L))
+                .thenThrow(new ResourceNotFoundException("Payment not found for order: 77"));
+
+        assertThatThrownBy(() -> controller.byOrder(
+                new TokenPrincipal(2L, "c@x.io", "CUSTOMER"), 77L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Payment not found for order: 77");
     }
 }

@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
@@ -12,7 +13,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * <p>Services that include {@code spring-boot-starter-data-redis} on the
  * classpath will auto-configure a {@link StringRedisTemplate} suitable for
  * rate-limiting, caching, and pub/sub. Connection details are injected from
- * {@code application.yml} (or environment variables).</p>
+ * {@code application.yml} (or environment variables).
+ *
+ * <p>When {@code spring.data.redis.lettuce.pool.enabled=true} is set in the
+ * environment, Spring Boot auto-configures Lettuce connection pooling on the
+ * {@link LettuceConnectionFactory} produced here.
  */
 @Configuration
 public class RedisConfig {
@@ -28,6 +33,14 @@ public class RedisConfig {
 
     @Value("${spring.data.redis.database:0}")
     private int database;
+
+    @Bean
+    public LettuceConnectionFactory redisConnectionFactory() {
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(host, port);
+        factory.setPassword(password);
+        factory.setDatabase(database);
+        return factory;
+    }
 
     @Bean
     public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory connectionFactory) {

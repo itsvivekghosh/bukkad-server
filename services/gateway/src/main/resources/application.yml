@@ -1,5 +1,8 @@
 server:
   port: 8080
+  netty:
+    worker-count: 0  # auto = CPU cores
+    connection-timeout: 30s
 
 spring:
   application:
@@ -26,7 +29,7 @@ spring:
         # silently melting node.
         pool:
           type: fixed
-          max-connections: 500
+          max-connections: 2000
           acquire-timeout: 8000
           max-idle-time: 30000
       # Edge header hardening (DedupeResponseHeader for Access-Control-Allow-*,
@@ -77,6 +80,13 @@ app:
   feature-flags:
     flags: {}
     rollout: {}
+  sse:
+    # Phase 6 consistent-hash SSE routing. Populate with all realtime pod
+    # addresses so /api/v1/live/{userId} requests are pinned by userId hash.
+    realtime-instances:
+      - http://realtime-0.realtime.bhukkad.svc.cluster.local:8077
+      - http://realtime-1.realtime.bhukkad.svc.cluster.local:8077
+      - http://realtime-2.realtime.bhukkad.svc.cluster.local:8077
 
 management:
   endpoints:
@@ -102,4 +112,34 @@ management:
       probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
   zipkin:
     tracing:
-      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        sliding-window-size: 20
+        permitted-number-of-calls-in-half-open-state: 5
+        record-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
+          - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+    instances:
+      identity:
+        base-config: default
+      order:
+        base-config: default
+      payment:
+        base-config: default
+      delivery:
+        base-config: default
+      restaurant:
+        base-config: default
+      search:
+        base-config: default
+      notification:
+        base-config: default

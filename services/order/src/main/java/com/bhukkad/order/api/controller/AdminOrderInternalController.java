@@ -9,6 +9,7 @@ import com.bhukkad.order.domain.service.impl.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -43,9 +44,8 @@ public class AdminOrderInternalController {
         if (principal == null || principal.userId() == null) {
             throw new UnauthorizedException("Authenticated admin required");
         }
-        return orderRepository
-                .findAll(PageRequest.of(Math.max(page, 0),
-                        Math.min(Math.max(size, 1), 100), Sort.by(Sort.Direction.DESC, "id")))
-                .map(orderService::toResponseCompat);
+        Pageable pageable = PageRequest.of(Math.max(page, 0),
+                Math.min(Math.max(size, 1), 100), Sort.by(Sort.Direction.DESC, "id"));
+        return orderService.getOrdersPaged(pageable);
     }
 }

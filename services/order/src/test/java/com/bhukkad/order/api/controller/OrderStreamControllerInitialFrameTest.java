@@ -149,6 +149,7 @@ class OrderStreamControllerInitialFrameTest {
         order.setId(42L);
         order.setCustomerId(7L);
         when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+        when(orderRepository.existsById(42L)).thenReturn(true);
         TestableController controller = controller();
         Map<String, Object> minted = controller.trackingToken(CUSTOMER, 42L);
         String token = String.valueOf(minted.get("token"));
@@ -164,6 +165,25 @@ class OrderStreamControllerInitialFrameTest {
     void trackingTokenStream_invalidToken_rejectedWithoutOpeningStream() {
         TestableController controller = controller();
         ResponseEntity<SseEmitter> rejected = controller.customerToken(42L, "no-such-token");
+        assertThat(rejected.getStatusCodeValue()).isEqualTo(401);
+        assertThat(rejected.getBody()).isNull();
+        assertThat(controller.created).isEmpty();
+    }
+
+    @Test
+    void trackingTokenStream_deletedOrder_tokenPrunedAndRejected() {
+        Order order = new Order();
+        order.setId(42L);
+        order.setCustomerId(7L);
+        when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+        TestableController controller = controller();
+        Map<String, Object> minted = controller.trackingToken(CUSTOMER, 42L);
+        String token = String.valueOf(minted.get("token"));
+
+        // Simulate order deletion: existsById returns false after token minting
+        when(orderRepository.existsById(42L)).thenReturn(false);
+
+        ResponseEntity<SseEmitter> rejected = controller.customerToken(42L, token);
         assertThat(rejected.getStatusCodeValue()).isEqualTo(401);
         assertThat(rejected.getBody()).isNull();
         assertThat(controller.created).isEmpty();

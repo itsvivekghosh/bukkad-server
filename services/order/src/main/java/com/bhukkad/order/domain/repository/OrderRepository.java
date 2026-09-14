@@ -1,5 +1,6 @@
 package com.bhukkad.order.domain.repository;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -10,19 +11,31 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import com.bhukkad.common.datasource.Shard;
 import com.bhukkad.order.domain.entity.Order;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
+    @Shard(key = "customerId")
+    Page<Order> findByCustomerId(Long customerId, Pageable pageable);
+
+    @Shard(key = "customerId")
     List<Order> findByCustomerId(Long customerId);
 
+    @Shard(key = "customerId")
     List<Order> findByCustomerIdAndStatus(Long customerId, String status);
+
+    Page<Order> findByRestaurantId(Long restaurantId, Pageable pageable);
 
     List<Order> findByRestaurantId(Long restaurantId);
 
-    List<Order> findByStatus(String status);
+    Page<Order> findByRestaurantIdAndStatusIn(Long restaurantId, List<String> statuses, Pageable pageable);
+
+    Page<Order> findByDeliveryAgentId(Long deliveryAgentId, Pageable pageable);
 
     List<Order> findByDeliveryAgentId(Long deliveryAgentId);
+
+    List<Order> findByStatus(String status);
 
     List<Order> findByStatusAndScheduledAtLessThanEqual(String status, LocalDateTime scheduledAt, Pageable pageable);
 
@@ -31,14 +44,17 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Optional<Order> findByOrderNumber(String orderNumber);
 
+    @Shard(key = "customerId")
     long countByCustomerId(Long customerId);
 
     long countByRestaurantId(Long restaurantId);
 
     long countByStatus(String status);
 
+    @Shard(key = "customerId")
     long countByCustomerIdAndStatus(Long customerId, String status);
 
+    @Shard(key = "customerId")
     @Query("SELECT COALESCE(SUM(o.totalAmount + COALESCE(o.walletAmountUsed, 0)), 0) FROM Order o " +
             "WHERE o.customerId = :customerId AND o.status = 'DELIVERED'")
     Double sumDeliveredSpendByCustomerId(@Param("customerId") Long customerId);

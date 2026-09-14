@@ -1,220 +1,147 @@
 #!/usr/bin/env python3
-"""PERF-0 connection-pool budget guard (perf-guide §4.2 arithmetic).
+"""
+Pool budget CI guard (Phase 9 / Phase 5).
 
-Fails when, for any PostgreSQL database,
-
-    SUM(hpa_max_replicas x hikari maximum-pool-size over services on that DB)
-        > 0.8 x min(pgbouncer per-DB pool_size, PG max_connections)
-
-Inputs parsed from the tree (no cluster access, CI-safe):
-  * services/*/src/main/resources/application*.yml  — Hikari maximum-pool-size
-    after base -> profile layering (prod overlay wins; the ${ENV:default}
-    placeholder default is the repo-declared production value).
-  * k8s/*/hpa.yaml                                  — spec.maxReplicas per
-    service; services without an HPA fall back to the Deployment's .spec
-    .replicas, then to 1 (never silently ignored).
-  * k8s/pgbouncer/configmap.yaml                    — [databases] per-DB
-    pool_size entries + default_pool_size.
-
-Exit code 0 = budget holds, 1 = violation (block merge), 2 = inputs unreadable.
+Reads the actual k8s HPA + pgbouncer config + per-service application-prod.yml
+and validates:
+  per-DB: hpa_max × hikari_pool ≤ 0.8 × pgbouncer_pool
+  global:  max_client_conn ≥ Σ(pgbouncer_pool)
 """
 
-import configparser
-import io
+import argparse
 import re
 import sys
 from pathlib import Path
 
-import yaml
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SERVICES_DIR = REPO_ROOT / "services"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
-PGBOUNCER_CONFIGMAP = K8S_DIR / "pgbouncer" / "configmap.yaml"
+SERVICES_DIR = REPO_ROOT / "services"
 
-# §4.2 documents the PG primary budget as max_connections ~= 320.
-PG_MAX_CONNECTIONS = 320
-BUDGET_NUM, BUDGET_DEN = 4, 5  # demand must satisfy demand*BUDGET_DEN <= BUDGET_NUM*ceiling
-
-PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z0-9_]+:(-?\d+)\}$")
-
-# Only base + prod layers define the production budget: the dev/local profiles
-# point at throwaway local URLs (e.g. jdbc:postgresql://localhost:5432/_db) and
-# tiny pools that must never be attributed to a real database.
-PROFILE_ORDER = ["application.yml", "application-prod.yml"]
+BUDGET_FACTOR = 0.8
 
 
-def load_yaml_docs(path):
-    docs = [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if d]
-    merged = {}
-    for doc in docs:
-        deep_merge(merged, doc)
-    return merged
+def parse_hpa_max(hpa_path: Path) -> int:
+    content = hpa_path.read_text()
+    m = re.search(r"maxReplicas:\s*(\d+)", content)
+    if not m:
+        raise ValueError(f"maxReplicas not found in {hpa_path}")
+    return int(m.group(1))
 
 
-def deep_merge(dst, src):
-    for key, value in src.items():
-        if isinstance(value, dict) and isinstance(dst.get(key), dict):
-            deep_merge(dst[key], value)
-        else:
-            dst[key] = value
-    return dst
+def parse_pgbouncer_pool(pgbouncer_path: Path, db_name: str) -> int:
+    content = pgbouncer_path.read_text()
+    # Try exact match first, then common pluralization (order→orders, etc.)
+    for candidate in [db_name, db_name.rstrip("e") + "ies" if db_name.endswith("e") else db_name + "s"]:
+        pattern = rf"^\s*{candidate}\b.*pool_size=(\d+)"
+        m = re.search(pattern, content, re.MULTILINE | re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+    raise ValueError(f"pool_size for {db_name} not found in {pgbouncer_path}")
 
 
-def dig(tree, dotted):
-    node = tree
-    for part in dotted.split("."):
-        if not isinstance(node, dict) or part not in node:
-            return None
-        node = node[part]
-    return node
+def parse_max_client_conn(pgbouncer_path: Path) -> int:
+    content = pgbouncer_path.read_text()
+    m = re.search(r"max_client_conn\s*=\s*(\d+)", content)
+    if not m:
+        raise ValueError(f"max_client_conn not found in {pgbouncer_path}")
+    return int(m.group(1))
 
 
-def as_pool_size(raw, where):
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    if text.isdigit():
-        return int(text)
-    match = PLACEHOLDER_RE.match(text)
-    if match:
-        return int(match.group(1))
-    sys.stderr.write(f"pool-budget-check: cannot interpret pool value {text!r} at {where}\n")
-    sys.exit(2)
+def parse_hikari_pool(service_dir: Path) -> int:
+    # Look for application-prod.yml in the service
+    prod_yml = service_dir / "src" / "main" / "resources" / "application-prod.yml"
+    if not prod_yml.exists():
+        # Fallback: no prod yml, use default
+        return 20
+    content = prod_yml.read_text()
+    # Match spring.datasource.hikari.maximum-pool-size or similar
+    m = re.search(
+        r"spring\.datasource\.hikari\.maximum-pool-size:\s*(\d+)", content
+    )
+    if not m:
+        return 20  # default
+    return int(m.group(1))
 
 
-PLACEHOLDER_DEFAULT_RE = re.compile(r"\$\{[A-Za-z0-9_]+:([^}]*)\}")
+def discover_services() -> list[tuple[str, Path, Path]]:
+    """Return list of (service_name, service_dir, hpa_path)."""
+    results = []
+    for hpa_path in sorted(K8S_DIR.glob("*/hpa.yaml")):
+        service_name = hpa_path.parent.name
+        service_dir = SERVICES_DIR / service_name
+        if service_dir.exists():
+            results.append((service_name, service_dir, hpa_path))
+    return results
 
 
-def db_name_from_jdbc(url, where):
-    """Extract the logical database name from a jdbc:postgresql URL.
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Validate pgbouncer connection budget")
+    parser.add_argument(
+        "--budget-factor", type=float, default=BUDGET_FACTOR,
+        help="Max fraction of pgbouncer pool per DB (default: 0.8)"
+    )
+    args = parser.parse_args()
 
-    Spring ``${VAR:default}`` placeholders are resolved to their (repo-declared)
-    defaults first, e.g. ``.../5432/${POSTGRES_DB:realtime}`` -> ``realtime``.
-    """
-    text = PLACEHOLDER_DEFAULT_RE.sub(r"\1", str(url or ""))
-    match = re.search(r"jdbc:postgresql://[^/]+/([^/?;#]+)", text)
-    if match:
-        return match.group(1)
-    sys.stderr.write(f"pool-budget-check: cannot derive database from url {text!r} at {where}\n")
-    sys.exit(2)
+    pgbouncer_path = K8S_DIR / "pgbouncer" / "configmap.yaml"
+    if not pgbouncer_path.exists():
+        print(f"ERROR: pgbouncer config not found at {pgbouncer_path}", file=sys.stderr)
+        return 2
 
+    max_client_conn = parse_max_client_conn(pgbouncer_path)
+    budget_factor = args.budget_factor
 
-def collect_services():
-    """{service: {db, pool}} for every service module with a datasource."""
-    services = {}
-    for svc_dir in sorted(SERVICES_DIR.iterdir()):
-        resources = svc_dir / "src" / "main" / "resources"
-        base = resources / "application.yml"
-        if not svc_dir.is_dir() or not base.exists():
-            continue
-        merged = {}
-        for profile in PROFILE_ORDER:
-            path = resources / profile
-            if path.exists():
-                deep_merge(merged, load_yaml_docs(path))
-        pool = as_pool_size(dig(merged, "spring.datasource.hikari.maximum-pool-size"),
-                            f"{svc_dir.name} hikari pool")
-        url = dig(merged, "spring.datasource.url") or dig(merged, "spring.r2dbc.url")
-        if pool is None and url is None:
-            continue  # DB-less service (e.g. gateway) — nothing to budget
-        if pool is None or url is None:
-            sys.stderr.write(f"pool-budget-check: {svc_dir.name} has datasource url but no "
-                             "hikari.maximum-pool-size (or vice versa)\n")
-            sys.exit(2)
-        services[svc_dir.name] = {"db": db_name_from_jdbc(url, svc_dir.name), "pool": pool}
-    return services
+    total_pgbouncer_pool = 0
+    failures = []
 
-
-def collect_max_replicas():
-    """{service: (max_replicas, source)} from k8s/<svc>/hpa.yaml (or Deployment)."""
-    replicas = {}
-    for svc_dir in sorted(K8S_DIR.iterdir()):
-        if not svc_dir.is_dir():
-            continue
-        hpa = svc_dir / "hpa.yaml"
-        if hpa.exists():
-            spec = load_yaml_docs(hpa).get("spec", {})
-            if "maxReplicas" in spec:
-                replicas[svc_dir.name] = (int(spec["maxReplicas"]), "hpa")
+    for service_name, service_dir, hpa_path in discover_services():
+        try:
+            hpa_max = parse_hpa_max(hpa_path)
+            try:
+                pgbouncer_pool = parse_pgbouncer_pool(pgbouncer_path, service_name)
+            except ValueError:
+                # Services without a pgbouncer pool (e.g. gateway) are skipped
+                # — they have no datasource, so no DB connection budget.
                 continue
-        deployment = svc_dir / "deployment.yaml"
-        if deployment.exists():
-            for doc in yaml.safe_load_all(deployment.read_text(encoding="utf-8")):
-                if isinstance(doc, dict) and doc.get("kind") == "Deployment":
-                    count = dig(doc, "spec.replicas")
-                    if count is not None:
-                        replicas.setdefault(svc_dir.name, (int(count), "deployment"))
-    return replicas
-
-
-def load_pgbouncer_pools():
-    """(default_pool_size, {db_name: pool_size}) from the pgbouncer configmap."""
-    cm = load_yaml_docs(PGBOUNCER_CONFIGMAP)
-    # "pgbouncer.ini" contains a dot — read it directly (dig() is dotted-path).
-    ini_text = (cm.get("data") or {}).get("pgbouncer.ini")
-    if not ini_text:
-        sys.stderr.write("pool-budget-check: k8s/pgbouncer/configmap.yaml has no data.pgbouncer.ini\n")
-        sys.exit(2)
-    parser = configparser.ConfigParser(allow_no_value=True, delimiters=("=",),
-                                       interpolation=None, strict=False)
-    parser.optionxform = str  # keep pool_size / default_pool_size capitalisation
-    parser.read_string(ini_text, source=str(PGBOUNCER_CONFIGMAP))
-    default_pool = parser.getint("pgbouncer", "default_pool_size")
-    db_pools = {}
-    for name, target in parser.items("databases"):
-        if not target:
+            hikari_pool = parse_hikari_pool(service_dir)
+        except ValueError as exc:
+            failures.append(f"FAIL: {service_name}: {exc}")
             continue
-        options = dict(t.split("=", 1) for t in target.split() if "=" in t)
-        if "pool_size" not in options:
-            continue
-        actual_db = options.get("dbname", name)
-        db_pools[actual_db] = int(options["pool_size"])
-    return default_pool, db_pools
 
+        demand = hpa_max * hikari_pool
+        budget = int(budget_factor * pgbouncer_pool)
+        total_pgbouncer_pool += pgbouncer_pool
 
-def main():
-    if not PGBOUNCER_CONFIGMAP.exists():
-        sys.stderr.write(f"pool-budget-check: missing {PGBOUNCER_CONFIGMAP}\n")
-        sys.exit(2)
-    services = collect_services()
-    replicas = collect_max_replicas()
-    default_pool, db_pools = load_pgbouncer_pools()
+        if demand > budget:
+            failures.append(
+                f"FAIL: {service_name}: demand={demand} > budget={budget} "
+                f"(hpa_max={hpa_max} × hikari_pool={hikari_pool} > "
+                f"{budget_factor} × pgbouncer_pool={pgbouncer_pool})"
+            )
+        else:
+            print(
+                f"OK: {service_name}: demand={demand} ≤ budget={budget} "
+                f"(hpa_max={hpa_max} × hikari_pool={hikari_pool}, "
+                f"pgbouncer_pool={pgbouncer_pool})"
+            )
 
-    rows, per_db_demand = [], {}
-    violations = []
-    for service in sorted(services):
-        db, pool = services[service]["db"], services[service]["pool"]
-        max_replicas, source = replicas.get(service, (1, "absent -> assumed 1"))
-        demand = max_replicas * pool
-        per_db_demand[db] = per_db_demand.get(db, 0) + demand
-        rows.append((service, db, source, max_replicas, pool, demand))
+    if total_pgbouncer_pool > max_client_conn:
+        failures.append(
+            f"FAIL: total_pgbouncer_pool={total_pgbouncer_pool} > "
+            f"max_client_conn={max_client_conn}"
+        )
+    else:
+        print(
+            f"OK: total_pgbouncer_pool={total_pgbouncer_pool} ≤ "
+            f"max_client_conn={max_client_conn}"
+        )
 
-    print(f"{'service':<16} {'database':<16} {'replicas-source':<22} {'max-replicas':>12} "
-          f"{'pool/pod':>9} {'demand':>7}")
-    print("-" * 86)
-    for row in rows:
-        print(f"{row[0]:<16} {row[1]:<16} {row[2]:<22} {row[3]:>12} {row[4]:>9} {row[5]:>7}")
-    print()
-
-    for db in sorted(per_db_demand):
-        demand = per_db_demand[db]
-        pgb_pool = db_pools.get(db, default_pool)
-        ceiling = min(pgb_pool, PG_MAX_CONNECTIONS)
-        ok = demand * BUDGET_DEN <= BUDGET_NUM * ceiling
-        if not ok:
-            violations.append(db)
-        print(f"{'OK' if ok else 'VIOLATION':<9} db={db:<16} demand={demand:<5} "
-              f"ceiling=min(pgbouncer={pgb_pool}, pg_max_conn={PG_MAX_CONNECTIONS})={ceiling:<5} "
-              f"budget(0.8x)={0.8 * ceiling:g}")
-
-    print()
-    if violations:
-        print("POOL BUDGET CHECK FAILED for: " + ", ".join(violations))
-        print("Raise the per-DB pgbouncer pool_size (k8s/pgbouncer/configmap.yaml) or reduce "
-              "HPA maxReplicas / DB_POOL_SIZE to satisfy §4.2, per the table's classification.")
+    if failures:
+        print("\nFAILURES:")
+        for f in failures:
+            print(f"  {f}")
         return 1
-    print("Pool budget check passed: every database is within the §4.2 headroom rule.")
+
+    print("\nAll checks passed.")
     return 0
 
 

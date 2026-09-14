@@ -34,6 +34,23 @@
 			<artifactId>spring-cloud-starter-gateway</artifactId>
 		</dependency>
 
+		<!-- Resilience4j circuit breakers for outbound mesh calls (P1 PERF-1).
+		     The gateway proxies to backend services via Spring Cloud Gateway;
+		     CircuitBreakerGatewayFilter wraps each route with a breaker so
+		     an unhealthy upstream cannot pile up gateway threads. -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+			<version>3.1.4</version>
+		</dependency>
+
+		<!-- Spring Cloud LoadBalancer: required for consistent-hash SSE routing
+		     (Phase 6) and any future lb:// route. -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-loadbalancer</artifactId>
+		</dependency>
+
 		<!-- Health/liveness/readiness + metrics for probes + Prometheus scrape. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -163,6 +180,28 @@
 						<artifactId>maven-surefire-plugin</artifactId>
 						<configuration>
 							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dblockhound.armed=true</argLine>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+		<!-- BlockHound 1.0.8.RELEASE does not support JDK 26+ (class file major
+		     version 70). On modern JDKs the agent crashes the forked JVM during
+		     premain. This profile removes the BlockHound -javaagent on JDK 26+
+		     so tests can still execute; the BlockHound-specific integration tests
+		     skip by assumption when the agent is absent. -->
+		<profile>
+			<id>skip-blockhound-on-jdk26-plus</id>
+			<activation>
+				<jdk>[26,)</jdk>
+			</activation>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods</argLine>
 						</configuration>
 					</plugin>
 				</plugins>

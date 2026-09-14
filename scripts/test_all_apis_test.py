@@ -3250,5 +3250,177 @@ class TestPrintResultMoreEdgeCases(unittest.TestCase):
         self.assertNotIn("more chars", buf.getvalue())
 
 
+class TestUrlEncodingAndSpecialChars(unittest.TestCase):
+    """Edge-case tests for URL handling and special character preservation."""
+
+    def test_query_param_with_space(self):
+        state = RunState()
+        state.vars["name"] = "hello world"
+        spec = {"name": "Search", "method": "GET",
+                "path": "/api/v1/search", "expected": [200],
+                "query": {"q": "{name}"}}
+        result = run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        # URL-encoded space becomes %20
+        self.assertIn("hello%20world", result.url)
+
+    def test_query_param_with_unicode(self):
+        state = RunState()
+        state.vars["city"] = "Bangalore"
+        spec = {"name": "Search", "method": "GET",
+                "path": "/api/v1/search", "expected": [200],
+                "query": {"city": "{city}"}}
+        result = run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        self.assertIn("Bangalore", result.url)
+
+    def test_path_placeholder_special_characters_remain_valid(self):
+        state = RunState()
+        state.vars["id"] = "42"
+        spec = {"name": "Get", "method": "GET",
+                "path": "/api/v1/items/{id}", "expected": [200]}
+        result = run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        self.assertIn("/api/v1/items/42", result.url)
+
+
+class TestAuthEdgeCases(unittest.TestCase):
+    """Additional auth-related edge cases for the test runner."""
+
+    def _mock_response(self, status=200, body=b'{}'):
+        resp = MagicMock()
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        resp.status = status
+        resp.read.return_value = body
+        resp.headers = {}
+        return resp
+
+    @patch("test_all_apis.urlopen")
+    def test_403_treated_as_failure_not_skip(self, mock_urlopen):
+        """A 403 from the server (auth enforced) is a FAIL, not a skip."""
+        mock_urlopen.return_value = self._mock_response(403, b'{"message":"Forbidden"}')
+        state = RunState()
+        state.init_defaults("pw")
+        state.tokens["customer_token"] = "tok"
+        spec = {"name": "Admin", "method": "GET", "path": "/api/v1/admin/foo",
+                "expected": [200], "auth": "customer"}
+        result = run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        self.assertFalse(result.passed)
+        self.assertFalse(result.skipped)
+        self.assertEqual(result.status_code, 403)
+
+    @patch("test_all_apis.urlopen")
+    def test_401_treated_as_failure_not_skip(self, mock_urlopen):
+        """A 401 from the server is a FAIL, not a skip."""
+        mock_urlopen.return_value = self._mock_response(401, b'{"message":"Unauthorized"}')
+        state = RunState()
+        state.init_defaults("pw")
+        state.tokens["customer_token"] = "tok"
+        spec = {"name": "Protected", "method": "GET", "path": "/api/v1/admin/foo",
+                "expected": [200], "auth": "customer"}
+        result = run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        self.assertFalse(result.passed)
+        self.assertFalse(result.skipped)
+        self.assertEqual(result.status_code, 401)
+
+    @patch("test_all_apis.urlopen")
+    def test_admin_auth_token_used_for_admin_endpoint(self, mock_urlopen):
+        """When auth=admin, the admin_token should be sent."""
+        mock_urlopen.return_value = self._mock_response(200, b'{}')
+        state = RunState()
+        state.init_defaults("pw")
+        state.tokens["admin_token"] = "admin.jwt.token"
+        spec = {"name": "Admin API", "method": "GET", "path": "/api/v1/admin/foo",
+                "expected": [200], "auth": "admin"}
+        run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0] if call_args[0] else call_args[1].get("req")
+        self.assertEqual(req.get_header("Authorization"), "Bearer admin.jwt.token")
+
+    @patch("test_all_apis.urlopen")
+    def test_owner_auth_token_used_for_owner_endpoint(self, mock_urlopen):
+        """When auth=owner, the owner_token should be sent."""
+        mock_urlopen.return_value = self._mock_response(200, b'{}')
+        state = RunState()
+        state.init_defaults("pw")
+        state.tokens["owner_token"] = "owner.jwt.token"
+        spec = {"name": "Owner API", "method": "GET", "path": "/api/v1/owner/foo",
+                "expected": [200], "auth": "owner"}
+        run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0] if call_args[0] else call_args[1].get("req")
+        self.assertEqual(req.get_header("Authorization"), "Bearer owner.jwt.token")
+
+    @patch("test_all_apis.urlopen")
+    def test_customer_refresh_auth_uses_refresh_token(self, mock_urlopen):
+        """When auth=customer_refresh, the customer_refresh_token should be sent."""
+        mock_urlopen.return_value = self._mock_response(200, b'{}')
+        state = RunState()
+        state.init_defaults("pw")
+        state.tokens["customer_refresh_token"] = "refresh.jwt.token"
+        spec = {"name": "Refresh", "method": "POST", "path": "/api/v1/auth/refresh-token",
+                "expected": [200], "auth": "customer_refresh"}
+        run_test(spec, "http://localhost:8080", state, 30, verbose=False)
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0] if call_args[0] else call_args[1].get("req")
+        self.assertEqual(req.get_header("Authorization"), "Bearer refresh.jwt.token")
+
+
+class TestApiCatalogSecurityAnnotations(unittest.TestCase):
+    """Verify that controllers with security-sensitive mutations carry @PreAuthorize."""
+
+    def test_serviceability_createZone_has_preauthorize(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "ServiceabilityController.java"
+        source = path.read_text()
+        # Find the createZone method and verify it has @PreAuthorize
+        create_zone_start = source.index("public DeliveryZone createZone")
+        method_block = source[:create_zone_start].rfind("@PostMapping")
+        annotations = source[method_block:create_zone_start]
+        self.assertIn("@PreAuthorize", annotations)
+
+    def test_serviceability_addSurge_has_preauthorize(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "ServiceabilityController.java"
+        source = path.read_text()
+        add_surge_start = source.index("public ZoneSurgeRule addSurge")
+        method_block = source[:add_surge_start].rfind("@PostMapping")
+        annotations = source[method_block:add_surge_start]
+        self.assertIn("@PreAuthorize", annotations)
+
+    def test_cityInternal_cities_has_preauthorize(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "CityInternalController.java"
+        source = path.read_text()
+        cities_start = source.index("public List<CityConfig> cities")
+        method_block = source[:cities_start].rfind("@GetMapping")
+        annotations = source[method_block:cities_start]
+        self.assertIn("@PreAuthorize", annotations)
+
+    def test_cityInternal_createCity_has_preauthorize(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "CityInternalController.java"
+        source = path.read_text()
+        create_city_start = source.index("public Map<String, Object> createCity")
+        method_block = source[:create_city_start].rfind("@PostMapping")
+        annotations = source[method_block:create_city_start]
+        self.assertIn("@PreAuthorize", annotations)
+
+    def test_inventoryAlert_raise_has_preauthorize(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "restaurant" / "src" / "main" / "java" / "com" / "bhukkad" / "restaurant" / "api" / "controller" / "InventoryAlertController.java"
+        source = path.read_text()
+        raise_start = source.index("public InventoryAlert raise")
+        method_block = source[:raise_start].rfind("@PostMapping")
+        annotations = source[method_block:raise_start]
+        self.assertIn("@PreAuthorize", annotations)
+
+    def test_inventoryAlert_recent_has_preauthorize(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "restaurant" / "src" / "main" / "java" / "com" / "bhukkad" / "restaurant" / "api" / "controller" / "InventoryAlertController.java"
+        source = path.read_text()
+        recent_start = source.index("public List<InventoryAlert> recent")
+        method_block = source[:recent_start].rfind("@GetMapping")
+        annotations = source[method_block:recent_start]
+        self.assertIn("@PreAuthorize", annotations)
+
+    def test_orderStream_customerToken_validates_order_exists(self):
+        path = Path(__file__).resolve().parent.parent / "services" / "order" / "src" / "main" / "java" / "com" / "bhukkad" / "order" / "api" / "controller" / "OrderStreamController.java"
+        source = path.read_text()
+        self.assertIn("existsById", source)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

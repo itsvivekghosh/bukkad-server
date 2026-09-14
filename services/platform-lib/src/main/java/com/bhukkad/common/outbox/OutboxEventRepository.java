@@ -33,6 +33,20 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
                                                @Param("limit") int limit,
                                                @Param("now") LocalDateTime now);
 
+    @Query(value = """
+            SELECT * FROM outbox_events
+            WHERE partition_id = :partitionId
+              AND status = :status
+              AND (next_attempt_at IS NULL OR next_attempt_at <= :now)
+            ORDER BY created_at ASC
+            LIMIT :limit
+            FOR UPDATE SKIP LOCKED
+            """, nativeQuery = true)
+    List<OutboxEvent> findPendingForProcessingByPartition(@Param("partitionId") int partitionId,
+                                                          @Param("status") String status,
+                                                          @Param("limit") int limit,
+                                                          @Param("now") LocalDateTime now);
+
     @Query("SELECT e FROM OutboxEvent e WHERE e.status = :status " +
             "AND e.processingStartedAt IS NOT NULL AND e.processingStartedAt < :staleBefore")
     List<OutboxEvent> findStaleProcessing(@Param("status") OutboxEvent.OutboxStatus status,

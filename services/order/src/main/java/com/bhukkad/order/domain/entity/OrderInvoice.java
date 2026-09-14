@@ -18,7 +18,8 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "order_invoices", indexes = {
-        @Index(name = "uk_order_invoice_number", columnList = "invoiceNumber", unique = true)
+        @Index(name = "uk_order_invoice_number", columnList = "invoiceNumber", unique = true),
+        @Index(name = "idx_order_invoice_order", columnList = "orderId")
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter @Setter

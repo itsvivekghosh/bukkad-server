@@ -7,6 +7,7 @@ import com.bhukkad.delivery.domain.repository.ZoneSurgeRuleRepository;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,6 +25,7 @@ public class ServiceabilityController {
     private final ZoneSurgeRuleRepository surgeRepository;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public DeliveryZone createZone(@RequestParam String name) {
         DeliveryZone zone = new DeliveryZone();
         zone.setName(name);
@@ -37,6 +39,7 @@ public class ServiceabilityController {
     }
 
     @PostMapping("/{zoneId}/surge")
+    @PreAuthorize("hasRole('ADMIN')")
     public ZoneSurgeRule addSurge(@PathVariable Long zoneId,
                                   @RequestParam java.time.LocalTime startTime,
                                   @RequestParam java.time.LocalTime endTime,

@@ -2,11 +2,21 @@ spring:
   config:
     activate:
       on-profile: prod
+  data:
+    redis:
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 64
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
 
   datasource:
     hikari:
-      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:20}
-      minimum-idle: ${PAYMENT_DB_POOL_SIZE:20}
+      maximum-pool-size: ${PAYMENT_DB_POOL_SIZE:30}
+      minimum-idle: 10
+      metrics-tracker-class: com.zaxxer.hikari.metrics.prometheus.PrometheusMetricsTracker
 
 app:
   environment: production
@@ -23,3 +33,19 @@ app:
       key-secret: ${RAZORPAY_KEY_SECRET:}
       # No dev default here: an unset secret fails the preflight loudly.
       webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+  events:
+    external:
+      enabled: true
+      type: kafka
+      kafka:
+        listener-concurrency: 3
+  outbox:
+    wake:
+      enabled: true
+management:
+  tracing:
+    sampling:
+      probability: 0.1
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
