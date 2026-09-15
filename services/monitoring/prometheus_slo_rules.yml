@@ -1,0 +1,69 @@
+groups:
+  - name: bhukkad_slos
+    interval: 30s
+    rules:
+      # Latency SLO: p99 request duration should be < 500ms for 99% of requests
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, service)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency on {{ $labels.service }}"
+          description: "p99 latency is {{ $value | humanizeDuration }} (> 500ms) for service {{ $labels.service }}"
+
+      # Error rate SLO: 5xx rate should be < 1%
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "5xx error rate is {{ $value | humanizePercentage }} (> 1%) for service {{ $labels.service }}"
+
+      # DB pool saturation: pending threads should be < 5
+      - alert: DBPoolSaturation
+        expr: |
+          hikaricpu_pending_threads > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB pool saturation on {{ $labels.service }}"
+          description: "HikariCP pending threads: {{ $value }} (> 5) on {{ $labels.service }}"
+
+      # Redis cache hit rate should be > 80%
+      - alert: LowCacheHitRate
+        expr: |
+          sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m]))) < 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate on {{ $labels.service }}"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (< 80%) on {{ $labels.service }}"
+
+      # Circuit breaker should not be open
+      - alert: CircuitBreakerOpen
+        expr: |
+          resilience4j_circuitbreaker_state{state="open"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker OPEN on {{ $labels.name }}"
+          description: "Circuit breaker {{ $labels.name }} is OPEN on {{ $labels.service }}"
+
+      # Kafka consumer lag should be < 1000 messages
+      - alert: HighConsumerLag
+        expr: |
+          kafka_consumer_group_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Kafka consumer lag on {{ $labels.consumer_group }}"
+          description: "Consumer lag is {{ $value }} messages (> 1000) for group {{ $labels.consumer_group }}"

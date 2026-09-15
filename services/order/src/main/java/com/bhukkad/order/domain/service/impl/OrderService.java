@@ -73,6 +73,12 @@ public class OrderService {
     private final PaymentServiceClient paymentServiceClient;
     private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
     private final OrderSagaProperties asyncSaga;
+    private final org.springframework.beans.factory.ObjectProvider<com.bhukkad.common.cache.RedisCacheService> cacheProvider;
+
+    private static final String ORDER_CACHE_KEY_PREFIX = "order:";
+    private static final String CUSTOMER_ORDERS_CACHE_KEY_PREFIX = "orders:customer:";
+    private static final long ORDER_CACHE_TTL_SECONDS = 30;
+    private static final long CUSTOMER_ORDERS_CACHE_TTL_SECONDS = 60;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -149,7 +155,9 @@ public class OrderService {
                 eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
                 eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
                 log.warn("ASYNC_ORDER_SAGA_RESERVE_FAILED | orderId={}", orderId);
-                return toResponse(order);
+                OrderResponse response = toResponse(order);
+                invalidateOrderCache(orderId, request.customerId());
+                return response;
             }
             order.setStatus(Order.STATUS_AWAITING_PAYMENT);
             orderRepository.save(order);
@@ -162,7 +170,9 @@ public class OrderService {
             // G-1: the payment request commits atomically with the order; the
             // payment verdict comes back through payment.events.v1.
             eventPublisher.paymentRequested(orderId, request.customerId(), total, order.getCurrency());
-            return toResponse(order);
+            OrderResponse response = toResponse(order);
+            invalidateOrderCache(orderId, request.customerId());
+            return response;
         }
 
         AtomicReference<Long> chargedPaymentId = new AtomicReference<>();
@@ -208,7 +218,9 @@ public class OrderService {
             eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
             eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
             log.warn("ORDER_SAGA_FAILED | orderId={} | sagaStatus={}", orderId, saga.getStatus());
-            return toResponse(order);
+            OrderResponse response = toResponse(order);
+            invalidateOrderCache(orderId, order.getCustomerId());
+            return response;
         }
 
         order.setStatus(Order.STATUS_CONFIRMED);
@@ -224,7 +236,9 @@ public class OrderService {
                         .map(i -> new OrderEventPublisher.SnapshotItem(i.menuItemId(), i.name(), i.quantity()))
                         .toList());
 
-        return toResponse(order);
+        OrderResponse response = toResponse(order);
+        invalidateOrderCache(orderId, request.customerId());
+        return response;
     }
 
     private String serviceToken() {
@@ -336,10 +350,19 @@ public class OrderService {
         orderRepository.save(order);
         recordTimeline(orderId, "CANCELLED");
         eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
+        invalidateOrderCache(orderId, order.getCustomerId());
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersForCustomer(Long customerId) {
+        com.bhukkad.common.cache.RedisCacheService cache = cacheProvider.getIfAvailable();
+        if (cache != null) {
+            String key = CUSTOMER_ORDERS_CACHE_KEY_PREFIX + customerId;
+            return cache.getOrCompute(key, List.class, CUSTOMER_ORDERS_CACHE_TTL_SECONDS, () -> {
+                List<Order> orders = orderRepository.findByCustomerId(customerId);
+                return enrichOrders(orders);
+            });
+        }
         List<Order> orders = orderRepository.findByCustomerId(customerId);
         return enrichOrders(orders);
     }
@@ -365,9 +388,31 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderResponse getOrder(Long orderId) {
+        com.bhukkad.common.cache.RedisCacheService cache = cacheProvider.getIfAvailable();
+        if (cache != null) {
+            String key = ORDER_CACHE_KEY_PREFIX + orderId;
+            return cache.getOrCompute(key, OrderResponse.class, ORDER_CACHE_TTL_SECONDS, () -> {
+                Order order = orderRepository.findById(orderId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
+                return toResponse(order);
+            });
+        }
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
         return toResponse(order);
+    }
+
+    private void invalidateOrderCache(Long orderId, Long customerId) {
+        com.bhukkad.common.cache.RedisCacheService cache = cacheProvider.getIfAvailable();
+        if (cache == null) {
+            return;
+        }
+        if (orderId != null) {
+            cache.delete(ORDER_CACHE_KEY_PREFIX + orderId);
+        }
+        if (customerId != null) {
+            cache.deletePattern(CUSTOMER_ORDERS_CACHE_KEY_PREFIX + customerId + ":*");
+        }
     }
 
     /**
@@ -391,6 +436,7 @@ public class OrderService {
         orderRepository.save(order);
         recordTimeline(orderId, timelineEvent);
         eventPublisher.orderStatusChanged(orderId, newStatus);
+        invalidateOrderCache(orderId, order.getCustomerId());
         return toResponse(order);
     }
 

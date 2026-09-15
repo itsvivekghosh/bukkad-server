@@ -1,5 +1,6 @@
 package com.bhukkad.order.domain.service.impl;
 
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.common.saga.SagaCoordinator;
 import com.bhukkad.common.saga.SagaInstance;
 import com.bhukkad.common.saga.SagaInstanceRepository;
@@ -70,6 +71,7 @@ class OrderSagaExecutionTest {
     @Mock private RestaurantClient restaurantClient;
     @Mock private PaymentServiceClient paymentServiceClient;
     @Mock private ObjectProvider<ServiceJwtAuthTokenProvider> tokenProvider;
+    @Mock private ObjectProvider<RedisCacheService> cacheProvider;
 
     private OrderService service;
 
@@ -82,7 +84,7 @@ class OrderSagaExecutionTest {
         service = new OrderService(orderRepository, orderItemRepository, timelineRepository,
                 coordinator, eventPublisher, restaurantClient,
                 new RestaurantPricedItemResolver(restaurantClient), paymentServiceClient,
-                tokenProvider, new com.bhukkad.order.config.OrderSagaProperties());
+                tokenProvider, new com.bhukkad.order.config.OrderSagaProperties(), cacheProvider);
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);

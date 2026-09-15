@@ -11,8 +11,15 @@ server:
     connection-timeout: 10s
     max-swallow-size: 2MB
   max-http-request-header-size: 8KB
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   application: {name: supportticket}
   servlet:
     multipart:
@@ -68,4 +75,31 @@ app:
       url: ${PAYMENT_SERVICE_URL:http://payment:8093}
       order:
         url: ${ORDER_SERVICE_URL:http://order:8092}
+  rate-limit:
+    enabled: true
+    fail-open-on-redis-error: true
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 60
+        window-seconds: 60
+      cart-mutation:
+        limit: 30
+        window-seconds: 60
+      referral:
+        limit: 20
+        window-seconds: 60
+      webhook:
+        limit: 120
+        window-seconds: 60
+    tier-multipliers:
+      premium: 2.0
+      gold: 3.0
+      platinum: 4.0
+      free: 1.0
 logging: {level: {com.bhukkad: INFO}}

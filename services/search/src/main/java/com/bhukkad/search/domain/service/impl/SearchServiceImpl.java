@@ -1,5 +1,6 @@
 package com.bhukkad.search.domain.service.impl;
 
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.search.api.dto.response.AutocompleteSuggestion;
 import com.bhukkad.search.api.dto.response.MenuItemSearchResult;
 import com.bhukkad.search.api.dto.response.RestaurantSearchResult;
@@ -25,14 +26,37 @@ public class SearchServiceImpl implements SearchService {
     private final RestaurantSearchRepository restaurantSearchRepository;
     private final MenuItemSearchRepository menuItemSearchRepository;
     private final SearchFuzzyProperties fuzzyProperties;
+    private final org.springframework.beans.factory.ObjectProvider<RedisCacheService> cacheProvider;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SearchServiceImpl(RestaurantSearchRepository restaurantSearchRepository,
                              MenuItemSearchRepository menuItemSearchRepository,
-                             SearchFuzzyProperties fuzzyProperties) {
+                             SearchFuzzyProperties fuzzyProperties,
+                             org.springframework.beans.factory.ObjectProvider<RedisCacheService> cacheProvider) {
         this.restaurantSearchRepository = restaurantSearchRepository;
         this.menuItemSearchRepository = menuItemSearchRepository;
         this.fuzzyProperties = fuzzyProperties;
+        this.cacheProvider = cacheProvider;
     }
+
+    // Back-compat constructor for tests without Redis.
+    public SearchServiceImpl(RestaurantSearchRepository restaurantSearchRepository,
+                             MenuItemSearchRepository menuItemSearchRepository,
+                             SearchFuzzyProperties fuzzyProperties) {
+        this(restaurantSearchRepository, menuItemSearchRepository, fuzzyProperties, null);
+    }
+
+    private RedisCacheService redisCache() {
+        if (cacheProvider == null) {
+            return null;
+        }
+        return cacheProvider.getIfAvailable();
+    }
+
+    private static final String SEARCH_CACHE_KEY_PREFIX = "search:unified:";
+    private static final String SUGGEST_CACHE_KEY_PREFIX = "search:suggest:";
+    private static final long SEARCH_CACHE_TTL_SECONDS = 60;
+    private static final long SUGGEST_CACHE_TTL_SECONDS = 30;
 
     @Override
     public UnifiedSearchResponse unifiedSearch(String keyword) {
@@ -40,12 +64,21 @@ public class SearchServiceImpl implements SearchService {
             return new UnifiedSearchResponse(new ArrayList<>(), new ArrayList<>(), 0, 0);
         }
 
+        String cacheKey = SEARCH_CACHE_KEY_PREFIX + keyword.trim().toLowerCase(java.util.Locale.ROOT);
+        RedisCacheService cache = redisCache();
+        if (cache != null) {
+            return cache.getOrCompute(cacheKey, UnifiedSearchResponse.class, SEARCH_CACHE_TTL_SECONDS, () -> {
+                return executeSearch(keyword);
+            });
+        }
+        return executeSearch(keyword);
+    }
+
+    private UnifiedSearchResponse executeSearch(String keyword) {
         var page = org.springframework.data.domain.PageRequest.of(0, UNIFIED_RESULT_LIMIT);
         List<RestaurantSearchResult> restaurantResults;
         List<MenuItemSearchResult> menuItemResults;
         if (fuzzyProperties.isEnabled()) {
-            // P-08 OPTION (default off): similarity()-ranked trigram search.
-            // Raw lowercased term — trigram matching has no LIKE pattern.
             String term = keyword.trim().toLowerCase(java.util.Locale.ROOT);
             double threshold = fuzzyProperties.getSimilarityThreshold();
             restaurantResults = restaurantSearchRepository.searchTextFuzzy(term, threshold, page).stream()
@@ -55,7 +88,6 @@ public class SearchServiceImpl implements SearchService {
                     .map(this::convertToMenuItemSearchResult)
                     .collect(Collectors.toList());
         } else {
-            // Default (and previously the only) path: bounded, escaped LIKE.
             String searchTerm = like(escapeLike(keyword.trim()));
             restaurantResults =
                     restaurantSearchRepository.searchText(searchTerm, page).stream()
@@ -81,12 +113,21 @@ public class SearchServiceImpl implements SearchService {
             return new ArrayList<>();
         }
 
+        String cacheKey = SUGGEST_CACHE_KEY_PREFIX + prefix.trim().toLowerCase(java.util.Locale.ROOT) + ":" + limit;
+        RedisCacheService cache = redisCache();
+        if (cache != null) {
+            return cache.getOrCompute(cacheKey, List.class, SUGGEST_CACHE_TTL_SECONDS, () -> {
+                return executeSuggest(prefix, limit);
+            });
+        }
+        return executeSuggest(prefix, limit);
+    }
+
+    private List<AutocompleteSuggestion> executeSuggest(String prefix, Integer limit) {
         String searchTerm = escapeLike(prefix.trim().toLowerCase());
         int safeLimit = Math.max(limit, 1);
         List<AutocompleteSuggestion> suggestions = new ArrayList<>();
 
-        // Prefix queries run in the DB with a hard page size; negative limits
-        // (audit S-3) are clamped by the caller anyway — defensive here too.
         for (RestaurantSearchEntity entity : restaurantSearchRepository.searchNamePrefix(
                 searchTerm, org.springframework.data.domain.PageRequest.of(0, safeLimit))) {
             suggestions.add(new AutocompleteSuggestion(
@@ -101,7 +142,6 @@ public class SearchServiceImpl implements SearchService {
             }
         }
 
-        // Limit results
         if (suggestions.size() > limit) {
             suggestions = suggestions.subList(0, limit);
         }

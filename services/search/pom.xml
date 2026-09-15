@@ -19,7 +19,8 @@
 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
 		<!-- ADR-002 search sync: consumes restaurant domain events (KafkaPlatformConfig
 		     activates only when spring-kafka is on the classpath and events are enabled). -->
-		<dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
+ 		<dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
+ 		<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
 		<!-- Reconciliation sweep single-runner lock (shedlock table, migration V10). -->
 		<dependency><groupId>net.javacrumbs.shedlock</groupId><artifactId>shedlock-spring</artifactId><version>5.16.0</version></dependency>
 		<dependency><groupId>net.javacrumbs.shedlock</groupId><artifactId>shedlock-provider-jdbc-template</artifactId><version>5.16.0</version></dependency>
@@ -34,7 +35,7 @@
 		<dependency><groupId>net.datafaker</groupId><artifactId>datafaker</artifactId><version>2.3.0</version><scope>test</scope></dependency>
 		<dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><version>${testcontainers.version}</version><scope>test</scope></dependency>
 		<dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><version>${testcontainers.version}</version><scope>test</scope></dependency>
-		<dependency><groupId>com.tngtech.archunit</groupId><artifactId>archunit-junit5</artifactId><version>${archunit.version}</version><scope>test</scope></dependency>
+ 		<dependency><groupId>com.tngtech.archunit</groupId><artifactId>archunit-junit5</artifactId><version>${archunit.version}</version><scope>test</scope></dependency>
 	</dependencies>
 	<build>
 		<plugins>

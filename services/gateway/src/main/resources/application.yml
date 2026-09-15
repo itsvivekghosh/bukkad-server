@@ -4,7 +4,16 @@ server:
     worker-count: 0  # auto = CPU cores
     connection-timeout: 30s
 
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
   application:
     name: bhukkad-gateway
   # PERF-0 geometry: gateway is reactive (netty, no Tomcat/DB/Hikari keys apply);
@@ -44,7 +53,23 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 2000
-      connect-timeout: 1000
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 64
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
+      # Optional Redis Sentinel (enable by setting REDIS_SENTINEL_MASTER)
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:}
+        nodes: ${REDIS_SENTINEL_NODES:}
+        password: ${REDIS_SENTINEL_PASSWORD:}
+      # Optional Redis Cluster (enable by setting REDIS_CLUSTER_NODES)
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:}
+        max-redirects: 3
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
@@ -88,6 +113,33 @@ app:
       - http://realtime-1.realtime.bhukkad.svc.cluster.local:8077
       - http://realtime-2.realtime.bhukkad.svc.cluster.local:8077
 
+  rate-limit:
+    enabled: true
+    fail-open-on-redis-error: true
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 60
+        window-seconds: 60
+      cart-mutation:
+        limit: 30
+        window-seconds: 60
+      referral:
+        limit: 20
+        window-seconds: 60
+      webhook:
+        limit: 120
+        window-seconds: 60
+    tier-multipliers:
+      premium: 2.0
+      gold: 3.0
+      platinum: 4.0
+      free: 1.0
 management:
   endpoints:
     web:
@@ -118,10 +170,10 @@ resilience4j:
   circuitbreaker:
     configs:
       default:
-        failure-rate-threshold: 50
-        wait-duration-in-open-state: 10s
-        sliding-window-size: 20
-        permitted-number-of-calls-in-half-open-state: 5
+        failure-rate-threshold: 40
+        wait-duration-in-open-state: 30s
+        sliding-window-size: 50
+        permitted-number-of-calls-in-half-open-state: 10
         record-exceptions:
           - org.springframework.web.reactive.function.client.WebClientRequestException
           - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable

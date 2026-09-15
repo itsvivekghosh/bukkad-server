@@ -1,5 +1,6 @@
 package com.bhukkad.search.domain.service.impl;
 
+import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.search.api.dto.response.AutocompleteSuggestion;
 import com.bhukkad.search.api.dto.response.MenuItemSearchResult;
 import com.bhukkad.search.api.dto.response.RestaurantSearchResult;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
@@ -38,6 +40,7 @@ class SearchServiceImplTest {
 
     @Mock private RestaurantSearchRepository restaurants;
     @Mock private MenuItemSearchRepository menuItems;
+    @Mock private ObjectProvider<RedisCacheService> cacheProvider;
 
     private SearchFuzzyProperties props(boolean enabled, double threshold) {
         SearchFuzzyProperties p = new SearchFuzzyProperties();
@@ -47,7 +50,7 @@ class SearchServiceImplTest {
     }
 
     private SearchServiceImpl service(boolean fuzzy) {
-        return new SearchServiceImpl(restaurants, menuItems, props(fuzzy, 0.35));
+        return new SearchServiceImpl(restaurants, menuItems, props(fuzzy, 0.35), cacheProvider);
     }
 
     private RestaurantSearchEntity restaurantEntity() {

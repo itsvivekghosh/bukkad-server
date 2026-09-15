@@ -61,6 +61,8 @@ COPY supportticket/pom.xml ./supportticket/pom.xml
 COPY realtime/pom.xml ./realtime/pom.xml
 COPY personalization/pom.xml ./personalization/pom.xml
 COPY growth/pom.xml ./growth/pom.xml
+COPY test-support/pom.xml ./test-support/pom.xml
+COPY test-app/pom.xml ./test-app/pom.xml
 COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
 # No dependency:go-offline pre-pass: it is notoriously flaky ("Failed to read
 # artifact descriptor" on transitive poms) and the locked cache mount below
@@ -73,7 +75,7 @@ COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
 COPY platform-lib ./platform-lib
 COPY ${MODULE} ./${MODULE}
 RUN --mount=type=cache,target=/root/.m2,sharing=locked \
-    mvn -B -q clean package -DskipTests -pl ${MODULE} -am
+    mvn -B -q clean package -DskipTests -Dmaven.test.skip=true -pl ${MODULE} -am
 
 # --- runtime stage -----------------------------------------------------------
 FROM eclipse-temurin:17-jre-jammy AS runtime
@@ -115,6 +117,6 @@ WORKDIR /app
 COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/app.jar
 USER bhukkad
 EXPOSE 8080
-HEALTHCHECK --interval=20s --timeout=5s --start-period=90s --retries=5 \
+HEALTHCHECK --interval=20s --timeout=5s --start-period=300s --retries=10 \
   CMD curl -fsS "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" >/dev/null || exit 1
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

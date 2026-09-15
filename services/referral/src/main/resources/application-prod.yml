@@ -11,10 +11,20 @@ spring:
           min-idle: 8
           max-idle: 32
           max-wait: 5s
+      # Optional Redis Sentinel (enable by setting REDIS_SENTINEL_MASTER)
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:}
+        nodes: ${REDIS_SENTINEL_NODES:}
+        password: ${REDIS_SENTINEL_PASSWORD:}
+      # Optional Redis Cluster (enable by setting REDIS_CLUSTER_NODES)
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:}
+        max-redirects: 3
+
 
   datasource:
     hikari:
-      maximum-pool-size: ${DB_POOL_SIZE:10}
+      maximum-pool-size: ${DB_POOL_SIZE:20}
       minimum-idle: ${DB_POOL_SIZE:10}
 
 app:

@@ -11,7 +11,14 @@ server:
     connection-timeout: 10s
     max-swallow-size: 2MB
   max-http-request-header-size: 8KB
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   servlet:
     multipart:
       max-file-size: 10MB
@@ -105,6 +112,19 @@ app:
         consumer-group: ${KAFKA_CONSUMER_GROUP:search-sync-consumer}
         platform-topic: ${PLATFORM_EVENTS_TOPIC:search.events.v1}
         dlq-topic: ${PLATFORM_EVENTS_DLQ_TOPIC:search.events.v1.dlt}
+        producer:
+          acks: all
+          retries: 10
+          max-in-flight-requests-per-connection: 5
+          linger-ms: 5
+          batch-size: 16384
+          compression-type: lz4
+        consumer:
+          max-poll-records: 500
+          session-timeout-ms: 30000
+          heartbeat-interval-ms: 10000
+          auto-offset-reset: earliest
+          max-poll-interval-ms: 300000
   search:
     fuzzy:
       # P-08 open product decision, shipped OFF. When true, /api/v1/search
@@ -119,3 +139,31 @@ app:
       enabled: ${SEARCH_SYNC_RECONCILIATION_ENABLED:true}
       interval-ms: ${SEARCH_SYNC_SWEEP_INTERVAL_MS:300000}
       restaurants-per-cycle: ${SEARCH_SYNC_RESTAURANTS_PER_CYCLE:20}
+
+  rate-limit:
+    enabled: true
+    fail-open-on-redis-error: true
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 60
+        window-seconds: 60
+      cart-mutation:
+        limit: 30
+        window-seconds: 60
+      referral:
+        limit: 20
+        window-seconds: 60
+      webhook:
+        limit: 120
+        window-seconds: 60
+    tier-multipliers:
+      premium: 2.0
+      gold: 3.0
+      platinum: 4.0
+      free: 1.0

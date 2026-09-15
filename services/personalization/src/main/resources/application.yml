@@ -1,4 +1,6 @@
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   application:
     name: personalization-service
   task:
@@ -35,14 +37,35 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 2000
-      connect-timeout: 1000
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 64
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
+      # Optional Redis Sentinel (enable by setting REDIS_SENTINEL_MASTER)
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:}
+        nodes: ${REDIS_SENTINEL_NODES:}
+        password: ${REDIS_SENTINEL_PASSWORD:}
+      # Optional Redis Cluster (enable by setting REDIS_CLUSTER_NODES)
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:}
+        max-redirects: 3
 
 server:
+  shutdown: graceful
   port: 8088
   tomcat:
     threads:
       max: 100
     accept-count: 200
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
 
 app:
   recommendations:
@@ -72,6 +95,34 @@ app:
       jwt-secret: ${SERVICE_JWT_SECRET:}
       allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
       enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
+
+  rate-limit:
+    enabled: true
+    fail-open-on-redis-error: true
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 60
+        window-seconds: 60
+      cart-mutation:
+        limit: 30
+        window-seconds: 60
+      referral:
+        limit: 20
+        window-seconds: 60
+      webhook:
+        limit: 120
+        window-seconds: 60
+    tier-multipliers:
+      premium: 2.0
+      gold: 3.0
+      platinum: 4.0
+      free: 1.0
 
 management:
   endpoints:

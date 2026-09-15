@@ -6,3 +6,7 @@ target/
 *.swp
 *.swo
 .DS_Store
+
+# Exclude root-owned .bak directories that break Docker builds
+**/wallet-old.bak/
+**/*.bak/
