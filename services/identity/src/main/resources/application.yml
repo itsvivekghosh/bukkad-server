@@ -185,6 +185,10 @@ app:
       platinum: 4.0
       free: 1.0
 management:
+  metrics:
+    enable:
+      lettuce: true
+
   tracing:
     sampling:
       probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
@@ -204,6 +208,20 @@ management:
           include: livenessState
         readiness:
           include: readinessState
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        failure-rate-threshold: 30
+        wait-duration-in-open-state: 20s
+        sliding-window-size: 20
+        permitted-number-of-calls-in-half-open-state: 5
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.data.redis.RedisConnectionFailureException
+          - java.lang.RuntimeException
 
 logging:
   level:

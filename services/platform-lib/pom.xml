@@ -134,6 +134,13 @@
 			<artifactId>micrometer-core</artifactId>
 		</dependency>
 
+		<!-- Prometheus registry so /actuator/prometheus exposes circuit breaker,
+		     lettuce pool, and custom platform metrics. -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+
 		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger). -->
 		<dependency>
 			<groupId>io.micrometer</groupId>
