@@ -3,6 +3,7 @@ package com.bhukkad.common.cache;
 import com.bhukkad.common.cache.LocalCacheProperties;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -30,6 +31,11 @@ public class LocalCacheService {
                 .maximumSize(properties.getMaxSize())
                 .expireAfterWrite(Duration.ofSeconds(properties.getTtlSeconds()))
                 .recordStats()
+                .removalListener((String key, Object value, RemovalCause cause) -> {
+                    locks.remove(key);
+                    ttlDeadlines.remove(key);
+                    ttlDurations.remove(key);
+                })
                 .build();
         stats.put("hits", 0L);
         stats.put("misses", 0L);

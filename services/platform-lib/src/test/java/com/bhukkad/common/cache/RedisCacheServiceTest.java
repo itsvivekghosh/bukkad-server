@@ -2,12 +2,15 @@ package com.bhukkad.common.cache;
 
 import com.bhukkad.common.cache.DistributedCacheInvalidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -26,6 +29,7 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -50,6 +54,10 @@ class RedisCacheServiceTest {
     private Cursor<String> cursor;
     @Mock
     private HashOperations<String, Object, Object> hashOps;
+    @Mock
+    private CacheProperties cacheProperties;
+    @Mock
+    private ObjectProvider<CircuitBreakerRegistry> circuitBreakerRegistryProvider;
 
     private RedisCacheService service;
 
@@ -58,11 +66,15 @@ class RedisCacheServiceTest {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
         lenient().when(redisTemplate.opsForHash()).thenReturn(hashOps);
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOps);
+        lenient().when(cacheProperties.getLockTtlSeconds()).thenReturn(30L);
+        lenient().when(cacheProperties.getMaxInFlightEntries()).thenReturn(10_000);
+        lenient().when(circuitBreakerRegistryProvider.getIfAvailable()).thenReturn(null);
         // Constructed explicitly (not @InjectMocks): StringRedisTemplate is a
         // subtype of RedisTemplate, which makes Mockito's constructor injection
         // ambiguous about which mock goes into which parameter.
         service = new RedisCacheService(
-                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator);
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator,
+                circuitBreakerRegistryProvider, cacheProperties);
     }
 
     @Test
@@ -114,19 +126,19 @@ class RedisCacheServiceTest {
 
     @Test
     void exists_returnsTrueWhenKeyExists() {
-        when(redisTemplate.hasKey("bhukkad:test-key")).thenReturn(true);
+        when(valueOps.get("bhukkad:test-key")).thenReturn("some-value");
         assertTrue(service.exists("test-key"));
     }
 
     @Test
     void exists_returnsFalseWhenKeyMissing() {
-        when(redisTemplate.hasKey("bhukkad:missing-key")).thenReturn(false);
+        when(valueOps.get("bhukkad:missing-key")).thenReturn(null);
         assertFalse(service.exists("missing-key"));
     }
 
     @Test
     void exists_returnsFalseOnException() {
-        when(redisTemplate.hasKey("bhukkad:key")).thenThrow(new RuntimeException("Redis error"));
+        when(valueOps.get("bhukkad:key")).thenThrow(new RuntimeException("Redis error"));
         assertFalse(service.exists("key"));
     }
 
@@ -159,7 +171,7 @@ class RedisCacheServiceTest {
 
         service.deletePattern("pattern");
 
-        verify(redisTemplate).delete(Set.of("bhukkad:pattern:1", "bhukkad:pattern:2"));
+        verify(redisTemplate).delete(List.of("bhukkad:pattern:1", "bhukkad:pattern:2"));
     }
 
     @Test
@@ -169,7 +181,7 @@ class RedisCacheServiceTest {
 
         service.deletePattern("pattern");
 
-        verify(redisTemplate, never()).delete(any(Set.class));
+        verify(redisTemplate, never()).delete(any(java.util.Collection.class));
     }
 
     @Test
@@ -268,7 +280,10 @@ class RedisCacheServiceTest {
 
         service.clearAll();
 
-        verify(redisTemplate).delete(Set.of("bhukkad:key1", "bhukkad:key2"));
+        verify(redisTemplate).delete(argThat((java.util.List<String> list) ->
+                list.size() == 2 &&
+                list.contains("bhukkad:key1") &&
+                list.contains("bhukkad:key2")));
     }
 
     @Test
@@ -489,7 +504,8 @@ class RedisCacheServiceTest {
     void getListOrCompute_returnsL2List() {
         // Use a real ObjectMapper so the cached list is genuinely converted
         RedisCacheService realMapperService = new RedisCacheService(
-                redisTemplate, stringRedisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator);
+                redisTemplate, stringRedisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator,
+                circuitBreakerRegistryProvider, cacheProperties);
         when(localCacheService.get("k", List.class)).thenReturn(Optional.empty());
         when(valueOps.get("bhukkad:k")).thenReturn(List.of("a"));
 
@@ -603,7 +619,8 @@ class RedisCacheServiceTest {
         // getList converts via objectMapper.getTypeFactory().constructCollectionType —
         // a mock ObjectMapper NPEs there, so these tests build the service with a real mapper.
         return new RedisCacheService(
-                redisTemplate, stringRedisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator);
+                redisTemplate, stringRedisTemplate, new ObjectMapper(), localCacheService, distributedInvalidator,
+                circuitBreakerRegistryProvider, cacheProperties);
     }
 
     @Test
@@ -750,7 +767,8 @@ class RedisCacheServiceTest {
     @Test
     void delete_nullInvalidator_stillDeletesLocally() {
         RedisCacheService noInvalidator = new RedisCacheService(
-                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, null);
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, null,
+                circuitBreakerRegistryProvider, cacheProperties);
 
         noInvalidator.delete("k");
 
@@ -763,7 +781,7 @@ class RedisCacheServiceTest {
         when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
         when(cursor.hasNext()).thenReturn(true, false);
         when(cursor.next()).thenReturn("bhukkad:key1");
-        doThrow(new RuntimeException("delete fail")).when(redisTemplate).delete(any(Set.class));
+        doThrow(new RuntimeException("delete fail")).when(redisTemplate).delete(any(java.util.Collection.class));
 
         assertDoesNotThrow(() -> service.clearAll());
     }
@@ -863,5 +881,82 @@ class RedisCacheServiceTest {
         assertEquals("from-db", result);
         assertTrue(elapsed < 500,
                 "redis-down must not park the caller (old ~3.5s wait), took " + elapsed + "ms");
+    }
+
+    // ===== Batch D: bounded in-flight map + circuit breaker + configurable lock TTL =====
+
+    @Test
+    void inFlightLoads_evictsCompletedFuturesWhenThresholdExceeded() {
+        // Set threshold to 2 so we can trigger eviction with 3 unique keys
+        when(cacheProperties.getMaxInFlightEntries()).thenReturn(2);
+        when(cacheProperties.getLockTtlSeconds()).thenReturn(30L);
+        // Rebuild service with the new threshold
+        RedisCacheService boundedService = new RedisCacheService(
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator,
+                circuitBreakerRegistryProvider, cacheProperties);
+
+        when(localCacheService.get("k1", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k1")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k1"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+        boundedService.getOrCompute("k1", String.class, 60, () -> "v1");
+
+        when(localCacheService.get("k2", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k2")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k2"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+        boundedService.getOrCompute("k2", String.class, 60, () -> "v2");
+
+        when(localCacheService.get("k3", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k3")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k3"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+        boundedService.getOrCompute("k3", String.class, 60, () -> "v3");
+
+        // After 3 unique misses with max 2, the first completed future must have
+        // been evicted to keep the map bounded. Verify by requesting k1 again:
+        // its original future was evicted, so a new computation runs.
+        when(localCacheService.get("k1", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k1")).thenReturn(null);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k1"), anyString(), any(Duration.class)))
+                .thenReturn(true);
+        String result = boundedService.getOrCompute("k1", String.class, 60, () -> "recomputed");
+
+        assertEquals("recomputed", result);
+    }
+
+    @Test
+    void circuitBreakerOpen_fallsBackToSupplier() {
+        CircuitBreakerRegistry registry = CircuitBreakerRegistry.ofDefaults();
+        CircuitBreaker breaker = registry.circuitBreaker("redisCacheRead-test");
+        breaker.transitionToOpenState();
+        when(circuitBreakerRegistryProvider.getIfAvailable()).thenReturn(registry);
+
+        RedisCacheService cbService = new RedisCacheService(
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator,
+                circuitBreakerRegistryProvider, cacheProperties);
+
+        when(localCacheService.get("cb", String.class)).thenReturn(Optional.empty());
+
+        String result = cbService.getOrCompute("cb", String.class, 60, () -> "fallback");
+
+        assertEquals("fallback", result);
+    }
+
+    @Test
+    void lockTtlUsesConfiguredValue() {
+        when(localCacheService.get("k", String.class)).thenReturn(Optional.empty());
+        when(valueOps.get("bhukkad:k")).thenReturn(null);
+        when(cacheProperties.getLockTtlSeconds()).thenReturn(45L);
+        when(stringValueOps.setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), eq(Duration.ofSeconds(45))))
+                .thenReturn(true);
+
+        RedisCacheService customLockTtlService = new RedisCacheService(
+                redisTemplate, stringRedisTemplate, objectMapper, localCacheService, distributedInvalidator,
+                circuitBreakerRegistryProvider, cacheProperties);
+
+        customLockTtlService.getOrCompute("k", String.class, 60, () -> "computed");
+
+        verify(stringValueOps).setIfAbsent(eq("bhukkad:cache-lock:k"), anyString(), eq(Duration.ofSeconds(45)));
     }
 }

@@ -49,6 +49,28 @@ spring:
         jdbc.batch_versioned_data: true
         query_plan_cache_size: 200
     open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 5s
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 64
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:}
+        nodes: ${REDIS_SENTINEL_NODES:}
+        password: ${REDIS_SENTINEL_PASSWORD:}
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:}
+        max-redirects: 3
   flyway: {enabled: true, locations: classpath:db/migration-pg, baseline-on-migrate: true}
 management:
   tracing:

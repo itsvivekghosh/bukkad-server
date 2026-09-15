@@ -1,5 +1,6 @@
 package com.bhukkad.common.config;
 
+import com.bhukkad.common.cache.CacheProperties;
 import com.bhukkad.common.cache.LocalCacheProperties;
 import com.bhukkad.common.cache.StampedeProperties;
 import com.bhukkad.common.chaos.ChaosProperties;
@@ -31,6 +32,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @EnableConfigurationProperties({
+        CacheProperties.class,
         ChaosProperties.class,
         ClusterProperties.class,
         ExternalEventsProperties.class,

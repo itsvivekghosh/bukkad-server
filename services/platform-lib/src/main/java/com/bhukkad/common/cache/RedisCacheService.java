@@ -1,9 +1,14 @@
 package com.bhukkad.common.cache;
 
+import com.bhukkad.common.cache.CacheProperties;
 import com.bhukkad.common.cache.DistributedCacheInvalidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -41,7 +46,21 @@ public class RedisCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisCacheService.class);
     private static final String LOCK_PREFIX = "cache-lock:";
-    private static final long LOCK_TTL_SECONDS = 10L;
+
+    /**
+     * TTL for the distributed single-flight lock. Injected from
+     * {@link CacheProperties#getLockTtlSeconds()} so operators can tune it
+     * to P99 supplier latency + margin (default: 30 s).
+     */
+    private final long lockTtlSeconds;
+
+    /**
+     * Maximum active entries in the in-JVM single-flight map before stale
+     * completed futures are evicted. Prevents unbounded heap growth under
+     * sustained high-cardinality cache misses.
+     */
+    private final int maxInFlightEntries;
+
     private static final double TTL_JITTER_PERCENT = 0.10;
 
     /**
@@ -71,6 +90,8 @@ public class RedisCacheService {
     private final ObjectMapper objectMapper;
     private final LocalCacheService localCacheService;
     private final DistributedCacheInvalidator distributedInvalidator;
+    private final ObjectProvider<CircuitBreakerRegistry> circuitBreakerRegistryProvider;
+    private final CacheProperties cacheProperties;
 
     /**
      * In-JVM single-flight map: one entry per key currently being computed by
@@ -86,12 +107,18 @@ public class RedisCacheService {
                              StringRedisTemplate stringRedisTemplate,
                              ObjectMapper objectMapper,
                              LocalCacheService localCacheService,
-                             DistributedCacheInvalidator distributedInvalidator) {
+                             DistributedCacheInvalidator distributedInvalidator,
+                             ObjectProvider<CircuitBreakerRegistry> circuitBreakerRegistryProvider,
+                             CacheProperties cacheProperties) {
         this.redisTemplate = redisTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.localCacheService = localCacheService;
         this.distributedInvalidator = distributedInvalidator;
+        this.circuitBreakerRegistryProvider = circuitBreakerRegistryProvider;
+        this.cacheProperties = cacheProperties;
+        this.lockTtlSeconds = cacheProperties.getLockTtlSeconds();
+        this.maxInFlightEntries = cacheProperties.getMaxInFlightEntries();
     }
 
     // ==================== CACHE-ASIDE READ PATH ====================
@@ -167,9 +194,19 @@ public class RedisCacheService {
      * flight key is variant-prefixed ({@code v:}/{@code l:}) so the single-value
      * and list variants of the same cache key never share a differently-typed
      * future.
+     *
+     * <p>When the in-flight map exceeds {@link #maxInFlightEntries}, completed
+     * futures are evicted before registering a new flight. This bounds heap
+     * usage under sustained high-cardinality workloads.</p>
      */
     @SuppressWarnings("unchecked")
     private <T> CompletableFuture<T> registerOrJoinFlight(String flightKey, CompletableFuture<T> future) {
+        // Best-effort eviction of completed flights to bound memory. Runs only
+        // on the cache-miss path, so it does not affect the hot L1/L2 hit
+        // fast-path.
+        if (inFlightLoads.size() > maxInFlightEntries) {
+            inFlightLoads.entrySet().removeIf(entry -> entry.getValue().isDone());
+        }
         CompletableFuture<?> existing = inFlightLoads.putIfAbsent(flightKey, future);
         return existing == null ? null : (CompletableFuture<T>) existing;
     }
@@ -238,7 +275,8 @@ public class RedisCacheService {
         String cacheName = extractCacheName(key);
         try {
             String fullKey = buildKey(key);
-            redisTemplate.delete(fullKey);
+            withCircuitBreaker("redisCacheWrite",
+                    () -> { redisTemplate.delete(fullKey); return null; });
             localCacheService.invalidate(key);
             log.debug("CACHE_DELETE key={}", fullKey);
         } catch (Exception e) {
@@ -257,7 +295,8 @@ public class RedisCacheService {
             // in bounded batches and does not block concurrent traffic.
             Set<String> keys = scanKeys(fullPattern);
             if (!keys.isEmpty()) {
-                redisTemplate.delete(keys);
+                // Batch DEL in chunks to avoid a single huge command.
+                deleteBatch(new ArrayList<>(keys), "redisCacheWrite");
                 log.debug("CACHE_DELETE_PATTERN pattern={} count={}", fullPattern, keys.size());
             }
         } catch (Exception e) {
@@ -292,7 +331,12 @@ public class RedisCacheService {
                 long delta = java.util.concurrent.ThreadLocalRandom.current().nextLong(-jitter, jitter + 1);
                 jitteredTtl = Math.max(10, ttlSeconds + delta);
             }
-            redisTemplate.opsForValue().set(fullKey, value, Duration.ofSeconds(jitteredTtl));
+            final long finalJitteredTtl = jitteredTtl;
+            withCircuitBreaker("redisCacheWrite",
+                    () -> {
+                        redisTemplate.opsForValue().set(fullKey, value, Duration.ofSeconds(finalJitteredTtl));
+                        return null;
+                    });
             log.debug("CACHE_SET key={} ttl={}s (jittered from {}s)", fullKey, jitteredTtl, ttlSeconds);
         } catch (Exception e) {
             log.warn("CACHE_SET_FAILED key={} error={}", key, e.getMessage());
@@ -302,7 +346,8 @@ public class RedisCacheService {
     public <T> Optional<T> get(String key, Class<T> type) {
         try {
             String fullKey = buildKey(key);
-            Object value = redisTemplate.opsForValue().get(fullKey);
+            Object value = withCircuitBreaker("redisCacheRead",
+                    () -> redisTemplate.opsForValue().get(fullKey));
 
             if (value != null) {
                 log.debug("CACHE_HIT key={}", fullKey);
@@ -323,7 +368,8 @@ public class RedisCacheService {
     public <T> Optional<List<T>> getList(String key, Class<T> type) {
         try {
             String fullKey = buildKey(key);
-            Object value = redisTemplate.opsForValue().get(fullKey);
+            Object value = withCircuitBreaker("redisCacheRead",
+                    () -> redisTemplate.opsForValue().get(fullKey));
 
             if (value != null) {
                 log.debug("CACHE_HIT key={}", fullKey);
@@ -344,7 +390,8 @@ public class RedisCacheService {
     public boolean exists(String key) {
         try {
             String fullKey = buildKey(key);
-            return Boolean.TRUE.equals(redisTemplate.hasKey(fullKey));
+            return withCircuitBreaker("redisCacheExists",
+                    () -> { Object v = redisTemplate.opsForValue().get(fullKey); return v != null; });
         } catch (Exception e) {
             return false;
         }
@@ -353,7 +400,8 @@ public class RedisCacheService {
     public void setExpiry(String key, long ttlSeconds) {
         try {
             String fullKey = buildKey(key);
-            redisTemplate.expire(fullKey, ttlSeconds, TimeUnit.SECONDS);
+            withCircuitBreaker("redisCacheWrite",
+                    () -> { redisTemplate.expire(fullKey, ttlSeconds, TimeUnit.SECONDS); return null; });
         } catch (Exception e) {
             log.warn("CACHE_EXPIRY_FAILED key={} error={}", key, e.getMessage());
         }
@@ -364,7 +412,8 @@ public class RedisCacheService {
     public void hSet(String key, String field, Object value) {
         try {
             String fullKey = buildKey(key);
-            redisTemplate.opsForHash().put(fullKey, field, value);
+            withCircuitBreaker("redisCacheWrite",
+                    () -> { redisTemplate.opsForHash().put(fullKey, field, value); return null; });
             log.debug("CACHE_HSET key={} field={}", fullKey, field);
         } catch (Exception e) {
             log.warn("CACHE_HSET_FAILED key={} field={} error={}", key, field, e.getMessage());
@@ -374,7 +423,8 @@ public class RedisCacheService {
     public <T> Optional<T> hGet(String key, String field, Class<T> type) {
         try {
             String fullKey = buildKey(key);
-            Object value = redisTemplate.opsForHash().get(fullKey, field);
+            Object value = withCircuitBreaker("redisCacheRead",
+                    () -> redisTemplate.opsForHash().get(fullKey, field));
             if (value != null) {
                 return Optional.of(objectMapper.convertValue(value, type));
             }
@@ -388,7 +438,8 @@ public class RedisCacheService {
     public void hDelete(String key, String... fields) {
         try {
             String fullKey = buildKey(key);
-            redisTemplate.opsForHash().delete(fullKey, (Object[]) fields);
+            withCircuitBreaker("redisCacheWrite",
+                    () -> { redisTemplate.opsForHash().delete(fullKey, (Object[]) fields); return null; });
         } catch (Exception e) {
             log.warn("CACHE_HDEL_FAILED key={} error={}", key, e.getMessage());
         }
@@ -399,7 +450,8 @@ public class RedisCacheService {
     public Long increment(String key) {
         try {
             String fullKey = buildKey(key);
-            return redisTemplate.opsForValue().increment(fullKey);
+            return withCircuitBreaker("redisCacheWrite",
+                    () -> redisTemplate.opsForValue().increment(fullKey));
         } catch (Exception e) {
             log.warn("CACHE_INCREMENT_FAILED key={} error={}", key, e.getMessage());
             return null;
@@ -412,7 +464,10 @@ public class RedisCacheService {
         try {
             Set<String> keys = scanKeys(CacheConstants.KEY_PREFIX + "*");
             if (!keys.isEmpty()) {
-                redisTemplate.delete(keys);
+                // Batch DEL in chunks to avoid blocking the Redis event loop with
+                // a single huge command. Each chunk issues one DEL with up to
+                // 500 keys.
+                deleteBatch(new ArrayList<>(keys), "redisCacheAdmin");
                 log.info("CACHE_CLEAR_ALL count={}", keys.size());
             }
         } catch (Exception e) {
@@ -442,6 +497,37 @@ public class RedisCacheService {
     // ==================== HELPERS ====================
 
     /**
+     * Executes {@code supplier} under a Resilience4j circuit breaker named
+     * {@code breakerName}. When the breaker is open, calls fail fast with
+     * {@link CallNotPermittedException}, which the caller should treat as
+     * "Redis unavailable" and fall through to its supplier/empty-return path.
+     * If no {@link CircuitBreakerRegistry} is present, the supplier runs
+     * unguarded (dev/test profiles without Resilience4j).
+     */
+    private <T> T withCircuitBreaker(String breakerName, Supplier<T> supplier) {
+        CircuitBreakerRegistry registry = circuitBreakerRegistryProvider.getIfAvailable();
+        if (registry == null) {
+            return supplier.get();
+        }
+        CircuitBreaker breaker = registry.circuitBreaker(breakerName);
+        return CircuitBreaker.decorateSupplier(breaker, supplier).get();
+    }
+
+    /**
+     * Deletes keys in batches of 500 to avoid sending a single huge DEL
+     * command that blocks the Redis event loop.
+     */
+    private void deleteBatch(List<String> keys, String breakerName) {
+        int batchSize = 500;
+        for (int i = 0; i < keys.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, keys.size());
+            List<String> batch = keys.subList(i, end);
+            withCircuitBreaker(breakerName,
+                    () -> { redisTemplate.delete(batch); return null; });
+        }
+    }
+
+    /**
      * Attempts to acquire the single-flight lock for {@code lockKey}. Returns
      * the unique ownership token on success, or {@code null} when the lock is
      * held by another pod or Redis is unavailable (the caller then falls
@@ -450,8 +536,9 @@ public class RedisCacheService {
     private String tryAcquireLock(String lockKey) {
         try {
             String token = UUID.randomUUID().toString();
-            Boolean acquired = stringRedisTemplate.opsForValue()
-                    .setIfAbsent(buildKey(lockKey), token, Duration.ofSeconds(LOCK_TTL_SECONDS));
+            Boolean acquired = withCircuitBreaker("redisCacheLock",
+                    () -> stringRedisTemplate.opsForValue()
+                            .setIfAbsent(buildKey(lockKey), token, Duration.ofSeconds(lockTtlSeconds)));
             return Boolean.TRUE.equals(acquired) ? token : null;
         } catch (Exception e) {
             log.warn("CACHE_LOCK_FAILED key={} error={}", lockKey, e.getMessage());
@@ -467,7 +554,8 @@ public class RedisCacheService {
      */
     private void releaseLock(String lockKey, String token) {
         try {
-            stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(buildKey(lockKey)), token);
+            withCircuitBreaker("redisCacheLock",
+                    () -> stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(buildKey(lockKey)), token));
         } catch (Exception e) {
             log.warn("CACHE_UNLOCK_FAILED key={} error={}", lockKey, e.getMessage());
         }
@@ -485,10 +573,14 @@ public class RedisCacheService {
      */
     private Set<String> scanKeys(String pattern) {
         Set<String> keys = new LinkedHashSet<>();
-        try (Cursor<String> cursor = redisTemplate.scan(
-                ScanOptions.scanOptions().match(pattern).count(200).build())) {
-            while (cursor.hasNext()) {
-                keys.add(cursor.next());
+        try {
+            Cursor<String> cursor = withCircuitBreaker("redisCacheScan",
+                    () -> redisTemplate.scan(
+                            ScanOptions.scanOptions().match(pattern).count(200).build()));
+            try (cursor) {
+                while (cursor.hasNext()) {
+                    keys.add(cursor.next());
+                }
             }
         } catch (Exception e) {
             log.warn("CACHE_SCAN_FAILED pattern={} error={}", pattern, e.getMessage());
