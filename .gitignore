@@ -88,3 +88,9 @@ services/docker/images/
 *.bak/
 .trash-rootowned/
 dump.rdb
+
+# mTLS local certs and keystores (Batch 1) — never commit private material
+infra/mTLS/ca/*.key
+infra/mTLS/**/*.key
+infra/mTLS/**/*.p12
+infra/mTLS/**/*.jks

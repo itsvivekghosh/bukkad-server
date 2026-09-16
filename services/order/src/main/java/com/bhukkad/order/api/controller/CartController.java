@@ -10,6 +10,7 @@ import com.bhukkad.order.domain.service.impl.CartService;
 import com.bhukkad.order.domain.service.impl.OrderInvoiceService;
 import com.bhukkad.order.domain.service.impl.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -69,6 +70,7 @@ public class CartController {
     }
 
     @DeleteMapping("/cart")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void clearCart(@AuthenticationPrincipal TokenPrincipal principal,
                           @PathVariable Long customerId) {
         PrincipalGuard.requireSelfOrAdmin(principal, customerId);

@@ -129,15 +129,15 @@ class KafkaPlatformConfigTest {
         assertThat(KafkaPlatformProperties.disabled().isKafkaEnabled()).isFalse();
 
         KafkaPlatformProperties enabledKafka = new KafkaPlatformProperties(true, "kafka",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000), false, 3);
         assertThat(enabledKafka.isKafkaEnabled()).isTrue();
 
         KafkaPlatformProperties enabledLog = new KafkaPlatformProperties(true, "log",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000), false, 3);
         assertThat(enabledLog.isKafkaEnabled()).isFalse();
 
         KafkaPlatformProperties disabledKafka = new KafkaPlatformProperties(false, "kafka",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000), false, 3);
         assertThat(disabledKafka.isKafkaEnabled()).isFalse();
     }
 }

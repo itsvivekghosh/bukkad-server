@@ -88,7 +88,7 @@ class RazorpayPaymentGatewayTest {
         route("/orders/order_1/payments", 200, CAPTURED_PAYMENT);
 
         PaymentGateway.GatewayResult result = gateway.authorize(
-                1L, 2L, new BigDecimal("100.00"), "INR");
+                1L, 2L, new BigDecimal("100.00"), "INR").block();
 
         assertThat(result.success()).isTrue();
         assertThat(result.providerRef()).isEqualTo("pay_1");
@@ -109,7 +109,7 @@ class RazorpayPaymentGatewayTest {
         route("/payments/pay_9/capture", 200, "{\"id\":\"pay_9\",\"status\":\"captured\"}");
 
         PaymentGateway.GatewayResult result = gateway.authorize(
-                1L, 2L, new BigDecimal("250.50"), "INR");
+                1L, 2L, new BigDecimal("250.50"), "INR").block();
 
         assertThat(result.success()).isTrue();
         assertThat(result.providerRef()).isEqualTo("pay_9");
@@ -133,7 +133,7 @@ class RazorpayPaymentGatewayTest {
         });
 
         PaymentGateway.GatewayResult result = gateway.authorize(
-                1L, 2L, new BigDecimal("100.00"), "INR");
+                1L, 2L, new BigDecimal("100.00"), "INR").block();
 
         assertThat(result.success()).isFalse();
         assertThat(result.message()).contains("No captured payment");
@@ -145,7 +145,7 @@ class RazorpayPaymentGatewayTest {
         route("/orders", 402, "{\"error\":{\"description\":\"payment declined\"}}");
 
         PaymentGateway.GatewayResult result = gateway.authorize(
-                1L, 2L, new BigDecimal("100.00"), "INR");
+                1L, 2L, new BigDecimal("100.00"), "INR").block();
 
         assertThat(result.success()).isFalse();
         assertThat(result.message()).contains("402");
@@ -156,7 +156,7 @@ class RazorpayPaymentGatewayTest {
     void authorize_nonPositiveAmount_failsWithoutNetworkCall() {
         int before = requests.size();
         PaymentGateway.GatewayResult result = gateway.authorize(
-                1L, 2L, BigDecimal.ZERO, "INR");
+                1L, 2L, BigDecimal.ZERO, "INR").block();
         assertThat(result.success()).isFalse();
         assertThat(requests.size()).isEqualTo(before);
     }
@@ -165,7 +165,7 @@ class RazorpayPaymentGatewayTest {
     void refund_againstCapturedPayment_postsPaiseAmount() {
         route("/payments/pay_42/refund", 200, "{\"id\":\"rfnd_1\"}");
 
-        PaymentGateway.GatewayResult result = gateway.refund(42L, new BigDecimal("99.99"));
+        PaymentGateway.GatewayResult result = gateway.refund(42L, new BigDecimal("99.99")).block();
 
         assertThat(result.success()).isTrue();
         assertThat(result.providerRef()).isEqualTo("rfnd_1");
@@ -181,7 +181,7 @@ class RazorpayPaymentGatewayTest {
                 new PaymentProperties(),
                 paymentId -> null);
 
-        PaymentGateway.GatewayResult result = gatewayWithoutRef.refund(1L, new BigDecimal("10.00"));
+        PaymentGateway.GatewayResult result = gatewayWithoutRef.refund(1L, new BigDecimal("10.00")).block();
 
         assertThat(result.success()).isFalse();
         assertThat(result.message()).contains("No provider payment reference");
@@ -191,7 +191,7 @@ class RazorpayPaymentGatewayTest {
     void refund_pspRejection_mapsToFailingResult() {
         route("/payments/pay_42/refund", 400, "{\"error\":{\"description\":\"already refunded\"}}");
 
-        PaymentGateway.GatewayResult result = gateway.refund(42L, new BigDecimal("10.00"));
+        PaymentGateway.GatewayResult result = gateway.refund(42L, new BigDecimal("10.00")).block();
 
         assertThat(result.success()).isFalse();
         assertThat(result.message()).contains("400");

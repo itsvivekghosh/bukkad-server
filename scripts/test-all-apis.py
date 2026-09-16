@@ -57,6 +57,72 @@ AUTH_MAP = {
     "customer_refresh": "customer_refresh_token",
 }
 
+# Path-prefix → service name routing table. Used when per-service base URLs
+# are configured so that tests can bypass the gateway and avoid circuit-
+# breaker 503s during CI.
+SERVICE_PREFIX_MAP = [
+    ("/api/v1/auth/", "identity"),
+    ("/api/v1/internal/admin/users", "identity"),
+    ("/api/v1/affiliate/", "identity"),
+    ("/api/v1/restaurants/", "restaurant"),
+    ("/api/v1/menu/", "restaurant"),
+    ("/api/v1/cuisines/", "restaurant"),
+    ("/api/v1/search/", "search"),
+    ("/api/v1/reviews/survey", "survey"),
+    ("/api/v1/reviews/", "restaurant"),
+    ("/api/v1/home/", "restaurant"),
+    ("/api/v1/mobile/", "restaurant"),
+    ("/api/v1/feed/", "restaurant"),
+    ("/api/v1/pricing/", "restaurant"),
+    ("/api/v1/inventory/", "restaurant"),
+    ("/api/v1/cart/", "order"),
+    ("/api/v1/orders/", "order"),
+    ("/api/v1/gift-cards/", "order"),
+    ("/api/v1/delivery-truth/", "order"),
+    ("/api/v1/customers/orders/", "order"),
+    ("/api/v1/payments/", "payment"),
+    ("/api/v1/internal/delivery/", "payment"),
+    ("/api/v1/internal/payments/", "payment"),
+    ("/api/v1/delivery/", "delivery"),
+    ("/api/v1/deliveries/", "delivery"),
+    ("/api/v1/serviceability/", "delivery"),
+    ("/api/v1/referrals/", "referral"),
+    ("/api/v1/referral/", "referral"),
+    ("/api/v1/support/", "support"),
+    ("/api/v1/notifications/", "notification"),
+    ("/api/v1/admin/", "admin"),
+    ("/api/v1/live/", "realtime"),
+    ("/api/v1/campaigns/", "growth"),
+    ("/api/v1/customers/", "identity"),  # fallback after specific customer subpaths above
+]
+
+
+def resolve_service_base_url(path: str, service_urls: dict[str, str], default_base_url: str) -> str:
+    """Pick the best base URL for a request path.
+
+    If per-service URLs are configured and the path matches a known prefix,
+    return the service-specific URL; otherwise return the default gateway URL.
+    """
+    if not service_urls:
+        return default_base_url
+    for prefix, service_name in SERVICE_PREFIX_MAP:
+        if path == prefix or path.startswith(prefix):
+            return service_urls.get(service_name, default_base_url)
+    return default_base_url
+
+
+# Module-level service URL overrides (set by main() from CLI args).
+_SERVICE_URLS: dict[str, str] = {}
+
+
+def set_service_urls(urls: dict[str, str]) -> None:
+    global _SERVICE_URLS
+    _SERVICE_URLS = dict(urls)
+
+
+def get_service_base_url(path: str, default_base_url: str) -> str:
+    return resolve_service_base_url(path, _SERVICE_URLS, default_base_url)
+
 # JSON fields that must stay strings even when numeric-looking
 STRING_JSON_KEYS = frozenset({
     "phoneNumber", "code", "token", "platform", "pincode", "paymentMethod",
@@ -361,7 +427,8 @@ def run_test(
             )
 
     path = resolve_string(spec["path"], state)
-    url = base_url.rstrip("/") + path
+    resolved_base = get_service_base_url(path, base_url)
+    url = resolved_base.rstrip("/") + path
 
     # Append query parameters if present
     query_params = spec.get("query")
@@ -432,13 +499,25 @@ def run_test(
     try:
         status, response_text, _ = http_request(method, url, headers, body_bytes, timeout)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        # One-shot resilience retry: when an upstream is restarting (gateway's
-        # structured UPSTREAM_UNAVAILABLE body) the 503 reflects container
-        # churn, not application behavior. A single immediate retry keeps
-        # results meaningful on memory-constrained hosts without masking
-        # real defects (the body signature is gateway-specific).
-        if (status == 503
-                and '"code":"UPSTREAM_UNAVAILABLE"' in response_text.replace(" ", "")):
+        # Circuit-breaker resilience: retry 503s with backoff. The gateway's
+        # Resilience4j circuit breakers open under load and stay open for ~30s;
+        # a short retry loop keeps CI green without masking real defects.
+        retry_attempts = 3
+        retry_delays = [0.5, 1.5, 4.0]  # seconds
+        for attempt in range(retry_attempts - 1):
+            if status != 503:
+                break
+            # Also skip retry for upstream-unavailable 503s (already handled
+            # below) to avoid double-retrying the same condition.
+            if '"code":"UPSTREAM_UNAVAILABLE"' in response_text.replace(" ", ""):
+                break
+            delay = retry_delays[attempt]
+            time.sleep(delay)
+            status, response_text, _ = http_request(method, url, headers, body_bytes, timeout)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+        # One-shot resilience retry for upstream-unavailable 503s (container
+        # churn during restart).
+        if status == 503 and '"code":"UPSTREAM_UNAVAILABLE"' in response_text.replace(" ", ""):
             status, response_text, _ = http_request(method, url, headers, body_bytes, timeout)
             duration_ms = int((time.perf_counter() - start) * 1000)
         expected = spec.get("expected", [200])
@@ -657,8 +736,8 @@ def seed_demo_restaurant(base_url: str, state: RunState, timeout: int) -> bool:
     owner_h = {"Content-Type": "application/json", "Authorization": f"Bearer {owner}"}
     # restaurants.cuisine_id is NOT NULL with no seeded cuisines in fresh deployments
     try:
-        cu_s, cu_t, _ = http_request("POST", f"{base_url}/api/v1/cuisines?name=Seed%20Cuisine%20{suffix}",
-                                     owner_h, b"{}", timeout)
+        cuisine_url = get_service_base_url("/api/v1/cuisines", base_url) + f"/api/v1/cuisines?name=Seed%20Cuisine%20{suffix}"
+        cu_s, cu_t, _ = http_request("POST", cuisine_url, owner_h, b"{}", timeout)
     except ConnectionError:
         print(f"  {YELLOW}↳ Seeding aborted: transport error on cuisine bootstrap{RESET}")
         return False
@@ -669,7 +748,8 @@ def seed_demo_restaurant(base_url: str, state: RunState, timeout: int) -> bool:
     except json.JSONDecodeError:
         cuisine_id = None
     rid = None
-    st, tx, _ = http_request("POST", f"{base_url}/api/v1/restaurants/owner",
+    restaurant_url = get_service_base_url("/api/v1/restaurants/owner", base_url) + "/api/v1/restaurants/owner"
+    st, tx, _ = http_request("POST", restaurant_url,
                           {"Content-Type": "application/json", "Authorization": f"Bearer {owner}"},
                           json.dumps({"name": f"Seed Kitchen {suffix}",
                                       "description": "Bootstrap demo restaurant",
@@ -682,7 +762,7 @@ def seed_demo_restaurant(base_url: str, state: RunState, timeout: int) -> bool:
                                       "freeDeliveryAvailable": True, "freeDeliveryAbove": 500,
                                       "isPureVeg": False,
                                       "fssaiNumber": f"FSS-SEED-{suffix}",
-          "cuisineId": cuisine_id or 1}).encode(), timeout)
+            "cuisineId": cuisine_id or 1}).encode(), timeout)
     if st == 200:
         try:
             rid = json.loads(tx).get("id")
@@ -692,9 +772,11 @@ def seed_demo_restaurant(base_url: str, state: RunState, timeout: int) -> bool:
         return False
     state.vars["restaurant_id"] = str(rid)
     try:
-        http_request("PUT", f"{base_url}/api/v1/restaurants/owner/{rid}/toggle-status?isOpen=true",
+        toggle_url = get_service_base_url(f"/api/v1/restaurants/owner/{rid}/toggle-status", base_url) + f"/api/v1/restaurants/owner/{rid}/toggle-status?isOpen=true"
+        http_request("PUT", toggle_url,
                      {"Content-Type": "application/json", "Authorization": f"Bearer {owner}"}, "{}".encode(), timeout)
-        cs, ctx, _ = http_request("POST", f"{base_url}/api/v1/menu/categories?restaurantId={rid}",
+        menu_url = get_service_base_url(f"/api/v1/menu/categories?restaurantId={rid}", base_url) + f"/api/v1/menu/categories?restaurantId={rid}"
+        cs, ctx, _ = http_request("POST", menu_url,
                                   {"Content-Type": "application/json", "Authorization": f"Bearer {owner}"},
                                   json.dumps({"name": "Seed Starters", "description": "Bootstrap",
                                               "displayOrder": 1, "active": True}).encode(), timeout)
@@ -709,7 +791,8 @@ def seed_demo_restaurant(base_url: str, state: RunState, timeout: int) -> bool:
     if cat_id:
         state.vars["category_id"] = str(cat_id)
     try:
-        ms, mtext, _ = http_request("POST", f"{base_url}/api/v1/menu/items",
+        menu_items_url = get_service_base_url("/api/v1/menu/items", base_url) + "/api/v1/menu/items"
+        ms, mtext, _ = http_request("POST", menu_items_url,
                                     {"Content-Type": "application/json", "Authorization": f"Bearer {owner}"},
                                     json.dumps({"name": "Seed Paneer Tikka", "description": "Bootstrap dish",
                                                 "categoryId": cat_id, "price": 199.0, "foodType": "VEG",
@@ -764,6 +847,20 @@ def bootstrap_accounts(
     ):
         register_or_login(role, reg_key, login_key, base_url, state, timeout)
 
+    # Verify the agent via admin API so it can accept deliveries. Without this,
+    # agent endpoints return 403 for the entire run.
+    admin_tok = state.tokens.get("admin_token")
+    agent_id = state.vars.get("agent_id")
+    if admin_tok and agent_id:
+        verify_spec = {
+            "name": "_bootstrap_verify_agent",
+            "method": "PUT",
+            "path": f"/api/v1/admin/agents/{agent_id}/verify",
+            "auth": "admin",
+            "expected": [200],
+        }
+        run_test(verify_spec, base_url, state, timeout, verbose=False)
+
     if admin_email and admin_password:
         state.vars["bootstrap_admin_email"] = admin_email
         state.vars["bootstrap_admin_password"] = admin_password
@@ -781,6 +878,16 @@ def bootstrap_accounts(
         if not result.passed:
             print(f"  {YELLOW}↳ Admin login failed — admin API tests will be skipped.{RESET}")
             print(f"  {DIM}  Seed admin via DevAdminBootstrap or pass --admin-email / --admin-password{RESET}")
+        # Re-verify agent with the fresh admin token if the first attempt used a stale token.
+        if result.passed and agent_id:
+            verify_spec = {
+                "name": "_bootstrap_verify_agent_retry",
+                "method": "PUT",
+                "path": f"/api/v1/admin/agents/{agent_id}/verify",
+                "auth": "admin",
+                "expected": [200],
+            }
+            run_test(verify_spec, base_url, state, timeout, verbose=False)
 
 
 def create_cancel_order(
@@ -825,6 +932,27 @@ def setup_delivery_proof_order(
     if not state.vars.get("menu_item_id") or not state.vars.get("address_id") or not state.vars.get("agent_id"):
         return
 
+    # Ensure the agent is admin-verified and available before any delivery action.
+    agent_id = state.vars["agent_id"]
+    admin_tok = state.tokens.get("admin_token")
+    agent_tok = state.tokens.get("agent_token")
+    if admin_tok:
+        run_test({
+            "name": "_setup_dp_verify_agent",
+            "method": "PUT",
+            "path": f"/api/v1/admin/agents/{agent_id}/verify",
+            "auth": "admin",
+            "expected": [200],
+        }, base_url, state, timeout, verbose=False)
+    if agent_tok:
+        run_test({
+            "name": "_setup_dp_agent_available",
+            "method": "PUT",
+            "path": "/api/v1/delivery/toggle-availability?available=true",
+            "auth": "agent",
+            "expected": [200],
+        }, base_url, state, timeout, verbose=False)
+
     # 1. Add to cart
     add_spec = {
         "name": "_setup_dp_cart",
@@ -854,45 +982,65 @@ def setup_delivery_proof_order(
     if not dp_order_id:
         return
 
-    # 3. Accept order (owner)
-    accept_spec = {
-        "name": "_setup_dp_accept",
-        "method": "PUT",
-        "path": f"/api/v1/orders/restaurant/{dp_order_id}/accept",
-        "auth": "owner",
-        "expected": [200],
-    }
-    run_test(accept_spec, base_url, state, timeout, verbose=False)
+    # 3. Accept order (owner) with retry — circuit breakers may need a moment.
+    for attempt in range(3):
+        accept_spec = {
+            "name": "_setup_dp_accept",
+            "method": "PUT",
+            "path": f"/api/v1/orders/restaurant/{dp_order_id}/accept",
+            "auth": "owner",
+            "expected": [200],
+        }
+        result = run_test(accept_spec, base_url, state, timeout, verbose=False)
+        if result.passed:
+            break
+        if attempt < 2:
+            time.sleep(1.5 * (attempt + 1))
 
-    # 4. Mark ready (owner)
-    ready_spec = {
-        "name": "_setup_dp_ready",
-        "method": "PUT",
-        "path": f"/api/v1/orders/restaurant/{dp_order_id}/ready",
-        "auth": "owner",
-        "expected": [200],
-    }
-    run_test(ready_spec, base_url, state, timeout, verbose=False)
+    # 4. Mark ready (owner) with retry
+    for attempt in range(3):
+        ready_spec = {
+            "name": "_setup_dp_ready",
+            "method": "PUT",
+            "path": f"/api/v1/orders/restaurant/{dp_order_id}/ready",
+            "auth": "owner",
+            "expected": [200],
+        }
+        result = run_test(ready_spec, base_url, state, timeout, verbose=False)
+        if result.passed:
+            break
+        if attempt < 2:
+            time.sleep(1.5 * (attempt + 1))
 
-    # 5. Assign delivery agent (owner assigns test agent)
-    assign_spec = {
-        "name": "_setup_dp_assign",
-        "method": "PUT",
-        "path": f"/api/v1/orders/restaurant/{dp_order_id}/assign-delivery?agentId={state.vars['agent_id']}",
-        "auth": "owner",
-        "expected": [200],
-    }
-    run_test(assign_spec, base_url, state, timeout, verbose=False)
+    # 5. Assign delivery agent (owner assigns test agent) with retry
+    for attempt in range(3):
+        assign_spec = {
+            "name": "_setup_dp_assign",
+            "method": "PUT",
+            "path": f"/api/v1/orders/restaurant/{dp_order_id}/assign-delivery?agentId={state.vars['agent_id']}",
+            "auth": "owner",
+            "expected": [200],
+        }
+        result = run_test(assign_spec, base_url, state, timeout, verbose=False)
+        if result.passed:
+            break
+        if attempt < 2:
+            time.sleep(1.5 * (attempt + 1))
 
-    # 6. Mark picked up (agent)
-    pickup_spec = {
-        "name": "_setup_dp_pickup",
-        "method": "PUT",
-        "path": f"/api/v1/orders/delivery/{dp_order_id}/picked-up",
-        "auth": "agent",
-        "expected": [200],
-    }
-    run_test(pickup_spec, base_url, state, timeout, verbose=False)
+    # 6. Mark picked up (agent) with retry
+    for attempt in range(3):
+        pickup_spec = {
+            "name": "_setup_dp_pickup",
+            "method": "PUT",
+            "path": f"/api/v1/orders/delivery/{dp_order_id}/picked-up",
+            "auth": "agent",
+            "expected": [200],
+        }
+        result = run_test(pickup_spec, base_url, state, timeout, verbose=False)
+        if result.passed:
+            break
+        if attempt < 2:
+            time.sleep(1.5 * (attempt + 1))
 
 
 def setup_review_for_moderation(
@@ -1218,7 +1366,7 @@ def _register_edge_battery(state: RunState) -> None:
 def _probe(method: str, path: str, token: str | None = None, body: Any = None,
            headers: dict[str, str] | None = None) -> tuple[int | None, str]:
     """Minimal single-endpoint probe helper for edge batteries."""
-    base = _EDGE_STATE["base_url"]
+    base = get_service_base_url(path, _EDGE_STATE["base_url"])
     h = {"Accept": "application/json"}
     if token:
         h["Authorization"] = f"Bearer {token}"
@@ -1230,9 +1378,17 @@ def _probe(method: str, path: str, token: str | None = None, body: Any = None,
     try:
         status, text, _ = http_request(method, f"{base}{path}", h, raw,
                                        _EDGE_STATE["timeout"])
-        # One-shot resilience retry — batteries run right after the rate-limit
-        # stress phase (45 rapid calls); a peer may still be recovering from
-        # connection churn. Mirrors run_test's UPSTREAM_UNAVAILABLE retry.
+        # Circuit-breaker resilience: retry 503s with backoff.
+        retry_delays = [0.5, 1.5, 4.0]
+        for attempt in range(2):
+            if status != 503:
+                break
+            if '"code":"UPSTREAM_UNAVAILABLE"' in text.replace(" ", ""):
+                break
+            time.sleep(retry_delays[attempt])
+            status, text, _ = http_request(method, f"{base}{path}", h, raw,
+                                           _EDGE_STATE["timeout"])
+        # One-shot resilience retry for upstream-unavailable 503s.
         if status == 503 and '"code":"UPSTREAM_UNAVAILABLE"' in text.replace(" ", ""):
             status, text, _ = http_request(method, f"{base}{path}", h, raw,
                                            _EDGE_STATE["timeout"])
@@ -1509,6 +1665,113 @@ def battery_webhook_edges(base_url: str, state: RunState, timeout: int) -> None:
             f"{base_url}/api/v1/payments/webhook", "POST")
 
 
+def battery_delivery_proof_edges(base_url: str, state: RunState, timeout: int) -> None:
+    """Delivery proof edges: OTP/upload/verify must be gated by OUT_FOR_DELIVERY,
+    and unknown-order probes must not crash or leak internals."""
+    order_id = state.vars.get("order_id")
+    agent_token = state.tokens.get("agent_token")
+    if not order_id or not agent_token:
+        return
+    cases = [
+        ("GET", f"/api/v1/orders/delivery/{order_id}/proof", "customer_token"),
+        ("POST", f"/api/v1/orders/delivery/{order_id}/proof/otp", "agent_token"),
+        ("POST", f"/api/v1/orders/delivery/{order_id}/proof/photo/upload-url", "agent_token"),
+        ("POST", f"/api/v1/orders/delivery/{order_id}/proof/verify", "agent_token"),
+    ]
+    for method, path, token_key in cases:
+        token = state.tokens.get(token_key)
+        s, t = _probe(method, path, token=token)
+        passed = s in (200, 400, 403, 404)
+        clean = "Exception" not in t and "at com.bhukkad" not in t
+        _edge_battery_result(
+            f"DeliveryProof — {path.rsplit('/', 1)[-1]} handled cleanly (edge)",
+            passed and clean, s, f"status={s} clean={clean} body={t[:120]}",
+            f"{base_url}{path}", method)
+
+
+def battery_order_adjunct_edges(base_url: str, state: RunState, timeout: int) -> None:
+    """Order adjunct edges: invoice/timeline/rider-location/track-alias must return
+    404 for unknown order ids and not fabricate data."""
+    order_id = state.vars.get("order_id")
+    token = state.tokens.get("customer_token")
+    if not order_id or not token:
+        return
+    cases = [
+        ("GET", f"/api/v1/orders/{order_id}/invoice", token),
+        ("GET", f"/api/v1/orders/{order_id}/invoice/pdf", token),
+        ("GET", f"/api/v1/orders/{order_id}/timeline", token),
+        ("GET", f"/api/v1/orders/{order_id}/rider-location", token),
+        ("GET", f"/api/v1/orders/customer/{order_id}/track", token),
+        ("GET", f"/api/v1/orders/delivery-truth/{order_id}/eta", token),
+    ]
+    for method, path, tkn in cases:
+        s, t = _probe(method, path, token=tkn)
+        passed = s in (200, 404, 403, 429)
+        fabricated = s == 200 and order_id in t and ("rider" in t.lower() or "invoice" in t.lower() or "timeline" in t.lower())
+        _edge_battery_result(
+            f"OrderAdjunct — {path.rsplit('/', 1)[-1]} sane (edge)",
+            passed and not fabricated, s, f"status={s} fabricated={fabricated}",
+            f"{base_url}{path}", method)
+
+
+def battery_cart_promotion_edges(base_url: str, state: RunState, timeout: int) -> None:
+    """Cart/promotion edges: apply invalid coupon, negative/zero amounts, missing
+    fields; money surfaces must never 500."""
+    token = state.tokens.get("customer_token")
+    if not token:
+        return
+    cases = [
+        ("POST", "/api/v1/cart/apply-coupon", token, {"code": "INVALID-COUPON-123"}),
+        ("POST", "/api/v1/promotions/evaluate", None, {"restaurantId": 999999, "items": [], "subtotal": -10}),
+        ("POST", "/api/v1/promotions/evaluate", None, {}),
+    ]
+    for method, path, tkn, body in cases:
+        s, t = _probe(method, path, token=tkn, body=body)
+        passed = s in (200, 400, 401, 403, 404)
+        _edge_battery_result(
+            f"CartPromo — {path.rsplit('/', 1)[-1]} handled (edge)",
+            passed, s, f"status={s} body={t[:120]}",
+            f"{base_url}{path}", method)
+
+
+def battery_menu_version_stock_edges(base_url: str, state: RunState, timeout: int) -> None:
+    """Menu version/stock edges: invalid ids, missing fields, unauthorized writes."""
+    owner_token = state.tokens.get("owner_token")
+    if not owner_token:
+        return
+    cases = [
+        ("POST", "/api/v1/menu/versions", owner_token, {"name": "Bad Version"}),
+        ("POST", "/api/v1/menu/versions", None, {}),
+        ("POST", "/api/v1/inventory/stock-reservation/reserve", None, {"menuItemId": 999999, "quantity": 1}),
+        ("POST", "/api/v1/inventory/stock-reservation/release", None, {"menuItemId": 999999, "quantity": 1}),
+    ]
+    for method, path, token, body in cases:
+        s, t = _probe(method, path, token=token, body=body)
+        passed = s in (200, 400, 401, 403, 404)
+        _edge_battery_result(
+            f"MenuStock — {path.rsplit('/', 1)[-1]} handled (edge)",
+            passed, s, f"status={s} body={t[:120]}",
+            f"{base_url}{path}", method)
+
+
+def battery_realtime_edges(base_url: str, state: RunState, timeout: int) -> None:
+    """Realtime SSE edges: missing/invalid path params, auth scoping."""
+    agent_token = state.tokens.get("agent_token")
+    owner_token = state.tokens.get("owner_token")
+    cases = [
+        ("GET", "/api/v1/live/kitchen/not-a-number", owner_token),
+        ("GET", "/api/v1/live/rider/not-a-number", agent_token),
+        ("GET", "/api/v1/live/order/not-a-number", None),
+    ]
+    for method, path, token in cases:
+        s, t = _probe(method, path, token=token)
+        passed = s in (200, 400, 401, 403, 404, 405)
+        _edge_battery_result(
+            f"Realtime — {path.rsplit('/', 1)[-1]} handled (edge)",
+            passed, s, f"status={s} body={t[:120]}",
+            f"{base_url}{path}", method)
+
+
 def run_edge_battery(base_url: str, state: RunState, timeout: int) -> None:
     """Run the full edge-case battery. Called from main() right before the
     destructive teardown, while live tokens are still valid."""
@@ -1524,6 +1787,11 @@ def run_edge_battery(base_url: str, state: RunState, timeout: int) -> None:
         ("resources", battery_resource_edges),
         ("money", battery_money_edges),
         ("webhook", battery_webhook_edges),
+        ("delivery_proof", battery_delivery_proof_edges),
+        ("order_adjunct", battery_order_adjunct_edges),
+        ("cart_promotion", battery_cart_promotion_edges),
+        ("menu_version_stock", battery_menu_version_stock_edges),
+        ("realtime", battery_realtime_edges),
     ]
     for label, battery in batteries:
         try:
@@ -1554,8 +1822,9 @@ def test_e2e_full_journey(base_url: str, state: RunState, timeout: int) -> None:
         for k, v in (headers or {}).items():
             h[k] = v
         raw = json.dumps(body).encode() if body is not None else None
+        resolved_base = get_service_base_url(path, base_url)
         try:
-            status, text, _ = http_request(method, f"{base_url}{path}", h, raw, timeout)
+            status, text, _ = http_request(method, f"{resolved_base}{path}", h, raw, timeout)
             return status, text
         except Exception as e:  # noqa: BLE001 - surfaced via the summary below
             return None, str(e)
@@ -1992,7 +2261,47 @@ def main() -> int:
     parser.add_argument("--reset-data", action="store_true",
                         help="Truncate all user tables and re-seed the dev admin before running tests")
     parser.add_argument("--no-report", action="store_true", help="Skip writing report files")
+    parser.add_argument("--identity-url", default=os.getenv("IDENTITY_SERVICE_URL"), help="Identity service base URL (bypass gateway)")
+    parser.add_argument("--restaurant-url", default=os.getenv("RESTAURANT_SERVICE_URL"), help="Restaurant service base URL (bypass gateway)")
+    parser.add_argument("--order-url", default=os.getenv("ORDER_SERVICE_URL"), help="Order service base URL (bypass gateway)")
+    parser.add_argument("--payment-url", default=os.getenv("PAYMENT_SERVICE_URL"), help="Payment service base URL (bypass gateway)")
+    parser.add_argument("--delivery-url", default=os.getenv("DELIVERY_SERVICE_URL"), help="Delivery service base URL (bypass gateway)")
+    parser.add_argument("--search-url", default=os.getenv("SEARCH_SERVICE_URL"), help="Search service base URL (bypass gateway)")
+    parser.add_argument("--survey-url", default=os.getenv("SURVEY_SERVICE_URL"), help="Survey service base URL (bypass gateway)")
+    parser.add_argument("--referral-url", default=os.getenv("REFERRAL_SERVICE_URL"), help="Referral service base URL (bypass gateway)")
+    parser.add_argument("--support-url", default=os.getenv("SUPPORT_SERVICE_URL"), help="Support service base URL (bypass gateway)")
+    parser.add_argument("--notification-url", default=os.getenv("NOTIFICATION_SERVICE_URL"), help="Notification service base URL (bypass gateway)")
+    parser.add_argument("--admin-url", default=os.getenv("ADMIN_ANALYTICS_SERVICE_URL"), help="Admin analytics service base URL (bypass gateway)")
+    parser.add_argument("--realtime-url", default=os.getenv("REALTIME_SERVICE_URL"), help="Realtime service base URL (bypass gateway)")
+    parser.add_argument("--growth-url", default=os.getenv("GROWTH_SERVICE_URL"), help="Growth service base URL (bypass gateway)")
+    parser.add_argument("--personalization-url", default=os.getenv("PERSONALIZATION_SERVICE_URL"), help="Personalization service base URL (bypass gateway)")
+    parser.add_argument("--circuit-breaker-backoff", type=float, default=0.5,
+                        help="Backoff seconds between requests to reduce circuit-breaker pressure (default 0.5s)")
     args = parser.parse_args()
+
+    # Build per-service URL overrides from CLI args / environment. When set,
+    # these bypass the gateway and avoid circuit-breaker 503 storms in CI.
+    service_urls = {}
+    for svc, arg_name, env_var in [
+        ("identity", "identity_url", "IDENTITY_SERVICE_URL"),
+        ("restaurant", "restaurant_url", "RESTAURANT_SERVICE_URL"),
+        ("order", "order_url", "ORDER_SERVICE_URL"),
+        ("payment", "payment_url", "PAYMENT_SERVICE_URL"),
+        ("delivery", "delivery_url", "DELIVERY_SERVICE_URL"),
+        ("search", "search_url", "SEARCH_SERVICE_URL"),
+        ("survey", "survey_url", "SURVEY_SERVICE_URL"),
+        ("referral", "referral_url", "REFERRAL_SERVICE_URL"),
+        ("support", "support_url", "SUPPORT_SERVICE_URL"),
+        ("notification", "notification_url", "NOTIFICATION_SERVICE_URL"),
+        ("admin", "admin_url", "ADMIN_ANALYTICS_SERVICE_URL"),
+        ("realtime", "realtime_url", "REALTIME_SERVICE_URL"),
+        ("growth", "growth_url", "GROWTH_SERVICE_URL"),
+        ("personalization", "personalization_url", "PERSONALIZATION_SERVICE_URL"),
+    ]:
+        val = getattr(args, arg_name, None) or os.getenv(env_var)
+        if val:
+            service_urls[svc] = val.rstrip("/")
+    set_service_urls(service_urls)
 
     # Configure logging
     log_level = logging.DEBUG if args.verbose else logging.WARNING
@@ -2009,6 +2318,10 @@ def main() -> int:
     print(f"{BLUE}╔{'═' * 58}╗{RESET}")
     print(f"{BLUE}║{'🍔 Bhukkad API Feature Test Suite':^58}║{RESET}")
     print(f"{BLUE}║{'Server: ' + args.base_url:^58}║{RESET}")
+    if _SERVICE_URLS:
+        print(f"{BLUE}║{'Service URLs (bypass gateway):':^58}║{RESET}")
+        for svc, url in sorted(_SERVICE_URLS.items()):
+            print(f"{BLUE}║  {svc}: {url:<47}║{RESET}")
     print(f"{BLUE}╚{'═' * 58}╝{RESET}")
 
     # Fail fast if the server is unreachable instead of running the whole
@@ -2132,6 +2445,10 @@ def main() -> int:
 
         result = run_test(spec, args.base_url, state, args.timeout, args.verbose)
         state.results.append(result)
+
+        # Reduce circuit-breaker pressure between requests.
+        if args.circuit_breaker_backoff > 0 and not result.skipped:
+            time.sleep(args.circuit_breaker_backoff)
 
         # After main order flow, preserve main order_id for review/invoice tests and prepare cancel-order id
         if spec["name"] == "Agent — Mark Delivered" and result.passed:

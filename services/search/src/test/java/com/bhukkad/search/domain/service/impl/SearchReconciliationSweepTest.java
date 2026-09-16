@@ -13,9 +13,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -64,9 +67,10 @@ class SearchReconciliationSweepTest {
     void repairsItemsAndRemovesStaleRows() {
         when(sourceClient.restaurantPage(0, 20)).thenReturn(List.of(
                 new SourceRestaurant(5L, "Spice", "North Indian", true)));
-        when(sourceClient.menu(5L)).thenReturn(new SourceMenu(5L, "Spice", List.of(
-                new SourceMenuItem(50L, "Butter Chicken", "creamy", 320.0, true),
-                new SourceMenuItem(null, "corrupt line", null, null, null))));
+        when(sourceClient.menusBounded(eq(List.of(5L)), anyInt())).thenReturn(List.of(
+                new SourceMenu(5L, "Spice", List.of(
+                        new SourceMenuItem(50L, "Butter Chicken", "creamy", 320.0, true),
+                        new SourceMenuItem(null, "corrupt line", null, null, null)))));
         when(menuItemReader.countById(50L)).thenReturn(0);
         when(menuItemReader.idsForRestaurant(5L)).thenReturn(List.of(50L, 77L));
 
@@ -87,7 +91,7 @@ class SearchReconciliationSweepTest {
 
         sweep.sweep();
 
-        verify(sourceClient, never()).menu(any());
+        verify(sourceClient, never()).menusBounded(any(), anyInt());
         verify(txManager, never()).getTransaction(any());
     }
 
@@ -95,7 +99,7 @@ class SearchReconciliationSweepTest {
     void sourceOutageForOneRestaurant_defersWithoutFailingCycle() {
         when(sourceClient.restaurantPage(0, 20)).thenReturn(List.of(
                 new SourceRestaurant(5L, "Spice", null, true)));
-        when(sourceClient.menu(5L)).thenReturn(null);
+        when(sourceClient.menusBounded(eq(List.of(5L)), anyInt())).thenReturn(Collections.singletonList(null));
 
         sweep.sweep();
 
@@ -108,9 +112,10 @@ class SearchReconciliationSweepTest {
         when(sourceClient.restaurantPage(0, 20)).thenReturn(List.of(
                 new SourceRestaurant(5L, "boom", null, true),
                 new SourceRestaurant(6L, "ok", null, true)));
-        when(sourceClient.menu(5L)).thenThrow(new RuntimeException("source exploded"));
-        when(sourceClient.menu(6L)).thenReturn(new SourceMenu(6L, "ok", List.of(
-                new SourceMenuItem(60L, "Dal", null, 180.0, true))));
+        when(sourceClient.menusBounded(eq(List.of(5L, 6L)), anyInt())).thenReturn(Arrays.asList(
+                null,
+                new SourceMenu(6L, "ok", List.of(
+                        new SourceMenuItem(60L, "Dal", null, 180.0, true)))));
         when(menuItemReader.countById(60L)).thenReturn(1);
         when(menuItemReader.idsForRestaurant(6L)).thenReturn(List.of(60L));
 

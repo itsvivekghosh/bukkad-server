@@ -30,6 +30,8 @@ import org.springframework.transaction.support.TransactionCallback;
 import java.math.BigDecimal;
 import java.util.Optional;
 
+import reactor.core.publisher.Mono;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -113,7 +115,7 @@ class PaymentServiceTest {
         freshClaim();
         persistAssignsIds();
         when(paymentGateway.authorize(1L, 1L, new BigDecimal("100.00"), "INR"))
-                .thenReturn(PaymentGateway.GatewayResult.ok("pay_1", "order_1"));
+                .thenReturn(Mono.just(PaymentGateway.GatewayResult.ok("pay_1", "order_1")));
 
         Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY);
 
@@ -136,7 +138,7 @@ class PaymentServiceTest {
         freshClaim();
         persistAssignsIds();
         when(paymentGateway.authorize(1L, 1L, new BigDecimal("100.00"), "INR"))
-                .thenReturn(PaymentGateway.GatewayResult.ok("pay_1", "order_1"));
+                .thenReturn(Mono.just(PaymentGateway.GatewayResult.ok("pay_1", "order_1")));
 
         service.processPayment(0L, 1L, new BigDecimal("100.00"), "UPI", KEY);
 
@@ -152,7 +154,7 @@ class PaymentServiceTest {
         freshClaim();
         persistAssignsIds();
         when(paymentGateway.authorize(1L, 1L, new BigDecimal("40.00"), "INR"))
-                .thenReturn(PaymentGateway.GatewayResult.ok("pay_1", "order_1"));
+                .thenReturn(Mono.just(PaymentGateway.GatewayResult.ok("pay_1", "order_1")));
 
         service.processPayment(10L, 1L, new BigDecimal("40.00"), Payment.METHOD_WALLET, KEY);
 
@@ -228,7 +230,7 @@ class PaymentServiceTest {
         freshClaim();
         persistAssignsIds();
         when(paymentGateway.authorize(1L, 1L, new BigDecimal("100.00"), "INR"))
-                .thenReturn(PaymentGateway.GatewayResult.failed("declined by PSP"));
+                .thenReturn(Mono.just(PaymentGateway.GatewayResult.failed("declined by PSP")));
 
         assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY))
                 .isInstanceOf(PaymentGatewayException.class)
@@ -246,7 +248,7 @@ class PaymentServiceTest {
         freshClaim();
         persistAssignsIds();
         when(paymentGateway.authorize(1L, 1L, new BigDecimal("200.00"), "INR"))
-                .thenReturn(PaymentGateway.GatewayResult.failed("declined by PSP"));
+                .thenReturn(Mono.just(PaymentGateway.GatewayResult.failed("declined by PSP")));
 
         assertThatThrownBy(() -> service.processPaymentRequested(10L, 1L,
                 new BigDecimal("200.00"), "INR", KEY))

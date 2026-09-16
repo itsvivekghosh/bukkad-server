@@ -41,7 +41,7 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 64
+          max-active: 256
           min-idle: 8
           max-idle: 32
           max-wait: 5s
@@ -60,8 +60,9 @@ server:
   port: 8089
   tomcat:
     threads:
-      max: 100
+      max: 200
     accept-count: 200
+    max-connections: 4096
   error:
     include-message: never
     include-stacktrace: never
@@ -144,6 +145,7 @@ management:
   metrics:
     enable:
       lettuce: true
+      reactor.netty: true
 
   endpoints:
     web:
@@ -163,9 +165,9 @@ resilience4j:
   circuitbreaker:
     configs:
       default:
-        failure-rate-threshold: 30
+        failure-rate-threshold: 20
         wait-duration-in-open-state: 20s
-        sliding-window-size: 20
+        sliding-window-size: 100
         permitted-number-of-calls-in-half-open-state: 5
         record-exceptions:
           - java.io.IOException

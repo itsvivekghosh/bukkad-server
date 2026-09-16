@@ -8,10 +8,12 @@ import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import com.bhukkad.payment.PaymentProperties;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
+
+import reactor.core.publisher.Mono;
 
 /**
  * Razorpay PSP adapter (audit feature #1): raw HTTP against the Razorpay
@@ -30,7 +32,12 @@ import java.util.Base64;
  * to call with its own idempotency key upstream ({@code PAYMENT_CHARGE}).
  *
  * <p>Amounts travel in paise (Razorpay contract); the adapter converts from
- * the service's BigDecimal rupee convention at the boundary.
+ * the service's BigDecimal rupee convention at the boundary.</p>
+ *
+ * <p><strong>Reactive contract:</strong> all methods return {@link Mono} so
+ * the adapter is fully non-blocking. Callers at the service/controller
+ * boundary decide whether to {@code block()} (Servlet threads) or stay
+ * reactive (WebFlux pipelines).</p>
  */
 @Slf4j
 public class RazorpayPaymentGateway implements PaymentGateway {
@@ -59,78 +66,89 @@ public class RazorpayPaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public GatewayResult authorize(Long paymentId, Long customerId, BigDecimal amount, String currency) {
+    public Mono<GatewayResult> authorize(Long paymentId, Long customerId, BigDecimal amount, String currency) {
         if (amount == null || amount.signum() <= 0) {
-            return GatewayResult.failed("Charge amount must be positive");
+            return Mono.just(GatewayResult.failed("Charge amount must be positive"));
         }
-        try {
-            String gatewayOrderId = createOrder(paymentId, amount, currency);
-            String paymentRef = pollAndCapture(gatewayOrderId, amount, currency);
-            if (paymentRef == null) {
-                return GatewayResult.failed(
-                        "No captured payment for gateway order " + gatewayOrderId + " within the poll budget");
-            }
-            return GatewayResult.ok(paymentRef, gatewayOrderId);
-        } catch (WebClientResponseException e) {
-            log.warn("RAZORPAY_CHARGE_REJECTED | paymentId={} | status={} | body={}",
-                    paymentId, e.getStatusCode().value(), abbreviate(e.getResponseBodyAsString()));
-            return GatewayResult.failed("Razorpay rejected the charge: HTTP "
-                    + e.getStatusCode().value());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return GatewayResult.failed("Razorpay charge poll interrupted");
-        }
+        return createOrder(paymentId, amount, currency)
+                .flatMap(gatewayOrderId -> pollAndCapture(gatewayOrderId, amount, currency)
+                        .map(paymentRef -> GatewayResult.ok(paymentRef, gatewayOrderId))
+                        .onErrorResume(e -> {
+                            log.warn("RAZORPAY_CHARGE_FAILED | paymentId={} | error={}", paymentId, e.getMessage());
+                            return Mono.just(GatewayResult.failed("Razorpay charge failed: " + e.getMessage()));
+                        }))
+                .doOnNext(result -> {
+                    if (result.success()) {
+                        log.info("RAZORPAY_CHARGE_OK | paymentId={} | providerRef={}", paymentId, result.providerRef());
+                    }
+                })
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    log.warn("RAZORPAY_CHARGE_REJECTED | paymentId={} | status={} | body={}",
+                            paymentId, e.getStatusCode().value(), abbreviate(e.getResponseBodyAsString()));
+                    return Mono.just(GatewayResult.failed("Razorpay rejected the charge: HTTP " + e.getStatusCode().value()));
+                })
+                .onErrorResume(e -> {
+                    log.error("RAZORPAY_CHARGE_ERROR | paymentId={}", paymentId, e);
+                    return Mono.just(GatewayResult.failed("Gateway error: " + e.getMessage()));
+                });
     }
 
     @Override
-    public GatewayResult refund(Long paymentId, BigDecimal amount) {
+    public Mono<GatewayResult> refund(Long paymentId, BigDecimal amount) {
         if (amount == null || amount.signum() <= 0) {
-            return GatewayResult.failed("Refund amount must be positive");
+            return Mono.just(GatewayResult.failed("Refund amount must be positive"));
         }
         String providerPaymentRef = refResolver.providerPaymentRef(paymentId);
         if (providerPaymentRef == null || providerPaymentRef.isBlank()) {
-            return GatewayResult.failed("No provider payment reference for payment " + paymentId);
+            return Mono.just(GatewayResult.failed("No provider payment reference for payment " + paymentId));
         }
-        try {
-            JsonNode refund = webClient.post()
-                    .uri("/payments/{ref}/refund", providerPaymentRef)
-                    .headers(this::applyAuth)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue("{\"amount\":" + toPaise(amount) + "}")
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .block();
-            String refundId = refund == null ? null : refund.path("id").asText(null);
-            if (refundId == null) {
-                return GatewayResult.failed("Razorpay refund response without an id");
-            }
-            return GatewayResult.ok(refundId);
-        } catch (WebClientResponseException e) {
-            log.warn("RAZORPAY_REFUND_REJECTED | paymentId={} | status={} | body={}",
-                    paymentId, e.getStatusCode().value(), abbreviate(e.getResponseBodyAsString()));
-            return GatewayResult.failed("Razorpay rejected the refund: HTTP "
-                    + e.getStatusCode().value());
-        }
+        return webClient.post()
+                .uri("/payments/{ref}/refund", providerPaymentRef)
+                .headers(this::applyAuth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"amount\":" + toPaise(amount) + "}")
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .map(refund -> {
+                    String refundId = refund == null ? null : refund.path("id").asText(null);
+                    if (refundId == null) {
+                        return GatewayResult.failed("Razorpay refund response without an id");
+                    }
+                    return GatewayResult.ok(refundId);
+                })
+                .doOnSuccess(result -> log.info("RAZORPAY_REFUND_OK | paymentId={} | refundId={}",
+                        paymentId, result.providerRef()))
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    log.warn("RAZORPAY_REFUND_REJECTED | paymentId={} | status={} | body={}",
+                            paymentId, e.getStatusCode().value(), abbreviate(e.getResponseBodyAsString()));
+                    return Mono.just(GatewayResult.failed("Razorpay rejected the refund: HTTP " + e.getStatusCode().value()));
+                })
+                .onErrorResume(e -> {
+                    log.error("RAZORPAY_REFUND_ERROR | paymentId={}", paymentId, e);
+                    return Mono.just(GatewayResult.failed("Gateway error: " + e.getMessage()));
+                });
     }
 
     // ── Razorpay API steps ───────────────────────────────────────────────────
 
-    private String createOrder(Long paymentId, BigDecimal amount, String currency) {
-        JsonNode order = webClient.post()
+    private Mono<String> createOrder(Long paymentId, BigDecimal amount, String currency) {
+        String body = "{\"amount\":" + toPaise(amount)
+                + ",\"currency\":\"" + currency
+                + "\",\"receipt\":\"pay-" + paymentId + "\"}";
+        return webClient.post()
                 .uri("/orders")
                 .headers(this::applyAuth)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"amount\":" + toPaise(amount)
-                        + ",\"currency\":\"" + currency
-                        + "\",\"receipt\":\"pay-" + paymentId + "\"}")
+                .bodyValue(body)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
-                .block();
-        String orderId = order == null ? null : order.path("id").asText(null);
-        if (orderId == null) {
-            throw new IllegalStateException("Razorpay order response without an id");
-        }
-        return orderId;
+                .map(order -> {
+                    String orderId = order == null ? null : order.path("id").asText(null);
+                    if (orderId == null) {
+                        throw new IllegalStateException("Razorpay order response without an id");
+                    }
+                    return orderId;
+                });
     }
 
     /**
@@ -138,76 +156,105 @@ public class RazorpayPaymentGateway implements PaymentGateway {
      * times: returns the first {@code captured} payment; an {@code authorized}
      * one is captured server-side first (poll/capture to charged).
      */
-    private String pollAndCapture(String gatewayOrderId, BigDecimal amount, String currency)
-            throws InterruptedException {
-        for (int attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
-            JsonNode items = listOrderPayments(gatewayOrderId);
-            String captured = firstWithStatus(items, STATUS_CAPTURED);
-            if (captured != null) {
-                return captured;
-            }
-            String authorized = firstWithStatus(items, STATUS_AUTHORIZED);
-            if (authorized != null) {
-                String capturedRef = capture(authorized, amount, currency);
-                if (capturedRef != null) {
-                    return capturedRef;
-                }
-            }
-            if (attempt < MAX_POLL_ATTEMPTS) {
-                Thread.sleep(POLL_SLEEP_MILLIS);
-            }
-        }
-        return null;
+    private Mono<String> pollAndCapture(String gatewayOrderId, BigDecimal amount, String currency) {
+        return pollAndCapture(gatewayOrderId, amount, currency, 0);
     }
 
-    private JsonNode listOrderPayments(String gatewayOrderId) {
+    private Mono<String> pollAndCapture(String gatewayOrderId, BigDecimal amount, String currency, int attempt) {
+        if (attempt >= MAX_POLL_ATTEMPTS) {
+            return Mono.error(new IllegalStateException(
+                    "No captured payment for gateway order " + gatewayOrderId + " within the poll budget"));
+        }
+        return listOrderPayments(gatewayOrderId)
+                .flatMap(items -> findCaptured(items)
+                        .switchIfEmpty(findAuthorizedAndCapture(items, gatewayOrderId, amount, currency, attempt)))
+                .switchIfEmpty(retryPoll(gatewayOrderId, amount, currency, attempt));
+    }
+
+    private Mono<String> findCaptured(JsonNode items) {
+        return firstWithStatus(items, STATUS_CAPTURED);
+    }
+
+    private Mono<String> findAuthorizedAndCapture(JsonNode items, String gatewayOrderId,
+                                                   BigDecimal amount, String currency, int attempt) {
+        return firstWithStatus(items, STATUS_AUTHORIZED)
+                .flatMap(authorized -> capture(authorized, amount, currency)
+                        .onErrorResume(e -> {
+                            log.warn("RAZORPAY_CAPTURE_FAILED | gatewayOrderId={} | error={}",
+                                    gatewayOrderId, e.getMessage());
+                            return Mono.empty();
+                        })
+                        .filter(capturedRef -> capturedRef != null))
+                .switchIfEmpty(Mono.defer(() -> {
+                    if (attempt < MAX_POLL_ATTEMPTS - 1) {
+                        return Mono.delay(Duration.ofMillis(POLL_SLEEP_MILLIS))
+                                .then(pollAndCapture(gatewayOrderId, amount, currency, attempt + 1));
+                    }
+                    return Mono.empty();
+                }));
+    }
+
+    private Mono<String> retryPoll(String gatewayOrderId, BigDecimal amount, String currency, int attempt) {
+        return Mono.defer(() -> {
+            if (attempt < MAX_POLL_ATTEMPTS - 1) {
+                return Mono.delay(Duration.ofMillis(POLL_SLEEP_MILLIS))
+                        .then(pollAndCapture(gatewayOrderId, amount, currency, attempt + 1));
+            }
+            return Mono.error(new IllegalStateException(
+                    "No captured payment for gateway order " + gatewayOrderId + " within the poll budget"));
+        });
+    }
+
+    private Mono<JsonNode> listOrderPayments(String gatewayOrderId) {
         return webClient.get()
                 .uri("/orders/{id}/payments", gatewayOrderId)
                 .headers(this::applyAuth)
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
+                .bodyToMono(JsonNode.class);
+    }
+
+    private Mono<String> capture(String paymentRef, BigDecimal amount, String currency) {
+        String body = "{\"amount\":" + toPaise(amount) + ",\"currency\":\"" + currency + "\"}";
+        return webClient.post()
+                .uri("/payments/{ref}/capture", paymentRef)
+                .headers(this::applyAuth)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
                 .bodyToMono(JsonNode.class)
-                .block();
+                .map(payment -> {
+                    boolean captured = payment != null && STATUS_CAPTURED.equals(payment.path("status").asText());
+                    return captured ? payment.path("id").asText(paymentRef) : null;
+                })
+                .doOnSuccess(result -> log.info("RAZORPAY_CAPTURE_OK | paymentRef={}", paymentRef))
+                .onErrorResume(e -> {
+                    log.warn("RAZORPAY_CAPTURE_REJECTED | paymentRef={} | error={}", paymentRef, e.getMessage());
+                    return Mono.empty();
+                });
     }
 
-    private String capture(String paymentRef, BigDecimal amount, String currency) {
-        try {
-            JsonNode payment = webClient.post()
-                    .uri("/payments/{ref}/capture", paymentRef)
-                    .headers(this::applyAuth)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue("{\"amount\":" + toPaise(amount) + ",\"currency\":\"" + currency + "\"}")
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .block();
-            return payment != null && STATUS_CAPTURED.equals(payment.path("status").asText())
-                    ? payment.path("id").asText(paymentRef)
-                    : null;
-        } catch (WebClientResponseException e) {
-            log.warn("RAZORPAY_CAPTURE_REJECTED | paymentRef={} | status={}",
-                    paymentRef, e.getStatusCode().value());
-            return null;
-        }
-    }
-
-    private String firstWithStatus(JsonNode paymentsResponse, String status) {
+    private Mono<String> firstWithStatus(JsonNode paymentsResponse, String status) {
         if (paymentsResponse == null) {
-            return null;
+            return Mono.empty();
         }
-        // Razorpay returns {"count":N,"items":[…]} for order payment listings;
-        // tolerate a bare array in case of schema drift.
         JsonNode items = paymentsResponse.isArray()
                 ? paymentsResponse
                 : paymentsResponse.path("items");
         if (!items.isArray()) {
-            return null;
+            return Mono.empty();
         }
-        for (JsonNode payment : items) {
-            if (status.equals(payment.path("status").asText())) {
-                return payment.path("id").asText(null);
+        return Mono.defer(() -> {
+            for (JsonNode payment : items) {
+                if (status.equals(payment.path("status").asText())) {
+                    String id = payment.path("id").asText(null);
+                    if (id != null) {
+                        return Mono.just(id);
+                    }
+                }
             }
-        }
-        return null;
+            return Mono.empty();
+        });
     }
 
     private void applyAuth(HttpHeaders headers) {

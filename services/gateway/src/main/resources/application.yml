@@ -57,7 +57,7 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 64
+          max-active: 256
           min-idle: 8
           max-idle: 32
           max-wait: 5s
@@ -156,6 +156,8 @@ management:
         readiness:
           include: readinessState
   metrics:
+    enable:
+      reactor.netty: true
     export:
       prometheus:
         enabled: true

@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -143,5 +144,34 @@ class SearchSourceClientTest {
         server.stop(0);
 
         assertThat(new SearchSourceClient("http://localhost:" + deadPort).restaurant(5L)).isNull();
+    }
+
+    @Test
+    void menusBounded_returnsSnapshotsForAllIds() {
+        List<SourceMenu> menus = client().menusBounded(List.of(5L, 5L), 2);
+
+        assertThat(menus).hasSize(2);
+        assertThat(menus.get(0)).isNotNull();
+        assertThat(menus.get(1)).isNotNull();
+    }
+
+    @Test
+    void menusBounded_emptyList_returnsEmpty() {
+        List<SourceMenu> menus = client().menusBounded(List.of(), 2);
+
+        assertThat(menus).isEmpty();
+    }
+
+    @Test
+    void menusBounded_upstreamFailure_returnsNullForFailedId() {
+        int deadPort = server.getAddress().getPort();
+        server.stop(0);
+
+        List<SourceMenu> menus = new SearchSourceClient("http://localhost:" + deadPort)
+                .menusBounded(List.of(1L, 2L), 2);
+
+        assertThat(menus).hasSize(2);
+        assertThat(menus.get(0)).isNull();
+        assertThat(menus.get(1)).isNull();
     }
 }

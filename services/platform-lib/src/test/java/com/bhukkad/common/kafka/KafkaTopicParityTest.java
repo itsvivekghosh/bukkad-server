@@ -238,7 +238,7 @@ class KafkaTopicParityTest {
                                                      KafkaTemplate<String, String> template) {
         var properties = new KafkaPlatformProperties(true, "kafka",
                 new KafkaPlatformProperties.Kafka("localhost:9092", service + "-group",
-                        topic, topic + ".dlt", 3), false, 3);
+                        topic, topic + ".dlt", 3, 500, 300000, 30000, 10000), false, 3);
         return new KafkaPlatformConfig().kafkaPlatformEventPublisher(template, properties);
     }
 

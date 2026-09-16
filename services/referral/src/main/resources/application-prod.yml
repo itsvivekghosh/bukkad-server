@@ -25,6 +25,7 @@ spring:
   datasource:
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:20}
+      metrics-tracker-class: com.zaxxer.hikari.metrics.prometheus.PrometheusMetricsTracker
       minimum-idle: ${DB_POOL_SIZE:10}
 
 app:

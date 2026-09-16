@@ -82,9 +82,10 @@ class SearchReconciliationPostgresIntegrationTest extends AbstractSearchPostgres
 
         when(sourceClient.restaurantPage(anyInt(), anyInt()))
                 .thenReturn(List.of(new SearchSourceClient.SourceRestaurant(601L, "Dosa Corner", null, true)));
-        when(sourceClient.menu(601L)).thenReturn(new SearchSourceClient.SourceMenu(601L, "Dosa Corner", List.of(
-                new SearchSourceClient.SourceMenuItem(5001L, "Masala Dosa", "Crispy crepe", 89.50, true),
-                new SearchSourceClient.SourceMenuItem(5003L, "New Rava Dosa", null, 75.0, true))));
+        when(sourceClient.menusBounded(eq(List.of(601L)), anyInt())).thenReturn(List.of(
+                new SearchSourceClient.SourceMenu(601L, "Dosa Corner", List.of(
+                        new SearchSourceClient.SourceMenuItem(5001L, "Masala Dosa", "Crispy crepe", 89.50, true),
+                        new SearchSourceClient.SourceMenuItem(5003L, "New Rava Dosa", null, 75.0, true)))));
 
         sweep.sweep();
 

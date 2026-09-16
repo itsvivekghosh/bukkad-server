@@ -120,15 +120,14 @@ public class PaymentServiceClient {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getEarnings(Long agentId) {
         try {
-            // Internal mesh read: must carry the service token like the other
-            // calls — payment's ServiceJwtAuthFilter rejects tokenless calls
-            // on /api/v1/internal/** with 401.
-            return restTemplate.exchange(
+            ResponseEntity<List> response = restTemplate.exchange(
                     paymentServiceUrl + "/api/v1/internal/delivery/earnings/{agentId}",
                     HttpMethod.GET,
                     new HttpEntity<>(authHeaders()),
                     List.class,
-                    agentId).getBody();
+                    agentId);
+            List<Map<String, Object>> body = (List<Map<String, Object>>) response.getBody();
+            return body != null ? body : List.of();
         } catch (RestClientException e) {
             log.error("Failed to get earnings for agent {}: {}", agentId, e.getMessage());
             throw new RuntimeException("Payment service unavailable", e);

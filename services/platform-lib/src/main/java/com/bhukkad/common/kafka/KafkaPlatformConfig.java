@@ -122,6 +122,11 @@ public class KafkaPlatformConfig {
         // error handler's DLT hand-off) completes — never auto-committed under
         // a blanket catch that would ack poison events (V-10).
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        // Backpressure / throughput tuning (extreme traffic):
+        config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, properties.kafka().maxPollRecords());
+        config.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, properties.kafka().maxPollIntervalMs());
+        config.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, properties.kafka().sessionTimeoutMs());
+        config.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, properties.kafka().heartbeatIntervalMs());
         return new DefaultKafkaConsumerFactory<>(config);
     }
 

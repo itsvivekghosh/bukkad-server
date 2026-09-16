@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import reactor.core.publisher.Mono;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -53,15 +55,15 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
         PaymentGateway.GatewayResult next = PaymentGateway.GatewayResult.ok("pay_stub", "order_stub");
 
         @Override
-        public GatewayResult authorize(Long paymentId, Long customerId, BigDecimal amount, String currency) {
+        public Mono<GatewayResult> authorize(Long paymentId, Long customerId, BigDecimal amount, String currency) {
             calls.incrementAndGet();
-            return next;
+            return Mono.just(next);
         }
 
         @Override
-        public GatewayResult refund(Long paymentId, BigDecimal amount) {
+        public Mono<GatewayResult> refund(Long paymentId, BigDecimal amount) {
             calls.incrementAndGet();
-            return PaymentGateway.GatewayResult.ok("rfnd_stub");
+            return Mono.just(PaymentGateway.GatewayResult.ok("rfnd_stub"));
         }
     }
 

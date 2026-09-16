@@ -12,34 +12,34 @@ class SimulatedPaymentGatewayTest {
 
     @Test
     void authorize_smallAmount_succeeds() {
-        var result = gateway.authorize(1L, 2L, new BigDecimal("500.00"), "INR");
+        var result = gateway.authorize(1L, 2L, new BigDecimal("500.00"), "INR").block();
         assertThat(result.success()).isTrue();
         assertThat(result.providerRef()).startsWith("SIM-PROV-");
     }
 
     @Test
     void authorize_overLimit_declined() {
-        var result = gateway.authorize(1L, 2L, new BigDecimal("50000.00"), "INR");
+        var result = gateway.authorize(1L, 2L, new BigDecimal("50000.00"), "INR").block();
         assertThat(result.success()).isFalse();
         assertThat(result.message()).contains("limit");
     }
 
     @Test
     void authorize_limitExact_succeeds() {
-        var result = gateway.authorize(1L, 2L, new BigDecimal("10000.00"), "INR");
+        var result = gateway.authorize(1L, 2L, new BigDecimal("10000.00"), "INR").block();
         assertThat(result.success()).isTrue();
     }
 
     @Test
     void refund_positive_succeeds() {
-        var result = gateway.refund(1L, new BigDecimal("100.00"));
+        var result = gateway.refund(1L, new BigDecimal("100.00")).block();
         assertThat(result.success()).isTrue();
         assertThat(result.providerRef()).startsWith("SIM-REF-");
     }
 
     @Test
     void refund_nonPositive_fails() {
-        var result = gateway.refund(1L, BigDecimal.ZERO);
+        var result = gateway.refund(1L, BigDecimal.ZERO).block();
         assertThat(result.success()).isFalse();
     }
 }

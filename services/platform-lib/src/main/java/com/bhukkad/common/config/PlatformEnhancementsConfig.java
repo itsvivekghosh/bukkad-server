@@ -8,6 +8,7 @@ import com.bhukkad.common.cluster.ClusterProperties;
 import com.bhukkad.common.datasource.ReadReplicaProperties;
 import com.bhukkad.common.kafka.KafkaPlatformProperties;
 import com.bhukkad.common.metrics.SloProperties;
+import com.bhukkad.common.mtls.MtlsProperties;
 import com.bhukkad.common.outbox.OutboxProperties;
 import com.bhukkad.common.ratelimit.RateLimitProperties;
 import com.bhukkad.common.security.PlatformJwtProperties;
@@ -39,6 +40,7 @@ import org.springframework.context.annotation.Configuration;
         com.bhukkad.common.storage.ImageStorageProperties.class,
         KafkaPlatformProperties.class,
         LocalCacheProperties.class,
+        MtlsProperties.class,
         OutboxProperties.class,
         PlatformJwtProperties.class,
         RateLimitProperties.class,

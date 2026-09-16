@@ -88,7 +88,8 @@ public class RiderOpsService {
      * Retrieves all earnings recorded for the given rider via payment service.
      */
     public List<Map<String, Object>> getEarnings(Long agentId) {
-        return paymentClient.getEarnings(agentId);
+        List<Map<String, Object>> result = paymentClient.getEarnings(agentId);
+        return result != null ? result : List.of();
     }
 
     /**

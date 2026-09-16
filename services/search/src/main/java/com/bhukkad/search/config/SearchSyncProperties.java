@@ -18,6 +18,9 @@ public class SearchSyncProperties {
     /** Restaurants reconciled per cycle (bounded batches). */
     private int restaurantsPerCycle = 20;
 
+    /** Max parallel menu fetches per sweep cycle (H3). */
+    private int menuConcurrency = 5;
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -40,5 +43,13 @@ public class SearchSyncProperties {
 
     public void setRestaurantsPerCycle(int restaurantsPerCycle) {
         this.restaurantsPerCycle = restaurantsPerCycle;
+    }
+
+    public int getMenuConcurrency() {
+        return menuConcurrency;
+    }
+
+    public void setMenuConcurrency(int menuConcurrency) {
+        this.menuConcurrency = menuConcurrency;
     }
 }

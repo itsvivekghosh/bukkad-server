@@ -185,9 +185,13 @@ public class PaymentService {
         final Payment pendingRef = pending;
 
         // 3. PSP charge (breaker/retry filters on the adapter's WebClient).
+        // The gateway adapter is fully non-blocking; we block here at the
+        // service boundary because this method is called from a Servlet
+        // controller thread (InternalPaymentController).
         PaymentGateway.GatewayResult attempt;
         try {
-            attempt = paymentGateway.authorize(pending.getId(), customerId, amount, currencyResolver.currency());
+            attempt = paymentGateway.authorize(pending.getId(), customerId, amount, currencyResolver.currency())
+                    .block();
         } catch (RuntimeException e) {
             log.error("PAYMENT_CHARGE_ERROR | paymentId={} | key={}", pending.getId(), idempotencyKey, e);
             attempt = PaymentGateway.GatewayResult.failed("Gateway error: " + e.getMessage());

@@ -34,7 +34,7 @@ public record JwtProperties(String secret, long ttlMinutes, long accessTtlMinute
     @ConstructorBinding
     public JwtProperties(String secret, long ttlMinutes, long accessTtlMinutes, long refreshTtlDays,
                          String audience) {
-        if (secret == null || secret.length() < 32) {
+        if (secret != null && !secret.isBlank() && secret.length() < 32) {
             throw new IllegalArgumentException("app.jwt.secret must be at least 32 chars");
         }
         if (ttlMinutes <= 0) {

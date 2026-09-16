@@ -10,6 +10,8 @@ import org.springframework.web.client.RestClientException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 
 /**
  * Source-of-truth reader for the ADR-002 reconciliation sweep: re-reads the
@@ -77,6 +79,42 @@ public class SearchSourceClient {
         } catch (RestClientException | IllegalStateException e) {
             return null;
         }
+    }
+
+    /**
+     * Bounded-parallel menu fetches for the reconciliation sweep (H3).
+     * Each call to {@link #menu(Long)} is independent; a slow upstream
+     * response is isolated by the semaphore so the sweep wall-time scales
+     * with {@code concurrency} rather than with {@code ids.size()}.
+     *
+     * <p>Returns a mutable list so callers can store {@code null} entries
+     * for failed fetches (List.of() forbids nulls).</p>
+     */
+    public List<SourceMenu> menusBounded(List<Long> ids, int concurrency) {
+        if (ids.isEmpty() || concurrency <= 0) {
+            return new ArrayList<>();
+        }
+        Semaphore semaphore = new Semaphore(concurrency);
+        List<CompletableFuture<SourceMenu>> futures = ids.stream()
+                .map(id -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        semaphore.acquire();
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        return null;
+                    }
+                    try {
+                        return menu(id);
+                    } finally {
+                        semaphore.release();
+                    }
+                }))
+                .toList();
+        List<SourceMenu> result = new ArrayList<>(ids.size());
+        for (CompletableFuture<SourceMenu> future : futures) {
+            result.add(future.join());
+        }
+        return result;
     }
 
     // Wire shapes (subset of fields the projection needs). Public so the

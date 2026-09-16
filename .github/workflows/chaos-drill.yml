@@ -1,0 +1,92 @@
+name: Chaos Drills
+
+# Heavy-traffic readiness gate: injects failures into a live cluster and
+# validates the system degrades gracefully (circuit breakers, cache-aside,
+# outbox relay, pgbouncer recovery).
+#
+# Manual by default; run before every production launch and after any
+# infrastructure change. Safe no-op without cluster secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target environment base URL"
+        required: true
+        default: "http://localhost:8080"
+      namespace:
+        description: "Kubernetes namespace"
+        required: false
+        default: "bhukkad"
+      drill:
+        description: "Which drill to run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - redis
+          - kafka
+          - gateway
+          - pgbouncer
+          - 503-storm
+          - shard-interleave
+  # schedule:
+  #   - cron: '0 3 * * 6'  # weekly Saturday 03:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  chaos-drills:
+    name: Chaos Drills (${{ github.event.inputs.drill || 'all' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Check cluster secret presence
+        id: guard
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          if [ -z "${KUBECONFIG_SECRET}" ]; then
+            echo "STAGING_KUBECONFIG not configured — chaos drills skipped (safe no-op)."
+            echo "Configure the secret (a kubeconfig for the drill-capable cluster) to enable the drills."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run chaos drills
+        if: steps.guard.outputs.run == 'true'
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+          CHAOS_BASE_URL: ${{ github.event.inputs.base_url }}
+          CHAOS_NAMESPACE: ${{ github.event.inputs.namespace }}
+          CHAOS_DRILL: ${{ github.event.inputs.drill || 'all' }}
+        run: |
+          set -euo pipefail
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl cluster-info
+
+          ./scripts/ci/run-chaos-drills.sh
+
+      - name: Run shard interleave integration test
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          ./mvnw -B -f services/pom.xml -pl platform-lib test \
+              -Dtest="ShardAspectConcurrencyChaosTest" \
+              -Dsurefire.failIfNoSpecifiedTests=false

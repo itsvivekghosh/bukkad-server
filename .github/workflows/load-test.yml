@@ -3,9 +3,9 @@ name: Load Test
 # Performance gate (FEATURE #17): runs k6 scenarios against a deployed
 # environment and fails when P95 latency or error budgets are exceeded.
 #
-# Manual by default; schedule nightly against staging by setting the
-# STAGING_BASE_URL repository variable and enabling the cron line below.
-# Requires k6 Cloud or a runner with network access to BASE_URL.
+# Manual by default; schedule nightly against staging by uncommenting the
+# cron line below. Requires k6 Cloud or a runner with network access to
+# BASE_URL.
 
 on:
   workflow_dispatch:
@@ -15,9 +15,22 @@ on:
         required: true
         default: "http://localhost:8080"
       scenario:
-        description: "k6 scenario to run"
+        description: "k6 scenario to run (without .js extension)"
         required: false
         default: "browse"
+        type: choice
+        options:
+          - browse
+          - hot-paths
+          - 10tps-smoke
+          - 10tps-comprehensive
+          - 100tps
+          - 500tps
+          - peak-3x
+          - peak-5x
+          - order-create
+          - restaurant-feed
+          - sse
   # schedule:
   #   - cron: "0 2 * * *"  # nightly soak against staging
 
@@ -28,12 +41,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Run k6 scenario
-        uses: grafana/run-k6-action@v1
+      - name: Setup k6
+        uses: grafana/k6-action@v0.3.0
         with:
-          path: |
-            loadtest/config.js
-            loadtest/${{ github.event.inputs.scenario }}.js
+          k6-version: "latest"
+
+      - name: Run k6 scenario
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'browse' }}"
+          if [ "$SCENARIO" = "10tps-smoke" ] || [ "$SCENARIO" = "10tps-comprehensive" ]; then
+            # Legacy scripts in scripts/loadtest/ use different BASE/paths
+            cd scripts/loadtest
+            k6 run "${SCENARIO}.js"
+          else
+            # All root loadtest/ scenarios share loadtest/config.js
+            k6 run "loadtest/${SCENARIO}.js"
+          fi
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
           TEST_EMAIL: ${{ secrets.LOADTEST_EMAIL }}

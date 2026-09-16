@@ -155,7 +155,11 @@ public class JwtService {
                 throw new IllegalArgumentException("JWT signature invalid");
             }
         } else if (JWSAlgorithm.HS256.getName().equals(algName)) {
-            if (!jwt.verify(new MACVerifier(properties.secret()))) {
+            String secret = properties.secret();
+            if (secret == null || secret.isBlank()) {
+                throw new IllegalArgumentException("JWT signature invalid");
+            }
+            if (!jwt.verify(new MACVerifier(secret))) {
                 throw new IllegalArgumentException("JWT signature invalid");
             }
         } else {

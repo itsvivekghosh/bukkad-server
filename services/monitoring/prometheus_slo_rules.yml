@@ -35,6 +35,17 @@ groups:
           summary: "DB pool saturation on {{ $labels.service }}"
           description: "HikariCP pending threads: {{ $value }} (> 5) on {{ $labels.service }}"
 
+      # HikariCP connection acquisition time p99 > 3s
+      - alert: SlowDBConnectionAcquisition
+        expr: |
+          histogram_quantile(0.99, sum(rate(hikaricpu_connection_acquire_milliseconds_bucket[5m])) by (le, service)) > 3000
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow DB connection acquisition on {{ $labels.service }}"
+          description: "p99 HikariCP acquire time is {{ $value | humanizeDuration }} (> 3s) on {{ $labels.service }}"
+
       # Redis cache hit rate should be > 80%
       - alert: LowCacheHitRate
         expr: |
@@ -67,3 +78,37 @@ groups:
         annotations:
           summary: "High Kafka consumer lag on {{ $labels.consumer_group }}"
           description: "Consumer lag is {{ $value }} messages (> 1000) for group {{ $labels.consumer_group }}"
+
+      # OSRM request latency p99 > 2s
+      - alert: HighOsrmLatency
+        expr: |
+          histogram_quantile(0.99, sum(rate(osrm_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High OSRM latency"
+          description: "p99 OSRM request duration is {{ $value | humanizeDuration }} (> 2s)"
+
+      # OSRM error rate > 5%
+      - alert: HighOsrmErrorRate
+        expr: |
+          sum(rate(osrm_requests_total{result="error"}[5m])) / sum(rate(osrm_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High OSRM error rate"
+          description: "OSRM error rate is {{ $value | humanizePercentage }} (> 5%)"
+
+      # Lettuce connection pool exhaustion
+      - alert: LettucePoolExhaustion
+        expr: |
+          lettuce_connections_active / lettuce_connections_max > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis lettuce pool exhaustion on {{ $labels.service }}"
+          description: "Active lettuce connections at {{ $value | humanizePercentage }} (> 90%) on {{ $labels.service }}"
+

@@ -4,6 +4,7 @@ import com.bhukkad.delivery.infrastructure.client.OsrmClient;
 
 import com.bhukkad.delivery.infrastructure.client.RoadDistanceService.RoadRoute;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -38,7 +39,7 @@ class OsrmClientTest {
     }
 
     private OsrmClient client() {
-        return new OsrmClient(properties(), restTemplate, new ObjectMapper());
+        return new OsrmClient(properties(), restTemplate, new ObjectMapper(), new SimpleMeterRegistry());
     }
 
     @Test

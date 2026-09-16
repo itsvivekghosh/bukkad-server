@@ -6,8 +6,9 @@ server:
     min-response-size: 1024
   tomcat:
     threads:
-      max: 100
+      max: 200
     accept-count: 200
+    max-connections: 4096
     connection-timeout: 10s
     max-swallow-size: 2MB
   max-http-request-header-size: 8KB
@@ -66,7 +67,7 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 64
+          max-active: 256
           min-idle: 8
           max-idle: 32
           max-wait: 5s
@@ -151,11 +152,12 @@ app:
           batch-size: 16384
           compression-type: lz4
         consumer:
-          max-poll-records: 500
+          max-poll-records: 1000
           session-timeout-ms: 30000
           heartbeat-interval-ms: 10000
           auto-offset-reset: earliest
           max-poll-interval-ms: 300000
+          concurrency: 3
 
   rate-limit:
     enabled: true
@@ -188,6 +190,7 @@ management:
   metrics:
     enable:
       lettuce: true
+      reactor.netty: true
 
   tracing:
     sampling:
@@ -213,9 +216,9 @@ resilience4j:
   circuitbreaker:
     configs:
       default:
-        failure-rate-threshold: 30
+        failure-rate-threshold: 20
         wait-duration-in-open-state: 20s
-        sliding-window-size: 20
+        sliding-window-size: 100
         permitted-number-of-calls-in-half-open-state: 5
         record-exceptions:
           - java.io.IOException

@@ -13,6 +13,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
+import java.util.stream.IntStream;
 
 /**
  * ADR-002 periodic reconciliation sweep: diffs the search read tables against
@@ -58,29 +61,45 @@ public class SearchReconciliationSweep {
     public void sweep() {
         List<SearchSourceClient.SourceRestaurant> page =
                 sourceClient.restaurantPage(0, properties.getRestaurantsPerCycle());
+        if (page.isEmpty()) {
+            return;
+        }
+
+        // Collect valid restaurant ids first, then fetch menus bounded-parallel
+        // so a slow upstream response cannot pin the sweep thread (H3).
+        List<Long> restaurantIds = page.stream()
+                .map(SearchSourceClient.SourceRestaurant::id)
+                .filter(id -> id != null && id > 0)
+                .toList();
+
+        if (restaurantIds.isEmpty()) {
+            return;
+        }
+
+        List<SearchSourceClient.SourceMenu> menus =
+                sourceClient.menusBounded(restaurantIds, properties.getMenuConcurrency());
+
         int repaired = 0;
-        for (SearchSourceClient.SourceRestaurant source : page) {
-            if (source.id() == null || source.id() <= 0) {
-                continue;
+        for (int i = 0; i < restaurantIds.size(); i++) {
+            Long restaurantId = restaurantIds.get(i);
+            SearchSourceClient.SourceMenu menu = menus.get(i);
+            if (menu == null) {
+                continue; // source unreachable/deleted: leave rows, retry next cycle
             }
-            final Long restaurantId = source.id();
             try {
                 Integer count = transactionTemplate.execute(status ->
-                        repairRestaurant(restaurantId));
+                        repairRestaurant(restaurantId, menu));
                 repaired += count == null ? 0 : count;
             } catch (Exception ex) {
                 log.error("SEARCH_SYNC_SWEEP_RESTAURANT_FAILED | restaurantId={} | error={}",
                         restaurantId, ex.getMessage());
             }
         }
-        if (!page.isEmpty()) {
-            log.info("SEARCH_SYNC_SWEEP | restaurants={} | repairedRows={}", page.size(), repaired);
-        }
+        log.info("SEARCH_SYNC_SWEEP | restaurants={} | repairedRows={}", page.size(), repaired);
     }
 
     /** Repairs one restaurant's projection rows; runs inside its own transaction. */
-    int repairRestaurant(Long restaurantId) {
-        SearchSourceClient.SourceMenu menu = sourceClient.menu(restaurantId);
+    int repairRestaurant(Long restaurantId, SearchSourceClient.SourceMenu menu) {
         if (menu == null) {
             return 0; // source unreachable/deleted: leave rows, retry next cycle
         }

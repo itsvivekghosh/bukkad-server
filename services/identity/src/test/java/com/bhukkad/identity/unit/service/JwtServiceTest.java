@@ -144,6 +144,13 @@ class JwtServiceTest {
     }
 
     @Test
+    void properties_allowNullAndEmptySecret() {
+        assertThat(new JwtProperties(null, 60)).isNotNull();
+        assertThat(new JwtProperties("", 60)).isNotNull();
+        assertThat(new JwtProperties("   ", 60)).isNotNull();
+    }
+
+    @Test
     void properties_rejectNonPositiveTtl() {
         assertThatThrownBy(() -> new JwtProperties(SECRET, 0))
                 .isInstanceOf(IllegalArgumentException.class)
