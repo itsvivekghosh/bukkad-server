@@ -26,9 +26,10 @@ class SearchSyncProjectionServiceTest {
 
     @Mock private RestaurantSearchRepository restaurantSearchRepository;
     @Mock private MenuItemSearchRepository menuItemSearchRepository;
+    @Mock private com.bhukkad.search.infrastructure.client.OptimizedSearchIndexer searchIndexer;
 
     private SearchSyncProjectionService service() {
-        return new SearchSyncProjectionService(restaurantSearchRepository, menuItemSearchRepository);
+        return new SearchSyncProjectionService(restaurantSearchRepository, menuItemSearchRepository, searchIndexer);
     }
 
     @Test

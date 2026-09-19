@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.bhukkad.payment.api.dto.request.PaymentRequest;
 import com.bhukkad.payment.api.dto.response.PaymentResponse;
 import java.math.BigDecimal;
+import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping("/api/v1/payments")
@@ -31,19 +32,19 @@ public class PaymentController {
     private final PaymentMapper paymentMapper;
 
     @PostMapping
-    public PaymentResponse pay(@AuthenticationPrincipal TokenPrincipal principal,
-                               @Valid @RequestBody PaymentRequest request,
-                               @RequestHeader("Idempotency-Key") String idempotencyKey) {
+    public Mono<PaymentResponse> pay(@AuthenticationPrincipal TokenPrincipal principal,
+                                @Valid @RequestBody PaymentRequest request,
+                                @RequestHeader("Idempotency-Key") String idempotencyKey) {
         // The payer is the authenticated subject — a body customerId could
         // otherwise push the payment (and any wallet movement) onto a victim.
         PrincipalGuard.requireAuthenticated(principal);
-        Payment payment = paymentService.processPayment(
+        return Mono.fromCallable(() -> paymentService.processPayment(
                 request.getOrderId(),
                 principal.userId(),
                 request.getAmount(),
                 request.getPaymentMethod(),
-                idempotencyKey);
-        return paymentMapper.toPaymentResponse(payment);
+                idempotencyKey))
+                .map(paymentMapper::toPaymentResponse);
     }
 
     @GetMapping("/{paymentId}")

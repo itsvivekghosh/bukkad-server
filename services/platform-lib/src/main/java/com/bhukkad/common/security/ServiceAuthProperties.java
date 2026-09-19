@@ -27,6 +27,13 @@ public class ServiceAuthProperties {
      */
     private boolean enforceInternalPaths = true;
 
+    /**
+     * TTL for service-to-service JWT tokens in seconds.
+     * Default is 1 hour. Increase for long-running batch jobs; decrease
+     * if you need faster revocation.
+     */
+    private int tokenTtlSeconds = 3600;
+
     public String getJwtSecret() {
         return jwtSecret;
     }
@@ -49,5 +56,13 @@ public class ServiceAuthProperties {
 
     public void setEnforceInternalPaths(boolean enforceInternalPaths) {
         this.enforceInternalPaths = enforceInternalPaths;
+    }
+
+    public int getTokenTtlSeconds() {
+        return tokenTtlSeconds;
+    }
+
+    public void setTokenTtlSeconds(int tokenTtlSeconds) {
+        this.tokenTtlSeconds = tokenTtlSeconds;
     }
 }

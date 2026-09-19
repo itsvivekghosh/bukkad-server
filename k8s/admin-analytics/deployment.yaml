@@ -7,7 +7,7 @@ metadata:
     app: bhukkad
     component: admin-analytics
 spec:
-  replicas: 3
+  priorityClassName: production-high
   selector:
     matchLabels:
       app: bhukkad
@@ -61,7 +61,7 @@ spec:
                 name: bhukkad-config
           env:
             - name: SERVER_PORT
-              value: "8081"
+              value: "8087"
             - name: WAIT_FOR_SERVICES
               value: "false"
             - name: HEALTH_PATH

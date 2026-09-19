@@ -5,6 +5,7 @@ import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.restaurant.api.dto.response.ApiResponse;
 import com.bhukkad.restaurant.domain.entity.MenuCategory;
 import com.bhukkad.restaurant.domain.service.impl.MenuCategoryService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -29,7 +30,7 @@ public class MenuCategoryController {
     public ResponseEntity<ApiResponse<MenuCategory>> create(
             @AuthenticationPrincipal TokenPrincipal principal,
             @RequestParam Long restaurantId,
-            @RequestBody MenuCategory category) {
+            @Valid @RequestBody MenuCategory category) {
         ownerGuard.requireOwnerOrAdmin(principal, restaurantId);
         return ResponseEntity.ok(ApiResponse.success("Category created",
                 menuCategoryService.create(restaurantId, category)));
@@ -44,7 +45,7 @@ public class MenuCategoryController {
     public ResponseEntity<ApiResponse<MenuCategory>> update(
             @AuthenticationPrincipal TokenPrincipal principal,
             @PathVariable Long categoryId,
-            @RequestBody MenuCategory patch) {
+            @Valid @RequestBody MenuCategory patch) {
         MenuCategory existing = menuCategoryService.get(categoryId);
         ownerGuard.requireOwnerOrAdmin(principal, existing.getRestaurantId());
         return ResponseEntity.ok(ApiResponse.success("Category updated",

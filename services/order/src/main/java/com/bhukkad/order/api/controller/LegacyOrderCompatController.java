@@ -5,6 +5,7 @@ import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.domain.service.impl.CartService;
 import com.bhukkad.order.domain.service.impl.OrderService;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -73,7 +74,6 @@ public class LegacyOrderCompatController {
             @RequestBody CreateOrderRequest request) {
         Long customerId = subjectId(principal);
         if (request == null || request.restaurantId() == null) {
-            // Empty/invalid order bodies must 400 (never NPE → 500).
             throw new com.bhukkad.common.error.BusinessException("restaurantId is required");
         }
         String key = (idempotencyKey == null || idempotencyKey.isBlank())
@@ -157,6 +157,8 @@ public class LegacyOrderCompatController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody(required = false) CreateOrderRequest request) {
         Long customerId = subjectId(principal);
+        String key = (idempotencyKey == null || idempotencyKey.isBlank())
+                ? UUID.randomUUID().toString() : idempotencyKey.trim();
         if (request == null || request.restaurantId() == null) {
             throw new com.bhukkad.common.error.BusinessException("restaurantId is required");
         }
@@ -335,9 +337,8 @@ public class LegacyOrderCompatController {
                                            @RequestHeader(value = "Idempotency-Key", required = false)
                                            String idempotencyKey,
                                            @RequestBody(required = false) CreateOrderRequest request) {
-        if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new com.bhukkad.common.error.BusinessException("Idempotency-Key header is required");
-        }
+        String key = (idempotencyKey == null || idempotencyKey.isBlank())
+                ? UUID.randomUUID().toString() : idempotencyKey.trim();
         Long customerId = subjectId(principal);
         var items = cartService.getItems(customerId);
         if (items.isEmpty()) {

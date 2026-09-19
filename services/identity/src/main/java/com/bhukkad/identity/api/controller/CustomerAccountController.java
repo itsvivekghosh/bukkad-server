@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -68,7 +69,7 @@ public class CustomerAccountController {
     @PostMapping("/device-tokens")
     @Transactional
     public DeviceToken registerDevice(@AuthenticationPrincipal TokenPrincipal principal,
-                                      @org.springframework.validation.annotation.Validated
+                                      @Valid
                                       @RequestBody DeviceTokenRequest request) {
         Long customerId = subjectId(principal);
         return deviceTokenRepository.findByUserIdAndToken(customerId, request.getToken())
@@ -87,7 +88,7 @@ public class CustomerAccountController {
     @DeleteMapping("/device-tokens")
     @Transactional
     public Map<String, String> deleteDevice(@AuthenticationPrincipal TokenPrincipal principal,
-                                            @RequestBody DeviceTokenRequest request) {
+                                            @Valid @RequestBody DeviceTokenRequest request) {
         Long customerId = subjectId(principal);
         long removed = deviceTokenRepository.deleteByUserIdAndToken(customerId, request.getToken());
         if (removed == 0) {
@@ -109,7 +110,7 @@ public class CustomerAccountController {
     @Transactional
     public Map<String, Object> updateNotificationPreferences(
             @AuthenticationPrincipal TokenPrincipal principal,
-            @RequestBody NotificationPreferencesRequest request) {
+            @Valid @RequestBody NotificationPreferencesRequest request) {
         Long customerId = subjectId(principal);
         upsertChannel(customerId, "EMAIL", request.emailEnabled());
         upsertChannel(customerId, "SMS", request.smsEnabled());

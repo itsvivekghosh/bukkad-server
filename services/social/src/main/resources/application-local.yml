@@ -1,0 +1,56 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/social
+    username: app
+    password: app_pass
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 1
+      connection-timeout: 10000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      register-mbeans: false
+  jpa:
+    open-in-view: false
+    show-sql: false
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 16
+    validate-on-migrate: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  main:
+    lazy-initialization: true
+management:
+  tracing:
+    sampling:
+      probability: 0.0
+  endpoints:
+    web:
+      exposure:
+        include: health,info,beans,env,configprops
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+logging:
+  level:
+    com.bhukkad: WARN
+app:
+  environment: development
+  auth:
+    jwt:
+      jwks-url: http://localhost:8081/.well-known/jwks.json
+  services:
+    restaurant:
+      url: http://localhost:8091
+    order:
+      url: http://localhost:8092

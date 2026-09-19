@@ -1,12 +1,26 @@
 package com.bhukkad.referral.api.dto.request;
 
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
 /** Affiliate code create/update payload. */
 public class AffiliateCodeRequest {
 
+    @NotBlank(message = "Code is required")
     private String code;
+
+    @NotBlank(message = "Name is required")
     private String name;
+
+    @NotBlank(message = "Channel is required")
     private String channel;
+
+    @NotNull(message = "Reward amount is required")
+    @DecimalMin(value = "0.0", inclusive = true, message = "Reward amount must be non-negative")
     private Double rewardAmount;
+
+    @NotNull(message = "Active status is required")
     private Boolean isActive;
 
     public String getCode() {

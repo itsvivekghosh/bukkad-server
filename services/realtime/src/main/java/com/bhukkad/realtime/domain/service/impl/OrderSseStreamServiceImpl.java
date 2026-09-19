@@ -2,35 +2,33 @@ package com.bhukkad.realtime.domain.service.impl;
 
 import com.bhukkad.realtime.config.LiveProperties;
 import com.bhukkad.realtime.domain.event.OrderLiveUpdate;
-import com.bhukkad.realtime.exception.SseCapacityExceededException;
 import com.bhukkad.realtime.domain.service.OrderLiveReplayStore;
 import com.bhukkad.realtime.domain.service.OrderSseStreamService;
+import com.bhukkad.realtime.exception.SseCapacityExceededException;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Pod-local SSE registry for the live order streams. Mirrors the semantics of
- * the delivery module's twin (budgets, O(1) disconnect via the emitter index,
- * evict-on-dispatch-rejection, identical metric names); the copies exist
- * because the two services carry different update DTO classes, so a shared
- * helper would be cross-service abstraction (align-semantics note, unify in
- * PERF-5).
+ * Pod-local reactive SSE registry for the live order streams.
  *
- * <p>Metric contract: {@code sse_connections} gauge = emitters currently
- * registered on this pod (Prometheus: {@code sse_connections});
+ * <p>Uses {@link Sinks.Many} to multicast {@link ServerSentEvent} fluxes to
+ * subscribers. This removes the servlet-thread-per-stream ceiling: the
+ * underlying Netty runtime handles backpressure and concurrency without
+ * holding a Tomcat thread for each connection.</p>
+ *
+ * <p>Metric contract: {@code sse_connections} gauge = active subscribers
+ * across all streams (Prometheus: {@code sse_connections});
  * {@code sse_capacity_rejected{reason=stream|global|dispatch}} counter
  * (Prometheus: {@code sse_capacity_rejected_total}).</p>
  */
@@ -38,74 +36,48 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class OrderSseStreamServiceImpl implements OrderSseStreamService {
 
-    private static final long DEFAULT_TIMEOUT = 300_000L;
     public static final String METRIC_CONNECTIONS = "sse_connections";
     public static final String METRIC_CAPACITY_REJECTED = "sse_capacity_rejected";
 
     private final OrderLiveReplayStore replayStore;
-    private final Executor sseDispatchExecutor;
     private final LiveProperties liveProperties;
     private final MeterRegistry meterRegistry;
 
+    private final AtomicInteger totalSubscribers = new AtomicInteger();
+
+    /** streamKey -> multicast sink for that stream */
+    private final Map<Long, Sinks.Many<ServerSentEvent<String>>> kitchenStreams = new ConcurrentHashMap<>();
+    private final Map<Long, Sinks.Many<ServerSentEvent<String>>> riderStreams = new ConcurrentHashMap<>();
+    private final Map<Long, Sinks.Many<ServerSentEvent<String>>> customerStreams = new ConcurrentHashMap<>();
+    private final Map<Long, AtomicInteger> streamSubscriberCounts = new ConcurrentHashMap<>();
+
     public OrderSseStreamServiceImpl(OrderLiveReplayStore replayStore,
-                                     Executor sseDispatchExecutor,
                                      LiveProperties liveProperties,
                                      MeterRegistry meterRegistry) {
         this.replayStore = replayStore;
-        this.sseDispatchExecutor = sseDispatchExecutor;
         this.liveProperties = liveProperties;
         this.meterRegistry = meterRegistry;
         if (meterRegistry != null) {
-            meterRegistry.gauge(METRIC_CONNECTIONS, totalEmitters, AtomicInteger::doubleValue);
+            meterRegistry.gauge(METRIC_CONNECTIONS, totalSubscribers, AtomicInteger::doubleValue);
         }
     }
 
-    private final AtomicInteger totalEmitters = new AtomicInteger();
-
-    private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
-    private final Map<Long, CopyOnWriteArrayList<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
-    private final Map<Long, CopyOnWriteArrayList<SseEmitter>> customerStreams = new ConcurrentHashMap<>();
-
-    /**
-     * emitter → (streams, key): disconnect and send failures resolve in O(1)
-     * instead of scanning every registered stream (audit V-06 finish).
-     */
-    private final Map<SseEmitter, StreamHandle> emitterIndex = new ConcurrentHashMap<>();
-
-    private record StreamHandle(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, Long key) {
+    @Override
+    public Flux<ServerSentEvent<String>> subscribeKitchen(Long restaurantId, String lastEventId) {
+        return subscribe(kitchenStreams, restaurantId, "kitchen",
+                replayStore.streamKeyKitchen(restaurantId), lastEventId, null);
     }
 
     @Override
-    public SseEmitter subscribeKitchen(Long restaurantId, String lastEventId) {
-        return subscribe(
-                kitchenStreams,
-                restaurantId,
-                "kitchen",
-                replayStore.streamKeyKitchen(restaurantId),
-                lastEventId,
-                null);
+    public Flux<ServerSentEvent<String>> subscribeRider(Long agentId, String lastEventId) {
+        return subscribe(riderStreams, agentId, "rider",
+                replayStore.streamKeyRider(agentId), lastEventId, null);
     }
 
     @Override
-    public SseEmitter subscribeRider(Long agentId, String lastEventId) {
-        return subscribe(
-                riderStreams,
-                agentId,
-                "rider",
-                replayStore.streamKeyRider(agentId),
-                lastEventId,
-                null);
-    }
-
-    @Override
-    public SseEmitter subscribeCustomer(Long orderId, String lastEventId, Object snapshot) {
-        return subscribe(
-                customerStreams,
-                orderId,
-                "customer-order",
-                replayStore.streamKeyOrder(orderId),
-                lastEventId,
-                snapshot);
+    public Flux<ServerSentEvent<String>> subscribeCustomer(Long orderId, String lastEventId, Object snapshot) {
+        return subscribe(customerStreams, orderId, "customer-order",
+                replayStore.streamKeyOrder(orderId), lastEventId, snapshot);
     }
 
     @Override
@@ -135,167 +107,130 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
         return countStreams(kitchenStreams) + countStreams(riderStreams) + countStreams(customerStreams);
     }
 
-    /** Index residency, observable for tests/maintenance assertions. */
+    /** Number of active subscribers across all streams (observable for tests). */
     public int indexedEmitterCount() {
-        return emitterIndex.size();
+        return totalSubscribers.get();
     }
 
-    private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
-                                  Long key,
-                                  String channel,
-                                  String replayStreamKey,
-                                  String lastEventId,
-                                  Object snapshot) {
-        SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
-        try {
-            reserveGlobalBudget(channel, key);
-        } catch (SseCapacityExceededException ex) {
-            recordCapacityRejected("global");
-            throw ex;
-        }
-        CopyOnWriteArrayList<SseEmitter> emitters = streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>());
-
-        synchronized (emitters) {
-            if (emitters.size() >= liveProperties.getMaxEmittersPerStream()) {
-                totalEmitters.decrementAndGet();
-                recordCapacityRejected("stream");
-                if (emitters.isEmpty()) {
-                    streams.remove(key, emitters);
-                }
-                log.warn("SSE_CAPACITY_EXCEEDED | channel={} | id={}", channel, key);
-                throw new SseCapacityExceededException("Stream capacity reached for " + channel + " " + key);
+    private Flux<ServerSentEvent<String>> subscribe(Map<Long, Sinks.Many<ServerSentEvent<String>>> streams,
+                                                    Long key,
+                                                    String channel,
+                                                    String replayStreamKey,
+                                                    String lastEventId,
+                                                    Object snapshot) {
+        // Enforce global capacity by counting current subscribers.
+        // Sinks.Many subscriber count is not directly exposed, so we track it
+        // via totalSubscribers as a budget guard (approximation: each Flux.just
+        // below adds one subscriber).
+        synchronized (streams) {
+            int current = totalSubscribers.get();
+            if (current >= liveProperties.getMaxTotalEmitters()) {
+                totalSubscribers.decrementAndGet();
+                recordCapacityRejected("global");
+                log.warn("SSE_GLOBAL_BUDGET_EXCEEDED | channel={} | id={} | total={}", channel, key, current);
+                throw new SseCapacityExceededException("Server SSE connection budget reached; retry shortly");
             }
-            emitters.add(emitter);
-        }
-        emitterIndex.put(emitter, new StreamHandle(streams, key));
-
-        Runnable cleanup = () -> remove(streams, key, emitter);
-        emitter.onCompletion(cleanup);
-        emitter.onTimeout(cleanup);
-        emitter.onError(error -> cleanup.run());
-
-        try {
-            emitter.send(SseEmitter.event().id("0").name("connected").data("{\"channel\":\"" + channel + "\",\"id\":" + key + "}"));
-            replayMissedEvents(emitter, replayStreamKey, lastEventId);
-            if (snapshot != null) {
-                emitter.send(SseEmitter.event().id("snapshot").name("order-snapshot").data(snapshot));
-            }
-        } catch (IOException e) {
-            cleanup.run();
-            throw new IllegalStateException("Failed to open SSE stream", e);
+            totalSubscribers.incrementAndGet();
         }
 
-        log.debug("SSE subscribed | channel={} | id={}", channel, key);
-        return emitter;
+        AtomicInteger streamCount = streamSubscriberCounts.computeIfAbsent(key, k -> new AtomicInteger(0));
+        streamCount.incrementAndGet();
+
+        Sinks.Many<ServerSentEvent<String>> sink = streams.computeIfAbsent(key,
+                ignored -> Sinks.many().multicast().onBackpressureBuffer(1024));
+
+        Flux<ServerSentEvent<String>> connected = Flux.just(
+                ServerSentEvent.<String>builder()
+                        .id("0")
+                        .event("connected")
+                        .data("{\"channel\":\"" + channel + "\",\"id\":" + key + "}")
+                        .build());
+
+        Flux<ServerSentEvent<String>> replay = replayMissedEvents(replayStreamKey, lastEventId);
+        Flux<ServerSentEvent<String>> snapshotFlux = snapshot != null
+                ? Flux.just(ServerSentEvent.<String>builder()
+                        .id("snapshot")
+                        .event("order-snapshot")
+                        .data(snapshot.toString())
+                        .build())
+                : Flux.empty();
+
+        return Flux.concat(connected, replay, snapshotFlux, sink.asFlux())
+                .doFinally(signal -> {
+                    totalSubscribers.decrementAndGet();
+                    if (signal == reactor.core.publisher.SignalType.CANCEL
+                            || signal == reactor.core.publisher.SignalType.ON_COMPLETE) {
+                        log.debug("SSE unsubscribed | channel={} | id={} | signal={}", channel, key, signal);
+                        int remaining = streamCount.decrementAndGet();
+                        if (remaining <= 0) {
+                            streams.computeIfPresent(key, (k, v) -> {
+                                if (v == sink) return null;
+                                return v;
+                            });
+                            streamSubscriberCounts.computeIfPresent(key, (k, v) -> {
+                                if (v.get() <= 0) return null;
+                                return v;
+                            });
+                        }
+                    }
+                });
     }
 
-    private void replayMissedEvents(SseEmitter emitter, String replayStreamKey, String lastEventId) throws IOException {
+    private Flux<ServerSentEvent<String>> replayMissedEvents(String replayStreamKey, String lastEventId) {
         if (!StringUtils.hasText(lastEventId) || !StringUtils.hasText(replayStreamKey)) {
-            return;
+            return Flux.empty();
         }
         long afterEventId = replayStore.parseLastEventId(lastEventId);
         if (afterEventId < 0) {
-            return;
+            return Flux.empty();
         }
         List<OrderLiveUpdate> missed = replayStore.replayAfter(replayStreamKey, afterEventId);
-        for (OrderLiveUpdate update : missed) {
-            sendUpdate(emitter, update);
-        }
+        return Flux.fromIterable(missed)
+                .map(update -> ServerSentEvent.<String>builder()
+                        .id(String.valueOf(update.getEventId()))
+                        .event("order-update")
+                        .data(update.toString())
+                        .build());
     }
 
-    private void broadcast(List<SseEmitter> emitters, OrderLiveUpdate update) {
-        if (emitters == null || emitters.isEmpty()) {
+    private void broadcast(Sinks.Many<ServerSentEvent<String>> sink, OrderLiveUpdate update) {
+        if (sink == null) {
             return;
         }
-        for (SseEmitter emitter : emitters) {
-            try {
-                sseDispatchExecutor.execute(() -> {
-                    try {
-                        sendUpdate(emitter, update);
-                    } catch (Exception e) {
-                        evictEmitter(emitter);
-                    }
-                });
-            } catch (RejectedExecutionException ex) {
-                // Never run the write on the caller (broadcast) thread: pool
-                // saturation means this socket is behind, so drop + count it.
-                log.warn("SSE_DISPATCH_REJECTED | error={}", ex.getMessage());
-                recordCapacityRejected("dispatch");
-                evictEmitter(emitter);
-            }
+        ServerSentEvent<String> event = ServerSentEvent.<String>builder()
+                .id(String.valueOf(update.getEventId()))
+                .event("order-update")
+                .data(update.toString())
+                .build();
+        Sinks.EmitResult result = sink.tryEmitNext(event);
+        if (result.isFailure()) {
+            log.warn("SSE_BROADCAST_FAILED | error={}", result);
+            recordCapacityRejected("dispatch");
         }
     }
 
-    private void sendUpdate(SseEmitter emitter, OrderLiveUpdate update) throws IOException {
-        SseEmitter.SseEventBuilder event = SseEmitter.event().name("order-update").data(update);
-        if (update.getEventId() != null) {
-            event.id(String.valueOf(update.getEventId()));
+    private void sendHeartbeatToAll(Map<Long, Sinks.Many<ServerSentEvent<String>>> streams) {
+        for (Sinks.Many<ServerSentEvent<String>> sink : streams.values()) {
+            sendHeartbeat(sink);
         }
-        emitter.send(event);
     }
 
-    private void evictEmitter(SseEmitter emitter) {
-        removeFromAllStreams(emitter);
-        removeAndCompleteEmitter(emitter);
-    }
-
-    private void removeFromAllStreams(SseEmitter emitter) {
-        StreamHandle handle = emitterIndex.get(emitter);
-        if (handle != null) {
-            remove(handle.streams(), handle.key(), emitter);
+    private void sendHeartbeat(Sinks.Many<ServerSentEvent<String>> sink) {
+        if (sink == null) {
             return;
         }
-        // Emitter unknown to the index (defensive): fall back to the scan.
-        remove(kitchenStreams, emitter);
-        remove(riderStreams, emitter);
-        remove(customerStreams, emitter);
-    }
-
-    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, SseEmitter emitter) {
-        for (Map.Entry<Long, CopyOnWriteArrayList<SseEmitter>> entry : streams.entrySet()) {
-            remove(streams, entry.getKey(), emitter);
+        ServerSentEvent<String> heartbeat = ServerSentEvent.<String>builder()
+                .comment("heartbeat")
+                .build();
+        Sinks.EmitResult result = sink.tryEmitNext(heartbeat);
+        if (result.isFailure()) {
+            log.warn("SSE_HEARTBEAT_FAILED | error={}", result);
+            recordCapacityRejected("dispatch");
         }
     }
 
-    private void reserveGlobalBudget(String channel, Long key) {
-        int reserved = totalEmitters.incrementAndGet();
-        if (reserved > liveProperties.getMaxTotalEmitters()) {
-            totalEmitters.decrementAndGet();
-            log.warn("SSE_GLOBAL_BUDGET_EXCEEDED | channel={} | id={} | total={}", channel, key, reserved);
-            throw new SseCapacityExceededException("Server SSE connection budget reached; retry shortly");
-        }
-    }
-
-    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, Long key, SseEmitter emitter) {
-        emitterIndex.remove(emitter);
-        CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
-        if (emitters != null) {
-            if (emitters.remove(emitter)) {
-                totalEmitters.decrementAndGet();
-            }
-            if (emitters.isEmpty()) {
-                streams.remove(key, emitters);
-            }
-        }
-    }
-
-    private void removeAndCompleteEmitter(SseEmitter emitter) {
-        if (emitter != null) {
-            try {
-                emitter.complete();
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    private int countStreams(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        return streams.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
-    }
-
-    private void sendHeartbeatToAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
-            sendHeartbeat(emitters);
-        }
+    private int countStreams(Map<Long, Sinks.Many<ServerSentEvent<String>>> streams) {
+        return streams.size();
     }
 
     private void recordCapacityRejected(String reason) {
@@ -304,46 +239,15 @@ public class OrderSseStreamServiceImpl implements OrderSseStreamService {
         }
     }
 
-    private void sendHeartbeat(List<SseEmitter> emitters) {
-        if (emitters == null || emitters.isEmpty()) {
-            return;
-        }
-        for (SseEmitter emitter : emitters) {
-            try {
-                sseDispatchExecutor.execute(() -> {
-                    try {
-                        emitter.send(SseEmitter.event().comment("heartbeat"));
-                    } catch (IOException | IllegalStateException e) {
-                        evictEmitter(emitter);
-                    }
-                });
-            } catch (RejectedExecutionException ex) {
-                log.warn("SSE_HEARTBEAT_DISPATCH_REJECTED | error={}", ex.getMessage());
-                recordCapacityRejected("dispatch");
-                evictEmitter(emitter);
-            }
-        }
-    }
-
     @PreDestroy
     void shutdown() {
-        closeAll(kitchenStreams);
-        closeAll(riderStreams);
-        closeAll(customerStreams);
-        emitterIndex.clear();
-        log.info("SSE streams closed for graceful shutdown");
-    }
-
-    private void closeAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
-            for (SseEmitter emitter : emitters) {
-                try {
-                    emitter.complete();
-                } catch (Exception ignored) {
-                }
+        for (Map<Long, Sinks.Many<ServerSentEvent<String>>> streams : List.of(
+                kitchenStreams, riderStreams, customerStreams)) {
+            for (Sinks.Many<ServerSentEvent<String>> sink : streams.values()) {
+                sink.tryEmitComplete();
             }
-            emitters.clear();
+            streams.clear();
         }
-        streams.clear();
+        log.info("SSE streams closed for graceful shutdown");
     }
 }

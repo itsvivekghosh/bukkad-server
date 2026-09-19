@@ -12,7 +12,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,7 +41,7 @@ class LiveStreamAuthzTest {
     @Test
     void owner_getsCustomerStream() {
         when(ownershipClient.ownsOrder(7L, 42L)).thenReturn(true);
-        when(streamService.subscribeCustomer(eq(42L), any(), any())).thenReturn(new SseEmitter());
+        when(streamService.subscribeCustomer(eq(42L), any(), any())).thenReturn(Flux.empty());
 
         assertThat(controller.subscribeCustomer(principal(7L, "CUSTOMER"), 42L, null))
                 .isNotNull();
@@ -66,7 +66,7 @@ class LiveStreamAuthzTest {
 
     @Test
     void admin_opensWithoutOwnershipProbe() {
-        when(streamService.subscribeCustomer(eq(42L), any(), any())).thenReturn(new SseEmitter());
+        when(streamService.subscribeCustomer(eq(42L), any(), any())).thenReturn(Flux.empty());
 
         assertThat(controller.subscribeCustomer(principal(1L, "ADMIN"), 42L, null)).isNotNull();
         verify(ownershipClient, never()).ownsOrder(any(), any());
@@ -95,7 +95,7 @@ class LiveStreamAuthzTest {
 
     @Test
     void rider_getsOwnStream() {
-        when(streamService.subscribeRider(eq(9L), any())).thenReturn(new SseEmitter());
+        when(streamService.subscribeRider(eq(9L), any())).thenReturn(Flux.empty());
 
         assertThat(controller.subscribeRider(principal(9L, "DELIVERY_AGENT"), 9L, null))
                 .isNotNull();
@@ -110,14 +110,14 @@ class LiveStreamAuthzTest {
 
     @Test
     void admin_opensAnyRiderStream() {
-        when(streamService.subscribeRider(eq(12L), any())).thenReturn(new SseEmitter());
+        when(streamService.subscribeRider(eq(12L), any())).thenReturn(Flux.empty());
 
         assertThat(controller.subscribeRider(principal(1L, "ADMIN"), 12L, null)).isNotNull();
     }
 
     @Test
     void service_opensAnyRiderStream() {
-        when(streamService.subscribeRider(eq(12L), any())).thenReturn(new SseEmitter());
+        when(streamService.subscribeRider(eq(12L), any())).thenReturn(Flux.empty());
 
         assertThat(controller.subscribeRider(principal(null, "SERVICE"), 12L, null)).isNotNull();
     }

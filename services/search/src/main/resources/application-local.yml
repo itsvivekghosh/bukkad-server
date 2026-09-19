@@ -34,6 +34,9 @@ management:
   zipkin:
     tracing:
       endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+  health:
+    elasticsearch:
+      enabled: false
 logging:
   level:
     com.bhukkad: WARN
@@ -42,3 +45,6 @@ app:
   auth:
     jwt:
       jwks-url: http://localhost:8081/.well-known/jwks.json
+  search:
+    elasticsearch:
+      enabled: false

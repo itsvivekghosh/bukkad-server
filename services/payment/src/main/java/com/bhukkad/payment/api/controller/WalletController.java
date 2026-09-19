@@ -21,6 +21,7 @@ import com.bhukkad.payment.api.dto.response.WalletTransactionResponse;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -40,16 +41,16 @@ public class WalletController {
     }
 
     @PostMapping("/customers/{customerId}/wallet/top-up")
-    public WalletResponse topUp(@AuthenticationPrincipal TokenPrincipal principal,
-                                @PathVariable Long customerId,
-                                @Valid @RequestBody WalletTopUpRequest request,
-                                @RequestHeader("Idempotency-Key") String idempotencyKey) {
+    public Mono<WalletResponse> topUp(@AuthenticationPrincipal TokenPrincipal principal,
+                                  @PathVariable Long customerId,
+                                  @Valid @RequestBody WalletTopUpRequest request,
+                                  @RequestHeader("Idempotency-Key") String idempotencyKey) {
         // Only the wallet owner (or an admin) may top it up.
         PrincipalGuard.requireSelfOrAdmin(principal, customerId);
-        paymentService.processPayment(0L, customerId, request.getAmount(),
-                Payment.METHOD_WALLET, idempotencyKey);
-        WalletBalance balance = walletService.balance(customerId);
-        return paymentMapper.toWalletResponse(balance);
+        return Mono.fromCallable(() -> paymentService.processPayment(0L, customerId, request.getAmount(),
+                Payment.METHOD_WALLET, idempotencyKey))
+                .then(Mono.fromCallable(() -> walletService.balance(customerId)))
+                .map(paymentMapper::toWalletResponse);
     }
 
     @GetMapping("/wallet/transactions")

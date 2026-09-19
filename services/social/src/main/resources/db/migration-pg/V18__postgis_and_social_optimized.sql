@@ -1,0 +1,2 @@
+-- PostGIS migration skipped in local/dev because PostGIS extension is not guaranteed.
+-- The application still works with latitude/longitude columns from V16.

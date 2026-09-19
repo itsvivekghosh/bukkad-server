@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -52,7 +53,7 @@ public class RiderSelfController {
     @PutMapping("/api/v1/delivery/profile")
     @Transactional
     public DeliveryAgent updateProfile(@AuthenticationPrincipal TokenPrincipal principal,
-                                       @RequestBody(required = false) AgentProfileRequest request) {
+                                       @Valid @RequestBody(required = false) AgentProfileRequest request) {
         DeliveryAgent agent = agentRepository.findById(currentAgent(principal).getId())
                 .orElseThrow();
         if (request != null) {
@@ -228,7 +229,7 @@ public class RiderSelfController {
     @PostMapping("/api/v1/delivery/batches")
     @Transactional
     public Map<String, Object> createBatch(@AuthenticationPrincipal TokenPrincipal principal,
-                                           @RequestBody(required = false) BatchBody body) {
+                                           @Valid @RequestBody(required = false) BatchBody body) {
         Long agentId = currentAgent(principal).getId();
         if (body == null || body.orderIds() == null || body.orderIds().isEmpty()) {
             throw new BusinessException("orderIds is required");

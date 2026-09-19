@@ -11,6 +11,7 @@ spec:
   minReplicas: 10
   maxReplicas: 50
   metrics:
+    # CPU/memory baseline for JVM heap pressure
     - type: Resource
       resource:
         name: cpu
@@ -23,3 +24,19 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
+    # Custom metrics overlay for reactive gateway scaling on request rate
+    # and event-loop queue depth (requires prometheus-adapter or KEDA).
+    - type: Pods
+      pods:
+        metric:
+          name: http_server_requests_seconds_count
+        target:
+          type: AverageValue
+          averageValue: 1000
+    - type: External
+      external:
+        metric:
+          name: reactor_netty_io_worker_pending_tasks
+        target:
+          type: AverageValue
+          averageValue: 50

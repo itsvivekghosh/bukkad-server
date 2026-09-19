@@ -2,6 +2,7 @@ package com.bhukkad.admin.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,7 +51,7 @@ public class AdminPromotionController {
     @PostMapping("/campaigns")
     @Transactional
     public ResponseEntity<Map<String, Object>> createCampaign(
-            @RequestBody(required = false) Map<String, Object> body) {
+            @Valid @RequestBody(required = false) Map<String, Object> body) {
         String name = stringOrNull(body, "name");
         if (name == null || name.isBlank()) {
             throw new BusinessException("name is required");
@@ -73,7 +74,7 @@ public class AdminPromotionController {
     @PutMapping("/campaigns/{campaignId}")
     @Transactional
     public Map<String, Object> updateCampaign(@PathVariable Long campaignId,
-                                              @RequestBody(required = false) Map<String, Object> body) {
+                                              @Valid @RequestBody(required = false) Map<String, Object> body) {
         requireCampaign(campaignId);
         if (body != null) {
             if (stringOrNull(body, "name") != null) {
@@ -127,7 +128,7 @@ public class AdminPromotionController {
     @PostMapping("/banners")
     @Transactional
     public ResponseEntity<Map<String, Object>> createBanner(
-            @RequestBody(required = false) Map<String, Object> body) {
+            @Valid @RequestBody(required = false) Map<String, Object> body) {
         String title = stringOrNull(body, "title");
         if (title == null || title.isBlank()) {
             throw new BusinessException("title is required");
@@ -152,7 +153,7 @@ public class AdminPromotionController {
     @PutMapping("/banners/{bannerId}")
     @Transactional
     public Map<String, Object> updateBanner(@PathVariable Long bannerId,
-                                            @RequestBody(required = false) Map<String, Object> body) {
+                                            @Valid @RequestBody(required = false) Map<String, Object> body) {
         requireBanner(bannerId);
         if (body != null) {
             if (stringOrNull(body, "title") != null) {

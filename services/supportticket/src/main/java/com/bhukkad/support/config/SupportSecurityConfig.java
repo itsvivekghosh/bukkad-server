@@ -52,7 +52,7 @@ public class SupportSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(supportAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         // Error dispatch (404/500 forwards) must keep its real status.
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());

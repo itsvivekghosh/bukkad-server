@@ -52,7 +52,7 @@ class PaymentControllerTest {
         request.setPaymentMethod("UPI");
 
         // The body customerId is IGNORED; payer = JWT subject (IDOR guard).
-        PaymentResponse result = controller.pay(principal(2L), request, "idem-1");
+        PaymentResponse result = controller.pay(principal(2L), request, "idem-1").block();
 
         assertThat(result.getId()).isEqualTo(1L);
         verify(paymentService).processPayment(10L, 2L, new BigDecimal("100.00"), "UPI", "idem-1");
@@ -66,7 +66,7 @@ class PaymentControllerTest {
         request.setCurrency("INR");
         request.setPaymentMethod("UPI");
 
-        assertThatThrownBy(() -> controller.pay(null, request, "idem-2"))
+        assertThatThrownBy(() -> controller.pay(null, request, "idem-2").block())
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 

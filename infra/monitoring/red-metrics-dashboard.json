@@ -1,0 +1,217 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Funnel RPS by Stage",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(order.funnel.total[5m])) by (stage)",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "title": "Funnel Request Errors",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(order_funnel_errors_total[5m])) by (stage)",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "title": "Funnel Latency p50",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(order_create_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "order_create p50"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(payment_authorize_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "payment_authorize p50"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(delivery_assign_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "delivery_assign p50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "Funnel Latency p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(order_create_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "order_create p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(payment_authorize_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "payment_authorize p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(delivery_assign_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "delivery_assign p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "title": "Funnel Latency p99",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(order_create_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "order_create p99"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(payment_authorize_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "payment_authorize p99"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(delivery_assign_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "delivery_assign p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.75
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Funnel Error Rate (% of requests)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(order_funnel_errors_total[5m])) by (stage) / clamp_min(sum(rate(order.funnel.total{stage=~\"order_create|payment_authorize|delivery_assign\"}[5m])), 1e-6)",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.03
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "tags": [
+    "bhukkad",
+    "funnel",
+    "red-metrics",
+    "slo"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Bhukkad Funnel RED Metrics",
+  "uid": "bhukkad-funnel-red",
+  "version": 1,
+  "weekStart": ""
+}

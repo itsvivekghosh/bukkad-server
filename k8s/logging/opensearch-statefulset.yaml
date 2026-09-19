@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  namespace: bhukkad
+spec:
+  replicas: 3
+  serviceName: opensearch-headless
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: opensearch
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: opensearch
+    spec:
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.19.0
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          env:
+            - name: cluster.name
+              value: bhukkad-logs
+            - name: node.name
+              value: opensearch-$(HOSTNAME)
+            - name: discovery.type
+              value: single-node
+            - name: bootstrap.memory_lock
+              value: "true"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms2g -Xmx2g"
+          volumeMounts:
+            - name: opensearch-data
+              mountPath: /usr/share/opensearch/data
+            - name: opensearch-logs
+              mountPath: /usr/share/opensearch/logs
+      volumes:
+        - name: opensearch-data
+          emptyDir: {}
+        - name: opensearch-logs
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: opensearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

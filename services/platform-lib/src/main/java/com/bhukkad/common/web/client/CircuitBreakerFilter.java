@@ -39,18 +39,19 @@ import java.time.Duration;
 public class CircuitBreakerFilter implements ExchangeFilterFunction {
 
     /**
-     * Platform default breaker settings (audit PERF-1/V-16): window of 20
-     * calls, open at 50% failures or 80% slow calls, 10 s in OPEN, 3 probes
-     * allowed in HALF_OPEN.
+     * Platform default breaker settings (audit PERF-1/V-16): aligned to the
+     * gateway defaults so service-to-service and edge behavior is consistent
+     * under heavy traffic. Window of 50 calls, open at 40% failures or 80% slow
+     * calls, 30 s in OPEN, 3 probes allowed in HALF_OPEN.
      */
     public static final CircuitBreakerConfig DEFAULT_CONFIG = CircuitBreakerConfig.custom()
-            .failureRateThreshold(50f)
+            .failureRateThreshold(40f)
             .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
-            .slidingWindowSize(20)
+            .slidingWindowSize(50)
             .minimumNumberOfCalls(10)
             .slowCallDurationThreshold(Duration.ofSeconds(2))
             .slowCallRateThreshold(80f)
-            .waitDurationInOpenState(Duration.ofSeconds(10))
+            .waitDurationInOpenState(Duration.ofSeconds(30))
             .permittedNumberOfCallsInHalfOpenState(3)
             .build();
 

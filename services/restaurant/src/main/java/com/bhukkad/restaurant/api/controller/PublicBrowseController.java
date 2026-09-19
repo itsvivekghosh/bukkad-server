@@ -11,6 +11,7 @@ import com.bhukkad.restaurant.domain.entity.MenuItem;
 import com.bhukkad.restaurant.domain.repository.MenuItemRepository;
 import com.bhukkad.restaurant.domain.entity.Restaurant;
 import com.bhukkad.restaurant.domain.repository.RestaurantRepository;
+import com.bhukkad.restaurant.api.dto.response.RestaurantSummary;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,6 +51,7 @@ public class PublicBrowseController {
     private final org.springframework.beans.factory.ObjectProvider<com.bhukkad.common.cache.RedisCacheService>
             cacheProvider;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final com.bhukkad.restaurant.domain.service.LocationService locationService;
 
     /**
      * Per-id cache round-trips keep money decimals exact: floats bind back to
@@ -122,8 +124,9 @@ public class PublicBrowseController {
     }
 
     /**
-     * Geo discovery: bounding-box prefilter (SQL) refined with a great-circle
-     * distance check. Restaurants without stored coordinates are excluded.
+     * Geo discovery: delegates to {@link LocationService} for a PostGIS-backed
+     * nearby query with multi-tier caching. Falls back to the legacy Haversine
+     * in-memory path if the new service is unavailable.
      */
     @GetMapping("/api/v1/restaurants/public/nearby")
     @Transactional(readOnly = true)
@@ -133,18 +136,53 @@ public class PublicBrowseController {
         double lat = requireNumber(latitude, "latitude");
         double lng = requireNumber(longitude, "longitude");
         double radius = Math.max(0.5, Math.min(50.0, requireNumber(radiusKm, "radiusKm")));
-        List<Restaurant> candidates = restaurantRepository.findByIsActiveTrue().stream()
-                .filter(r -> r.getLatitude() != null && r.getLongitude() != null)
+
+        List<RestaurantSummary> summaries = List.of();
+        if (locationService != null) {
+            summaries = locationService.findNearby(lat, lng, radius);
+        }
+
+        // Legacy fallback: Haversine in-memory filter (preserves pre-Phase-1 behavior).
+        if (summaries.isEmpty()) {
+            List<Restaurant> candidates = restaurantRepository.findByIsActiveTrue().stream()
+                    .filter(r -> r.getLatitude() != null && r.getLongitude() != null)
+                    .toList();
+            List<Restaurant> near = candidates.stream()
+                    .filter(r -> haversineKm(lat, lng, r.getLatitude(), r.getLongitude()) <= radius)
+                    .sorted((a, b) -> Double.compare(
+                            haversineKm(lat, lng, a.getLatitude(), a.getLongitude()),
+                            haversineKm(lat, lng, b.getLatitude(), b.getLongitude())))
+                    .limit(MAX_BATCH_IDS)
+                    .toList();
+            summaries = near.stream()
+                    .map(this::toSummaryFromEntity)
+                    .toList();
+        }
+
+        List<Map<String, Object>> content = summaries.stream()
+                .map(this::toSummaryMap)
                 .toList();
-        List<Restaurant> near = candidates.stream()
-                .filter(r -> haversineKm(lat, lng, r.getLatitude(), r.getLongitude()) <= radius)
-                .sorted((a, b) -> Double.compare(
-                        haversineKm(lat, lng, a.getLatitude(), a.getLongitude()),
-                        haversineKm(lat, lng, b.getLatitude(), b.getLongitude())))
-                .limit(MAX_BATCH_IDS)
-                .toList();
-        return envelope(near.stream().map(this::toMap).toList(), 0,
-                near.size(), near.size());
+        return envelope(content, 0, content.size(), content.size());
+    }
+
+    private RestaurantSummary toSummaryFromEntity(Restaurant r) {
+        return new RestaurantSummary(
+                r.getId(), r.getName(), r.getDescription(), r.getCuisineId(),
+                r.getAddress(), r.getPhone(),
+                Boolean.TRUE.equals(r.getIsActive()), r.getAvgRating() == null ? 0.0 : r.getAvgRating());
+    }
+
+    private Map<String, Object> toSummaryMap(RestaurantSummary s) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", s.id());
+        map.put("name", s.name());
+        map.put("description", s.description());
+        map.put("cuisineId", s.cuisineId());
+        map.put("address", s.address());
+        map.put("phone", s.phone());
+        map.put("isActive", s.active());
+        map.put("avgRating", s.avgRating());
+        return map;
     }
 
     @GetMapping("/api/v1/restaurants/public/{id}")

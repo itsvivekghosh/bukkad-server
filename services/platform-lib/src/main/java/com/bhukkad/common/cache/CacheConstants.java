@@ -41,6 +41,12 @@ public final class CacheConstants {
     public static final String HOME_FEED = "home-feed";
     /** Per-request delivery serviceability verdict for a restaurant/location pair. */
     public static final String SERVICEABILITY = "serviceability";
+    // Geospatial feed cache names (Phase 1 / Phase 2)
+    public static final String FEED_GEO = "feed:geo";
+    public static final String FEED_NEARBY = "feed:nearby";
+    public static final String FEED_POST_DETAIL = "feed:post";
+    public static final String FEED_L1 = "feed:l1";
+    public static final String FEED_L2 = "feed:l2";
 
     // Key Prefixes
     public static final String KEY_PREFIX = "bhukkad:";

@@ -1,0 +1,47 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  data:
+    redis:
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 64
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
+      # Optional Redis Sentinel (enable by setting REDIS_SENTINEL_MASTER)
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:bhukkad-master}
+        nodes: ${REDIS_SENTINEL_NODES:bhukkad-redis-sentinel:26379}
+        password: ${REDIS_SENTINEL_PASSWORD:}
+
+  datasource:
+    hikari:
+      maximum-pool-size: ${SOCIAL_DB_POOL_SIZE:50}
+      minimum-idle: 20
+      metrics-tracker-class: com.zaxxer.hikari.metrics.prometheus.PrometheusMetricsTracker
+
+app:
+  environment: production
+  events:
+    external:
+      enabled: true
+      type: kafka
+      kafka:
+        listener-concurrency: 3
+  outbox:
+    wake:
+      enabled: true
+management:
+  tracing:
+    sampling:
+      probability: 0.1
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+logging:
+  sampling:
+    http: 0.1
+    service: 0.1

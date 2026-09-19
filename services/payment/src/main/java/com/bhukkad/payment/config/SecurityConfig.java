@@ -41,7 +41,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         // External payment-provider callback surface (monolith
                         // parity: /api/v1/payments/webhooks/** was public).
                         .requestMatchers("/api/v1/webhook/**").permitAll()

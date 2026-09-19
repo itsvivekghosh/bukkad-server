@@ -42,7 +42,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         // Public browse surface (monolith parity): restaurant
                         // listings, menus, search, cuisines and the home feed.
                         .requestMatchers(HttpMethod.GET, "/api/v1/restaurants/**").permitAll()

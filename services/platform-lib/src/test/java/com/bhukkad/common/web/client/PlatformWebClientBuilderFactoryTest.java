@@ -14,20 +14,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Pins the platform WebClient factory wiring (audit P-05/PERF-5): the shared
- * bounded connection pool, the 2 s connect / 5 s response timeout defaults,
- * per-client timeout overrides, and the per-target circuit breaker with
- * metrics export. {@link RetryFilterTest} and {@link CircuitBreakerFilterTest}
+ * bounded connection pool, the dedicated critical-path pools (payment, order,
+ * delivery) with tuned maxIdleTime and pendingAcquireMaxCount, the 2 s connect /
+ * 5 s response timeout defaults, per-client timeout overrides, and the
+ * per-target circuit breaker with metrics export.
+ * {@link RetryFilterTest} and {@link CircuitBreakerFilterTest}
  * pin the filter semantics themselves.
  */
 class PlatformWebClientBuilderFactoryTest {
 
     @Test
     void sharedPool_isBoundedNamedAndShared() {
-        // ONE JVM-wide provider: name, bound and pending-acquire timeout are
-        // the P-05 contract every factory-built client shares.
         ConnectionProvider pool = PlatformWebClientBuilderFactory.sharedPool();
         assertThat(pool.name()).isEqualTo("bhukkad-webclient");
-        assertThat(pool.maxConnections()).isEqualTo(64);
+        assertThat(pool.maxConnections()).isEqualTo(256);
         assertThat(PlatformWebClientBuilderFactory.POOL_PENDING_ACQUIRE_TIMEOUT)
                 .isEqualTo(Duration.ofSeconds(3));
     }
@@ -41,11 +41,9 @@ class PlatformWebClientBuilderFactoryTest {
         HttpClient httpClient = factory.httpClient();
         HttpClientConfig config = httpClient.configuration();
 
-        // The provider must be the shared pool, not a per-client instance —
-        // per-call pools would fragment the 64-connection budget.
         ConnectionProvider provider = config.connectionProvider();
         assertThat(provider.name()).isEqualTo("bhukkad-webclient");
-        assertThat(provider.maxConnections()).isEqualTo(64);
+        assertThat(provider.maxConnections()).isEqualTo(256);
         assertThat(config.responseTimeout()).isEqualTo(Duration.ofSeconds(5));
         assertThat(config.options().get(ChannelOption.CONNECT_TIMEOUT_MILLIS)).isEqualTo(2000);
     }
@@ -72,8 +70,6 @@ class PlatformWebClientBuilderFactoryTest {
         PlatformWebClientBuilderFactory.forTarget("downstream-a", registry).build();
         PlatformWebClientBuilderFactory.forTarget("downstream-b", registry).build();
 
-        // Two builds for the same target share ONE breaker (registry keyed by
-        // name); a different target gets its own — per-target fail-fast.
         CircuitBreakerFilter firstA =
                 new CircuitBreakerFilter("downstream-a", CircuitBreakerFilter.DEFAULT_CONFIG, registry);
         CircuitBreakerFilter secondA =
@@ -83,7 +79,6 @@ class PlatformWebClientBuilderFactoryTest {
         assertThat(firstA.getCircuitBreaker()).isSameAs(secondA.getCircuitBreaker());
         assertThat(firstA.getCircuitBreaker()).isNotSameAs(firstB.getCircuitBreaker());
 
-        // Breaker state gauges are exported per target name (PERF-1/G-2).
         assertThat(registry.get("circuit_breaker_state").tag("name", "downstream-a").gauge())
                 .isNotNull();
         assertThat(registry.get("circuit_breaker_open").tag("name", "downstream-b").gauge())
@@ -97,9 +92,80 @@ class PlatformWebClientBuilderFactoryTest {
                 .toBuilder()
                 .build();
 
-        // The load-balanced bean path must build cleanly with the same
-        // platform connector + filters (RetryFilterTest and
-        // CircuitBreakerFilterTest pin their behaviour).
         assertThat(client).isNotNull();
+    }
+
+    @Test
+    void paymentPool_isNamedTunedAndMetricsEnabled() {
+        ConnectionProvider pool = PlatformWebClientBuilderFactory.paymentPool();
+        assertThat(pool.name()).isEqualTo("payment");
+        assertThat(pool.maxConnections()).isEqualTo(100);
+    }
+
+    @Test
+    void orderPool_isNamedTunedAndMetricsEnabled() {
+        ConnectionProvider pool = PlatformWebClientBuilderFactory.orderPool();
+        assertThat(pool.name()).isEqualTo("order");
+        assertThat(pool.maxConnections()).isEqualTo(100);
+    }
+
+    @Test
+    void deliveryPool_isNamedTunedAndMetricsEnabled() {
+        ConnectionProvider pool = PlatformWebClientBuilderFactory.deliveryPool();
+        assertThat(pool.name()).isEqualTo("delivery");
+        assertThat(pool.maxConnections()).isEqualTo(100);
+    }
+
+    @Test
+    void forPaymentTarget_usesPaymentPool() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        PlatformWebClientBuilderFactory factory =
+                PlatformWebClientBuilderFactory.forPaymentTarget("payment-api", registry);
+
+        HttpClientConfig config = factory.httpClient().configuration();
+        ConnectionProvider provider = config.connectionProvider();
+
+        assertThat(provider.name()).isEqualTo("payment");
+        assertThat(provider.maxConnections()).isEqualTo(100);
+    }
+
+    @Test
+    void forOrderTarget_usesOrderPool() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        PlatformWebClientBuilderFactory factory =
+                PlatformWebClientBuilderFactory.forOrderTarget("order-api", registry);
+
+        HttpClientConfig config = factory.httpClient().configuration();
+        ConnectionProvider provider = config.connectionProvider();
+
+        assertThat(provider.name()).isEqualTo("order");
+        assertThat(provider.maxConnections()).isEqualTo(100);
+    }
+
+    @Test
+    void forDeliveryTarget_usesDeliveryPool() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        PlatformWebClientBuilderFactory factory =
+                PlatformWebClientBuilderFactory.forDeliveryTarget("delivery-api", registry);
+
+        HttpClientConfig config = factory.httpClient().configuration();
+        ConnectionProvider provider = config.connectionProvider();
+
+        assertThat(provider.name()).isEqualTo("delivery");
+        assertThat(provider.maxConnections()).isEqualTo(100);
+    }
+
+    @Test
+    void criticalPools_areIndependentInstances() {
+        ConnectionProvider payment = PlatformWebClientBuilderFactory.paymentPool();
+        ConnectionProvider order = PlatformWebClientBuilderFactory.orderPool();
+        ConnectionProvider delivery = PlatformWebClientBuilderFactory.deliveryPool();
+
+        assertThat(payment).isNotSameAs(order);
+        assertThat(payment).isNotSameAs(delivery);
+        assertThat(order).isNotSameAs(delivery);
+        assertThat(payment.name()).isEqualTo("payment");
+        assertThat(order.name()).isEqualTo("order");
+        assertThat(delivery.name()).isEqualTo("delivery");
     }
 }

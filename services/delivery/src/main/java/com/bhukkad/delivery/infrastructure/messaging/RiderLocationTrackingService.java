@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -32,6 +33,7 @@ public class RiderLocationTrackingService {
         }
         try {
             stringRedisTemplate.opsForGeo().add(GEO_KEY, new Point(longitude, latitude), String.valueOf(agentId));
+            stringRedisTemplate.expire(GEO_KEY, 24, TimeUnit.HOURS);
         } catch (Exception ex) {
             log.warn("Redis GEO store failed | agentId={} | error={}", agentId, ex.getMessage());
         }

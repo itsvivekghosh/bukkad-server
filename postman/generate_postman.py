@@ -713,6 +713,38 @@ def build_collection():
     ]
     items.append(folder("13 - Delivery Truth (ETA)", delivery_truth))
 
+    social = [
+        req("Create Social Post", "POST", "/api/v1/social/posts",
+            body={
+                "restaurantId": "{{restaurantId}}",
+                "content": "Postman test post {{$timestamp}}",
+                "mediaUrls": [],
+                "postType": "TEXT",
+                "latitude": 12.9716,
+                "longitude": 77.5946,
+            },
+            tests=ok_tests([200, 201])),
+        req("Get Social Post", "GET", "/api/v1/social/posts/{{post_id}}", no_auth=True, tests=ok_tests([200, 404])),
+        req("Delete Social Post", "DELETE", "/api/v1/social/posts/{{post_id}}", tests=ok_tests([200, 204, 403, 404])),
+        req("Get Restaurant Posts", "GET", "/api/v1/social/posts/restaurant/{{restaurantId}}", no_auth=True, tests=ok_tests([200])),
+        req("Get User Posts", "GET", "/api/v1/social/posts/user/{{customerId}}", no_auth=True, tests=ok_tests([200])),
+        req("Like Post", "POST", "/api/v1/social/posts/{{post_id}}/like", tests=ok_tests([200, 201])),
+        req("Unlike Post", "DELETE", "/api/v1/social/posts/{{post_id}}/like", tests=ok_tests([200, 204])),
+        req("Create Comment", "POST", "/api/v1/social/posts/{{post_id}}/comments",
+            body={"postId": "{{post_id}}", "content": "Postman test comment {{$timestamp}}"},
+            tests=ok_tests([200, 201])),
+        req("Get Comments", "GET", "/api/v1/social/posts/{{post_id}}/comments", no_auth=True, tests=ok_tests([200])),
+        req("Get Nearby Feed", "GET", "/api/v1/social/feed/nearby?lat=12.9716&lng=77.5946&radiusKm=5&size=10", no_auth=True, tests=ok_tests([200])),
+        req("Create Order from Post", "POST", "/api/v1/social/posts/{{post_id}}/order",
+            body={
+                "items": [{"menuItemId": "{{menuItemId}}", "quantity": 1}],
+                "deliveryAddressId": "{{addressId}}",
+                "paymentMethod": "CASH_ON_DELIVERY",
+            },
+            tests=ok_tests([200, 201, 400, 401, 403, 404, 503])),
+    ]
+    items.append(folder("13b - Social Service", social))
+
     streams = [
         req("SSE Customer Order", "GET", "/api/v1/orders/stream/customer/{{orderId}}",
             headers=[{"key": "Accept", "value": "text/event-stream"}],

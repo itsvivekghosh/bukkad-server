@@ -2,6 +2,7 @@ package com.bhukkad.restaurant.api.controller;
 
 import com.bhukkad.common.cache.RedisCacheService;
 import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.restaurant.domain.service.LocationService;
 import com.bhukkad.restaurant.domain.repository.CuisineRepository;
 import com.bhukkad.restaurant.domain.repository.MenuCategoryRepository;
 import com.bhukkad.restaurant.domain.entity.MenuItem;
@@ -53,6 +54,7 @@ class MenuBatchEndpointTest {
     @Mock private MenuCategoryRepository menuCategoryRepository;
     @Mock private CuisineRepository cuisineRepository;
     @Mock private RedisCacheService redisCacheService;
+    @Mock private LocationService locationService;
 
     private final Map<String, Object> backing = new HashMap<>();
     private MockMvc mockMvc;
@@ -82,7 +84,7 @@ class MenuBatchEndpointTest {
                 new com.bhukkad.restaurant.testsupport.FixedObjectProvider<>(
                         withCache ? redisCacheService : null);
         return new PublicBrowseController(restaurantRepository, menuItemRepository,
-                menuCategoryRepository, cuisineRepository, provider, objectMapper);
+                menuCategoryRepository, cuisineRepository, provider, objectMapper, locationService);
     }
 
     private MenuItem item(long id, boolean available) {

@@ -155,6 +155,7 @@ public class PaymentService {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new BusinessException("Idempotency key is required");
         }
+        paymentAuthorizeCounter().increment();
         boolean topUp = orderId == null || orderId == 0L;
 
         // 1. Claim FIRST (committed before any external call so concurrent
@@ -191,7 +192,7 @@ public class PaymentService {
         PaymentGateway.GatewayResult attempt;
         try {
             attempt = paymentGateway.authorize(pending.getId(), customerId, amount, currencyResolver.currency())
-                    .block();
+                    .block(Duration.ofSeconds(7));
         } catch (RuntimeException e) {
             log.error("PAYMENT_CHARGE_ERROR | paymentId={} | key={}", pending.getId(), idempotencyKey, e);
             attempt = PaymentGateway.GatewayResult.failed("Gateway error: " + e.getMessage());
@@ -431,6 +432,18 @@ public class PaymentService {
                             "events", null, io.micrometer.core.instrument.Meter.Type.COUNTER));
         }
         return registry.counter("payment.webhook.illegal.transitions");
+    }
+
+    private io.micrometer.core.instrument.Counter paymentAuthorizeCounter() {
+        MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+        if (registry == null) {
+            return new io.micrometer.core.instrument.noop.NoopCounter(
+                    new io.micrometer.core.instrument.Meter.Id(
+                            "order.funnel.total",
+                            io.micrometer.core.instrument.Tags.of("stage", "payment_authorize"),
+                            "payments", null, io.micrometer.core.instrument.Meter.Type.COUNTER));
+        }
+        return registry.counter("order.funnel.total", "stage", "payment_authorize");
     }
 
     private static String jsonEscape(String value) {

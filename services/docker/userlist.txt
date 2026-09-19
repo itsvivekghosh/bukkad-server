@@ -1,0 +1,13 @@
+# PgBouncer User List for Authentication
+# Format: "username" "password"
+# Passwords can be plain text or SCRAM-SHA-256 hashed
+
+# Application user
+"app" "app_pass"
+
+# Admin users for PgBouncer admin console
+"admin" "admin_pass"
+"stats_user" "stats_pass"
+
+# Superuser for reserve pool (optional)
+# "postgres" "postgres_pass"

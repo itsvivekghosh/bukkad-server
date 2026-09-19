@@ -3,12 +3,14 @@ package com.bhukkad.common.kafka;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Map;
 
 /**
  * Verifies the per-service Kafka wiring gates:
@@ -21,8 +23,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       enabled+type semantics.</li>
  * </ul>
  */
-import java.util.Map;
-
 class KafkaPlatformConfigTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -70,10 +70,10 @@ class KafkaPlatformConfigTest {
                 });
     }
 
-    /** P-03: the surviving producer factory carries the durability/throughput knobs. */
+    /** EOS: the surviving producer factory carries the durability + EOS knobs. */
     @Test
     @SuppressWarnings("rawtypes")
-    void producerFactory_carriesAckAllIdempotenceAndBatchingKnobs() {
+    void producerFactory_carriesEosAndRetryBackoffKnobs() {
         contextRunner
                 .withPropertyValues(
                         "app.events.external.enabled=true",
@@ -81,7 +81,9 @@ class KafkaPlatformConfigTest {
                         "app.events.external.kafka.bootstrap-servers=localhost:9092",
                         "app.events.external.kafka.consumer-group=g",
                         "app.events.external.kafka.platform-topic=t",
-                        "app.events.external.kafka.dlq-topic=t.dlt")
+                        "app.events.external.kafka.dlq-topic=t.dlt",
+                        "app.events.external.kafka.max-poll-records=500",
+                        "spring.application.name=test-service")
                 .run(context -> {
                     ProducerFactory factory = context.getBean(ProducerFactory.class);
                     Map config = factory.getConfigurationProperties();
@@ -92,6 +94,23 @@ class KafkaPlatformConfigTest {
                     assertThat(config.get(org.apache.kafka.clients.producer.ProducerConfig.LINGER_MS_CONFIG)).isEqualTo(5);
                     assertThat(config.get(org.apache.kafka.clients.producer.ProducerConfig.BATCH_SIZE_CONFIG)).isEqualTo(32768);
                     assertThat(config.get(org.apache.kafka.clients.producer.ProducerConfig.COMPRESSION_TYPE_CONFIG)).isEqualTo("lz4");
+                    assertThat(config.get(org.apache.kafka.clients.producer.ProducerConfig.RETRY_BACKOFF_MS_CONFIG))
+                            .isEqualTo(200);
+                    assertThat(config.get(org.apache.kafka.clients.producer.ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG))
+                            .isEqualTo(30000);
+
+                    // EOS: transactional.id is surfaced via getTransactionIdPrefix() in
+                    // Spring Kafka's DefaultKafkaProducerFactory.
+                    assertThat(factory.getTransactionIdPrefix()).isEqualTo("test-service-txn");
+                    assertThat(factory.transactionCapable()).isTrue();
+
+                    // Consumer: isolation.level=read_committed and max-poll-records wired.
+                    ConsumerFactory consumerFactory = context.getBean(ConsumerFactory.class);
+                    Map consumerConfig = consumerFactory.getConfigurationProperties();
+                    assertThat(consumerConfig.get(org.apache.kafka.clients.consumer.ConsumerConfig.ISOLATION_LEVEL_CONFIG))
+                            .isEqualTo("read_committed");
+                    assertThat(consumerConfig.get(org.apache.kafka.clients.consumer.ConsumerConfig.MAX_POLL_RECORDS_CONFIG))
+                            .isEqualTo(500);
 
                     // V-10: the one surviving listener factory must carry a
                     // DefaultErrorHandler with a DLT recoverer. The factory wires
@@ -129,15 +148,15 @@ class KafkaPlatformConfigTest {
         assertThat(KafkaPlatformProperties.disabled().isKafkaEnabled()).isFalse();
 
         KafkaPlatformProperties enabledKafka = new KafkaPlatformProperties(true, "kafka",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
         assertThat(enabledKafka.isKafkaEnabled()).isTrue();
 
         KafkaPlatformProperties enabledLog = new KafkaPlatformProperties(true, "log",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
         assertThat(enabledLog.isKafkaEnabled()).isFalse();
 
         KafkaPlatformProperties disabledKafka = new KafkaPlatformProperties(false, "kafka",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
         assertThat(disabledKafka.isKafkaEnabled()).isFalse();
     }
 }

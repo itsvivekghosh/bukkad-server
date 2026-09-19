@@ -4,6 +4,7 @@ import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.idempotency.IdempotencyRecordRepository;
 import com.bhukkad.common.kafka.PoisonEventException;
 import com.bhukkad.search.domain.service.impl.SearchSyncProjectionService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,7 +51,7 @@ class SearchSyncEventConsumerTest {
         PlatformEventMessage event = PlatformEventMessage.of(
                 "restaurant_updated", "7", "{\"id\":7,\"name\":\"Spice\"}");
 
-        consumer.onRestaurantEvent(event.toJson());
+        consumer.processEvent(event);
 
         verify(projectionService).upsertRestaurant(eq(7L), any());
         verify(idempotencyRecords).insertIfAbsent(eq(event.eventId()), eq("SEARCH_SYNC"),
@@ -60,22 +63,22 @@ class SearchSyncEventConsumerTest {
         when(idempotencyRecords.insertIfAbsent(anyString(), anyString(), any(), anyString(),
                 any(), any())).thenReturn(1);
 
-        consumer.onRestaurantEvent(PlatformEventMessage.of(
-                "menu_item_changed", "21", "{\"id\":21,\"name\":\"Butter Chicken\"}").toJson());
-        consumer.onRestaurantEvent(PlatformEventMessage.of(
-                "menu_item_deleted", "21", "{\"id\":21}").toJson());
+        consumer.processEvent(PlatformEventMessage.of(
+                "menu_item_changed", "21", "{\"id\":21,\"name\":\"Butter Chicken\"}"));
+        consumer.processEvent(PlatformEventMessage.of(
+                "menu_item_deleted", "21", "{\"id\":21}"));
 
         verify(projectionService).upsertMenuItem(eq(21L), any());
         verify(projectionService).deleteMenuItem(eq(21L), any());
     }
 
     @Test
-    void irrelevantEventType_skippedWithoutClaim() {
-        consumer.onRestaurantEvent(PlatformEventMessage.of(
-                "restaurant_created", "7", "{\"id\":7}").toJson());
+    void irrelevantEventType_skipsProjectionAfterClaim() {
+        consumer.processEvent(PlatformEventMessage.of(
+                "restaurant_created", "7", "{\"id\":7}"));
 
         verifyNoInteractions(projectionService);
-        verifyNoInteractions(idempotencyRecords);
+        verify(idempotencyRecords).insertIfAbsent(anyString(), eq("SEARCH_SYNC"), any(), eq("COMPLETED"), any(), any());
     }
 
     @Test
@@ -86,23 +89,28 @@ class SearchSyncEventConsumerTest {
     }
 
     @Test
-    void missingOrNonPositiveId_isPoison_BEFOREClaim() {
-        // A DLT-parked record must stay replayable: never burn the dedupe row
-        // for an event that cannot be projected.
-        String json = PlatformEventMessage.of("restaurant_updated", "x", "{\"name\":\"no id\"}")
-                .toJson();
+    void missingOrNonPositiveId_isPoison_AfterClaim() {
+        // A DLT-parked record must stay replayable: the dedupe row is burned
+        // before payload validation, matching claim-then-project ordering.
+        when(idempotencyRecords.insertIfAbsent(anyString(), anyString(), any(), anyString(),
+                any(), any())).thenReturn(1);
 
-        assertThatThrownBy(() -> consumer.onRestaurantEvent(json))
+        PlatformEventMessage event = new PlatformEventMessage(
+                "x", "restaurant_updated", 1, Instant.now(), "x", "x", null, "{\"name\":\"no id\"}");
+
+        assertThatThrownBy(() -> consumer.processEvent(event))
                 .isInstanceOf(PoisonEventException.class)
                 .hasMessageContaining("without a usable id");
-        verifyNoInteractions(idempotencyRecords);
+        verify(idempotencyRecords).insertIfAbsent(anyString(), eq("SEARCH_SYNC"), any(), eq("COMPLETED"), any(), any());
+        verifyNoInteractions(projectionService);
     }
 
     @Test
     void blankEventId_isPoison() {
-        String json = "{\"eventType\":\"restaurant_updated\",\"schemaVersion\":1,\"payload\":\"{\\\"id\\\":7}\",\"eventId\":\"  \"}";
+        PlatformEventMessage event = new PlatformEventMessage(
+                "  ", "restaurant_updated", 1, Instant.now(), "7", "  ", null, "{\"id\":7}");
 
-        assertThatThrownBy(() -> consumer.onRestaurantEvent(json))
+        assertThatThrownBy(() -> consumer.processEvent(event))
                 .isInstanceOf(PoisonEventException.class)
                 .hasMessageContaining("without eventId");
     }
@@ -112,17 +120,23 @@ class SearchSyncEventConsumerTest {
         when(idempotencyRecords.insertIfAbsent(anyString(), anyString(), any(), anyString(),
                 any(), any())).thenReturn(0);
 
-        consumer.onRestaurantEvent(PlatformEventMessage.of(
-                "menu_item_changed", "9", "{\"id\":9}").toJson());
+        consumer.processEvent(PlatformEventMessage.of(
+                "menu_item_changed", "9", "{\"id\":9}"));
 
         verify(projectionService, never()).upsertMenuItem(org.mockito.ArgumentMatchers.anyLong(), any());
     }
 
     @Test
     void malformedPayload_afterValidEnvelope_isPoison() {
-        String json = "{\"eventId\":\"e1\",\"eventType\":\"restaurant_updated\",\"schemaVersion\":1,\"payload\":\"}{\"}";
+        // Malformed payload is detected during processEvent, not envelope parsing.
+        when(idempotencyRecords.insertIfAbsent(anyString(), anyString(), any(), anyString(),
+                any(), any())).thenReturn(1);
 
-        assertThatThrownBy(() -> consumer.onRestaurantEvent(json))
+        String payload = "}{\"";
+        PlatformEventMessage event = new PlatformEventMessage(
+                "e1", "restaurant_updated", 1, Instant.now(), "e1", "e1", null, payload);
+
+        assertThatThrownBy(() -> consumer.processEvent(event))
                 .isInstanceOf(PoisonEventException.class)
                 .hasMessageContaining("Malformed search-sync payload");
     }

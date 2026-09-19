@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Asynchronously creates orders in the background and tracks progress via
@@ -19,12 +20,13 @@ public class AsyncOrderCreateService {
 
     private final OrderService orderService;
     private final OrderCreateJobService orderCreateJobService;
+    private final TransactionTemplate transactionTemplate;
 
     @Async("orderTaskExecutor")
     public void processOrderCreate(String jobId, CreateOrderRequest request) {
         try {
             orderCreateJobService.markProcessing(jobId);
-            OrderResponse order = orderService.createOrder(request);
+            OrderResponse order = transactionTemplate.execute(status -> orderService.createOrder(request));
             orderCreateJobService.markCompleted(jobId, order);
             log.info("ASYNC_ORDER_CREATE_COMPLETED | jobId={} | orderId={}", jobId, order.id());
         } catch (Exception ex) {

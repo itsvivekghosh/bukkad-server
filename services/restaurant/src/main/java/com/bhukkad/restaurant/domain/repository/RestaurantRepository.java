@@ -37,4 +37,34 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     @Query("SELECT r FROM Restaurant r WHERE r.isActive = true AND " +
             "LOWER(r.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     List<Restaurant> searchByName(@Param("keyword") String keyword);
+
+    /**
+     * PostGIS-powered nearby query (Phase 1 spatial foundation).
+     * Returns an array per row: [id, name, latitude, longitude, distanceMeters].
+     * The caller maps these into a summary DTO.
+     */
+    @Query(value = """
+            SELECT
+                r.id,
+                r.name,
+                r.latitude,
+                r.longitude,
+                ST_Distance(r.geog, ST_MakePoint(:lng, :lat)::GEOGRAPHY) AS distance_meters
+            FROM public.restaurants r
+            WHERE r.is_active = true
+              AND r.geog IS NOT NULL
+              AND ST_DWithin(
+                      r.geog,
+                      ST_MakePoint(:lng, :lat)::GEOGRAPHY,
+                      :radiusMeters
+                  )
+            ORDER BY distance_meters ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Object[]> findNearbyWithDistance(
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            @Param("radiusMeters") double radiusMeters,
+            @Param("limit") int limit
+    );
 }

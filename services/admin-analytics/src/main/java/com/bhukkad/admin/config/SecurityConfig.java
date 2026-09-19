@@ -54,7 +54,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/cache/health", "/api/v1/cache/stats").permitAll()
                         // StreamingResponseBody CSV exports run their body on an
                         // ASYNC dispatch after authorization has already passed on

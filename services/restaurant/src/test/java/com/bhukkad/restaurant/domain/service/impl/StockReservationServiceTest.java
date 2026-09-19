@@ -16,13 +16,14 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -62,7 +63,8 @@ class StockReservationServiceTest {
 
     @Test
     void reservesAgainstDbRowAndMirrorsToRedis() {
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(tracked(1L, 10)));
+        when(menuItemRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(tracked(1L, 10)));
         when(menuItemRepository.decrementStockAtomic(1L, 3)).thenReturn(1);
 
         service.reserveStock(List.of(new StockReservationItem(1L, "Butter Chicken 1", 3)));
@@ -73,7 +75,8 @@ class StockReservationServiceTest {
 
     @Test
     void insufficientStock_throwsBusinessError() {
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(tracked(1L, 2)));
+        when(menuItemRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(tracked(1L, 2)));
         when(menuItemRepository.decrementStockAtomic(1L, 3)).thenReturn(0);
 
         assertThatThrownBy(() -> service.reserveStock(
@@ -84,9 +87,9 @@ class StockReservationServiceTest {
 
     @Test
     void multiItemFailure_compensatesAlreadyHeldLines() {
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(tracked(1L, 10)));
+        when(menuItemRepository.findAllById(List.of(1L, 2L)))
+                .thenReturn(List.of(tracked(1L, 10), tracked(2L, 1)));
         when(menuItemRepository.decrementStockAtomic(1L, 2)).thenReturn(1);
-        when(menuItemRepository.findById(2L)).thenReturn(java.util.Optional.of(tracked(2L, 1)));
         when(menuItemRepository.decrementStockAtomic(2L, 5)).thenReturn(0);
 
         assertThatThrownBy(() -> service.reserveStock(List.of(
@@ -101,7 +104,8 @@ class StockReservationServiceTest {
 
     @Test
     void dbOutage_failsClosedWithoutOverselling() {
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(tracked(1L, 10)));
+        when(menuItemRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(tracked(1L, 10)));
         when(menuItemRepository.decrementStockAtomic(1L, 1))
                 .thenThrow(new DataAccessResourceFailureException("db down",
                         new java.io.IOException("db down")));
@@ -114,7 +118,8 @@ class StockReservationServiceTest {
 
     @Test
     void redisOutage_doesNotBlockDbHeldReservation() {
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(tracked(1L, 10)));
+        when(menuItemRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(tracked(1L, 10)));
         when(menuItemRepository.decrementStockAtomic(1L, 1)).thenReturn(1);
         when(valueOps.decrement(anyString()))
                 .thenThrow(new RedisConnectionFailureException("Connection refused",
@@ -131,7 +136,8 @@ class StockReservationServiceTest {
         untracked.setId(1L);
         untracked.setName("Vada Pav 1");
         untracked.setStockQuantity(null);
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(untracked));
+        when(menuItemRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(untracked));
 
         service.reserveStock(List.of(new StockReservationItem(1L, "Vada Pav 1", 99)));
 
@@ -140,7 +146,10 @@ class StockReservationServiceTest {
 
     @Test
     void release_restoresRowThenResyncs() {
-        when(menuItemRepository.findById(1L)).thenReturn(java.util.Optional.of(tracked(1L, 10)));
+        when(menuItemRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(tracked(1L, 10)));
+        when(menuItemRepository.findById(1L))
+                .thenReturn(Optional.of(tracked(1L, 10)));
         when(menuItemRepository.restoreStockAtomic(1L, 3)).thenReturn(1);
 
         service.releaseStock(List.of(new StockReservationItem(1L, "A", 3)));

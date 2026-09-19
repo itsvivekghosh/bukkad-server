@@ -54,7 +54,7 @@ public class ReferralSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(referralAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         .requestMatchers("/api/v1/referrals/validate/*").permitAll()
                         // Unauthenticated error forward (404s/401s to /error) must keep
                         // their real status — otherwise MVC "no handler" 404s surface as 401.

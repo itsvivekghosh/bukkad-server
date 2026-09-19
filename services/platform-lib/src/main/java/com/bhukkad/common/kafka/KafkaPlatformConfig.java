@@ -4,28 +4,32 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.ConsumerAwareRebalanceListener;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * The single Spring Kafka wiring for every microservice (PERF-2/P-03/R-B).
+ * The single Spring Kafka wiring for every microservice (PERF-2/P-03/EOS/R-B).
  *
  * <p>The duplicate legacy {@code common.config.KafkaConfig} (manual
  * producer/listener factories that hijacked the {@code kafkaTemplate} /
@@ -41,9 +45,16 @@ import java.util.Map;
  * {@link com.bhukkad.common.outbox.OutboxPlatformConfig} — the relay and the
  * publisher come up or stay down together.</p>
  *
- * <p>Producer durability/tuning (P-03): {@code acks=all},
- * {@code enable.idempotence=true}, retries unbounded, {@code linger.ms=5},
- * {@code batch.size=32768}, {@code compression.type=lz4}.</p>
+ * <p>Producer durability/EOS (P-03): {@code acks=all},
+ * {@code enable.idempotence=true}, retries unbounded,
+ * {@code transactional.id=${spring.application.name}-txn},
+ * {@code transaction.timeout=30000}, {@code retry.backoff.ms=200},
+ * {@code request.timeout.ms=30000}, {@code linger.ms=5},
+ * {@code batch.size=32768}, {@code compression.type=lz4}.
+ * Consumer reads only committed transactions
+ * ({@code isolation.level=read_committed}).
+ * Per-service {@code max-poll-records} is configurable via
+ * {@code app.events.external.kafka.max-poll-records}.</p>
  *
  * <p><strong>Consumer error handling (V-10):</strong> the listener container
  * factory carries a {@link DefaultErrorHandler} that retries
@@ -63,22 +74,27 @@ import java.util.Map;
 @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
 public class KafkaPlatformConfig {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(KafkaPlatformConfig.class);
     static final int MAX_RETRY_ATTEMPTS = 3;
     static final String HEADER_FAILED_TOPIC = "x-failed-topic";
     static final String HEADER_ERROR_CLASS = "x-error-class";
 
     @Bean
     @ConditionalOnMissingBean(ProducerFactory.class)
-    public ProducerFactory<String, String> kafkaProducerFactory(KafkaPlatformProperties properties) {
+    public ProducerFactory<String, String> kafkaProducerFactory(KafkaPlatformProperties properties, Environment environment) {
         Map<String, Object> config = new HashMap<>();
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, properties.kafka().bootstrapServers());
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        // P-03: money-event durability + throughput knobs (idempotence keeps
-        // exactly-once produce semantics across the unbounded retries).
+        // EOS: exactly-once produce semantics via idempotence + transactional.id.
         config.put(ProducerConfig.ACKS_CONFIG, "all");
         config.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
         config.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+        config.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
+                environment.getProperty("spring.application.name", "app") + "-txn");
+        config.put(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, 30000);
+        config.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 200);
+        config.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 30000);
         config.put(ProducerConfig.LINGER_MS_CONFIG, 5);
         config.put(ProducerConfig.BATCH_SIZE_CONFIG, 32768);
         config.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
@@ -122,6 +138,8 @@ public class KafkaPlatformConfig {
         // error handler's DLT hand-off) completes — never auto-committed under
         // a blanket catch that would ack poison events (V-10).
         config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        // EOS consumer: only consume records from committed transactions.
+        config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
         // Backpressure / throughput tuning (extreme traffic):
         config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, properties.kafka().maxPollRecords());
         config.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, properties.kafka().maxPollIntervalMs());
@@ -138,9 +156,37 @@ public class KafkaPlatformConfig {
             KafkaPlatformProperties properties) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
         factory.setConsumerFactory(consumerFactory);
-        factory.setConcurrency(Math.max(1, properties.kafka().listenerConcurrency()));
+        int concurrency = Math.max(1, properties.kafka().listenerConcurrency());
+        factory.setConcurrency(concurrency);
         factory.setCommonErrorHandler(kafkaListenerErrorHandler(kafkaTemplate));
+        factory.getContainerProperties().setConsumerRebalanceListener(new ConsumerAwareRebalanceListener() {
+            @Override
+            public void onPartitionsRevokedBeforeCommit(org.apache.kafka.clients.consumer.Consumer<?, ?> consumer, java.util.Collection<org.apache.kafka.common.TopicPartition> partitions) {
+                log.warn("KAFKA_REBALANCE | partitionsRevoked={}", partitions);
+            }
+            @Override
+            public void onPartitionsRevokedAfterCommit(org.apache.kafka.clients.consumer.Consumer<?, ?> consumer, java.util.Collection<org.apache.kafka.common.TopicPartition> partitions) {
+                log.info("KAFKA_REBALANCE | partitionsRevokedAfterCommit={}", partitions);
+            }
+            @Override
+            public void onPartitionsAssigned(org.apache.kafka.clients.consumer.Consumer<?, ?> consumer, java.util.Collection<org.apache.kafka.common.TopicPartition> partitions) {
+                log.info("KAFKA_REBALANCE | partitionsAssigned={}", partitions);
+            }
+        });
         return factory;
+    }
+
+    /**
+     * Kafka admin for topic metadata lookups. Used by the partition/concurrency
+     * mismatch guard and by any service that needs to inspect topic state.
+     */
+    @Bean
+    @ConditionalOnMissingBean(KafkaAdmin.class)
+    public KafkaAdmin kafkaAdmin(KafkaPlatformProperties properties) {
+        Map<String, Object> config = new HashMap<>();
+        config.put(org.apache.kafka.clients.admin.AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
+                properties.kafka().bootstrapServers());
+        return new KafkaAdmin(config);
     }
 
     /**

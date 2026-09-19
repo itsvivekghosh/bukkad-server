@@ -7,6 +7,7 @@ import com.bhukkad.notification.domain.service.impl.NotificationDispatchService;
 import com.bhukkad.notification.api.dto.request.DispatchRequest;
 import com.bhukkad.notification.api.dto.request.TestNotificationRequest;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,7 +42,7 @@ public class NotificationController {
     @PreAuthorize("hasRole('ADMIN')")
     @com.bhukkad.common.ratelimit.RateLimited(bucket = "notification-dispatch",
             limit = 60, windowSeconds = 60)
-    public ResponseEntity<Notification> dispatch(@RequestBody DispatchRequest request) {
+    public ResponseEntity<Notification> dispatch(@Valid @RequestBody DispatchRequest request) {
         Notification notification = dispatchService.dispatch(request.channel(), request.recipient(),
                 request.template(), request.subject(), request.body());
         return ResponseEntity.ok(notification);

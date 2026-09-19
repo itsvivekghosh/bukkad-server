@@ -15,14 +15,27 @@ spec:
   maxReplicas: 50
   metrics:
     # CPU only in base HPA — memory is unreliable for JVM heap (heap ≠ RSS).
-    # Custom metrics overlay (k8s/overlays/custom-metrics-hpa) adds request-rate
-    # and token-verify throughput via prometheus-adapter.
+    # Custom metrics overlay adds request-rate and DB connection queue depth.
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
           averageUtilization: 65
+    - type: Pods
+      pods:
+        metric:
+          name: http_server_requests_seconds_count
+        target:
+          type: AverageValue
+          averageValue: 800
+    - type: External
+      external:
+        metric:
+          name: hikaricp_connections_pending
+        target:
+          type: AverageValue
+          averageValue: 5
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300

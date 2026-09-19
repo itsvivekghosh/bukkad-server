@@ -57,6 +57,20 @@ data:
         Labels            app=bhukkad,env=production
         auto_kubernetes_labels on
 
+    # Optional OpenSearch output for services that need per-service indices.
+    # Enable by setting OPENSEARCH_HOST in bhukkad-config ConfigMap.
+    [OUTPUT]
+        Name              opensearch
+        Match             bhukkad.*
+        Host              ${OPENSEARCH_HOST}
+        Port              9200
+        Index             logs-${container_name}-prod
+        Type              _doc
+        logstash_format   off
+        replace_dots      on
+        retry_limit       3
+        compress          gzip
+
   parsers.conf: |
     # CRI (containerd) log line format: <time> <stream> <flag> <message>
     [PARSER]

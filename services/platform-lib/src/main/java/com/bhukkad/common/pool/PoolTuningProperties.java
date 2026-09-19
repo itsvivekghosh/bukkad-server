@@ -135,6 +135,13 @@ public class PoolTuningProperties {
      */
     private int gatewayHttpClientAcquireTimeoutMs = 8000;
 
+    /**
+     * WebClient max connections per route (PERF-5 pool budget). Defaults to the
+     * platform shared pool size so {@link WebClientConfig} can wire it without
+     * a separate property.
+     */
+    private int webClientMaxConnections = 64;
+
     public int getHikariDefaultMaxPool() {
         return hikariDefaultMaxPool;
     }
@@ -269,5 +276,13 @@ public class PoolTuningProperties {
 
     public void setGatewayHttpClientAcquireTimeoutMs(int gatewayHttpClientAcquireTimeoutMs) {
         this.gatewayHttpClientAcquireTimeoutMs = gatewayHttpClientAcquireTimeoutMs;
+    }
+
+    public int getWebClientMaxConnections() {
+        return webClientMaxConnections;
+    }
+
+    public void setWebClientMaxConnections(int webClientMaxConnections) {
+        this.webClientMaxConnections = webClientMaxConnections;
     }
 }

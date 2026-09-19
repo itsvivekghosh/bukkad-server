@@ -7,4 +7,9 @@
 -->
 <configuration>
     <include resource="logback-bhukkad.xml"/>
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </root>
+    </springProfile>
 </configuration>

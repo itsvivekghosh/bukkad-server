@@ -49,7 +49,7 @@ class EdgeCacheFilterTest {
         when(redisProvider.getIfAvailable()).thenReturn(redis);
         ObjectProvider meterProvider = mock(ObjectProvider.class);
         when(meterProvider.getIfAvailable()).thenReturn(meters);
-        return new EdgeCacheFilter(redisProvider, meterProvider, enabled);
+        return new EdgeCacheFilter(redisProvider, meterProvider, enabled, 60);
     }
 
     private static ReactiveStringRedisTemplate redisWithHit(String cachedBody) {

@@ -97,7 +97,11 @@ public class GatewayRedisClientConfig {
     @Primary
     public LettuceConnectionFactory redisConnectionFactory(
             RedisProperties redis,
-            ObjectProvider<LettuceClientConfigurationBuilderCustomizer> customizers) {
+            ObjectProvider<LettuceClientConfigurationBuilderCustomizer> customizers,
+            GatewayRedisPoolProperties props) {
+        if (redis.getLettuce() != null && redis.getLettuce().getPool() != null) {
+            redis.getLettuce().getPool().setMaxActive(props.getShared().getMaxConnections());
+        }
         LettuceClientConfigurationBuilder builder = LettuceClientConfiguration.builder()
                 .commandTimeout(commandTimeout(redis));
         customizers.orderedStream().forEach(c -> c.customize(builder));
@@ -124,7 +128,11 @@ public class GatewayRedisClientConfig {
     @Bean(name = "sseRelayRedisConnectionFactory")
     public LettuceConnectionFactory sseRelayRedisConnectionFactory(
             RedisProperties redis,
-            ClientResources sseRelayRedisClientResources) {
+            ClientResources sseRelayRedisClientResources,
+            GatewayRedisPoolProperties props) {
+        if (redis.getLettuce() != null && redis.getLettuce().getPool() != null) {
+            redis.getLettuce().getPool().setMaxActive(props.getSseRelay().getMaxConnections());
+        }
         LettuceClientConfiguration configuration = LettuceClientConfiguration.builder()
                 .clientResources(sseRelayRedisClientResources)
                 .commandTimeout(commandTimeout(redis))

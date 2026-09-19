@@ -2,6 +2,7 @@ package com.bhukkad.restaurant.api.controller;
 
 import com.bhukkad.restaurant.domain.entity.Tenant;
 import com.bhukkad.restaurant.domain.service.impl.TenantService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,13 +40,13 @@ public class TenantController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<Tenant>> create(@RequestBody Tenant tenant) {
+    public ResponseEntity<ApiResponse<Tenant>> create(@Valid @RequestBody Tenant tenant) {
         return ResponseEntity.ok(ApiResponse.success("Tenant created", tenantService.create(tenant)));
     }
 
     @PutMapping("/{tenantId}")
     public ResponseEntity<ApiResponse<Tenant>> update(
-            @PathVariable Long tenantId, @RequestBody Tenant patch) {
+            @PathVariable Long tenantId, @Valid @RequestBody Tenant patch) {
         return ResponseEntity.ok(ApiResponse.success("Tenant updated",
                 tenantService.update(tenantId, patch)));
     }

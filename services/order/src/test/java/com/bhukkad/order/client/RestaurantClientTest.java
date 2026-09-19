@@ -2,6 +2,7 @@ package com.bhukkad.order.client;
 
 import com.bhukkad.order.infrastructure.client.RestaurantResponse;
 import com.bhukkad.order.infrastructure.client.RestaurantClient;
+import com.bhukkad.common.error.UpstreamUnavailableException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,9 +89,9 @@ class RestaurantClientTest {
         // returns 404; use a closed port to simulate an unreachable service.
         RestaurantClient unreachableClient = new RestaurantClient("http://localhost:1");
 
-        RestaurantResponse response = unreachableClient.getRestaurant(1L).block();
-
-        assertThat(response).isNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> unreachableClient.getRestaurant(1L).block())
+                .isInstanceOf(UpstreamUnavailableException.class);
     }
 
     // ---- menu item error contract (cart/order money path) ----

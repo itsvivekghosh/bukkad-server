@@ -1,5 +1,6 @@
 package com.bhukkad.common.web.client;
 
+import com.bhukkad.common.pool.PoolTuningProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -7,6 +8,7 @@ import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.resources.ConnectionProvider;
 
 /**
  * Shared WebClient configuration for service-to-service communication (P-05).
@@ -41,17 +43,17 @@ public class WebClientConfig {
      *
      * @param meterRegistryProvider metrics registry for breaker-state gauges
      *                              (absent in contexts without actuator)
+     * @param poolTuningProperties pool sizing from {@code app.pool.*}
      * @return configured WebClient.Builder with platform resilience defaults
      */
     @Bean
     @LoadBalanced
-    public WebClient.Builder platformWebClientBuilder(ObjectProvider<MeterRegistry> meterRegistryProvider) {
+    public WebClient.Builder platformWebClientBuilder(ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                                       PoolTuningProperties poolTuningProperties) {
         PlatformWebClientBuilderFactory factory =
                 PlatformWebClientBuilderFactory.forTarget(
                         PlatformWebClientBuilderFactory.DEFAULT_TARGET,
                         meterRegistryProvider.getIfAvailable());
-        // baseUrl is intentionally left unset: LoadBalanced builders resolve
-        // service-name hosts per request.
         return factory.toBuilder();
     }
 
@@ -60,11 +62,13 @@ public class WebClientConfig {
      * defaults (pool, timeouts, retry, breaker, metrics).
      *
      * @param meterRegistryProvider metrics registry for breaker-state gauges
+     * @param poolTuningProperties pool sizing from {@code app.pool.*}
      * @return configured WebClient
      */
     @Bean
     @LoadBalanced
-    public WebClient loadBalancedWebClient(ObjectProvider<MeterRegistry> meterRegistryProvider) {
-        return platformWebClientBuilder(meterRegistryProvider).build();
+    public WebClient loadBalancedWebClient(ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                           PoolTuningProperties poolTuningProperties) {
+        return platformWebClientBuilder(meterRegistryProvider, poolTuningProperties).build();
     }
 }

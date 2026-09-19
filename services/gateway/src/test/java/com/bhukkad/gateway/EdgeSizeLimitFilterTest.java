@@ -108,4 +108,25 @@ class EdgeSizeLimitFilterTest {
         assertThat(chain.passed).isFalse();
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
     }
+
+    @Test
+    void responseExceedingLimit_returns413BeforeCommit() {
+        // Local chain that simulates a downstream setting a large Content-Length
+        class LargeResponseChain implements GatewayFilterChain {
+            @Override
+            public Mono<Void> filter(ServerWebExchange exchange) {
+                exchange.getResponse().getHeaders().setContentLength(2 * 1024);
+                return Mono.empty();
+            }
+        }
+
+        EdgeSizeLimitFilter edgeFilter = filter(1024, 1024);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/restaurants/public"));
+
+        edgeFilter.filter(exchange, new LargeResponseChain()).block();
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+    }
 }

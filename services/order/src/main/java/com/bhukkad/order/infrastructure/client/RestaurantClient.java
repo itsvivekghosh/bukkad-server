@@ -2,10 +2,13 @@ package com.bhukkad.order.infrastructure.client;
 
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
 import com.bhukkad.common.web.client.PlatformWebClientBuilderFactory;
+import com.bhukkad.common.error.UpstreamUnavailableException;
 import com.bhukkad.order.infrastructure.client.MenuSnapshot;
 import com.bhukkad.order.infrastructure.client.RestaurantResponse;
 import com.bhukkad.order.infrastructure.client.StockReservationLine;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +41,7 @@ public class RestaurantClient {
     private final WebClient webClient;
     /** Mesh auth for internal-path reads (e.g. the ownership oracle); nullable in tests. */
     private final ObjectProvider<ServiceJwtAuthTokenProvider> serviceJwtTokenProvider;
+    private static final Logger log = LoggerFactory.getLogger(RestaurantClient.class);
 
     public RestaurantClient(@Value("${app.services.restaurant.url}") String baseUrl) {
         this(baseUrl, (MeterRegistry) null, null);
@@ -146,9 +150,11 @@ public class RestaurantClient {
                 .uri("/api/v1/restaurants/public/{id}", id)
                 .retrieve()
                 .bodyToMono(RestaurantResponse.class)
+                .timeout(Duration.ofSeconds(3))
+                .onErrorResume(WebClientResponseException.NotFound.class, e -> Mono.empty())
                 .onErrorResume(e -> {
-                    // Log and return empty for downstream handling
-                    return Mono.empty();
+                    log.warn("RESTAURANT_UPSTREAM_UNAVAILABLE id={} error={}", id, e.getMessage());
+                    return Mono.error(new UpstreamUnavailableException("Restaurant service unavailable", e));
                 });
     }
 

@@ -8,6 +8,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -24,11 +26,42 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
 
+    private final Environment environment;
+    private final LoggingSampler sampler;
+
+    @Value("${spring.application.name:unknown}")
+    private String serviceName;
+
+    public RequestLoggingFilter(Environment environment, LoggingSampler sampler) {
+        this.environment = environment;
+        this.sampler = sampler;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // In non-dev environments, sample HTTP request logging to avoid log flood
+        if (isDevProfile()) {
+            return false;
+        }
+        return !sampler.shouldLogHttp();
+    }
+
+    private boolean isDevProfile() {
+        String[] activeProfiles = environment.getActiveProfiles();
+        for (String profile : activeProfiles) {
+            if ("dev".equalsIgnoreCase(profile)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String traceId = TraceIdResolver.seedFrom(request);
         TraceContext.putSpanId(TraceContext.newSpanId());
+        MDC.put("service", serviceName);
         long start = System.currentTimeMillis();
         try {
             filterChain.doFilter(request, response);
@@ -40,6 +73,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             MDC.remove(TraceContext.TRACE_ID);
             MDC.remove(TraceContext.REQUEST_ID);
             MDC.remove(TraceContext.SPAN_ID);
+            MDC.remove("service");
         }
     }
 }

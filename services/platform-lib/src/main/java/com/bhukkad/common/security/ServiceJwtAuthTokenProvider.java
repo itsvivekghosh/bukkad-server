@@ -64,7 +64,7 @@ public class ServiceJwtAuthTokenProvider {
         return Jwts.builder()
                 .setSubject(serviceName)
                 .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(300)))
+                .setExpiration(Date.from(now.plusSeconds(properties.getTokenTtlSeconds())))
                 .claim("service_id", serviceName)
                 .signWith(key)
                 .compact();

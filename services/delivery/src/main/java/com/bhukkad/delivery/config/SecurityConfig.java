@@ -42,7 +42,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health/**", "/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         // Pre-order serviceability check is public (monolith parity).
                         .requestMatchers(HttpMethod.GET, "/api/v1/serviceability/**").permitAll()
                         // Unauthenticated error forward (404s/401s to /error) must keep

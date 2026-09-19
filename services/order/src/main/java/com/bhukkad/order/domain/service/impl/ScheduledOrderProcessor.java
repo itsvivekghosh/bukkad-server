@@ -55,12 +55,15 @@ public class ScheduledOrderProcessor {
     @SchedulerLock(name = "scheduled-order-dispatch", lockAtMostFor = "PT10M", lockAtLeastFor = "PT10S")
     public void dispatchDueOrders() {
         int totalProcessed = 0;
-        while (true) {
+        int iterations = 0;
+        final int MAX_ITERATIONS = 10; // Prevent infinite loop under heavy backlog
+        while (iterations < MAX_ITERATIONS) {
             int batchProcessed = dispatchNextBatch();
             if (batchProcessed == 0) break;
             totalProcessed += batchProcessed;
             try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
             if (batchProcessed < 100) break;
+            iterations++;
         }
         if (totalProcessed > 0) {
             log.info("Scheduled order dispatch completed | processed={}", totalProcessed);

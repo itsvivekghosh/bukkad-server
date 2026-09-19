@@ -1,5 +1,6 @@
 package com.bhukkad.common.logging;
 
+import com.bhukkad.common.tracing.TraceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,6 +89,61 @@ public class SecurityEventLogger {
         );
     }
 
+    public void logRateLimitExceeded(String bucket, String clientIp, int limit, int retryAfterSeconds) {
+        securityLogger.warn(
+                "[{}] [RATE_LIMIT] [RATE_LIMIT_EXCEEDED] Bucket: {} | IP: {} | Limit: {} | RetryAfter: {} | TraceId: {}",
+                Instant.now(),
+                bucket,
+                maskIp(clientIp),
+                limit,
+                retryAfterSeconds,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logAuthFailure(String reason, String ipAddress, String userAgent) {
+        securityLogger.warn(
+                "[{}] [FAILED] [AUTH_FAILURE] Reason: {} | IP: {} | UserAgent: {} | TraceId: {}",
+                Instant.now(),
+                reason,
+                maskIp(ipAddress),
+                maskUserAgent(userAgent),
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logInvalidToken(String reason, String ipAddress) {
+        securityLogger.warn(
+                "[{}] [WARNING] [INVALID_TOKEN] Reason: {} | IP: {} | TraceId: {}",
+                Instant.now(),
+                reason,
+                maskIp(ipAddress),
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logAccessDenied(String userId, String path, String requiredRole) {
+        securityLogger.warn(
+                "[{}] [WARNING] [ACCESS_DENIED] UserId: {} | Path: {} | RequiredRole: {} | TraceId: {}",
+                Instant.now(),
+                userId,
+                path,
+                requiredRole,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logAccountLockout(String userId, String ipAddress, int failedAttempts) {
+        securityLogger.warn(
+                "[{}] [WARNING] [ACCOUNT_LOCKOUT] UserId: {} | IP: {} | FailedAttempts: {} | TraceId: {}",
+                Instant.now(),
+                userId,
+                maskIp(ipAddress),
+                failedAttempts,
+                TraceContext.currentTraceId()
+        );
+    }
+
     private String maskEmail(String email) {
         if (email == null || !email.contains("@")) return "***";
         String[] parts = email.split("@");
@@ -113,5 +169,28 @@ public class SecurityEventLogger {
             log.debug("Could not get client IP: {}", e.getMessage());
         }
         return "unknown";
+    }
+
+    private String maskIp(String ip) {
+        if (ip == null || ip.isBlank()) {
+            return "unknown";
+        }
+        if (ip.contains(".")) {
+            String[] parts = ip.split("\\.");
+            if (parts.length == 4) {
+                return parts[0] + "." + parts[1] + "." + parts[2] + ".xxx";
+            }
+        }
+        return ip;
+    }
+
+    private String maskUserAgent(String userAgent) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "unknown";
+        }
+        if (userAgent.length() > 100) {
+            return userAgent.substring(0, 100) + "...";
+        }
+        return userAgent;
     }
 }

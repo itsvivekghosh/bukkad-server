@@ -72,11 +72,17 @@
 		</dependency>
 
 		<!-- Test deps inherited via spring-boot-starter-test (JUnit 5, WebTestClient, AssertJ). -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>mockwebserver</artifactId>
+            <scope>test</scope>
+        </dependency>
 
 		<!-- StepVerifier for reactive filter tests (V-13 kill-switch offload). -->
 		<dependency>

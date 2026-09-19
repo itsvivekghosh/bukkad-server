@@ -9,7 +9,10 @@ import com.bhukkad.delivery.domain.entity.RiderLocationUpdate;
 import com.bhukkad.delivery.domain.repository.RiderLocationUpdateRepository;
 import com.bhukkad.delivery.config.RiderEarningsProperties;
 import com.bhukkad.common.error.BusinessException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +34,28 @@ public class RiderOpsService {
     private final RiderDeliveryBatchOrderRepository batchOrderRepository;
     private final PaymentServiceClient paymentClient;
     private final RiderEarningsProperties earningsProperties;
+    private final ObjectProvider<MeterRegistry> meterRegistryProvider;
+
+    private static final String STAGE_DELIVERY_ASSIGN = "delivery_assign";
+
+    private Counter deliveryAssignCounter() {
+        if (meterRegistryProvider == null) {
+            return new io.micrometer.core.instrument.noop.NoopCounter(
+                    new io.micrometer.core.instrument.Meter.Id(
+                            "order.funnel.total",
+                            io.micrometer.core.instrument.Tags.of("stage", STAGE_DELIVERY_ASSIGN),
+                            "deliveries", null, io.micrometer.core.instrument.Meter.Type.COUNTER));
+        }
+        MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+        if (registry == null) {
+            return new io.micrometer.core.instrument.noop.NoopCounter(
+                    new io.micrometer.core.instrument.Meter.Id(
+                            "order.funnel.total",
+                            io.micrometer.core.instrument.Tags.of("stage", STAGE_DELIVERY_ASSIGN),
+                            "deliveries", null, io.micrometer.core.instrument.Meter.Type.COUNTER));
+        }
+        return registry.counter("order.funnel.total", "stage", STAGE_DELIVERY_ASSIGN);
+    }
 
     @Transactional
     public RiderLocationUpdate reportLocation(Long agentId, double lat, double lng) {
@@ -105,6 +130,7 @@ public class RiderOpsService {
         if (orderIds == null || orderIds.isEmpty()) {
             throw new BusinessException("Batch requires at least one order");
         }
+        deliveryAssignCounter().increment();
         RiderDeliveryBatch batch = new RiderDeliveryBatch();
         batch.setAgentId(agentId);
         batch.setStatus("ASSIGNED");

@@ -68,7 +68,7 @@ class WalletControllerTest {
         request.setCustomerId(2L);
         request.setAmount(new BigDecimal("200.00"));
 
-        WalletResponse result = controller.topUp(principal(2L), 2L, request, "idem-topup");
+        WalletResponse result = controller.topUp(principal(2L), 2L, request, "idem-topup").block();
 
         verify(paymentService).processPayment(0L, 2L, new BigDecimal("200.00"),
                 Payment.METHOD_WALLET, "idem-topup");

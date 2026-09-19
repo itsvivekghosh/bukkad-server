@@ -16,6 +16,7 @@ import com.bhukkad.order.infrastructure.client.RestaurantClient;
 import com.bhukkad.order.infrastructure.client.ChargeResponse;
 import com.bhukkad.order.infrastructure.client.StockReservationLine;
 import com.bhukkad.order.domain.entity.Order;
+import com.bhukkad.order.domain.entity.OrderItem;
 import com.bhukkad.order.domain.repository.OrderItemRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import com.bhukkad.order.domain.entity.OrderTimelineEvent;
@@ -93,6 +94,7 @@ class OrderSagaExecutionTest {
             }
             return o;
         });
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
         when(orderItemRepository.findByOrderId(anyLong())).thenReturn(List.of());
         when(restaurantClient.getMenuItems(anyCollection())).thenReturn(Mono.just(menuSnapshot()));
         when(sagaInstanceRepository.findBySagaId(anyString())).thenReturn(null);

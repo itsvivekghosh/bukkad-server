@@ -26,53 +26,53 @@ public class DisputeController {
     // ── Customer endpoints ───────────────────────────────────────────────────
 
     @PostMapping("/customers/orders/{orderId}/disputes")
-    public ResponseEntity<SupportTicketDisputeClient.DisputeResponse> fileDispute(
+    public Mono<ResponseEntity<SupportTicketDisputeClient.DisputeResponse>> fileDispute(
             @AuthenticationPrincipal TokenPrincipal principal,
             @PathVariable Long orderId,
             @Valid @RequestBody SupportTicketDisputeClient.DisputeRequest request) {
         // Note: SupportTicket service extracts customerId from the token.
         return supportTicketClient.fileDispute(orderId, request)
                 .map(ResponseEntity::ok)
-                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()))
-                .block();
+                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()));
     }
 
     @GetMapping("/customers/disputes")
-    public ResponseEntity<List<SupportTicketDisputeClient.DisputeResponse>> myDisputes(@AuthenticationPrincipal TokenPrincipal principal) {
-        return ResponseEntity.ok(supportTicketClient.getDisputesForCustomer().block());
+    public Mono<ResponseEntity<List<SupportTicketDisputeClient.DisputeResponse>>> myDisputes(@AuthenticationPrincipal TokenPrincipal principal) {
+        return supportTicketClient.getDisputesForCustomer()
+                .map(ResponseEntity::ok);
     }
 
     // ── Admin endpoints ──────────────────────────────────────────────────────
 
     @GetMapping("/admin/disputes")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<SupportTicketDisputeClient.DisputeResponse>> listDisputes() {
-        return ResponseEntity.ok(supportTicketClient.getDisputesForAdmin().block());
+    public Mono<ResponseEntity<List<SupportTicketDisputeClient.DisputeResponse>>> listDisputes() {
+        return supportTicketClient.getDisputesForAdmin()
+                .map(ResponseEntity::ok);
     }
 
     @GetMapping("/admin/disputes/{disputeId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<SupportTicketDisputeClient.DisputeResponse> getDispute(@PathVariable Long disputeId) {
+    public Mono<ResponseEntity<SupportTicketDisputeClient.DisputeResponse>> getDispute(@PathVariable Long disputeId) {
         return supportTicketClient.getDispute(disputeId)
                 .map(ResponseEntity::ok)
-                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()))
-                .block();
+                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()));
     }
 
     @PostMapping("/admin/disputes/{disputeId}/resolve")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<SupportTicketDisputeClient.DisputeResponse> resolveDispute(
+    public Mono<ResponseEntity<SupportTicketDisputeClient.DisputeResponse>> resolveDispute(
             @PathVariable Long disputeId,
             @Valid @RequestBody SupportTicketDisputeClient.DisputeResolveRequest request) {
         return supportTicketClient.resolveDispute(disputeId, request)
                 .map(ResponseEntity::ok)
-                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()))
-                .block();
+                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()));
     }
 
     @PostMapping("/admin/disputes/auto-resolve")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Integer>> autoResolve() {
-        return ResponseEntity.ok(supportTicketClient.autoResolveDisputes().block());
+    public Mono<ResponseEntity<Map<String, Integer>>> autoResolve() {
+        return supportTicketClient.autoResolveDisputes()
+                .map(ResponseEntity::ok);
     }
 }

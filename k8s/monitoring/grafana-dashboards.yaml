@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bhukkad-logging-dashboard
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: monitoring
+data:
+  bhukkad-logging.json: |
+    {
+      "title": "Bhukkad Logging Overview",
+      "description": "Unified logging dashboard for all Bhukkad microservices",
+      "tags": ["bhukkad", "logging"],
+      "timezone": "browser",
+      "refresh": "10s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Error Rate by Service",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "sum(rate({service=~\"*\"} |= \"ERROR\" [5m])) by (service)",
+              "legendFormat": "{{ service }}"
+            }
+          ],
+          "yaxes": [
+            {"label": "errors/min", "format": "short"},
+            {"format": "short"}
+          ]
+        },
+        {
+          "id": 2,
+          "title": "HTTP Latency p95",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "sum(rate({service=~\"*\"} |~ \"HTTP \\| status=200 .* durationMs=[5-9][0-9]{2,}\" [5m])) by (service)",
+              "legendFormat": "{{ service }}"
+            }
+          ],
+          "yaxes": [
+            {"label": "requests/min", "format": "short"},
+            {"format": "short"}
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Circuit Breaker State",
+          "type": "table",
+          "targets": [
+            {
+              "expr": "sum by (service, circuit_breaker) (rate({service=~\"*\"} |~ \"CIRCUIT_BREAKER.*to=OPEN\" [5m]))"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Kafka Consumer Lag",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "sum by (topic, partition) (rate({service=~\"*\"} |~ \"KAFKA_LAG .* lag=\" [5m]))"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Database Health Status",
+          "type": "table",
+          "targets": [
+            {
+              "expr": "sum by (service) (rate({service=~\"*\"} |~ \"HEALTH_CHECK.*database=FAIL\" [5m]))"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Service Startup Timeline",
+          "type": "table",
+          "targets": [
+            {
+              "expr": "sum by (service, version) (rate({service=~\"*\"} |~ \"SERVICE_STARTED\" [1h]))"
+            }
+          ]
+        }
+      ]
+    }

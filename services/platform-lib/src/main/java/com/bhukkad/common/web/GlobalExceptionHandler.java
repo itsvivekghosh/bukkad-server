@@ -25,6 +25,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Centralised exception handling shared by every service (plan §9).
@@ -108,9 +109,12 @@ public class GlobalExceptionHandler {
                 fieldErrors.put(error.getObjectName(), error.getDefaultMessage());
             }
         });
+        String errorMessage = fieldErrors.entrySet().stream()
+                .map(entry -> entry.getKey() + ": " + entry.getValue())
+                .collect(Collectors.joining("; "));
         log.warn("ValidationFailed | {} | traceId={}", fieldErrors, TraceContext.currentTraceId());
         return ResponseEntity.badRequest()
-                .body(new ApiError(400, "VALIDATION_FAILED", "Validation failed: " + fieldErrors,
+                .body(new ApiError(400, "VALIDATION_FAILED", "Validation failed: " + errorMessage,
                         TraceContext.currentTraceId(), java.time.Instant.now()));
     }
 

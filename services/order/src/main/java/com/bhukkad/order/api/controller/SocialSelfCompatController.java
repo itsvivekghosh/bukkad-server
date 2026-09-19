@@ -28,6 +28,7 @@ import com.bhukkad.order.api.dto.response.GroupOrderResponse;
 import com.bhukkad.order.api.dto.response.SubscriptionPlanResponse;
 import com.bhukkad.order.domain.entity.Cart;
 import com.bhukkad.order.domain.entity.CartItem;
+import jakarta.validation.Valid;
 import com.bhukkad.order.domain.entity.Coupon;
 import com.bhukkad.order.domain.repository.GiftCardRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
@@ -126,6 +127,7 @@ public class SocialSelfCompatController {
      */
     @PostMapping("/api/v1/gift-cards/purchase")
     public GiftCard purchase(@AuthenticationPrincipal TokenPrincipal principal,
+                             @Valid
                              @org.springframework.web.bind.annotation.RequestBody(required = false)
                              GiftCardPurchaseRequest request) {
         Long customerId = subjectId(principal);
@@ -166,6 +168,7 @@ public class SocialSelfCompatController {
     @PostMapping(value = "/api/v1/customers/group-orders", produces = "application/json")
     public ResponseEntity<Map<String, Object>> createGroupOrder(
             @AuthenticationPrincipal TokenPrincipal principal,
+            @Valid
             @org.springframework.web.bind.annotation.RequestBody(required = false)
             GroupOrderCreateRequest request) {
         Long customerId = subjectId(principal);
@@ -229,6 +232,7 @@ public class SocialSelfCompatController {
     @PostMapping("/api/v1/customers/subscriptions")
     public SubscriptionPlanResponse createSubscription(
             @AuthenticationPrincipal TokenPrincipal principal,
+            @Valid
             @org.springframework.web.bind.annotation.RequestBody(required = false)
             SubscriptionPlanRequest request) {
         Long customerId = subjectId(principal);

@@ -129,6 +129,18 @@ resources:
   - logging/fluent-bit-configmap.yaml
   - logging/fluent-bit-rbac.yaml
   - logging/fluent-bit-daemonset.yaml
+  - logging/loki-configmap.yaml
+  - logging/loki-statefulset.yaml
+  - logging/loki-service.yaml
+  - logging/loki-alerting-rules.yaml
+  - logging/loki-rbac.yaml
+  - logging/loki-oidc-secret.yaml
+  # Observability: Grafana deployment + Loki datasource + dashboards
+  - monitoring/grafana-deployment.yaml
+  - monitoring/grafana-service.yaml
+  - monitoring/grafana-dashboards-config.yaml
+  - monitoring/grafana-datasources.yaml
+  - monitoring/grafana-dashboards.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml

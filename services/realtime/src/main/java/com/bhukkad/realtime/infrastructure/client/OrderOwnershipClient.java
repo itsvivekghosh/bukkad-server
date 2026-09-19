@@ -71,7 +71,7 @@ public class OrderOwnershipClient {
                     .header("X-Service-Token", provider.serviceToken())
                     .retrieve()
                     .bodyToMono(Map.class)
-                    .block();
+                    .block(Duration.ofSeconds(3));
             Object owner = response == null ? null : response.get("customerId");
             return owner instanceof Number n && n.longValue() == customerId;
         } catch (Exception ex) {

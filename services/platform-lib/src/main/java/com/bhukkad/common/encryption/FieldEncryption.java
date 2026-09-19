@@ -1,10 +1,13 @@
 package com.bhukkad.common.encryption;
 
+import com.bhukkad.common.encryption.Encrypted;
+
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import java.lang.reflect.Field;
 import java.security.SecureRandom;
 import java.util.Base64;
 
@@ -19,6 +22,11 @@ import java.util.Base64;
  * <p>Non-deterministic encryption means encrypted columns cannot be used in
  * {@code WHERE} clauses. For searchable fields, either use a separate
  * deterministic token or a hash column (see {@link DeterministicFieldEncryption}).
+ *
+ * <p>Use {@link #encryptField(Object, String)} and {@link #decryptField(Object, String)}
+ * together with the {@link Encrypted} annotation to transparently round-trip
+ * sensitive entity fields through the KEK without leaking plaintext to logs
+ * or the database.</p>
  */
 public final class FieldEncryption {
 
@@ -95,5 +103,67 @@ public final class FieldEncryption {
         } catch (Exception e) {
             throw new IllegalStateException("Field decryption failed", e);
         }
+    }
+
+    /**
+     * Encrypts the field named {@code fieldName} on {@code entity} in-place.
+     * The field must be of type {@code String} and annotated with {@link Encrypted}.
+     * A null value or a field that is not {@link Encrypted} is silently skipped.
+     */
+    public void encryptField(Object entity, String fieldName) {
+        if (entity == null || fieldName == null) return;
+        try {
+            Field field = findField(entity.getClass(), fieldName);
+            field.setAccessible(true);
+            if (!field.isAnnotationPresent(Encrypted.class)) return;
+            Object current = field.get(entity);
+            if (current == null) return;
+            if (!(current instanceof String plaintext)) return;
+            String encrypted = encrypt(plaintext);
+            field.set(entity, encrypted);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to encrypt field '" + fieldName + "' on " + entity.getClass(), e);
+        }
+    }
+
+    /**
+     * Decrypts the field named {@code fieldName} on {@code entity} in-place.
+     * The field must be of type {@code String} and annotated with {@link Encrypted}.
+     * A null value is returned as-is.
+     */
+    public String decryptField(Object entity, String fieldName) {
+        if (entity == null || fieldName == null) return null;
+        try {
+            Field field = findField(entity.getClass(), fieldName);
+            field.setAccessible(true);
+            Object current = field.get(entity);
+            if (current == null) return null;
+            if (!(current instanceof String ciphertext)) return null;
+            return decrypt(ciphertext);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to decrypt field '" + fieldName + "' on " + entity.getClass(), e);
+        }
+    }
+
+    /**
+     * Returns the plaintext value of the {@link Encrypted} field {@code fieldName}
+     * on {@code entity} without mutating the entity.
+     */
+    public String readDecrypted(Object entity, String fieldName) {
+        return decryptField(entity, fieldName);
+    }
+
+    private static Field findField(Class<?> clazz, String fieldName) throws NoSuchFieldException {
+        Class<?> current = clazz;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(fieldName + " not found in " + clazz);
     }
 }

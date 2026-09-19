@@ -40,3 +40,11 @@ spec:
           value: 2
           periodSeconds: 30
       selectPolicy: Max
+    # Custom metrics overlay: request rate per pod
+    - type: Pods
+      pods:
+        metric:
+          name: http_server_requests_seconds_count
+        target:
+          type: AverageValue
+          averageValue: 800

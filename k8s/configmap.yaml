@@ -54,6 +54,9 @@ data:
 
   REDIS_HOST: "bhukkad-redis"
   REDIS_PORT: "6379"
+  REDIS_SENTINEL_MASTER: "bhukkad-master"
+  REDIS_SENTINEL_NODES: "bhukkad-redis-sentinel:26379"
+  REDIS_SENTINEL_PASSWORD: ""
   # COMMENTED-READY Redis TLS (k8s/README-TLS.md): the tls-internal component
   # mounts the redis server cert (bhukkad-redis-tls secret → /etc/redis-tls,
   # redis/deployment patch) but the server stays on plaintext until the

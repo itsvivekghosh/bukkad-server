@@ -30,7 +30,7 @@ public class SecurityHeadersFilter implements Filter {
         http.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
         http.setHeader("Content-Security-Policy",
                 "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; "
-                        + "connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                        + "connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
                         + "script-src 'self'");
         chain.doFilter(request, response);
     }

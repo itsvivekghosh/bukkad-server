@@ -61,7 +61,7 @@ public class OrderService {
     public static final String SAGA_PAYMENT_METHOD = "WALLET";
 
     /** Outer bound for a saga RPC (client already retries/timeouts internally). */
-    private static final Duration SAGA_RPC_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration SAGA_RPC_TIMEOUT = Duration.ofSeconds(6);
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -80,7 +80,6 @@ public class OrderService {
     private static final long ORDER_CACHE_TTL_SECONDS = 30;
     private static final long CUSTOMER_ORDERS_CACHE_TTL_SECONDS = 60;
 
-    @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
         if (request.items() == null || request.items().isEmpty()) {
             throw new BusinessException("Order requires at least one item");
@@ -91,13 +90,14 @@ public class OrderService {
 
         // Money-integrity (roadmap #3): client-supplied unitPrice is NEVER
         // trusted. Every line is re-priced from the restaurant menu snapshot
-        // (cached batch endpoint) BEFORE the write transaction; a missing id
-        // means the item does not exist or is unavailable/inactive and
-        // rejects the order (resolver's existing error conventions: 400 for
-        // missing/unavailable items, 503 UpstreamUnavailableException for a
-        // restaurant outage — never a silent fallback to client prices).
+        // BEFORE the write transaction so a DB connection is not held during
+        // the external call.
         List<OrderItemRequest> items = rePrice(request);
+        return doCreateOrder(request, items);
+    }
 
+    @Transactional
+    private OrderResponse doCreateOrder(CreateOrderRequest request, List<OrderItemRequest> items) {
         BigDecimal total = items.stream()
                 .map(i -> i.unitPrice().multiply(BigDecimal.valueOf(i.quantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -110,6 +110,7 @@ public class OrderService {
         order = orderRepository.save(order);
         final Long orderId = order.getId();
 
+        List<OrderItem> savedItems = new java.util.ArrayList<>();
         items.forEach(i -> {
             OrderItem item = new OrderItem();
             item.setOrderId(orderId);
@@ -117,7 +118,7 @@ public class OrderService {
             item.setItemName(i.name());
             item.setUnitPrice(i.unitPrice());
             item.setQuantity(i.quantity());
-            orderItemRepository.save(item);
+            savedItems.add(orderItemRepository.save(item));
         });
 
         // Saga (audit batch A — real execution): reserve stock -> charge
@@ -155,7 +156,7 @@ public class OrderService {
                 eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
                 eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
                 log.warn("ASYNC_ORDER_SAGA_RESERVE_FAILED | orderId={}", orderId);
-                OrderResponse response = toResponse(order);
+                OrderResponse response = toResponse(order, savedItems);
                 invalidateOrderCache(orderId, request.customerId());
                 return response;
             }
@@ -170,7 +171,7 @@ public class OrderService {
             // G-1: the payment request commits atomically with the order; the
             // payment verdict comes back through payment.events.v1.
             eventPublisher.paymentRequested(orderId, request.customerId(), total, order.getCurrency());
-            OrderResponse response = toResponse(order);
+            OrderResponse response = toResponse(order, savedItems);
             invalidateOrderCache(orderId, request.customerId());
             return response;
         }
@@ -218,7 +219,7 @@ public class OrderService {
             eventPublisher.orderCreated(orderId, request.customerId(), request.restaurantId());
             eventPublisher.orderStatusChanged(orderId, Order.STATUS_CANCELLED);
             log.warn("ORDER_SAGA_FAILED | orderId={} | sagaStatus={}", orderId, saga.getStatus());
-            OrderResponse response = toResponse(order);
+            OrderResponse response = toResponse(order, savedItems);
             invalidateOrderCache(orderId, order.getCustomerId());
             return response;
         }
@@ -370,7 +371,13 @@ public class OrderService {
     @Transactional(readOnly = true)
     public Page<OrderResponse> getOrdersForCustomer(Long customerId, Pageable pageable) {
         Page<Order> page = orderRepository.findByCustomerId(customerId, pageable);
-        return page.map(this::toResponse);
+        List<Long> orderIds = page.getContent().stream().map(Order::getId).toList();
+        if (orderIds.isEmpty()) {
+            return page.map(o -> toResponse(o, List.of()));
+        }
+        Map<Long, List<OrderItem>> itemsByOrderId = orderItemRepository.findByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+        return page.map(order -> toResponse(order, itemsByOrderId.getOrDefault(order.getId(), List.of())));
     }
 
     private List<OrderResponse> enrichOrders(List<Order> orders) {
@@ -394,12 +401,14 @@ public class OrderService {
             return cache.getOrCompute(key, OrderResponse.class, ORDER_CACHE_TTL_SECONDS, () -> {
                 Order order = orderRepository.findById(orderId)
                         .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
-                return toResponse(order);
+                List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+                return toResponse(order, items);
             });
         }
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
-        return toResponse(order);
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        return toResponse(order, items);
     }
 
     private void invalidateOrderCache(Long orderId, Long customerId) {
@@ -437,7 +446,8 @@ public class OrderService {
         recordTimeline(orderId, timelineEvent);
         eventPublisher.orderStatusChanged(orderId, newStatus);
         invalidateOrderCache(orderId, order.getCustomerId());
-        return toResponse(order);
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        return toResponse(order, items);
     }
 
     /**
@@ -455,7 +465,8 @@ public class OrderService {
         order.setDeliveryAgentId(agentId);
         orderRepository.save(order);
         recordTimeline(orderId, "DELIVERY_ASSIGNED");
-        return toResponse(order);
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        return toResponse(order, items);
     }
 
     @Transactional(readOnly = true)
@@ -473,7 +484,8 @@ public class OrderService {
     /** Entity projection for ops listings (avoids N+1 item loads). */
     @Transactional(readOnly = true)
     public OrderResponse toResponseCompat(Order order) {
-        return toResponse(order);
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        return toResponse(order, items);
     }
 
     @Transactional(readOnly = true)

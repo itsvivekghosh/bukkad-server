@@ -7,7 +7,7 @@ metadata:
     app: bhukkad
     component: referral
 spec:
-  replicas: 3
+  priorityClassName: production-high
   selector:
     matchLabels:
       app: bhukkad

@@ -7,7 +7,7 @@ metadata:
     app: bhukkad
     component: survey
 spec:
-  replicas: 3
+  priorityClassName: production-high
   selector:
     matchLabels:
       app: bhukkad
@@ -99,10 +99,9 @@ spec:
             # (Service port 80 → targetPort 8081, k8s/identity/service.yaml).
             - name: JWKS_URL
               value: http://bhukkad-identity/.well-known/jwks.json
-            # Kafka consumer stays off until a broker is deployed; flip this and
-            # set KAFKA_BOOTSTRAP_SERVERS (non-secret, inline) when enabled.
+            # Kafka consumer enabled by default; flip with EVENTS_EXTERNAL_ENABLED.
             - name: EVENTS_EXTERNAL_ENABLED
-              value: "false"
+              value: "true"
             # P-09 JVM<->container contract: Guaranteed QoS (memory
             # requests==limits), CPU requests with NO limit (a limit throttles
             # GC threads), and the canonical -XX flag set (perf guide §4.1).

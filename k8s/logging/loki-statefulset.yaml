@@ -24,9 +24,32 @@ spec:
               name: http
             - containerPort: 9095
               name: grpc
+          env:
+            - name: LOKI_OIDC_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: loki-oidc-secret
+                  key: issuer_url
+            - name: LOKI_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: loki-oidc-secret
+                  key: client_id
+            - name: LOKI_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: loki-oidc-secret
+                  key: client_secret
           volumeMounts:
             - name: loki-data
               mountPath: /loki
+            - name: loki-alerting-rules
+              mountPath: /etc/loki/alerting-rules
+            - name: loki-rbac
+              mountPath: /etc/loki/rbac
+            - name: loki-tls
+              mountPath: /etc/loki/tls
+              readOnly: true
           args:
             - -config.file=/etc/loki/config.yaml
           volumeMounts:
@@ -36,6 +59,15 @@ spec:
         - name: loki-config
           configMap:
             name: loki-config
+        - name: loki-alerting-rules
+          configMap:
+            name: loki-alerting-rules
+        - name: loki-rbac
+          configMap:
+            name: loki-rbac
+        - name: loki-tls
+          secret:
+            secretName: loki-oidc-secret
   volumeClaimTemplates:
     - metadata:
         name: loki-data

@@ -37,6 +37,15 @@ x-app-defaults: &app-defaults
     # identity signs with .env's strong secret while services verify with the
     # yml fallback → every authenticated call 401s.
     JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in services/docker/.env}"
+    # PgBouncer configuration for 200k+ TPS (disabled by default in dev)
+    # Enable with: docker compose -f docker-compose.dev.yml up -d pgbouncer identity order ...
+    PGBOUNCER_ENABLED: "${PGBOUNCER_ENABLED:-false}"
+    PGBOUNCER_HOST: pgbouncer
+    PGBOUNCER_PORT: "6432"
+    PGBOUNCER_DATABASE: core
+    PGBOUNCER_USERNAME: app
+    PGBOUNCER_PASSWORD: app_pass
+    PGBOUNCER_POOL_MODE: transaction
     # No Zipkin in dev: keep logs/meters off the tracing path.
     TRACING_SAMPLE_PROBABILITY: "0.0"
     # Events off unless the redpanda profile is brought up too
@@ -79,6 +88,9 @@ x-app-defaults: &app-defaults
   depends_on:
     postgres:
       condition: service_healthy
+    pgbouncer:
+      condition: service_healthy
+      required: false
 
 services:
 
@@ -104,6 +116,44 @@ services:
         limits:
           memory: 256M
 
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22
+    container_name: backend-pgbouncer
+    environment:
+      - PG_BOUNCER_DB=core
+      - PG_BOUNCER_USER=app
+      - PG_BOUNCER_PASSWORD=app_pass
+      - PG_BOUNCER_ADMIN_USERS=admin,stats_user
+      - PG_BOUNCER_POOL_MODE=transaction
+      - PG_BOUNCER_MAX_CLIENT_CONN=10000
+      - PG_BOUNCER_DEFAULT_POOL_SIZE=500
+      - PG_BOUNCER_MIN_POOL_SIZE=100
+      - PG_BOUNCER_RESERVE_POOL_SIZE=10
+      - PG_BOUNCER_RESERVE_POOL_TIMEOUT=5
+      - PG_BOUNCER_MAX_CONNECTION_LIFETIME=3600
+      - PG_BOUNCER_IDLE_TIMEOUT=600
+      - PG_BOUNCER_QUERY_TIMEOUT=30
+      - PG_BOUNCER_QUERY_WAIT_TIMEOUT=120
+      - PG_BOUNCER_STATS_PERIOD=60
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d core -h localhost -p 6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
   redis:
     image: redis:7-alpine
     container_name: backend-redis
@@ -125,10 +175,10 @@ services:
       - --overprovisioned
       - --node-id 0
       - --kafka-addr PLAINTEXT://0.0.0.0:29092
-      - --advertise-kafka-addr PLAINTEXT://redpanda:29092
+      - --advertise-kafka-addr PLAINTEXT://localhost:29092
       - --rpc-addr 0.0.0.0:33145
       - --advertise-rpc-addr redpanda:33145
-    ports: ["29092:29092", "9644:9644"]
+    ports: ["9092:29092", "29092:29092", "9644:9644"]
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -q Healthy"]
       interval: 5s

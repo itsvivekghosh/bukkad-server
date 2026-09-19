@@ -28,7 +28,7 @@ public final class BlockHoundSupport {
     private BlockHoundSupport() {
     }
 
-    static void installOnce() {
+    public static void installOnce() {
         if (!SUPPORTED) {
             return;
         }
@@ -37,7 +37,7 @@ public final class BlockHoundSupport {
         }
     }
 
-    static boolean isSupported() {
+    public static boolean isSupported() {
         return SUPPORTED;
     }
 }

@@ -1,0 +1,104 @@
+spring:
+  datasource:
+    url: ${SOCIAL_DB_URL:jdbc:postgresql://localhost:5432/social}
+    username: ${SOCIAL_DB_USERNAME:bhukkad}
+    password: ${SOCIAL_DB_PASSWORD:bhukkad_test_pw}
+    hikari:
+      maximum-pool-size: ${SOCIAL_DB_POOL_SIZE:8}
+      minimum-idle: 2
+      connection-timeout: 1000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2000
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 256
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
+  jpa:
+    hibernate:
+      ddl-auto: none
+    defer-datasource-initialization: true
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+        jdbc.batch_versioned_data: true
+        query_plan_cache_size: 200
+  sql:
+    init:
+      mode: always
+  flyway:
+    enabled: false
+  main:
+    allow-bean-definition-overriding: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+app:
+  environment: test
+  datasource:
+    read-replica:
+      enabled: false
+  auth:
+    jwt:
+      secret: test-secret-key-for-testing-only-must-be-at-least-32-chars-long-for-hs256
+      jwks-url: http://localhost:8080/.well-known/jwks.json
+      issuer: test-issuer
+      audience: test-audience
+    service:
+      jwt-secret: test-service-jwt-secret-must-be-at-least-32-chars-long-for-hs256-algo
+      allowed-services: gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth,social
+      enforce-internal-paths: false
+  events:
+    external:
+      enabled: false
+  services:
+    restaurant:
+      url: http://localhost:8091
+    order:
+      url: http://localhost:8083
+
+management:
+  metrics:
+    enable:
+      lettuce: true
+      kafka: true
+      jdbc: true
+      reactor.netty: true
+  tracing:
+    sampling:
+      probability: 0.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
+logging:
+  level:
+    com.bhukkad: INFO
+    org.testcontainers: INFO
+    org.springframework.test: INFO

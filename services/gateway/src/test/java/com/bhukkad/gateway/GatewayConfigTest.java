@@ -67,7 +67,7 @@ class GatewayConfigTest {
                 "home-feed", "home-campaigns", "home-membership",
                 "cache", "platform", "compliance",
                 "analytics-exports", "swagger",
-                "search", "referral", "support",
+                "search", "referral", "support", "social",
                 "notification", "live", "live-realtime", "growth",
                 "inventory", "restaurant", "identity", "personalization",
                 "order", "payment", "delivery",
@@ -79,7 +79,7 @@ class GatewayConfigTest {
         // admin-restaurants/stats carve-out kept the analytics read model) plus
         // the observable unmatched-/api 404 route (audit V-20) and the
         // admin-disputes route (ADR-001: support is the dispute SOR).
-        assertThat(routes.getRoutes().collectList().block()).hasSize(54);
+        assertThat(routes.getRoutes().collectList().block()).hasSize(55);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");

@@ -501,7 +501,9 @@ class LoggingComponentsCoverageTest {
 
     @Test
     void requestLoggingFilter_seedsMdcDuringChain_andCleansAfterwards() throws Exception {
-        RequestLoggingFilter filter = new RequestLoggingFilter();
+        org.springframework.core.env.Environment env = new org.springframework.mock.env.MockEnvironment();
+        LoggingSampler sampler = new LoggingSampler(1.0, 1.0);
+        RequestLoggingFilter filter = new RequestLoggingFilter(env, sampler);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/restaurants");
         request.addHeader("X-Request-Id", "req-123");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -587,5 +589,45 @@ class LoggingComponentsCoverageTest {
         String another = TraceIdResolver.seedNew();
         assertThat(another).isNotBlank();
         assertThat(MDC.get(LoggingConstants.TRACE_ID)).isEqualTo(another);
+    }
+
+    // ── CorrelationIdFilter ──────────────────────────────────────────────
+
+    @Test
+    void correlationIdFilter_generatesIdWhenMissing() throws Exception {
+        CorrelationIdFilter filter = new CorrelationIdFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/test");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AtomicReference<String> captured = new AtomicReference<>();
+        ListAppender<ILoggingEvent> events = capture(CorrelationIdFilter.class.getName(), Level.DEBUG, () -> {
+            filter.doFilter(request, response, (rq, rs) -> {
+                jakarta.servlet.http.HttpServletResponse httpRs = (jakarta.servlet.http.HttpServletResponse) rs;
+                captured.set(MDC.get("correlationId"));
+                assertThat(MDC.get("correlationId")).isNotBlank();
+                assertThat(httpRs.getHeader("X-Correlation-Id")).isEqualTo(captured.get());
+            });
+        });
+        assertThat(captured.get()).isNotBlank();
+        assertThat(MDC.get("correlationId")).isNull(); // cleaned after request
+    }
+
+    @Test
+    void correlationIdFilter_reusesExistingId() throws Exception {
+        CorrelationIdFilter filter = new CorrelationIdFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/test");
+        request.addHeader("X-Correlation-Id", "existing-id");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AtomicReference<String> captured = new AtomicReference<>();
+        ListAppender<ILoggingEvent> events = capture(CorrelationIdFilter.class.getName(), Level.DEBUG, () -> {
+            filter.doFilter(request, response, (rq, rs) -> {
+                jakarta.servlet.http.HttpServletResponse httpRs = (jakarta.servlet.http.HttpServletResponse) rs;
+                captured.set(MDC.get("correlationId"));
+                assertThat(MDC.get("correlationId")).isEqualTo("existing-id");
+                assertThat(httpRs.getHeader("X-Correlation-Id")).isEqualTo("existing-id");
+            });
+        });
+        assertThat(captured.get()).isEqualTo("existing-id");
     }
 }

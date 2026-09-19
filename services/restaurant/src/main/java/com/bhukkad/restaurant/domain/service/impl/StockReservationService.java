@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import com.bhukkad.restaurant.api.dto.request.StockReservationItem;
 import com.bhukkad.restaurant.config.StockReservationProperties;
 
@@ -63,10 +65,11 @@ public class StockReservationService {
         if (!isEnabled()) {
             return;
         }
+        Map<Long, MenuItem> menuItemMap = batchFetchMenuItems(items);
         List<StockReservationItem> held = new ArrayList<>();
         try {
             for (StockReservationItem item : items) {
-                reserveOne(item, held);
+                reserveOne(item, held, menuItemMap);
             }
         } catch (RuntimeException failure) {
             compensate(held);
@@ -74,8 +77,20 @@ public class StockReservationService {
         }
     }
 
-    private void reserveOne(StockReservationItem item, List<StockReservationItem> held) {
-        MenuItem menuItem = menuItemRepository.findById(item.menuItemId()).orElse(null);
+    private Map<Long, MenuItem> batchFetchMenuItems(List<StockReservationItem> items) {
+        List<Long> ids = items.stream()
+                .map(StockReservationItem::menuItemId)
+                .distinct()
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return menuItemRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(MenuItem::getId, m -> m));
+    }
+
+    private void reserveOne(StockReservationItem item, List<StockReservationItem> held, Map<Long, MenuItem> menuItemMap) {
+        MenuItem menuItem = menuItemMap.get(item.menuItemId());
         if (menuItem == null || menuItem.getStockQuantity() == null) {
             return; // untracked -> no DB gate to hold
         }
@@ -148,8 +163,9 @@ public class StockReservationService {
         if (!isEnabled()) {
             return;
         }
+        Map<Long, MenuItem> menuItemMap = batchFetchMenuItems(items);
         for (StockReservationItem item : items) {
-            MenuItem menuItem = menuItemRepository.findById(item.menuItemId()).orElse(null);
+            MenuItem menuItem = menuItemMap.get(item.menuItemId());
             if (menuItem == null || menuItem.getStockQuantity() == null) {
                 continue;
             }

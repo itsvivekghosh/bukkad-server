@@ -57,7 +57,7 @@ public final class PlatformWebClientBuilderFactory {
     public static final String POOL_NAME = "bhukkad-webclient";
 
     /** Maximum pooled connections across the JVM (PERF-5 default). */
-    public static final int POOL_MAX_CONNECTIONS = 64;
+    public static final int POOL_MAX_CONNECTIONS = 256;
 
     /** How long a request may wait for a pooled connection before failing. */
     public static final Duration POOL_PENDING_ACQUIRE_TIMEOUT = Duration.ofSeconds(3);
@@ -72,8 +72,8 @@ public final class PlatformWebClientBuilderFactory {
     public static final String DEFAULT_TARGET = "default";
 
     /** Retry policy for transient failures on idempotent methods (PERF-1/B5). */
-    static final int RETRY_ATTEMPTS = 3;
-    static final Duration RETRY_BACKOFF = Duration.ofSeconds(1);
+    static final int RETRY_ATTEMPTS = 2;
+    static final Duration RETRY_BACKOFF = Duration.ofSeconds(2);
 
     /**
      * ONE JVM-wide pool shared by every factory-built client (mirrors the
@@ -87,11 +87,30 @@ public final class PlatformWebClientBuilderFactory {
             .metrics(true)
             .build();
 
+    private static final ConnectionProvider PAYMENT_POOL = ConnectionProvider.builder("payment")
+            .maxConnections(100)
+            .pendingAcquireTimeout(POOL_PENDING_ACQUIRE_TIMEOUT)
+            .metrics(true)
+            .build();
+
+    private static final ConnectionProvider ORDER_POOL = ConnectionProvider.builder("order")
+            .maxConnections(100)
+            .pendingAcquireTimeout(POOL_PENDING_ACQUIRE_TIMEOUT)
+            .metrics(true)
+            .build();
+
+    private static final ConnectionProvider DELIVERY_POOL = ConnectionProvider.builder("delivery")
+            .maxConnections(100)
+            .pendingAcquireTimeout(POOL_PENDING_ACQUIRE_TIMEOUT)
+            .metrics(true)
+            .build();
+
     private final String target;
     private final MeterRegistry meterRegistry;
     private Duration connectTimeout = CONNECT_TIMEOUT;
     private Duration responseTimeout = RESPONSE_TIMEOUT;
     private final MtlsProperties mtlsProperties;
+    private ConnectionProvider connectionProvider;
 
     private PlatformWebClientBuilderFactory(String target, MeterRegistry meterRegistry) {
         this(target, meterRegistry, null);
@@ -109,6 +128,44 @@ public final class PlatformWebClientBuilderFactory {
     }
 
     /**
+     * Factory for a client targeting {@code target} with an explicit
+     * {@link ConnectionProvider} (PERF-5 pool wiring from
+     * {@link com.bhukkad.common.config.WebClientConfig}).
+     */
+    public static PlatformWebClientBuilderFactory forTarget(String target,
+                                                             MeterRegistry meterRegistry,
+                                                             ConnectionProvider connectionProvider) {
+        PlatformWebClientBuilderFactory factory =
+                new PlatformWebClientBuilderFactory(target, meterRegistry, null);
+        factory.connectionProvider = connectionProvider;
+        return factory;
+    }
+
+    /** Factory for a payment-api client using the dedicated payment pool. */
+    public static PlatformWebClientBuilderFactory forPaymentTarget(String target, MeterRegistry meterRegistry) {
+        PlatformWebClientBuilderFactory factory =
+                new PlatformWebClientBuilderFactory(target, meterRegistry, null);
+        factory.connectionProvider = PAYMENT_POOL;
+        return factory;
+    }
+
+    /** Factory for an order-api client using the dedicated order pool. */
+    public static PlatformWebClientBuilderFactory forOrderTarget(String target, MeterRegistry meterRegistry) {
+        PlatformWebClientBuilderFactory factory =
+                new PlatformWebClientBuilderFactory(target, meterRegistry, null);
+        factory.connectionProvider = ORDER_POOL;
+        return factory;
+    }
+
+    /** Factory for a delivery-api client using the dedicated delivery pool. */
+    public static PlatformWebClientBuilderFactory forDeliveryTarget(String target, MeterRegistry meterRegistry) {
+        PlatformWebClientBuilderFactory factory =
+                new PlatformWebClientBuilderFactory(target, meterRegistry, null);
+        factory.connectionProvider = DELIVERY_POOL;
+        return factory;
+    }
+
+    /**
      * Factory for a client targeting {@code target} with optional mTLS.
      * When {@code mtlsProperties} is null or disabled, behaves identically to
      * {@link #forTarget(String, MeterRegistry)} (plaintext).
@@ -122,13 +179,29 @@ public final class PlatformWebClientBuilderFactory {
         return SHARED_POOL;
     }
 
+    /** Payment-service pool: 100 max connections, metrics-enabled (test seam). */
+    static ConnectionProvider paymentPool() {
+        return PAYMENT_POOL;
+    }
+
+    /** Order-service pool: 100 max connections, metrics-enabled (test seam). */
+    static ConnectionProvider orderPool() {
+        return ORDER_POOL;
+    }
+
+    /** Delivery-service pool: 100 max connections, metrics-enabled (test seam). */
+    static ConnectionProvider deliveryPool() {
+        return DELIVERY_POOL;
+    }
+
     /**
      * The Reactor Netty {@link HttpClient} the factory builds (pool + timeout
      * defaults applied) — diagnostics seam for asserting the P-05 wiring.
      * When mTLS is enabled, the client is wrapped with an {@link SslProvider}.
      */
     HttpClient httpClient() {
-        HttpClient client = HttpClient.create(SHARED_POOL)
+        ConnectionProvider pool = connectionProvider != null ? connectionProvider : SHARED_POOL;
+        HttpClient client = HttpClient.create(pool)
                 .responseTimeout(responseTimeout)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.toMillis());
 

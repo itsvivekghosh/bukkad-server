@@ -1,0 +1,89 @@
+# Minimal local stack for Order API testing without pgbouncer
+version: "3.8"
+
+name: backend-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: backend-postgres
+    environment:
+      POSTGRES_DB: core
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - backend-pgdata:/var/lib/postgresql/data
+      - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: backend-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+
+  identity:
+    image: backend/identity:dev
+    container_name: backend-identity
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: identity
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SERVER_PORT: "8080"
+      REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: redis
+      JWT_SECRET: "784c9b4ade6985112ba186bd72ab15131b846e5d7d197e4770bafaddbd214042"
+      SERVICE_JWT_SECRET: "4f0f4c0b0066fd3390cf928984d773a340431804bec833d36c446d625aa890be"
+      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
+      APP_BOOTSTRAPADMIN_ENABLED: "true"
+      APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
+      APP_BOOTSTRAPADMIN_PASSWORD: "Admin@123456"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8081:8080"
+
+  order:
+    image: backend/order:dev
+    container_name: backend-order
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: order
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SERVER_PORT: "8080"
+      REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: redis
+      JWT_SECRET: "784c9b4ade6985112ba186bd72ab15131b846e5d7d197e4770bafaddbd214042"
+      SERVICE_JWT_SECRET: "4f0f4c0b0066fd3390cf928984d773a340431804bec833d36c446d625aa890be"
+      ORDER_DB_URL: jdbc:postgresql://postgres:5432/orders
+      RESTAURANT_SERVICE_URL: http://restaurant:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      identity:
+        condition: service_started
+    ports:
+      - "8083:8080"
+
+volumes:
+  backend-pgdata:
+    name: backend_pgdata_test

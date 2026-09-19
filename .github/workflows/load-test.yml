@@ -31,8 +31,14 @@ on:
           - order-create
           - restaurant-feed
           - sse
-  # schedule:
-  #   - cron: "0 2 * * *"  # nightly soak against staging
+  schedule:
+    - cron: "0 2 * * *"  # nightly soak against staging
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'services/**'
+      - 'loadtest/**'
+      - '.github/workflows/load-test.yml'
 
 jobs:
   loadtest:
@@ -50,17 +56,82 @@ jobs:
         run: |
           SCENARIO="${{ github.event.inputs.scenario || 'browse' }}"
           if [ "$SCENARIO" = "10tps-smoke" ] || [ "$SCENARIO" = "10tps-comprehensive" ]; then
-            # Legacy scripts in scripts/loadtest/ use different BASE/paths
             cd scripts/loadtest
-            k6 run "${SCENARIO}.js"
+            k6 run "${SCENARIO}.js" --summary-export=k6-summary.json
           else
-            # All root loadtest/ scenarios share loadtest/config.js
-            k6 run "loadtest/${SCENARIO}.js"
+            k6 run "loadtest/${SCENARIO}.js" --summary-export=k6-summary.json
           fi
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
           TEST_EMAIL: ${{ secrets.LOADTEST_EMAIL }}
           TEST_PASSWORD: ${{ secrets.LOADTEST_PASSWORD }}
+
+      - name: Generate load-test report
+        run: |
+          python3 - <<'PY'
+import json, datetime
+summary = json.load(open("k6-summary.json"))
+metrics = summary.get("metrics", {})
+http_req = metrics.get("http_req", {})
+values = http_req.get("values", {})
+p99 = values.get("p(99)", 0)
+p95 = values.get("p(95)", 0)
+errors = values.get("failures", 0)
+total = values.get("count", 0)
+error_rate = (errors / total * 100) if total else 0
+checks = metrics.get("checks", {}).get("values", {})
+check_rate = checks.get("passes", 0) / (checks.get("passes", 0) + checks.get("fails", 0) + 1e-9) * 100
+
+report = f"""# Load Test Report
+**Scenario:** ${{ github.event.inputs.scenario || 'browse' }}
+**Target:** ${{ github.event.inputs.base_url }}
+**Timestamp:** {datetime.datetime.utcnow().isoformat()}Z
+
+| Metric | Value |
+|--------|-------|
+| Total requests | {total} |
+| P95 latency | {p95:.1f} ms |
+| P99 latency | {p99:.1f} ms |
+| Error rate | {error_rate:.2f}% |
+| Check pass rate | {check_rate:.2f}% |
+
+**Status:** {"✅ PASS" if p99 <= 500 and error_rate <= 1 else "❌ FAIL"}
+"""
+with open("load-test-report.md", "w") as f:
+    f.write(report)
+print(report)
+PY
+
+      - name: Upload load-test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-report
+          path: load-test-report.md
+
+      - name: Upload k6 summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-summary
+          path: k6-summary.json
+
+      - name: Enforce performance gate
+        run: |
+          python3 - <<'PY'
+import json, sys
+summary = json.load(open("k6-summary.json"))
+metrics = summary.get("metrics", {})
+http_req = metrics.get("http_req", {})
+p99 = http_req.get("values", {}).get("p(99)", 0)
+errors = http_req.get("values", {}).get("failures", 0)
+total = http_req.get("values", {}).get("count", 0)
+error_rate = (errors / total * 100) if total else 0
+print(f"P99={p99}ms error_rate={error_rate}%")
+if p99 > 500 or error_rate > 1:
+    print("PERFORMANCE_GATE_FAILED")
+    sys.exit(1)
+PY
 
       - name: Publish summary
         if: always()

@@ -8,12 +8,16 @@ import com.bhukkad.realtime.domain.service.OrderLiveRelay;
 import com.bhukkad.realtime.domain.service.OrderSseStreamService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
+import jakarta.validation.Valid;
+
+import java.time.Duration;
 
 @Slf4j
 @RestController
@@ -33,7 +37,7 @@ public class LiveStreamController {
      */
     @GetMapping(value = "/kitchen/{restaurantId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("hasAnyRole('RESTAURANT_OWNER', 'ADMIN', 'SERVICE')")
-    public SseEmitter subscribeKitchen(
+    public Flux<org.springframework.http.codec.ServerSentEvent<String>> subscribeKitchen(
             @PathVariable Long restaurantId,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
         log.debug("SSE kitchen subscribe | restaurantId={} | lastEventId={}", restaurantId, lastEventId);
@@ -49,7 +53,7 @@ public class LiveStreamController {
      */
     @GetMapping(value = "/rider/{agentId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("hasAnyRole('DELIVERY_AGENT', 'ADMIN', 'SERVICE')")
-    public SseEmitter subscribeRider(
+    public Flux<org.springframework.http.codec.ServerSentEvent<String>> subscribeRider(
             @AuthenticationPrincipal TokenPrincipal principal,
             @PathVariable Long agentId,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
@@ -76,7 +80,7 @@ public class LiveStreamController {
      * are privileged.
      */
     @GetMapping(value = "/order/{orderId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter subscribeCustomer(
+    public Flux<org.springframework.http.codec.ServerSentEvent<String>> subscribeCustomer(
             @AuthenticationPrincipal TokenPrincipal principal,
             @PathVariable Long orderId,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
@@ -101,7 +105,7 @@ public class LiveStreamController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SERVICE')")
     public ResponseEntity<Void> broadcastKitchen(
             @PathVariable Long restaurantId,
-            @RequestBody OrderLiveUpdate update) {
+            @Valid @RequestBody OrderLiveUpdate update) {
         update.setRestaurantId(restaurantId);
         orderLiveRelay.publish(update);
         return ResponseEntity.ok().build();
@@ -114,7 +118,7 @@ public class LiveStreamController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SERVICE')")
     public ResponseEntity<Void> broadcastRider(
             @PathVariable Long agentId,
-            @RequestBody OrderLiveUpdate update) {
+            @Valid @RequestBody OrderLiveUpdate update) {
         update.setDeliveryAgentId(agentId);
         orderLiveRelay.publish(update);
         return ResponseEntity.ok().build();
@@ -127,7 +131,7 @@ public class LiveStreamController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SERVICE')")
     public ResponseEntity<Void> broadcastCustomer(
             @PathVariable Long orderId,
-            @RequestBody OrderLiveUpdate update) {
+            @Valid @RequestBody OrderLiveUpdate update) {
         update.setOrderId(orderId);
         orderLiveRelay.publish(update);
         return ResponseEntity.ok().build();

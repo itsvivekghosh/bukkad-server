@@ -57,10 +57,56 @@ spec:
           labels:
             severity: warn
 
-    - name: bhukkad.circuit
-      rules:
-        - alert: CircuitBreakerOpen
-          expr: circuit_breaker_open == 1
-          for: 1m
-          labels:
-            severity: page
+     - name: bhukkad.social.feed
+       rules:
+         - record: job:feed_requests:rate5m
+           expr: rate(social_feed_requests_total[5m])
+         - record: job:feed_latency:p95
+           expr: histogram_quantile(0.95, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le))
+         - record: job:feed_latency:p99
+           expr: histogram_quantile(0.99, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le))
+         - record: job:feed_errors:rate5m
+           expr: rate(social_feed_errors_total[5m])
+         - alert: HighFeedLatency
+           expr: histogram_quantile(0.95, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le)) > 0.2
+           for: 3m
+           labels:
+             severity: warn
+           annotations:
+             summary: "Feed p95 latency > 200ms"
+         - alert: LowRedisHitRatio
+           expr: (rate(social_feed_requests_total[5m]) - rate(social_feed_errors_total[5m])) / rate(social_feed_requests_total[5m]) < 0.8
+           for: 5m
+           labels:
+             severity: warn
+           annotations:
+             summary: "Feed cache hit ratio < 80%"
+
+     - name: bhukkad.social.like
+       rules:
+         - record: job:like_requests:rate5m
+           expr: rate(social_like_requests_total[5m])
+         - record: job:like_latency:p95
+           expr: histogram_quantile(0.95, sum(rate(social_like_latency_seconds_bucket[5m])) by (le))
+
+     - name: bhukkad.social.order
+       rules:
+         - record: job:order_requests:rate5m
+           expr: rate(social_order_requests_total[5m])
+         - record: job:order_latency:p95
+           expr: histogram_quantile(0.95, sum(rate(social_order_latency_seconds_bucket[5m])) by (le))
+         - alert: HighOrderErrorRate
+           expr: rate(social_order_errors_total[5m]) / rate(social_order_requests_total[5m]) > 0.01
+           for: 5m
+           labels:
+             severity: page
+           annotations:
+             summary: "Order-from-post error rate > 1%"
+
+     - name: bhukkad.circuit
+       rules:
+         - alert: CircuitBreakerOpen
+           expr: circuit_breaker_open == 1
+           for: 1m
+           labels:
+             severity: page

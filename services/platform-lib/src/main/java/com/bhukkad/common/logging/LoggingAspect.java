@@ -23,12 +23,14 @@ public class LoggingAspect {
     private static final long SLOW_THRESHOLD_MS = 500;
 
     private final ObjectMapper objectMapper;
+    private final LogMetricsEmitter metricsEmitter;
 
     @Value("${app.debug:false}")
     private boolean debugMode;
 
-    public LoggingAspect() {
-        this.objectMapper = new ObjectMapper();
+    public LoggingAspect(ObjectMapper objectMapper, LogMetricsEmitter metricsEmitter) {
+        this.objectMapper = objectMapper;
+        this.metricsEmitter = metricsEmitter;
     }
 
     // P3 structural: the reactor layout has no top-level com.bhukkad.controller
@@ -99,6 +101,7 @@ public class LoggingAspect {
             if (duration > SLOW_THRESHOLD_MS) {
                 // WARN - always logged even in prod
                 log.warn(toJson("SERVICE_SLOW", className, methodName, duration, "SLOW", null));
+                metricsEmitter.recordSlowService();
             } else if (debugMode) {
                 log.debug(toJson("SERVICE_EXIT", className, methodName, duration, "SUCCESS", null));
             }
@@ -108,6 +111,9 @@ public class LoggingAspect {
             long duration = System.currentTimeMillis() - startTime;
             // Handled domain exceptions are WARN-logged by GlobalExceptionHandler;
             // only unexpected failures are logged here at ERROR.
+            if (!isHandledDomainException(ex)) {
+                metricsEmitter.recordError(className);
+            }
             logAtAppropriateLevel(ex, "SERVICE_ERROR", className, methodName, duration);
             throw ex;
         }

@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-social
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: social
+spec:
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: social
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: social
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8095"
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: social
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: social
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: bhukkad-social
+          image: ghcr.io/bhukkad/social:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8095
+              name: http
+          envFrom:
+            - configMapRef:
+                name: bhukkad-config
+          env:
+            - name: SERVER_PORT
+              value: "8095"
+            - name: SOCIAL_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SOCIAL_DB_URL
+            - name: SOCIAL_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SOCIAL_DB_USERNAME
+            - name: SOCIAL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SOCIAL_DB_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_HOST
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: REDIS_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: JWT_SECRET
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+UseG1GC
+                -XX:MaxGCPauseMillis=200
+                -XX:+ExitOnOutOfMemoryError
+                -XX:+UseStringDeduplication
+                -Djava.security.egd=file:/dev/./urandom
+          resources:
+            requests:
+              cpu: 750m
+              memory: 1024Mi
+            limits:
+              cpu: "2"
+              memory: 2048Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60

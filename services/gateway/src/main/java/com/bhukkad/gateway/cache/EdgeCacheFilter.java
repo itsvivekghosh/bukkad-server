@@ -8,17 +8,22 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import org.reactivestreams.Publisher;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Random;
 import java.util.Set;
 
 /**
@@ -39,7 +44,7 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
     static final int ORDER = -20; // after rate limit (-30), before kill switch (10)
     private static final String KEY_PREFIX = "edge:cache:";
     private static final String CONTENT_TYPE_JSON = "application/json";
-    private static final Set<String> PUBLIC_GET_PREFIXES = Set.of(
+    public static final Set<String> PUBLIC_GET_PREFIXES = Set.of(
             "/api/v1/restaurants/public",
             "/api/v1/cuisines",
             "/api/v1/menu/items",
@@ -51,16 +56,22 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
             "/api/v1/home/trending"
     );
 
+    private static final Random JITTER_RANDOM = new Random();
+    private static final double JITTER_FACTOR = 0.1;
+
     private final ObjectProvider<ReactiveStringRedisTemplate> redisProvider;
     private final ObjectProvider<MeterRegistry> meterRegistryProvider;
     private final boolean enabled;
+    private final long ttlSeconds;
 
     public EdgeCacheFilter(ObjectProvider<ReactiveStringRedisTemplate> redisProvider,
                            ObjectProvider<MeterRegistry> meterRegistryProvider,
-                           @org.springframework.beans.factory.annotation.Value("${app.edge.cache.enabled:true}") boolean enabled) {
+                           @org.springframework.beans.factory.annotation.Value("${app.edge.cache.enabled:true}") boolean enabled,
+                           @org.springframework.beans.factory.annotation.Value("${app.edge.cache.ttl-seconds:60}") long ttlSeconds) {
         this.redisProvider = redisProvider;
         this.meterRegistryProvider = meterRegistryProvider;
         this.enabled = enabled;
+        this.ttlSeconds = ttlSeconds;
     }
 
     @Override
@@ -102,6 +113,10 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                     ServerHttpResponse response = exchange.getResponse();
                     response.getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
                     response.getHeaders().set("X-Edge-Cache", "HIT");
+                    MeterRegistry meters = meterRegistryProvider.getIfAvailable();
+                    if (meters != null) {
+                        meters.counter("edge_cache_hit").increment();
+                    }
                     response.setStatusCode(HttpStatus.OK);
                     return response.writeWith(Mono.just(response.bufferFactory().wrap(cached.getBytes(StandardCharsets.UTF_8))))
                             .then(Mono.just(new Object()));
@@ -111,6 +126,30 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                     if (meters != null) {
                         meters.counter("edge_cache_miss").increment();
                     }
+                    if (redis != null && ttlSeconds > 0) {
+                        ServerHttpResponse originalResponse = exchange.getResponse();
+                        ServerHttpResponseDecorator decorator = new ServerHttpResponseDecorator(originalResponse) {
+                            @Override
+                            public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+                                return DataBufferUtils.join(body)
+                                        .flatMap(dataBuffer -> {
+                                            byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                                            dataBuffer.read(bytes);
+                                            DataBufferUtils.release(dataBuffer);
+                                            String bodyStr = new String(bytes, StandardCharsets.UTF_8);
+                                            long jitteredTtl = ttlSeconds + (long) ((JITTER_RANDOM.nextDouble() - 0.5) * 2 * ttlSeconds * JITTER_FACTOR);
+                                            redis.opsForValue().set(cacheKey, bodyStr, Duration.ofSeconds(jitteredTtl))
+                                                    .doOnError(e -> log.warn("EDGE_CACHE_WRITE_FAILED key={} error={}", cacheKey, e.getMessage()))
+                                                    .onErrorResume(e -> Mono.empty())
+                                                    .subscribe();
+                                            return originalResponse.writeWith(Mono.just(originalResponse.bufferFactory().wrap(bytes)));
+                                        });
+                            }
+                        };
+                        return chain.filter(exchange.mutate().response(decorator).build())
+                                .doOnError(e -> log.warn("EDGE_CACHE_WRITE_FAILED key={} error={}", cacheKey, e.getMessage()))
+                                .then(Mono.just(new Object()));
+                    }
                     return chain.filter(exchange)
                             .doOnError(e -> log.warn("EDGE_CACHE_WRITE_FAILED key={} error={}", cacheKey, e.getMessage()))
                             .then(Mono.just(new Object()));
@@ -118,7 +157,7 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                 .then();
     }
 
-    private static String buildCacheKey(ServerHttpRequest request) {
+    public static String buildCacheKey(ServerHttpRequest request) {
         StringBuilder sb = new StringBuilder(KEY_PREFIX);
         sb.append(request.getMethod()).append(":")
           .append(request.getURI().getPath());
@@ -133,5 +172,11 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                     });
         }
         return sb.toString();
+    }
+
+    public static boolean isCacheableGet(ServerHttpRequest request) {
+        return HttpMethod.GET.equals(request.getMethod())
+                && PUBLIC_GET_PREFIXES.stream().anyMatch(
+                        p -> request.getURI().getPath().startsWith(p));
     }
 }

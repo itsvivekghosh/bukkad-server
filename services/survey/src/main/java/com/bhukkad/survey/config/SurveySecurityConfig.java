@@ -44,7 +44,7 @@ public class SurveySecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(surveyAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
                         // Public read endpoints (mirror monolith public matchers)
                         .requestMatchers("/api/v1/home/trending").permitAll()
                         .requestMatchers("/api/v1/restaurants/public/*/survey-ratings").permitAll()

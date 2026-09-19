@@ -32,7 +32,7 @@ class GatewayRedisClientConfigTest {
     void missingOrNonPositiveRedisTimeout_fallsBackToTwoSeconds() {
         RedisProperties redis = new RedisProperties(); // default timeout: null
         LettuceConnectionFactory factory = new GatewayRedisClientConfig()
-                .redisConnectionFactory(redis, noCustomizers());
+                .redisConnectionFactory(redis, noCustomizers(), new GatewayRedisPoolProperties());
 
         assertThat(factory.getClientConfiguration().getCommandTimeout()).isEqualTo(Duration.ofSeconds(2));
     }
@@ -42,7 +42,7 @@ class GatewayRedisClientConfigTest {
         RedisProperties redis = new RedisProperties();
         redis.setTimeout(Duration.ZERO);
         LettuceConnectionFactory factory = new GatewayRedisClientConfig()
-                .sseRelayRedisConnectionFactory(redis, ClientResources.builder().build());
+                .sseRelayRedisConnectionFactory(redis, ClientResources.builder().build(), new GatewayRedisPoolProperties());
 
         assertThat(factory.getClientConfiguration().getCommandTimeout()).isEqualTo(Duration.ofSeconds(2));
     }
@@ -52,7 +52,7 @@ class GatewayRedisClientConfigTest {
         RedisProperties redis = new RedisProperties();
         redis.setTimeout(Duration.ofMillis(750));
         LettuceConnectionFactory factory = new GatewayRedisClientConfig()
-                .redisConnectionFactory(redis, noCustomizers());
+                .redisConnectionFactory(redis, noCustomizers(), new GatewayRedisPoolProperties());
 
         assertThat(factory.getClientConfiguration().getCommandTimeout()).isEqualTo(Duration.ofMillis(750));
     }
@@ -62,7 +62,7 @@ class GatewayRedisClientConfigTest {
         RedisProperties redis = new RedisProperties();
         ClientResources resources = ClientResources.builder().build();
         LettuceConnectionFactory relayFactory =
-                new GatewayRedisClientConfig().sseRelayRedisConnectionFactory(redis, resources);
+                new GatewayRedisClientConfig().sseRelayRedisConnectionFactory(redis, resources, new GatewayRedisPoolProperties());
         ReactiveStringRedisTemplate template =
                 new GatewayRedisClientConfig().sseRelayReactiveStringRedisTemplate(relayFactory);
 

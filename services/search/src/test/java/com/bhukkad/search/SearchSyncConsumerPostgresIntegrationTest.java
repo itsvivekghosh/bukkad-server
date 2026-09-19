@@ -49,6 +49,7 @@ class SearchSyncConsumerPostgresIntegrationTest extends AbstractSearchPostgresTe
                  "imageUrl":"https://img/pt.png","isOpen":true,"isActive":true,
                  "averageRating":4.4,"totalReviews":120}
                 """));
+        consumer.flushBatch();
 
         RestaurantSearchEntity row = restaurantSearchRepository.findById(301L).orElseThrow();
         assertThat(row.getName()).isEqualTo("Punjabi Tadka");
@@ -61,6 +62,7 @@ class SearchSyncConsumerPostgresIntegrationTest extends AbstractSearchPostgresTe
         consumer.onRestaurantEvent(envelope("restaurant_updated", 302L, """
                 {"id":302,"name":"Dosa Corner","isActive":true,"isOpen":true}
                 """));
+        consumer.flushBatch();
 
         consumer.onRestaurantEvent(envelope("menu_item_changed", 4001L, """
                 {"id":4001,"restaurantId":302,"name":"Masala Dosa",
@@ -69,6 +71,7 @@ class SearchSyncConsumerPostgresIntegrationTest extends AbstractSearchPostgresTe
                  "isVeg":true,"imageUrl":"https://img/dosa.png","preparationTime":15,
                  "bestseller":true,"restaurantName":"Dosa Corner"}
                 """));
+        consumer.flushBatch();
 
         MenuItemSearchEntity row = menuItemSearchRepository.findById(4001L).orElseThrow();
         assertThat(row.getName()).isEqualTo("Masala Dosa");
@@ -83,6 +86,7 @@ class SearchSyncConsumerPostgresIntegrationTest extends AbstractSearchPostgresTe
                  "price":99.00,"available":true,"foodType":"VEG","isVeg":true,
                  "bestseller":false,"restaurantName":"Dosa Corner"}
                 """));
+        consumer.flushBatch();
         MenuItemSearchEntity updated = menuItemSearchRepository.findById(4001L).orElseThrow();
         assertThat(updated.getName()).isEqualTo("Masala Dosa Deluxe");
         assertThat(updated.getPrice()).isEqualTo(99.0);
@@ -96,9 +100,11 @@ class SearchSyncConsumerPostgresIntegrationTest extends AbstractSearchPostgresTe
                  "available":true,"foodType":"VEG","isVeg":true,"restaurantName":"Dosa Corner"}
                 """);
         consumer.onRestaurantEvent(envelope);
+        consumer.flushBatch();
         long rowsBefore = menuItemSearchRepository.count();
 
         consumer.onRestaurantEvent(envelope); // at-least-once redelivery
+        consumer.flushBatch();
 
         assertThat(menuItemSearchRepository.count()).isEqualTo(rowsBefore);
         MenuItemSearchEntity row = menuItemSearchRepository.findById(4002L).orElseThrow();
@@ -111,13 +117,16 @@ class SearchSyncConsumerPostgresIntegrationTest extends AbstractSearchPostgresTe
                 {"id":4003,"restaurantId":302,"name":"Vada","price":39.00,
                  "available":true,"foodType":"VEG","isVeg":true,"restaurantName":"Dosa Corner"}
                 """));
+        consumer.flushBatch();
         assertThat(menuItemSearchRepository.findById(4003L)).isPresent();
 
         consumer.onRestaurantEvent(envelope("menu_item_deleted", 4003L, "{\"id\":4003}"));
+        consumer.flushBatch();
 
         assertThat(menuItemSearchRepository.findById(4003L)).isEmpty();
         // Deleting again (redelivery) is a no-op, not an error.
         consumer.onRestaurantEvent(envelope("menu_item_deleted", 4003L, "{\"id\":4003}"));
+        consumer.flushBatch();
         assertThat(menuItemSearchRepository.findById(4003L)).isEmpty();
     }
 }

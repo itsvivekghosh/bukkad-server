@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.List;
 import com.bhukkad.order.api.RestaurantPricedItemResolver;
@@ -40,7 +41,7 @@ public class CartController {
     @PostMapping("/cart/items")
     public Cart addItem(@AuthenticationPrincipal TokenPrincipal principal,
                         @PathVariable Long customerId,
-                        @RequestBody AddItemRequest request) {
+                        @Valid @RequestBody AddItemRequest request) {
         PrincipalGuard.requireSelfOrAdmin(principal, customerId);
         if (request == null || request.menuItemId() == null) {
             throw new BusinessException("menuItemId is required");

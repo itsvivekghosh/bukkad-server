@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: monitoring
+data:
+  bhukkad.yaml: |
+    apiVersion: 1
+    providers:
+      - name: "bhukkad"
+        folder: "Bhukkad"
+        type: file
+        options:
+          path: /etc/grafana/provisioning/dashboards/bhukkad.json
+        updateIntervalSeconds: 10

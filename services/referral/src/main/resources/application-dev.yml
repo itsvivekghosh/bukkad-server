@@ -22,6 +22,9 @@ spring:
 logging:
   level:
     com.bhukkad: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.boot.autoconfigure.web: DEBUG
 
 app:
+  debug: true
   environment: development

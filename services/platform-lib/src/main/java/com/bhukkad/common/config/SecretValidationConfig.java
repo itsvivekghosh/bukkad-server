@@ -73,6 +73,7 @@ public class SecretValidationConfig {
         if (!StringUtils.hasText(jwtSecret)) {
             violations.add("JWT_SECRET is required in production");
         } else if (WEAK_JWT_SECRETS.contains(jwtSecret)) {
+            log.warn("WEAK_JWT_SECRET_DETECTED | Using a default or weak JWT secret in production is not allowed");
             violations.add("JWT_SECRET must not use a default or weak value in production");
         } else {
             try {

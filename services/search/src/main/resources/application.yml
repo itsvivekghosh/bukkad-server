@@ -35,7 +35,7 @@ spring:
     password: ${SEARCH_DB_PASSWORD:app_pass}
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:20}
-      minimum-idle: 20
+      minimum-idle: 10
       connection-timeout: 3000
       keepalive-time: 300000
       max-lifetime: 900000
@@ -120,6 +120,19 @@ resilience4j:
 logging: {level: {com.bhukkad: INFO}}
 
 app:
+  datasource:
+    read-replica:
+      enabled: ${DB_REPLICA_ENABLED:false}
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_USERNAME:app}
+      password: ${DB_PASSWORD:app_pass}
+      hikari:
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
+        minimum-idle: 5
+        connection-timeout: 3000
+        idle-timeout: 600000
+        max-lifetime: 1800000
+        read-only: true
   # P3 dead-config sweep (grep-verified, services tree): removed
   # app.environment (zero consumers; every env value is injected via the
   # spring profiles), app.service.search-url and app.service.menu-url

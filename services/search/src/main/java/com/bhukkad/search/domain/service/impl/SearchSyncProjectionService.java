@@ -4,6 +4,7 @@ import com.bhukkad.search.domain.entity.MenuItemSearchEntity;
 import com.bhukkad.search.domain.entity.RestaurantSearchEntity;
 import com.bhukkad.search.domain.repository.MenuItemSearchRepository;
 import com.bhukkad.search.domain.repository.RestaurantSearchRepository;
+import com.bhukkad.search.infrastructure.client.OptimizedSearchIndexer;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,11 +22,14 @@ public class SearchSyncProjectionService {
 
     private final RestaurantSearchRepository restaurantSearchRepository;
     private final MenuItemSearchRepository menuItemSearchRepository;
+    private final OptimizedSearchIndexer searchIndexer;
 
     public SearchSyncProjectionService(RestaurantSearchRepository restaurantSearchRepository,
-                                       MenuItemSearchRepository menuItemSearchRepository) {
+                                       MenuItemSearchRepository menuItemSearchRepository,
+                                       OptimizedSearchIndexer searchIndexer) {
         this.restaurantSearchRepository = restaurantSearchRepository;
         this.menuItemSearchRepository = menuItemSearchRepository;
+        this.searchIndexer = searchIndexer;
     }
 
     /** restaurant_updated payload → restaurant_search row (PK = restaurant id). */
@@ -41,6 +45,19 @@ public class SearchSyncProjectionService {
                 optDouble(data, "averageRating"),
                 optInt(data, "totalReviews"),
                 text(data, "cuisineSummary"));
+
+        // Enqueue ES index operation
+        RestaurantSearchEntity entity = new RestaurantSearchEntity();
+        entity.setId(id);
+        entity.setName(text(data, "name"));
+        entity.setDescription(text(data, "description"));
+        entity.setImageUrl(text(data, "imageUrl"));
+        entity.setIsOpen(bool(data, "isOpen"));
+        entity.setIsActive(bool(data, "isActive"));
+        entity.setAverageRating(optDouble(data, "averageRating"));
+        entity.setTotalReviews(optInt(data, "totalReviews"));
+        entity.setCuisineSummary(text(data, "cuisineSummary"));
+        searchIndexer.indexRestaurant(entity);
     }
 
     /** menu_item_changed payload → menu_item_search row (PK = menu-item id). */
@@ -61,12 +78,33 @@ public class SearchSyncProjectionService {
                 optInt(data, "preparationTime"),
                 bool(data, "bestseller"),
                 text(data, "restaurantName"));
+
+        // Enqueue ES index operation
+        MenuItemSearchEntity entity = new MenuItemSearchEntity();
+        entity.setId(id);
+        entity.setRestaurantId(optLong(data, "restaurantId"));
+        entity.setName(text(data, "name"));
+        entity.setDescription(text(data, "description"));
+        entity.setPrice(optDouble(data, "price"));
+        entity.setOriginalPrice(optDouble(data, "originalPrice"));
+        entity.setDiscountPercentage(optDouble(data, "discountPercentage"));
+        entity.setAvailable(bool(data, "available"));
+        entity.setFoodType(text(data, "foodType"));
+        entity.setIsVeg(bool(data, "isVeg"));
+        entity.setImageUrl(text(data, "imageUrl"));
+        entity.setPreparationTime(optInt(data, "preparationTime"));
+        entity.setBestseller(bool(data, "bestseller"));
+        entity.setRestaurantName(text(data, "restaurantName"));
+        searchIndexer.indexMenuItem(entity);
     }
 
     /** menu_item_deleted payload → row removal (delete propagation, no orphans). */
     @Transactional
     public void deleteMenuItem(long id, JsonNode data) {
         menuItemSearchRepository.deleteById(id);
+
+        // Enqueue ES delete operation
+        searchIndexer.deleteMenuItem(id);
     }
 
     /**

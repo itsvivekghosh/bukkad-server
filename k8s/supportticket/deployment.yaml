@@ -7,7 +7,7 @@ metadata:
     app: bhukkad
     component: supportticket
 spec:
-  replicas: 3
+  priorityClassName: production-high
   selector:
     matchLabels:
       app: bhukkad

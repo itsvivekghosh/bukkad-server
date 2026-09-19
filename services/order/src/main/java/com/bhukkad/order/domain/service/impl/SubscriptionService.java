@@ -18,6 +18,8 @@ import com.bhukkad.order.domain.repository.OrderItemRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
 import com.bhukkad.order.domain.repository.SubscriptionDeliveryRepository;
 import com.bhukkad.order.domain.repository.SubscriptionPlanRepository;
+
+import java.time.Duration;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -181,8 +183,18 @@ public class SubscriptionService {
 
         int processed = 0;
         for (SubscriptionPlan plan : duePlans) {
+            final MenuSnapshot[] snapshotHolder = new MenuSnapshot[1];
             try {
-                boolean placed = transactionTemplate.execute(status -> materializePlan(plan.getId()));
+                snapshotHolder[0] = restaurantClient.getMenu(plan.getRestaurantId())
+                        .switchIfEmpty(reactor.core.publisher.Mono.error(new BusinessException("Restaurant menu not found")))
+                        .block(Duration.ofSeconds(5));
+            } catch (Exception ex) {
+                log.error("Failed to fetch menu for subscription plan {}: {}", plan.getId(), ex.getMessage(), ex);
+                continue;
+            }
+
+            try {
+                boolean placed = transactionTemplate.execute(status -> materializePlan(plan.getId(), snapshotHolder[0]));
                 if (placed) {
                     processed++;
                 }
@@ -195,7 +207,7 @@ public class SubscriptionService {
 
     // ==================== HELPERS ====================
 
-    private boolean materializePlan(Long planId) {
+    private boolean materializePlan(Long planId, MenuSnapshot menuSnapshot) {
         SubscriptionPlan plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Subscription plan not found"));
         if (plan.getStatus() != SubscriptionPlan.SubscriptionStatus.ACTIVE) {
@@ -225,7 +237,7 @@ public class SubscriptionService {
         }
 
         try {
-            Order order = buildOrder(plan, dueDate);
+            Order order = buildOrder(plan, dueDate, menuSnapshot);
             order = orderRepository.save(order);
             delivery.setStatus(SubscriptionDelivery.DeliveryStatus.PLACED);
             delivery.setOrderId(order.getId());
@@ -244,13 +256,8 @@ public class SubscriptionService {
         }
     }
 
-    private Order buildOrder(SubscriptionPlan plan, LocalDate dueDate) {
+    private Order buildOrder(SubscriptionPlan plan, LocalDate dueDate, MenuSnapshot menuSnapshot) {
         List<SubscriptionPlanRequest.Item> snapshots = parseItems(plan.getItemsJson());
-
-        // Fetch live menu prices from the restaurant service
-        MenuSnapshot menuSnapshot = restaurantClient.getMenu(plan.getRestaurantId())
-                .switchIfEmpty(reactor.core.publisher.Mono.error(new BusinessException("Restaurant menu not found")))
-                .block();
 
         List<MenuItemDto> menuItems = menuSnapshot != null ? menuSnapshot.getItems() : List.of();
         List<Long> menuItemIds = snapshots.stream()

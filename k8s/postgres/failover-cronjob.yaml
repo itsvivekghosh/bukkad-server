@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bhukkad-postgres-failover
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: postgres-failover
+spec:
+  schedule: "*/30 * * * *"  # Every 30 seconds
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: bhukkad-postgres-failover
+          containers:
+            - name: failover
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  #!/bin/bash
+                  set -euo pipefail
+                  apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+                  /scripts/failover.sh
+              env:
+                - name: PRIMARY_HOST
+                  value: bhukkad-postgresql
+                - name: PRIMARY_PORT
+                  value: "5432"
+                - name: REPLICA_SERVICE
+                  value: bhukkad-postgresql-read
+                - name: REPLICA_PORT
+                  value: "5432"
+                - name: DB_NAME
+                  valueFrom:
+                    configMapKeyRef:
+                      name: bhukkad-config
+                      key: DB_NAME
+                - name: DB_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: DB_USERNAME
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bhukkad-secrets
+                      key: DB_PASSWORD
+                - name: PROMOTION_TIMEOUT
+                  value: "30"
+              volumeMounts:
+                - name: failover-script
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+          volumes:
+            - name: failover-script
+              configMap:
+                name: bhukkad-postgres-failover-script
+                defaultMode: 0755

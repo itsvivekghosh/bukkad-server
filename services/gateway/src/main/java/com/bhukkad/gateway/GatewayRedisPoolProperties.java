@@ -43,6 +43,9 @@ public class GatewayRedisPoolProperties {
         /** Task-dispatch threads for completions; clamped to >= 2. */
         private int computationThreads = 4;
 
+        /** Maximum Redis connections allowed for this pool. */
+        private int maxConnections = 256;
+
         public int getIoThreads() {
             return ioThreads;
         }
@@ -57,6 +60,14 @@ public class GatewayRedisPoolProperties {
 
         public void setComputationThreads(int computationThreads) {
             this.computationThreads = computationThreads;
+        }
+
+        public int getMaxConnections() {
+            return maxConnections;
+        }
+
+        public void setMaxConnections(int maxConnections) {
+            this.maxConnections = maxConnections;
         }
     }
 }

@@ -1,90 +1,77 @@
 package com.bhukkad.realtime;
 
-import com.bhukkad.common.security.PlatformJwtAuthFilter;
-import com.bhukkad.common.security.PlatformJwtProperties;
-import com.bhukkad.common.security.ServiceAuthProperties;
-import com.bhukkad.common.security.ServiceJwtAuthFilter;
-import com.bhukkad.common.web.SecurityHeadersFilter;
+import com.bhukkad.common.security.ReactivePlatformJwtAuthFilter;
+import com.bhukkad.common.security.ReactiveServiceJwtAuthFilter;
 import com.bhukkad.realtime.config.LiveProperties;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.AuthenticationEntryPoint;
-import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
+import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.ServerAuthenticationEntryPoint;
+import org.springframework.web.server.WebFilter;
+import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 
 /**
- * Servlet security for the realtime service, mirroring the
- * {@code admin-analytics} / {@code order} pattern: JWT (platform + service)
- * via the platform-lib filters, stateless sessions and the standard
- * {@code /health} / {@code /actuator} permits.
+ * Reactive security for the realtime service: JWT (platform + service)
+ * via the platform-lib reactive filters, stateless sessions.
  *
  * <p>The SSE surface is unauthenticated — it is the public product entry point
  * for order tracking, so {@code /api/v1/live/stream/**} is permitted alongside
  * the platform probes.</p>
  */
 @Configuration
-@EnableWebSecurity
+@EnableWebFluxSecurity
 @EnableMethodSecurity
 @EnableConfigurationProperties({
-        PlatformJwtProperties.class,
-        ServiceAuthProperties.class,
         LiveProperties.class
 })
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   SecurityHeadersFilter securityHeadersFilter,
-                                                   ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
-                                                   ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter)
-            throws Exception {
+    public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http,
+                                                         ObjectProvider<ReactivePlatformJwtAuthFilter> jwtAuthFilter,
+                                                         ObjectProvider<ReactiveServiceJwtAuthFilter> serviceJwtAuthFilter) {
         http
-                .csrf(AbstractHttpConfigurer::disable)
-                .httpBasic(basic -> {})
-                .formLogin(AbstractHttpConfigurer::disable)
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(csrf -> csrf.disable())
+                .httpBasic(basic -> basic.disable())
+                .formLogin(form -> form.disable())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint()))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health/**", "/actuator/**").permitAll()
-                        // Unauthenticated error forward (404s/401s to /error) must keep
-                        // their real status — otherwise MVC "no handler" 404s surface as 401.
-                        .requestMatchers("/error").permitAll()
-                        .anyRequest().authenticated());
-
-        // Security headers must run first
-        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+                .authorizeExchange(exchanges -> exchanges
+                        .pathMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
+                        .pathMatchers("/api/v1/live/stream/**").permitAll()
+                        .pathMatchers("/error").permitAll()
+                        .anyExchange().authenticated());
 
         // Service-to-service JWT filter (must run before user JWT filter)
-        ServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
+        ReactiveServiceJwtAuthFilter serviceFilter = serviceJwtAuthFilter.getIfAvailable();
         if (serviceFilter != null) {
-            http.addFilterBefore(serviceFilter, UsernamePasswordAuthenticationFilter.class);
+            http.addFilterBefore(serviceFilter, SecurityWebFiltersOrder.AUTHENTICATION);
         }
 
-        PlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
+        ReactivePlatformJwtAuthFilter filter = jwtAuthFilter.getIfAvailable();
         if (filter != null) {
-            http.addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);
+            http.addFilterBefore(filter, SecurityWebFiltersOrder.AUTHENTICATION);
         }
         return http.build();
     }
 
     @Bean
-    public AuthenticationEntryPoint restAuthenticationEntryPoint() {
-        return (request, response, authException) -> {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            response.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");
+    public ServerAuthenticationEntryPoint restAuthenticationEntryPoint() {
+        return (exchange, ex) -> {
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            String body = "{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}";
+            return exchange.getResponse().writeWith(
+                    Mono.just(exchange.getResponse().bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8))));
         };
     }
 }

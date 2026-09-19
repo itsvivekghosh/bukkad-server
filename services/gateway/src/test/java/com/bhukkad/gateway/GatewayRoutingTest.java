@@ -1,6 +1,8 @@
 package com.bhukkad.gateway;
 
-import com.sun.net.httpserver.HttpServer;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,16 +14,16 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
-import java.net.InetSocketAddress;
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * End-to-end routing proof for the strangler gateway (P0).
  *
- * <p>Spins a JDK {@link HttpServer} on an ephemeral loopback port to stand in
- * for each service backend and asserts path predicates select the correct
- * backend: restaurant-slice paths reach the backend (200 + marker body),
+ * <p>Spins OkHttp {@link MockWebServer} instances on ephemeral loopback ports to
+ * stand in for each service backend and asserts path predicates select the
+ * correct backend: restaurant-slice paths reach the backend (200 + marker body),
  * identity/auth paths reach identity, order/cart/coupon/dispute paths reach
  * order, notification paths reach notification, and the gateway's own health
  * probe is UP. No Docker/WireMock required.</p>
@@ -37,117 +39,114 @@ import static org.assertj.core.api.Assertions.assertThat;
                 // test above must stay UP, so Redis is excluded from the
                 // health aggregate in this hermetic routing suite.
                 "spring.data.redis.port=1",
-                "management.health.redis.enabled=false"
+                "management.health.redis.enabled=false",
+                // Disable account lockout filter so body-capture is not required
+                // for this hermetic routing proof.
+                "app.auth.lockout.gateway-enabled=false"
         })
 @AutoConfigureWebTestClient
 class GatewayRoutingTest {
 
-    private static HttpServer restaurantBackend;
-    private static String restaurantBase;
+    static MockWebServer restaurantBackend;
+    static String restaurantBase;
 
-    private static HttpServer identityBackend;
-    private static String identityBase;
+    static MockWebServer identityBackend;
+    static String identityBase;
 
-    private static HttpServer orderBackend;
-    private static String orderBase;
+    static MockWebServer orderBackend;
+    static String orderBase;
 
-    private static HttpServer supportBackend;
-    private static String supportBase;
+    static MockWebServer supportBackend;
+    static String supportBase;
 
-    private static HttpServer notificationBackend;
-    private static String notificationBase;
+    static MockWebServer notificationBackend;
+    static String notificationBase;
 
-    private static HttpServer realtimeBackend;
-    private static String realtimeBase;
+    static MockWebServer realtimeBackend;
+    static String realtimeBase;
 
     @BeforeAll
     static void startBackends() throws Exception {
-        restaurantBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        restaurantBackend.createContext("/", ex -> {
-            byte[] body = "RESTAURANT-BACKEND".getBytes();
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
+        restaurantBackend = new MockWebServer();
+        restaurantBackend.setDispatcher(new okhttp3.mockwebserver.Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return new MockResponse().setBody("RESTAURANT-BACKEND");
             }
         });
         restaurantBackend.start();
-        restaurantBase = "http://127.0.0.1:" + restaurantBackend.getAddress().getPort();
+        restaurantBase = "http://127.0.0.1:" + restaurantBackend.getPort();
 
-        identityBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        identityBackend.createContext("/", ex -> {
-            byte[] body = "IDENTITY-BACKEND".getBytes();
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
+        identityBackend = new MockWebServer();
+        identityBackend.setDispatcher(new okhttp3.mockwebserver.Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return new MockResponse().setBody("IDENTITY-BACKEND");
             }
         });
         identityBackend.start();
-        identityBase = "http://127.0.0.1:" + identityBackend.getAddress().getPort();
+        identityBase = "http://127.0.0.1:" + identityBackend.getPort();
 
-        orderBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        orderBackend.createContext("/", ex -> {
-            byte[] body = "ORDER-BACKEND".getBytes();
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
+        orderBackend = new MockWebServer();
+        orderBackend.setDispatcher(new okhttp3.mockwebserver.Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return new MockResponse().setBody("ORDER-BACKEND");
             }
         });
         orderBackend.start();
-        orderBase = "http://127.0.0.1:" + orderBackend.getAddress().getPort();
+        orderBase = "http://127.0.0.1:" + orderBackend.getPort();
 
-        supportBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        supportBackend.createContext("/", ex -> {
-            byte[] body = "SUPPORT-BACKEND".getBytes();
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
+        supportBackend = new MockWebServer();
+        supportBackend.setDispatcher(new okhttp3.mockwebserver.Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return new MockResponse().setBody("SUPPORT-BACKEND");
             }
         });
         supportBackend.start();
-        supportBase = "http://127.0.0.1:" + supportBackend.getAddress().getPort();
+        supportBase = "http://127.0.0.1:" + supportBackend.getPort();
 
-        notificationBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        notificationBackend.createContext("/", ex -> {
-            byte[] body = "NOTIFICATION-BACKEND".getBytes();
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
+        notificationBackend = new MockWebServer();
+        notificationBackend.setDispatcher(new okhttp3.mockwebserver.Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return new MockResponse().setBody("NOTIFICATION-BACKEND");
             }
         });
         notificationBackend.start();
-        notificationBase = "http://127.0.0.1:" + notificationBackend.getAddress().getPort();
+        notificationBase = "http://127.0.0.1:" + notificationBackend.getPort();
 
-        realtimeBackend = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        realtimeBackend.createContext("/", ex -> {
-            byte[] body = "REALTIME-BACKEND".getBytes();
-            ex.sendResponseHeaders(200, body.length);
-            try (var os = ex.getResponseBody()) {
-                os.write(body);
+        realtimeBackend = new MockWebServer();
+        realtimeBackend.setDispatcher(new okhttp3.mockwebserver.Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return new MockResponse().setBody("REALTIME-BACKEND");
             }
         });
         realtimeBackend.start();
-        realtimeBase = "http://127.0.0.1:" + realtimeBackend.getAddress().getPort();
+        realtimeBase = "http://127.0.0.1:" + realtimeBackend.getPort();
     }
 
     @AfterAll
-    static void stopBackends() {
+    static void stopBackends() throws IOException {
         if (restaurantBackend != null) {
-            restaurantBackend.stop(0);
+            restaurantBackend.shutdown();
         }
         if (identityBackend != null) {
-            identityBackend.stop(0);
+            identityBackend.shutdown();
         }
         if (orderBackend != null) {
-            orderBackend.stop(0);
+            orderBackend.shutdown();
         }
         if (supportBackend != null) {
-            supportBackend.stop(0);
+            supportBackend.shutdown();
         }
         if (notificationBackend != null) {
-            notificationBackend.stop(0);
+            notificationBackend.shutdown();
         }
         if (realtimeBackend != null) {
-            realtimeBackend.stop(0);
+            realtimeBackend.shutdown();
         }
     }
 
@@ -351,6 +350,6 @@ class GatewayRoutingTest {
         client.get().uri("/actuator/health").exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                . jsonPath("$.status").isEqualTo("UP");
+                .jsonPath("$.status").isEqualTo("UP");
     }
 }

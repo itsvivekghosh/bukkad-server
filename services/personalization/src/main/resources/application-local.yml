@@ -3,6 +3,9 @@ spring:
     activate:
       on-profile: local
   datasource:
+    url: jdbc:postgresql://localhost:5432/personalization
+    username: ${PERSONALIZATION_DB_USERNAME:app}
+    password: ${PERSONALIZATION_DB_PASSWORD:app_pass}
     hikari:
       maximum-pool-size: 2
       minimum-idle: 1
