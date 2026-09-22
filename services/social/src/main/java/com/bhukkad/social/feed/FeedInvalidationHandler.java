@@ -51,9 +51,9 @@ public class FeedInvalidationHandler implements MessageListener {
             return;
         }
 
-        String channel = new String(message.getChannel());
+        String channel = new String(message.getChannel(), java.nio.charset.StandardCharsets.UTF_8);
         if (INVALIDATION_CHANNEL.equals(channel)) {
-            String geohash = new String(message.getBody());
+            String geohash = new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8);
             handleInvalidation(geohash);
         }
     }
@@ -72,7 +72,7 @@ public class FeedInvalidationHandler implements MessageListener {
                         .count(1000)
                         .build())) {
                     while (cursor.hasNext()) {
-                        result.add(new String(cursor.next()));
+                        result.add(new String(cursor.next(), java.nio.charset.StandardCharsets.UTF_8));
                     }
                 }
                 return result;

@@ -107,7 +107,7 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
         localConsumers.computeIfAbsent(topic, k -> {
             MessageListener listener = (message, pattern) -> {
                 try {
-                    OrderLiveUpdate update = objectMapper.readValue(new String(message.getBody()), OrderLiveUpdate.class);
+                    OrderLiveUpdate update = objectMapper.readValue(new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8), OrderLiveUpdate.class);
                     for (Consumer<OrderLiveUpdate> c : localConsumers.getOrDefault(k, new CopyOnWriteArrayList<>())) {
                         try {
                             c.accept(update);
@@ -197,9 +197,9 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
         listenerContainer.addMessageListener((MessageListener) (message, pattern) -> {
             try {
                 OrderLiveUpdate update = objectMapper.readValue(
-                        new String(message.getBody()), OrderLiveUpdate.class);
+                        new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8), OrderLiveUpdate.class);
                 if (update != null) {
-                    sink.accept(new String(message.getChannel()), update);
+                    sink.accept(new String(message.getChannel(), java.nio.charset.StandardCharsets.UTF_8), update);
                 }
             } catch (Exception ex) {
                 log.warn("LIVE_BRIDGE_DESERIALIZE_FAILED | error={}", ex.getMessage());

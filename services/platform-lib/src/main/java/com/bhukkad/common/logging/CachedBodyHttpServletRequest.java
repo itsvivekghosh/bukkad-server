@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import org.springframework.util.StreamUtils;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
 
@@ -25,11 +26,11 @@ public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
     @Override
     public BufferedReader getReader() {
         ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(this.cachedBody);
-        return new BufferedReader(new InputStreamReader(byteArrayInputStream));
+        return new BufferedReader(new InputStreamReader(byteArrayInputStream, StandardCharsets.UTF_8));
     }
 
     public String getBody() {
-        return new String(this.cachedBody);
+        return new String(this.cachedBody, StandardCharsets.UTF_8);
     }
 
     private static class CachedBodyServletInputStream extends ServletInputStream {

@@ -77,7 +77,7 @@ public class ConsistentHashSseFilter implements WebFilter {
     }
 
     private String pickBackend(String userId) {
-        int index = Math.abs(userId.hashCode()) % realtimeInstances.size();
+        int index = Math.floorMod(userId.hashCode(), realtimeInstances.size());
         return realtimeInstances.get(index);
     }
 }

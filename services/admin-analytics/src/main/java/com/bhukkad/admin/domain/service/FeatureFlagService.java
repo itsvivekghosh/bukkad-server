@@ -141,7 +141,7 @@ public class FeatureFlagService implements MessageListener {
     @Override
     public void onMessage(Message message, byte[] pattern) {
         try {
-            String key = new String(message.getBody());
+            String key = new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8);
             Boolean evicted = overrideCache.remove(key);
             if (evicted != null) {
                 log.debug("FEATURE_FLAG_CACHE_EVICTED | key={}", key);

@@ -100,7 +100,7 @@ public class SocialFeedService {
                 BloomFilter bloomFilter = loadBloomFilter(bloomKey);
                 if (bloomFilter != null) {
                     segmentPostIds = segmentPostIds.stream()
-                            .filter(id -> bloomFilter.mightContain(id.hashCode()))
+                            .filter(id -> bloomFilter.mightContain(id))
                             .toList();
                 }
                 if (!segmentPostIds.isEmpty()) {
