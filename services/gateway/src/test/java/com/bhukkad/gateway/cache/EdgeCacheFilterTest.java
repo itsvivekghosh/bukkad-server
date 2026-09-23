@@ -7,16 +7,21 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.ReactiveValueOperations;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,7 +34,7 @@ import static org.mockito.Mockito.when;
  */
 class EdgeCacheFilterTest {
 
-    private static final class Chain implements GatewayFilterChain {
+    private static class Chain implements GatewayFilterChain {
         final AtomicBoolean passed = new AtomicBoolean();
         final AtomicReference<ServerWebExchange> exchangeRef = new AtomicReference<>();
 
@@ -88,6 +93,22 @@ class EdgeCacheFilterTest {
     }
 
     @Test
+    void cacheHit_withNewFormat_restoresActualStatusCode() {
+        ReactiveStringRedisTemplate redis = redisWithHit("404|{\"status\":404,\"code\":\"NOT_FOUND\"}");
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        Chain chain = new Chain();
+
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/restaurants/public?city=Bangalore"));
+
+        filter(redis, meters, true).filter(exchange, chain).block();
+
+        assertThat(chain.passed).as("chain must NOT execute on cache hit").isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(exchange.getResponse().getHeaders().getFirst("X-Edge-Cache")).isEqualTo("HIT");
+    }
+
+    @Test
     void cacheMiss_passesThroughToChain() {
         ReactiveStringRedisTemplate redis = redisWithMiss();
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
@@ -99,6 +120,42 @@ class EdgeCacheFilterTest {
         filter(redis, meters, true).filter(exchange, chain).block();
 
         assertThat(chain.passed).isTrue();
+    }
+
+    @Test
+    void cacheMiss_writesActualStatusCodeToCache() {
+        ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class);
+        ReactiveValueOperations<String, String> valueOps = mock(ReactiveValueOperations.class);
+        when(redis.opsForValue()).thenReturn(valueOps);
+        when(valueOps.get(anyString())).thenReturn(Mono.empty());
+        when(valueOps.set(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
+
+        ArgumentCaptor<String> setKeyCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> setValueCaptor = ArgumentCaptor.forClass(String.class);
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        Chain chain = new Chain() {
+            @Override
+            public Mono<Void> filter(ServerWebExchange exchange) {
+                passed.set(true);
+                exchangeRef.set(exchange);
+                ServerHttpResponse response = exchange.getResponse();
+                response.setStatusCode(HttpStatus.NOT_FOUND);
+                response.getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+                DataBuffer buffer = response.bufferFactory().wrap("{\"status\":404,\"code\":\"NOT_FOUND\"}".getBytes(StandardCharsets.UTF_8));
+                return response.writeWith(Mono.just(buffer));
+            }
+        };
+
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/restaurants/public"));
+
+        filter(redis, meters, true).filter(exchange, chain).block();
+
+        assertThat(chain.passed).as("chain must execute on cache miss").isTrue();
+        verify(valueOps).set(setKeyCaptor.capture(), setValueCaptor.capture(), any(Duration.class));
+        assertThat(setValueCaptor.getValue()).startsWith("404|");
     }
 
     @Test

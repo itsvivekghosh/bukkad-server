@@ -12,6 +12,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
@@ -117,8 +118,25 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                     if (meters != null) {
                         meters.counter("edge_cache_hit").increment();
                     }
-                    response.setStatusCode(HttpStatus.OK);
-                    return response.writeWith(Mono.just(response.bufferFactory().wrap(cached.getBytes(StandardCharsets.UTF_8))))
+
+                    int statusCode = HttpStatus.OK.value();
+                    String bodyStr = cached;
+                    int pipeIndex = cached.indexOf('|');
+                    if (pipeIndex > 0) {
+                        try {
+                            statusCode = Integer.parseInt(cached.substring(0, pipeIndex));
+                            bodyStr = cached.substring(pipeIndex + 1);
+                        } catch (NumberFormatException e) {
+                            log.debug("EDGE_CACHE_OLD_FORMAT key={}", cacheKey);
+                        }
+                    }
+                    HttpStatus resolvedStatus = HttpStatus.resolve(statusCode);
+                    if (resolvedStatus != null) {
+                        response.setStatusCode(resolvedStatus);
+                    } else {
+                        response.setStatusCode(HttpStatus.OK);
+                    }
+                    return response.writeWith(Mono.just(response.bufferFactory().wrap(bodyStr.getBytes(StandardCharsets.UTF_8))))
                             .then(Mono.just(new Object()));
                 })
                 .switchIfEmpty(Mono.defer(() -> {
@@ -137,8 +155,11 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                                             dataBuffer.read(bytes);
                                             DataBufferUtils.release(dataBuffer);
                                             String bodyStr = new String(bytes, StandardCharsets.UTF_8);
+                                            HttpStatusCode status = super.getStatusCode();
+                                            int statusCode = status != null ? status.value() : HttpStatus.OK.value();
+                                            String cachedValue = statusCode + "|" + bodyStr;
                                             long jitteredTtl = ttlSeconds + (long) ((JITTER_RANDOM.nextDouble() - 0.5) * 2 * ttlSeconds * JITTER_FACTOR);
-                                            redis.opsForValue().set(cacheKey, bodyStr, Duration.ofSeconds(jitteredTtl))
+                                            redis.opsForValue().set(cacheKey, cachedValue, Duration.ofSeconds(jitteredTtl))
                                                     .doOnError(e -> log.warn("EDGE_CACHE_WRITE_FAILED key={} error={}", cacheKey, e.getMessage()))
                                                     .onErrorResume(e -> Mono.empty())
                                                     .subscribe();
