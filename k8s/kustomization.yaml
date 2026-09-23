@@ -25,18 +25,21 @@ resources:
   - postgres/pvc-wal-spool.yaml
   - postgres/configmap.yaml
   - postgres/deployment.yaml
-  - postgres/service.yaml
-  # P8 read scale-out: read-replica StatefulSet + Service (streams from the
+   - postgres/service.yaml
+   - postgres/pdb.yaml
+   # P8 read scale-out: read-replica StatefulSet + Service (streams from the
   # primary via the `repl` role; read-only workloads route here).
   - postgres/read-replica.yaml
   # P8 connection pooler: pgbouncer caps per-app Hikari sockets to the primary.
   - pgbouncer/deployment.yaml
-  - pgbouncer/service.yaml
-  - redis/configmap.yaml
+   - pgbouncer/service.yaml
+   - pgbouncer/pdb.yaml
+   - redis/configmap.yaml
   - redis/pvc.yaml
   - redis/deployment.yaml
-  - redis/service.yaml
-  # Redis Sentinel — enabled: the sentinel manifest now supports password auth
+   - redis/service.yaml
+   - redis/pdb.yaml
+   # Redis Sentinel — enabled: the sentinel manifest now supports password auth
   # (sentinel auth-pass via REDIS_PASSWORD secret) so the three-replica sentinel
   # deployment can monitor the password-protected master. Requires the
   # bhukkad-redis service and redis-sentinel ConfigMap/deployment to be present.
@@ -147,8 +150,9 @@ resources:
   - monitoring/grafana-dashboards.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
-  - nginx/service.yaml
-  - ingress.yaml
+   - nginx/service.yaml
+   - nginx/pdb.yaml
+   - ingress.yaml
   - backup-scripts.yaml
   - backup-pvc.yaml
   - backup-cronjob.yaml

@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-nginx-pdb
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: nginx
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: nginx

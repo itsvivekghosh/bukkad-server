@@ -24,4 +24,5 @@ kind: Component
 resources:
   - headless-service.yaml
   - statefulset.yaml
+  - pdb.yaml
   - topics-job.yaml
