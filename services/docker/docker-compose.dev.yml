@@ -44,7 +44,7 @@ x-app-defaults: &app-defaults
     PGBOUNCER_PORT: "6432"
     PGBOUNCER_DATABASE: core
     PGBOUNCER_USERNAME: app
-    PGBOUNCER_PASSWORD: app_pass
+    PGBOUNCER_PASSWORD: ${POSTGRES_PASSWORD:-app_pass}
     PGBOUNCER_POOL_MODE: transaction
     # No Zipkin in dev: keep logs/meters off the tracing path.
     TRACING_SAMPLE_PROBABILITY: "0.0"
@@ -100,7 +100,7 @@ services:
     environment:
       POSTGRES_DB: core
       POSTGRES_USER: app
-      POSTGRES_PASSWORD: app_pass
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_pass}
     ports: ["5432:5432"]
     volumes:
       - backend-pgdata:/var/lib/postgresql/data
@@ -122,7 +122,7 @@ services:
     environment:
       - PG_BOUNCER_DB=core
       - PG_BOUNCER_USER=app
-      - PG_BOUNCER_PASSWORD=app_pass
+      - PG_BOUNCER_PASSWORD=${POSTGRES_PASSWORD:-app_pass}
       - PG_BOUNCER_ADMIN_USERS=admin,stats_user
       - PG_BOUNCER_POOL_MODE=transaction
       - PG_BOUNCER_MAX_CLIENT_CONN=10000
@@ -201,7 +201,7 @@ services:
       # (admin@bhukkad.dev / Admin@123456). Never enable outside dev.
       APP_BOOTSTRAPADMIN_ENABLED: "true"
       APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
-      APP_BOOTSTRAPADMIN_PASSWORD: "Admin@123456"
+      APP_BOOTSTRAPADMIN_PASSWORD: "${APP_BOOTSTRAPADMIN_PASSWORD:-Admin@123456}"
       # Identity is the auth bottleneck under test load (mint/validate JWTs per
       # request). Give it a larger heap than the lean default so it survives the
       # bootstrap account-creation burst. Same container-memory tuning bundle

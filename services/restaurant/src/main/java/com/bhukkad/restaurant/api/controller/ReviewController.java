@@ -7,6 +7,7 @@ import com.bhukkad.restaurant.domain.repository.MenuItemRepository;
 import com.bhukkad.restaurant.domain.entity.Review;
 import com.bhukkad.restaurant.domain.service.impl.ReviewService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -29,6 +30,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1")
+@Validated
 public class ReviewController {
 
     private final ReviewService reviewService;

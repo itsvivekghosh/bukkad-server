@@ -16,6 +16,7 @@ import com.bhukkad.social.infrastructure.messaging.OrderFromPostEventPublisher;
 import com.bhukkad.social.observability.PerformanceMetrics;
 import io.micrometer.core.instrument.Timer;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  */
 @RestController
 @RequiredArgsConstructor
+@Validated
 public class OrderFromPostController {
 
     private static final int VALIDATION_TIMEOUT_MS = 500;  // 500ms timeout for post lookup

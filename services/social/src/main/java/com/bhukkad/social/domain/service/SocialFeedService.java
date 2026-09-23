@@ -14,6 +14,7 @@ import com.bhukkad.social.util.BloomFilter;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PreDestroy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -70,6 +71,13 @@ public class SocialFeedService {
                 new java.util.concurrent.LinkedBlockingQueue<>(1024),
                 threadFactory,
                 new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    @PreDestroy
+    public void shutdownFeedEnrichmentExecutor() {
+        if (feedEnrichmentExecutor instanceof java.util.concurrent.ExecutorService executor) {
+            executor.shutdownNow();
+        }
     }
 
     @org.springframework.transaction.annotation.Transactional(readOnly = true)

@@ -105,7 +105,7 @@ public class EdgeRequestHedgingFilter implements GlobalFilter, Ordered {
                     if (response.isCommitted()) {
                         return Mono.empty();
                     }
-                    response.setStatusCode(HttpStatus.OK);
+                    response.setStatusCode(exchange.getResponse().getStatusCode());
                     response.getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
                     countMetric(METRIC_HEDGE_WON);
                     log.debug("EDGE_HEDGE_WON secondary={} path={}", secondary, originalUri.getPath());

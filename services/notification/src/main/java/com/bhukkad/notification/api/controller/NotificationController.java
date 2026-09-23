@@ -8,6 +8,7 @@ import com.bhukkad.notification.api.dto.request.DispatchRequest;
 import com.bhukkad.notification.api.dto.request.TestNotificationRequest;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,6 +29,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1/notifications")
+@Validated
 @RequiredArgsConstructor
 public class NotificationController {
 

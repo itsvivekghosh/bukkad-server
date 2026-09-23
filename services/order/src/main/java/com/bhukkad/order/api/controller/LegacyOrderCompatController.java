@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.bhukkad.order.api.dto.request.CreateOrderRequest;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import com.bhukkad.order.api.dto.request.OrderItemRequest;
 import com.bhukkad.order.api.dto.response.OrderResponse;
@@ -38,6 +39,7 @@ import com.bhukkad.order.infrastructure.client.RestaurantClient;
  */
 @RestController
 @RequestMapping("/api/v1/orders/customer")
+@Validated
 public class LegacyOrderCompatController {
 
     private static final org.slf4j.Logger legacyCreateLog =

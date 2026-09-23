@@ -3,6 +3,7 @@ package com.bhukkad.order.api.controller;
 import com.bhukkad.common.security.TokenPrincipal;
 import com.bhukkad.order.infrastructure.client.SupportTicketDisputeClient;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,6 +19,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/v1")
+@Validated
 @RequiredArgsConstructor
 public class DisputeController {
 

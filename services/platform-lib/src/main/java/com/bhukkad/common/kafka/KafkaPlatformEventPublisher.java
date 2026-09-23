@@ -68,8 +68,18 @@ public class KafkaPlatformEventPublisher {
         // suffixed topic would be consumed by nobody and seeded by nothing.
         String topic = properties.topic();
         try {
-            kafkaTemplate.send(topic, message.aggregateId(), message.toJson());
-            log.info("KAFKA_PUBLISHED | topic={} | eventId={} | eventType={}", topic, message.eventId(), message.eventType());
+            CompletableFuture<SendResult<String, String>> future =
+                    kafkaTemplate.send(topic, message.aggregateId(), message.toJson());
+            future.whenComplete((result, ex) -> {
+                if (ex == null) {
+                    log.info("KAFKA_PUBLISHED | topic={} | eventId={} | eventType={} | offset={} | partition={}",
+                            topic, message.eventId(), message.eventType(),
+                            result.getRecordMetadata().offset(), result.getRecordMetadata().partition());
+                } else {
+                    log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
+                            topic, message.eventId(), message.eventType(), ex);
+                }
+            });
         } catch (Exception e) {
             log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
                     topic, message.eventId(), message.eventType(), e);

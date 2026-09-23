@@ -2,6 +2,7 @@ package com.bhukkad.payment.api;
 
 import com.bhukkad.payment.domain.service.InternalPaymentService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -26,6 +27,7 @@ import java.math.BigDecimal;
  */
 @RestController
 @RequestMapping("/api/v1/internal/payments")
+@Validated
 @RequiredArgsConstructor
 public class InternalPaymentController {
 

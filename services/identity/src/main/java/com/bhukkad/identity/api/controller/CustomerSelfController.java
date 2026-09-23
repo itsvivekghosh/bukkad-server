@@ -23,6 +23,7 @@ import com.bhukkad.identity.domain.service.impl.AddressService;
 import com.bhukkad.identity.domain.service.impl.IdentityService;
 import com.bhukkad.identity.domain.service.impl.ReferralService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import java.util.List;
 import java.util.Map;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -43,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/v1/customers")
+@Validated
 public class CustomerSelfController {
 
     private final CustomerRepository customerRepository;

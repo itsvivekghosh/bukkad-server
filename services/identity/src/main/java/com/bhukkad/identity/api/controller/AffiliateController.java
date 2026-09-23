@@ -11,6 +11,7 @@ import com.bhukkad.identity.api.dto.response.AffiliateCodeResponse;
 import com.bhukkad.identity.api.dto.response.AffiliateStatsResponse;
 import com.bhukkad.identity.domain.service.impl.AffiliateService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,6 +26,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1/affiliate")
+@Validated
 @RequiredArgsConstructor
 public class AffiliateController {
 

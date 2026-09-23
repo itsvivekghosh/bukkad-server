@@ -3,6 +3,7 @@ package com.bhukkad.restaurant.api.controller;
 import com.bhukkad.restaurant.domain.entity.Tenant;
 import com.bhukkad.restaurant.domain.service.impl.TenantService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,6 +29,7 @@ import com.bhukkad.restaurant.api.dto.response.ApiResponse;
  */
 @RestController
 @RequestMapping("/api/v1/admin/tenants")
+@Validated
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class TenantController {

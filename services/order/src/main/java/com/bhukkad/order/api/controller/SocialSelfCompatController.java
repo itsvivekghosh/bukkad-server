@@ -29,6 +29,7 @@ import com.bhukkad.order.api.dto.response.SubscriptionPlanResponse;
 import com.bhukkad.order.domain.entity.Cart;
 import com.bhukkad.order.domain.entity.CartItem;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import com.bhukkad.order.domain.entity.Coupon;
 import com.bhukkad.order.domain.repository.GiftCardRepository;
 import com.bhukkad.order.domain.repository.OrderRepository;
@@ -44,6 +45,7 @@ import com.bhukkad.order.infrastructure.client.RestaurantClient;
  */
 @RestController
 @RequiredArgsConstructor
+@Validated
 public class SocialSelfCompatController {
 
     private final CouponService couponService;

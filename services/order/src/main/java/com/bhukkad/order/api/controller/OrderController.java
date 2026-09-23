@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -37,6 +38,7 @@ import com.bhukkad.order.domain.entity.Order;
  */
 @RestController
 @RequestMapping("/api/v1/orders")
+@Validated
 @RequiredArgsConstructor
 public class OrderController {
 

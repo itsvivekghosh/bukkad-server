@@ -11,6 +11,7 @@ import com.bhukkad.social.domain.service.SocialFeedService;
 import com.bhukkad.social.domain.service.SocialLikeService;
 import com.bhukkad.social.domain.service.SocialPostService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +24,7 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
+@Validated
 public class PostController {
 
     private final SocialPostService postService;

@@ -16,6 +16,7 @@ import com.bhukkad.identity.config.JwtService;
 import com.bhukkad.identity.domain.service.impl.AddressService;
 import com.bhukkad.identity.domain.service.impl.IdentityService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -35,6 +36,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1")
+@Validated
 @RequiredArgsConstructor
 public class IdentityController {
 

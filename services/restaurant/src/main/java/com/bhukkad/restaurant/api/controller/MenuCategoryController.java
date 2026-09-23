@@ -6,6 +6,7 @@ import com.bhukkad.restaurant.api.dto.response.ApiResponse;
 import com.bhukkad.restaurant.domain.entity.MenuCategory;
 import com.bhukkad.restaurant.domain.service.impl.MenuCategoryService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,6 +21,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1/restaurants/categories")
+@Validated
 @RequiredArgsConstructor
 public class MenuCategoryController {
 

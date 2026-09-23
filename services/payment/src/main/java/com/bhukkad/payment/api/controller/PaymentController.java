@@ -6,6 +6,7 @@ import com.bhukkad.payment.domain.entity.Payment;
 import com.bhukkad.payment.domain.mapper.PaymentMapper;
 import com.bhukkad.payment.domain.service.PaymentService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping("/api/v1/payments")
+@Validated
 @RequiredArgsConstructor
 public class PaymentController {
 

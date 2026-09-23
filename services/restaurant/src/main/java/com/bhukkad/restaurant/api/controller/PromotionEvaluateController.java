@@ -3,6 +3,7 @@ package com.bhukkad.restaurant.api.controller;
 import com.bhukkad.restaurant.domain.service.impl.PromotionEngineService;
 import com.bhukkad.restaurant.domain.service.impl.PromotionEngineService.PromotionDiscountResult;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/promotions/evaluate")
+@Validated
 @RequiredArgsConstructor
 public class PromotionEvaluateController {
 

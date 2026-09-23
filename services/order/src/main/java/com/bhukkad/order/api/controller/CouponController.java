@@ -2,6 +2,7 @@ package com.bhukkad.order.api.controller;
 
 import com.bhukkad.order.domain.service.impl.CouponService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +26,7 @@ import com.bhukkad.order.domain.entity.Coupon;
  */
 @RestController
 @RequestMapping("/api/v1/coupons")
+@Validated
 @RequiredArgsConstructor
 public class CouponController {
 

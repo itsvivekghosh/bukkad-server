@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ import com.bhukkad.order.api.dto.response.OrderResponse;
  */
 @RestController
 @RequestMapping("/api/v1/customers/{customerId}/orders")
+@Validated
 public class CustomerOrderController {
 
     private static final String SCOPE_ADMIN = "ADMIN";

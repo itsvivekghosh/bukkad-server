@@ -6,6 +6,7 @@ import com.bhukkad.support.dto.request.DisputeResolveRequest;
 import com.bhukkad.support.dto.response.DisputeResponse;
 import com.bhukkad.support.domain.service.impl.DisputeResolutionServiceImpl;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping(value={"/api/v1"})
+@Validated
 public class DisputeController {
     private final DisputeResolutionServiceImpl disputeResolutionService;
 

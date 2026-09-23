@@ -16,12 +16,14 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/live")
+@Validated
 @RequiredArgsConstructor
 public class LiveStreamController {
 

@@ -10,6 +10,7 @@ import com.bhukkad.payment.domain.mapper.PaymentMapper;
 import com.bhukkad.payment.domain.service.PaymentService;
 import com.bhukkad.payment.domain.service.WalletService;
 import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,6 +26,7 @@ import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping("/api/v1")
+@Validated
 @RequiredArgsConstructor
 public class WalletController {
 
