@@ -1,0 +1,64 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bhukkad-allow-ingress-to-services
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  podSelector:
+    matchLabels:
+      app: bhukkad
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from gateway to all services
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+              component: gateway
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8087
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+        - protocol: TCP
+          port: 8090
+        - protocol: TCP
+          port: 8091
+        - protocol: TCP
+          port: 8092
+        - protocol: TCP
+          port: 8093
+        - protocol: TCP
+          port: 8094
+    # Allow traffic from nginx to gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+              component: nginx
+      ports:
+        - protocol: TCP
+          port: 8095

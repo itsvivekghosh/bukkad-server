@@ -160,6 +160,7 @@ resources:
   - network-policies/allow-ingress-from-nginx.yaml
   - network-policies/allow-gateway-to-services.yaml
   - network-policies/allow-services-to-infra.yaml
+  - network-policies/allow-ingress-to-services.yaml
    - ingress.yaml
   - backup-scripts.yaml
   - backup-pvc.yaml
