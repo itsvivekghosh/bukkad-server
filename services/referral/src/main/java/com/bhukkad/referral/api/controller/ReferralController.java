@@ -41,6 +41,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 @RestController
 @RequestMapping("/api/v1/referrals")
 @Tag(name = "Referral", description = "Personal referral codes and the affiliate program")
+@org.springframework.validation.annotation.Validated
 public class ReferralController {
 
     private final ReferralService referralService;

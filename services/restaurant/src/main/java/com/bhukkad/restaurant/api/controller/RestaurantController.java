@@ -6,6 +6,7 @@ import com.bhukkad.restaurant.domain.service.impl.RestaurantAdminService;
 import com.bhukkad.restaurant.domain.service.impl.RestaurantBusyService;
 import com.bhukkad.restaurant.domain.service.impl.RestaurantDashboardService;
 import com.bhukkad.restaurant.domain.service.impl.RestaurantQueryService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -70,7 +71,7 @@ public class RestaurantController {
     public ResponseEntity<Void> enableBusyMode(
             @AuthenticationPrincipal com.bhukkad.common.security.TokenPrincipal principal,
             @PathVariable Long id,
-            @RequestBody RestaurantBusyModeRequest request) {
+            @Valid @RequestBody RestaurantBusyModeRequest request) {
         ownerGuard.requireOwnerOrAdmin(principal, id);
         java.time.LocalDateTime busyUntil = request.getBusyUntil();
         Integer extraPrepMinutes = request.getExtraPrepMinutes();

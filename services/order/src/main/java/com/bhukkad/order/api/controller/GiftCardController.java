@@ -24,6 +24,7 @@ import com.bhukkad.order.domain.repository.GiftCardRepository;
 @RestController
 @RequestMapping("/api/v1/gift-cards")
 @RequiredArgsConstructor
+@org.springframework.validation.annotation.Validated
 public class GiftCardController {
 
     private final SocialOrderService socialService;

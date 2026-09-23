@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.bhukkad.order.api.dto.request.CreateOrderRequest;
+import jakarta.validation.Valid;
 import com.bhukkad.order.api.dto.request.OrderItemRequest;
 import com.bhukkad.order.api.dto.response.OrderResponse;
 import com.bhukkad.order.domain.entity.Cart;
@@ -71,7 +72,7 @@ public class LegacyOrderCompatController {
     public org.springframework.http.ResponseEntity<OrderResponse> create(
             @AuthenticationPrincipal TokenPrincipal principal,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-            @RequestBody CreateOrderRequest request) {
+            @Valid @RequestBody CreateOrderRequest request) {
         Long customerId = subjectId(principal);
         if (request == null || request.restaurantId() == null) {
             throw new com.bhukkad.common.error.BusinessException("restaurantId is required");

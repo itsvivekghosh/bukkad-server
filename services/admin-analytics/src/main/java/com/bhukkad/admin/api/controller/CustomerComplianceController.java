@@ -29,6 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/compliance/users/{userId}")
 @Tag(name = "CustomerCompliance", description = "Customer consent self-service")
+@org.springframework.validation.annotation.Validated
 public class CustomerComplianceController {
 
     private final ConsentService consentService;

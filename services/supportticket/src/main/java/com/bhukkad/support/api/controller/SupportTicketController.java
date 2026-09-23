@@ -35,6 +35,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/support")
 @Tag(name = "Support", description = "Customer support tickets")
+@org.springframework.validation.annotation.Validated
 public class SupportTicketController {
 
     private final SupportTicketServiceImpl supportTicketService;

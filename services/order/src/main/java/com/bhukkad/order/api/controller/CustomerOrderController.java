@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,7 +46,7 @@ public class CustomerOrderController {
     @PostMapping
     public OrderResponse create(@AuthenticationPrincipal TokenPrincipal principal,
                                 @PathVariable Long customerId,
-                                @RequestBody CreateOrderRequest request) {
+                                @Valid @RequestBody CreateOrderRequest request) {
         requireSelfOrAdmin(principal, customerId);
         if (request == null || request.restaurantId() == null) {
             throw new BusinessException("restaurantId is required");

@@ -19,6 +19,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/inventory/stock-reservation")
 @RequiredArgsConstructor
+@org.springframework.validation.annotation.Validated
 public class InventoryStockReservationController {
 
     private final StockReservationService stockReservationService;

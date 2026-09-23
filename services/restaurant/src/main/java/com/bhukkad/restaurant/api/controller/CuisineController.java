@@ -12,6 +12,7 @@ import com.bhukkad.restaurant.api.dto.response.ApiResponse;
 @RestController
 @RequestMapping("/api/v1/cuisines")
 @RequiredArgsConstructor
+@org.springframework.validation.annotation.Validated
 public class CuisineController {
 
     private final CuisineService cuisineService;
