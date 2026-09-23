@@ -30,6 +30,9 @@ resources:
    # P8 read scale-out: read-replica StatefulSet + Service (streams from the
   # primary via the `repl` role; read-only workloads route here).
   - postgres/read-replica.yaml
+  - postgres/failover-role.yaml
+  - postgres/failover-serviceaccount.yaml
+  - postgres/failover-cronjob.yaml
   # P8 connection pooler: pgbouncer caps per-app Hikari sockets to the primary.
   - pgbouncer/deployment.yaml
    - pgbouncer/service.yaml
@@ -216,7 +219,7 @@ components:
   # DB_SSL_ENABLED / the commented client env blocks in configmap.yaml — the
   # full flip order is k8s/README-TLS.md. Default OFF = dev-boot-compatible.
   # ---------------------------------------------------------------------------
-  # - components/tls
+  - components/tls
 
 labels:
   - includeSelectors: true

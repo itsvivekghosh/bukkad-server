@@ -19,14 +19,14 @@ spec:
           serviceAccountName: bhukkad-postgres-failover
           containers:
             - name: failover
-              image: postgres:16-alpine
+              image: bitnami/kubectl:1.29
               command:
                 - /bin/sh
                 - -c
                 - |
                   #!/bin/bash
                   set -euo pipefail
-                  apt-get update -qq && apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+                  apk add --no-cache postgresql-client >/dev/null 2>&1 || true
                   /scripts/failover.sh
               env:
                 - name: PRIMARY_HOST

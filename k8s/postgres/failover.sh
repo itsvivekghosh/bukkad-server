@@ -3,6 +3,7 @@
 # Promotes the first healthy read replica to primary when the current primary is unreachable.
 set -euo pipefail
 
+NAMESPACE="${NAMESPACE:-bhukkad}"
 PRIMARY_HOST="${PRIMARY_HOST:-bhukkad-postgresql}"
 PRIMARY_PORT="${PRIMARY_PORT:-5432}"
 REPLICA_SERVICE="${REPLICA_SERVICE:-bhukkad-postgresql-read}"
@@ -34,6 +35,7 @@ promote_replica() {
     }
     
     log "Replica $replica_host promoted successfully"
+    update_primary_service "$replica_host"
     
     # Wait for promotion to complete
     sleep 5
@@ -49,8 +51,27 @@ promote_replica() {
 }
 
 get_replica_hosts() {
-    # Get list of replica pod IPs from the headless service
-    nslookup "$REPLICA_SERVICE" 2>/dev/null | grep -E "^Address: " | awk '{print $2}' | grep -v "^$" | sort -u || true
+    # Get list of replica pod IPs from the StatefulSet headless service
+    kubectl get endpoints "$REPLICA_SERVICE" -n "$NAMESPACE" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort -u || true
+}
+
+
+# Update the primary Service to point to the promoted replica
+update_primary_service() {
+    local replica_ip="$1"
+    log "Patching primary Service to point to replica $replica_ip"
+    
+    # Get the Service name from environment or use default
+    local primary_service="${PRIMARY_SERVICE:-bhukkad-postgresql}"
+    local namespace="${NAMESPACE:-bhukkad}"
+    
+    # Patch the Service endpoints to point to the promoted replica
+    kubectl patch service "$primary_service" -n "$namespace" -p '{"spec":{"selector":{"app":"bhukkad","component":"postgres-read"}}}' --type=merge || {
+        log "Failed to patch Service $primary_service"
+        return 1
+    }
+    
+    log "Service $primary_service patched successfully"
 }
 
 main() {
