@@ -9,13 +9,13 @@ metadata:
 data:
   postgresql.conf: |
     # High-traffic sizing for PostgreSQL 16. Buffer cache and WAL sized for a
-    # 1-2Gi postgres pod. max_connections=500 supports 10 app pods x 30 Hikari
-    # with headroom.
-    shared_buffers = 512MB
-    effective_cache_size = 1536MB
+    # 3-4Gi postgres pod. max_connections=1000 supports HPA max scale (50 pods)
+    # with headroom across all services via PgBouncer pooling.
+    shared_buffers = 1GB
+    effective_cache_size = 4GB
     work_mem = 16MB
-    maintenance_work_mem = 128MB
-    max_connections = 500
+    maintenance_work_mem = 256MB
+    max_connections = 1000
     wal_buffers = 16MB
     checkpoint_completion_target = 0.9
     synchronous_commit = off

@@ -72,9 +72,9 @@ spec:
             # feed POSTGRES_USER/POSTGRES_PASSWORD. Database: growth
             # (services/docker/initdb/00-create-databases.sql naming).
             - name: POSTGRES_HOST
-              value: bhukkad-pgbouncer
+              value: pgbouncer
             - name: POSTGRES_PORT
-              value: "5432"
+              value: "6432"
             - name: POSTGRES_DB
               value: growth
             - name: POSTGRES_USER

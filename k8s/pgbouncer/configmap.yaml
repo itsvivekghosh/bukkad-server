@@ -9,20 +9,21 @@ metadata:
 data:
   pgbouncer.ini: |
     [databases]
-    orders            = host=bhukkad-postgresql port=5432 dbname=orders            pool_size=1250
-    payments          = host=bhukkad-postgresql port=5432 dbname=payments          pool_size=1250
-    restaurants       = host=bhukkad-postgresql port=5432 dbname=restaurants       pool_size=1250
-    identity          = host=bhukkad-postgresql port=5432 dbname=identity          pool_size=1250
-    realtime          = host=bhukkad-postgresql port=5432 dbname=realtime          pool_size=1250
-    notification      = host=bhukkad-postgresql port=5432 dbname=notification      pool_size=1250
-    delivery          = host=bhukkad-postgresql port=5432 dbname=delivery          pool_size=1250
-    admin-analytics   = host=bhukkad-postgresql port=5432 dbname=admin-analytics   pool_size=1250
-    search            = host=bhukkad-postgresql port=5432 dbname=search            pool_size=1250
-    referral          = host=bhukkad-postgresql port=5432 dbname=referral          pool_size=1250
-    survey            = host=bhukkad-postgresql port=5432 dbname=survey            pool_size=1250
-    supportticket     = host=bhukkad-postgresql port=5432 dbname=supportticket     pool_size=1250
-    growth            = host=bhukkad-postgresql port=5432 dbname=growth            pool_size=1250
-    personalization   = host=bhukkad-postgresql port=5432 dbname=personalization   pool_size=1250
+    orders            = host=bhukkad-postgresql port=5432 dbname=orders            pool_size=2000
+    payments          = host=bhukkad-postgresql port=5432 dbname=payments          pool_size=2000
+    restaurants       = host=bhukkad-postgresql port=5432 dbname=restaurants       pool_size=2000
+    identity          = host=bhukkad-postgresql port=5432 dbname=identity          pool_size=1000
+    realtime          = host=bhukkad-postgresql port=5432 dbname=realtime          pool_size=1000
+    notification      = host=bhukkad-postgresql port=5432 dbname=notification      pool_size=1000
+    delivery          = host=bhukkad-postgresql port=5432 dbname=delivery          pool_size=2000
+    admin-analytics   = host=bhukkad-postgresql port=5432 dbname=admin-analytics   pool_size=1000
+    search            = host=bhukkad-postgresql port=5432 dbname=search            pool_size=1000
+    referral          = host=bhukkad-postgresql port=5432 dbname=referral          pool_size=1000
+    survey            = host=bhukkad-postgresql port=5432 dbname=survey            pool_size=1000
+    supportticket     = host=bhukkad-postgresql port=5432 dbname=supportticket     pool_size=1000
+    growth            = host=bhukkad-postgresql port=5432 dbname=growth            pool_size=1000
+    personalization   = host=bhukkad-postgresql port=5432 dbname=personalization   pool_size=1000
+    social            = host=bhukkad-postgresql port=5432 dbname=social            pool_size=2500
     * = host=bhukkad-postgresql port=5432
 
     [pgbouncer]

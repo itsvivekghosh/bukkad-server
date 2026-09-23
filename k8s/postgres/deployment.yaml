@@ -112,11 +112,11 @@ spec:
               exec docker-entrypoint.sh postgres -c config_file=/etc/postgresql/postgresql.conf ${TLS_ARGS}
           resources:
             requests:
-              cpu: 300m
-              memory: 768Mi
+              cpu: 500m
+              memory: 2Gi
             limits:
-              cpu: "1"
-              memory: 1536Mi
+              cpu: "2"
+              memory: 4Gi
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data

@@ -101,11 +101,15 @@ resources:
   - personalization/service.yaml
   - personalization/pdb.yaml
   - personalization/hpa.yaml
-  - growth/deployment.yaml
-  - growth/service.yaml
-  - growth/pdb.yaml
-  - growth/hpa.yaml
-  - gateway/deployment.yaml
+   - growth/deployment.yaml
+   - growth/service.yaml
+   - growth/pdb.yaml
+   - growth/hpa.yaml
+   - social/deployment.yaml
+   - social/service.yaml
+   - social/pdb.yaml
+   - social/hpa.yaml
+   - gateway/deployment.yaml
   - gateway/service.yaml
   - gateway/pdb.yaml
   - gateway/hpa.yaml

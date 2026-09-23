@@ -273,10 +273,11 @@ public class IdentityController {
      * use, so enabling TOTP later needs no client change.
      */
     @PostMapping("/auth/mfa/verify")
-    public java.util.Map<String, String> verifyMfa(
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> verifyMfa(
             @org.springframework.web.bind.annotation.RequestParam(required = false) String mfaToken,
             @org.springframework.web.bind.annotation.RequestParam(required = false) String code) {
-        throw new com.bhukkad.common.error.BusinessException("TWO_STEP_MFA_NOT_IMPLEMENTED", "Two-step MFA flow is not yet implemented; pass totpCode directly on /auth/login instead");
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.NOT_IMPLEMENTED)
+                .body(java.util.Map.of("code", "TWO_STEP_MFA_NOT_IMPLEMENTED", "message", "Two-step MFA flow is not yet implemented; pass totpCode directly on /auth/login instead"));
     }
 
     /**
