@@ -37,7 +37,7 @@ public class PgBouncerProperties {
     private String username = "app";
 
     /** Password for PgBouncer authentication. */
-    private String password = "app_pass";
+    private String password = "";
 
     /** Pool mode: transaction (default), session, or statement. Transaction mode is optimal for 200k+ TPS. */
     private String poolMode = "transaction";

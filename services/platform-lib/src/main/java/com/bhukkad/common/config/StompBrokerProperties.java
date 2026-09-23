@@ -19,8 +19,8 @@ public class StompBrokerProperties {
     public static class Rabbit {
         private String host = "localhost";
         private int port = 61613;
-        private String username = "guest";
-        private String password = "guest";
+        private String username = "";
+        private String password = "";
         private String virtualHost = "/";
     }
 }
