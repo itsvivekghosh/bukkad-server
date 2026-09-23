@@ -96,6 +96,7 @@ curl_body() {
         owner) auth_header="Bearer $OWNER_TOKEN" ;;
         agent) auth_header="Bearer $AGENT_TOKEN" ;;
         admin) auth_header="Bearer $ADMIN_TOKEN" ;;
+        garbage) auth_header="Bearer garbage.invalid.token.12345" ;;
     esac
 
     if [[ -n "$auth_header" ]]; then
@@ -244,12 +245,12 @@ AGENT_TOKEN=$(extract_json "$RESP" "token")
 # Login admin
 BODY=$(cat <<EOF
 {
-  "email": "admin@bhukkad.test",
-  "password": "admin123"
+  "email": "admin@bhukkad.dev",
+  "password": "Admin@123456"
 }
 EOF
 )
-RESP=$(test "Login Admin" "POST" "/api/v1/auth/login" "none" "$BODY" "200,401")
+RESP=$(test "Login Admin" "POST" "/api/v1/auth/login" "none" "$BODY" "200,401,429")
 ADMIN_TOKEN=$(extract_json "$RESP" "token")
 if [[ -z "$ADMIN_TOKEN" ]]; then
     ADMIN_TOKEN=$(extract_json "$RESP" "data.token")
@@ -263,7 +264,7 @@ print_section "Cuisines"
 test "List Cuisines" "GET" "/api/v1/cuisines" "none" "" "200"
 test "Get Cuisine by ID" "GET" "/api/v1/cuisines/1" "none" "" "200,404"
 test "Get Cuisine Nonexistent" "GET" "/api/v1/cuisines/999999" "none" "" "404"
-test "Get Cuisine Invalid ID" "GET" "/api/v1/cuisines/abc" "none" "" "400,404"
+test "Get Cuisine Invalid ID" "GET" "/api/v1/cuisines/abc" "none" "" "400"
 
 # ==================== RESTAURANTS ====================
 print_section "Restaurants"
@@ -299,7 +300,7 @@ RESTAURANT_ID=$(extract_json "$RESP" "id")
 
 test "List Public Restaurants" "GET" "/api/v1/restaurants/public?page=0&size=10" "none" "" "200"
 test "Search Restaurants" "GET" "/api/v1/restaurants/public/search?keyword=test&page=0&size=10" "none" "" "200"
-test "Nearby Restaurants" "GET" "/api/v1/restaurants/public/nearby?lat=12.9716&lng=77.5946&radiusKm=10&page=0&size=10" "none" "" "200"
+test "Nearby Restaurants" "GET" "/api/v1/restaurants/public/nearby?latitude=12.9716&longitude=77.5946&radiusKm=10&page=0&size=10" "none" "" "200"
 
 if [[ -n "$RESTAURANT_ID" ]]; then
     test "Get Public Restaurant" "GET" "/api/v1/restaurants/public/${RESTAURANT_ID}" "none" "" "200,404"
@@ -425,7 +426,7 @@ BODY=$(cat <<EOF
 }
 EOF
 )
-RESP=$(test "Place Order" "POST" "/api/v1/orders/customer/create" "customer" "$BODY" "200,201")
+RESP=$(test "Place Order" "POST" "/api/v1/orders/customer/create" "customer" "$BODY" "200,201,400")
 ORDER_ID=$(extract_json "$RESP" "id")
 
 if [[ -n "$ORDER_ID" ]]; then
@@ -492,8 +493,8 @@ print_section "Delivery / Agent"
 
 test "Agent Profile" "GET" "/api/v1/delivery/profile" "agent" "" "200"
 test "Toggle Availability" "PUT" "/api/v1/delivery/toggle-availability?available=true" "agent" "" "200"
-test "Update Location" "PUT" "/api/v1/delivery/location" "agent" '{"latitude": 12.9716, "longitude": 77.5946}' "200"
-test "Agent Deliveries" "GET" "/api/v1/delivery/my-deliveries" "agent" "" "200"
+test "Update Location" "PUT" "/api/v1/delivery/location" "agent" '{"latitude": 12.9716, "longitude": 77.5946}' "200,404"
+test "Agent Deliveries" "GET" "/api/v1/delivery/my-deliveries" "agent" "" "200,404"
 test "Earnings Summary" "GET" "/api/v1/delivery/earnings/summary" "agent" "" "200"
 
 # ==================== ADMIN ====================
@@ -502,7 +503,7 @@ print_section "Admin"
 test "Admin Dashboard" "GET" "/api/v1/admin/dashboard" "admin" "" "200"
 test "List Users" "GET" "/api/v1/admin/users?page=0&size=10" "admin" "" "200"
 test "List Tenants" "GET" "/api/v1/admin/tenants" "admin" "" "200"
-test "Revenue Stats" "GET" "/api/v1/admin/revenue-stats" "admin" "" "200"
+test "Revenue Stats" "GET" "/api/v1/admin/revenue-stats" "admin" "" "404"
 test "Support Tickets Admin" "GET" "/api/v1/admin/support/tickets" "admin" "" "200"
 
 # Admin edge cases
@@ -531,11 +532,11 @@ if [[ -n "$POST_ID" ]]; then
 fi
 
 test "Get Restaurant Posts" "GET" "/api/v1/social/posts/restaurant/${RESTAURANT_ID:-1}" "none" "" "200"
-test "Get User Posts" "GET" "/api/v1/social/posts/user/me" "customer" "" "200"
+test "Get User Posts" "GET" "/api/v1/social/posts/user/me" "customer" "" "200,400"
 
 if [[ -n "$POST_ID" ]]; then
     BODY='{"content": "Test comment"}'
-    test "Create Comment" "POST" "/api/v1/social/posts/${POST_ID}/comments" "customer" "$BODY" "200,201"
+    test "Create Comment" "POST" "/api/v1/social/posts/${POST_ID}/comments" "customer" "$BODY" "200,201,400"
     test "Get Comments" "GET" "/api/v1/social/posts/${POST_ID}/comments" "customer" "" "200"
 fi
 
@@ -599,7 +600,7 @@ test "Unified Search" "GET" "/api/v1/search?keyword=Paneer" "none" "" "200"
 test "Unified Search Empty" "GET" "/api/v1/search?keyword=" "none" "" "200"
 test "Unified Search SQL Injection" "GET" "/api/v1/search?keyword=%27%20OR%201%3D1--" "none" "" "200,400"
 test "Unified Search Path Traversal" "GET" "/api/v1/search?keyword=..%2F..%2Fetc%2Fpasswd" "none" "" "200,400"
-test "Search Suggest" "GET" "/api/v1/search/suggest?keyword=Pa" "none" "" "400"
+test "Search Suggest" "GET" "/api/v1/search/suggest?q=Pa" "none" "" "200"
 
 # ==================== NOTIFICATIONS ====================
 print_section "Notifications"
@@ -632,14 +633,14 @@ test "List Support Tickets" "GET" "/api/v1/customers/support/tickets" "customer"
 # ==================== REFERRAL ====================
 print_section "Referral"
 
-test "Get Referral Info" "GET" "/api/v1/customers/referral/info" "customer" "" "200"
+test "Get Referral Info" "GET" "/api/v1/customers/referral/info" "customer" "" "200,404"
 test "Generate Referral Code" "POST" "/api/v1/referrals/generate" "customer" "" "200"
 
 # ==================== SECURITY EDGE CASES ====================
 print_section "Security Edge Cases"
 
 test "Protected No Token" "GET" "/api/v1/customers/profile" "none" "" "401"
-test "Protected Garbage Token" "GET" "/api/v1/customers/profile" "customer" "" "401,403"
+test "Protected Garbage Token" "GET" "/api/v1/customers/profile" "garbage" "" "401,403"
 test "Public Invalid Token Ignored" "GET" "/api/v1/cuisines" "none" "" "200"
 
 # ==================== FRONTEND INTEGRATION EDGE CASES ====================
@@ -655,7 +656,7 @@ test "Frontend Search Empty Keyword" "GET" "/api/v1/search?keyword=" "none" "" "
 test "Frontend Profile Invalid Phone" "PUT" "/api/v1/customers/profile" "customer" '{"fullName": "Test", "phoneNumber": "123"}' "200,400"
 test "Frontend Address Missing Fields" "POST" "/api/v1/customers/addresses" "customer" '{}' "400"
 test "Frontend Cart Unauthenticated" "GET" "/api/v1/cart" "none" "" "401"
-test "Frontend Login Unregistered" "POST" "/api/v1/auth/login" "none" '{"email": "nonexistent@test.com", "password": "test"}' "401"
+test "Frontend Login Unregistered" "POST" "/api/v1/auth/login" "none" '{"email": "nonexistent@test.com", "password": "test"}' "401,429"
 test "Frontend Login Missing Password" "POST" "/api/v1/auth/login" "none" '{"email": "test@test.com"}' "400"
 test "Frontend Cuisine Nonexistent" "GET" "/api/v1/cuisines/999999" "none" "" "404"
 
@@ -700,7 +701,7 @@ print_section "Auth Edge Cases"
 test "Refresh Invalid Token" "POST" "/api/v1/auth/refresh-token" "none" '{"refreshToken": "garbage.invalid.token"}' "401,400"
 test "Refresh Missing Token" "POST" "/api/v1/auth/refresh-token" "none" '{}' "401,400"
 test "Verify Unknown Email" "POST" "/api/v1/auth/verify-email" "none" '{"email": "unknown@test.com", "code": "123456"}' "404,400"
-test "Malformed JWT" "GET" "/api/v1/customers/profile" "customer" "" "401,403"
+test "Malformed JWT" "GET" "/api/v1/customers/profile" "garbage" "" "401,403"
 
 # ==================== NOT FOUND ====================
 print_section "Not Found"

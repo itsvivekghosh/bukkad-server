@@ -46,11 +46,11 @@ data:
   # Read-only transactions are load-balanced across the replica pool; writes
   # always go to the primary.
   DB_REPLICA_ENABLED: "true"
-  DB_REPLICA_HOST: "bhukkad-postgresql-replica"
+  DB_REPLICA_HOST: "bhukkad-postgresql-read"
   DB_REPLICA_PORT: "5432"
-  DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-replica:5432/bhukkad?currentSchema=public&ssl=false"
+  DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-read:5432/bhukkad?currentSchema=public&ssl=false"
   # TLS-ready variant for the replica (flip WITH DB_SSL_ENABLED).
-  # DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-replica:5432/bhukkad?currentSchema=public&sslmode=require"
+  # DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-read:5432/bhukkad?currentSchema=public&sslmode=verify-full&sslrootcert=/etc/postgresql-ca/tls.crt"
 
   REDIS_HOST: "bhukkad-redis"
   REDIS_PORT: "6379"

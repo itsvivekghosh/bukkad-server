@@ -46,6 +46,10 @@ spec:
           ports:
             - containerPort: 6432
               name: pgbouncer
+          volumeMounts:
+            - name: pgbouncer-config
+              mountPath: /etc/pgbouncer/pgbouncer.ini
+              subPath: pgbouncer.ini
           env:
             - name: DB_USER
               valueFrom:
@@ -61,12 +65,6 @@ spec:
               value: bhukkad-postgresql
             - name: DB_PORT
               value: "5432"
-            - name: POOL_MODE
-              value: transaction
-            - name: MAX_CLIENT_CONN
-              value: "2000"
-            - name: DEFAULT_POOL_SIZE
-              value: "40"
           resources:
             requests:
               cpu: 100m
@@ -84,3 +82,7 @@ spec:
               port: pgbouncer
             initialDelaySeconds: 30
             periodSeconds: 10
+      volumes:
+        - name: pgbouncer-config
+          configMap:
+            name: pgbouncer-config

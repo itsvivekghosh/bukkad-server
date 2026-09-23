@@ -55,7 +55,7 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
-    locations: classpath:db/migration-pg
+    locations: classpath:db/migration-social
   data:
     redis:
       host: ${REDIS_HOST:localhost}

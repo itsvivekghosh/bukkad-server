@@ -276,7 +276,7 @@ public class IdentityController {
     public java.util.Map<String, String> verifyMfa(
             @org.springframework.web.bind.annotation.RequestParam(required = false) String mfaToken,
             @org.springframework.web.bind.annotation.RequestParam(required = false) String code) {
-        throw new com.bhukkad.common.error.UnauthorizedException("Invalid or expired MFA challenge");
+        throw new com.bhukkad.common.error.BusinessException("TWO_STEP_MFA_NOT_IMPLEMENTED", "Two-step MFA flow is not yet implemented; pass totpCode directly on /auth/login instead");
     }
 
     /**

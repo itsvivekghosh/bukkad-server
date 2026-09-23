@@ -66,6 +66,8 @@ export SURVEY_SERVICE_URL=http://localhost:8083
 export REFERRAL_SERVICE_URL=http://localhost:8084
 export REALTIME_SERVICE_URL=http://localhost:8077
 export GROWTH_SERVICE_URL=http://localhost:8089
+export SOCIAL_SERVICE_URL=http://localhost:8090
+export SOCIAL_BASE_URL=http://localhost:8090
 # delivery's PaymentServiceClient reads app.services.payment.url (no
 # PAYMENT_SERVICE_URL indirection): env alias for the same target.
 export APP_SERVICES_PAYMENT_URL=http://localhost:8093
@@ -78,7 +80,7 @@ export APP_SERVICES_ORDER_URL=http://localhost:8092
 ALL_SERVICES=(
   "identity 8081" "search 8082" "survey 8083" "referral 8084"
   "notification 8085" "supportticket 8086" "admin-analytics 8087"
-  "personalization 8088" "growth 8089" "restaurant 8091" "order 8092"
+  "personalization 8088" "growth 8089" "social 8090" "restaurant 8091" "order 8092"
   "payment 8093" "delivery 8094" "realtime 8077" "gateway ${GATEWAY_PORT:-8095}"
 )
 
@@ -102,22 +104,23 @@ else
   SERVICES=("${ALL_SERVICES[@]}")
 fi
 
+# Use JDK 21 to avoid ARM64 C1 JIT crash on OpenJDK 17 (SIGSEGV during
+# spring-kafka/shedlock auto-configuration). JDK 21's C1 compiler no longer
+# crashes, so JIT can remain enabled and startup is materially faster.
+export JAVA_HOME="/Users/vivekghosh/Library/Java/JavaVirtualMachines/ms-21.0.12/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+
 LOG_DIR=/tmp/bhukkad-local
 mkdir -p "$LOG_DIR"
 PIDFILE=.local-stack.pids
 : > "$PIDFILE"
-# Lean JVM defaults mirror the memory-tight container tuning; single-processor
-# heuristics triple startup time when 15 JVMs launch at once.
+# Lean JVM defaults mirror the memory-tight container tuning.
 #
-# JIT is fully disabled (-XX:TieredStopAtLevel=0) because the ARM64 C1 JIT
-# compiler on OpenJDK 17.0.x crashes (SIGSEGV, exit code 134) during
-# Spring Boot's auto-configuration phase for services with spring-kafka
-# or shedlock on the classpath (search, payment). The crash occurs when
-# the C1 compiler attempts to compile methods in
-# AutoConfigurationImportSelector.ConfigurationClassFilter. Disabling JIT
-# entirely (interpreter-only mode) allows all 15 services to boot correctly.
+# JIT is intentionally left enabled because the ARM64 C1 JIT crash was
+# specific to OpenJDK 17.0.x and is fixed in JDK 21. Keeping JIT enabled
+# avoids the interpreter-only mode that made local boots take 30+ minutes.
 # On a roomy host override for faster boots, e.g.: LOCAL_JVM_OPTS="-Xmx512m"
-LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC -XX:TieredStopAtLevel=0 -XX:ActiveProcessorCount=1}"
+LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC}"
 
 echo "== launching ${#SERVICES[@]} JVMs (logs: $LOG_DIR/<service>.log) =="
 for entry in "${SERVICES[@]}"; do
@@ -125,7 +128,10 @@ for entry in "${SERVICES[@]}"; do
   port=${entry##* }
   # Search only the service's own target dir: a repo-wide find dies under
   # `set -e` when it hits unreadable (root-owned) directories like .m2repo.
-  jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
+  jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0-exec.jar" 2>/dev/null | head -1 || true)
+  if [ -z "$jar" ]; then
+    jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
+  fi
   [ -n "$jar" ] || { echo "MISSING JAR for $name — run: ./mvnw -f services/pom.xml package -DskipTests"; exit 1; }
   java $LEAN_OPTS "-Dserver.port=$port" -jar "$jar" > "$LOG_DIR/$name.log" 2>&1 &
   echo "$! $name" >> "$PIDFILE"
@@ -158,7 +164,10 @@ while true; do
           # quiet network succeeds (verified repeatedly by hand).
           echo "   $name died at boot — restarting once"
           RESTARTED="$RESTARTED$name "
-          jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
+  jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0-exec.jar" 2>/dev/null | head -1 || true)
+  if [ -z "$jar" ]; then
+    jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
+  fi
           if [ -n "$jar" ]; then
             java $LEAN_OPTS "-Dserver.port=$port" -jar "$jar" >> "$LOG_DIR/$name.log" 2>&1 &
             newpid=$!

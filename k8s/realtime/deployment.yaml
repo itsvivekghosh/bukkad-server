@@ -72,7 +72,7 @@ spec:
             # feed POSTGRES_USER/POSTGRES_PASSWORD. Database: realtime
             # (services/docker/initdb/00-create-databases.sql naming).
             - name: POSTGRES_HOST
-              value: bhukkad-postgresql
+              value: bhukkad-pgbouncer
             - name: POSTGRES_PORT
               value: "5432"
             - name: POSTGRES_DB

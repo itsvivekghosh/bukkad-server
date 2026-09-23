@@ -26,6 +26,10 @@ public class GatewaySecurityHeadersConfig {
             headers.add("Referrer-Policy", "strict-origin-when-cross-origin");
             headers.add("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
             headers.add("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+            headers.add("Content-Security-Policy",
+                    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; "
+                            + "connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                            + "script-src 'self'");
             return chain.filter(exchange);
         };
     }

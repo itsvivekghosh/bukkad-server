@@ -70,6 +70,15 @@ spec:
             initialDelaySeconds: 90
             periodSeconds: 10
             failureThreshold: 5
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 10
           resources:
             requests:
               cpu: 300m
