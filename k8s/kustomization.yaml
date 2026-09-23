@@ -155,6 +155,11 @@ resources:
   - nginx/deployment.yaml
    - nginx/service.yaml
    - nginx/pdb.yaml
+  # Network policies for zero-trust cluster networking
+  - network-policies/default-deny-ingress.yaml
+  - network-policies/allow-ingress-from-nginx.yaml
+  - network-policies/allow-gateway-to-services.yaml
+  - network-policies/allow-services-to-infra.yaml
    - ingress.yaml
   - backup-scripts.yaml
   - backup-pvc.yaml

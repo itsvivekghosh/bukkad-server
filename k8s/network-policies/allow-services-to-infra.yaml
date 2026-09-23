@@ -1,0 +1,66 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bhukkad-allow-services-to-infra
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  podSelector:
+    matchLabels:
+      app: bhukkad
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow PostgreSQL via PgBouncer
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+              component: pgbouncer
+      ports:
+        - protocol: TCP
+          port: 6432
+    # Allow Redis
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+              component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 26379
+    # Allow Kafka/Redpanda
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+              component: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9093
+        - protocol: TCP
+          port: 9094
+        - protocol: TCP
+          port: 9095

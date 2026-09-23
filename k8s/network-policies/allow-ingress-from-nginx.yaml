@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bhukkad-allow-ingress-from-nginx
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  podSelector:
+    matchLabels:
+      app: bhukkad
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+              component: nginx
+      ports:
+        - protocol: TCP
+          port: 8095
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8077
