@@ -133,7 +133,7 @@ for entry in "${SERVICES[@]}"; do
     jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
   fi
   [ -n "$jar" ] || { echo "MISSING JAR for $name — run: ./mvnw -f services/pom.xml package -DskipTests"; exit 1; }
-  java $LEAN_OPTS "-Dserver.port=$port" -jar "$jar" > "$LOG_DIR/$name.log" 2>&1 &
+  java $LEAN_OPTS "-Dserver.port=$port" -Dspring.main.allow-bean-definition-overriding=true -jar "$jar" > "$LOG_DIR/$name.log" 2>&1 &
   echo "$! $name" >> "$PIDFILE"
   # Stagger: 15 JVMs racing docker-proxy/Redis simultaneously cause connect
   # refusions at boot (observed as Lettuce 'Unable to connect' + hard-fail).

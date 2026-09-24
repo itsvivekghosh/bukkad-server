@@ -20,6 +20,12 @@
 		<dependency>
 			<groupId>com.bhukkad</groupId>
 			<artifactId>platform-lib</artifactId>
+		<exclusions>
+			<exclusion>
+				<groupId>org.bouncycastle</groupId>
+				<artifactId>bcprov-jdk15on</artifactId>
+			</exclusion>
+		</exclusions>
 		</dependency>
 		<!-- platform-lib's HealthController$KafkaHealth (@Component, scanned via
 		     com.bhukkad.common) needs KafkaAdmin on the classpath; without this the
@@ -121,7 +127,18 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
-	</dependencies>
+	<dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk15on</artifactId>
+            <version>1.70</version>
+        </dependency>
+
+		<dependency>
+			<groupId>net.logstash.logback</groupId>
+			<artifactId>logstash-logback-encoder</artifactId>
+			<version>7.4</version>
+		</dependency>
+</dependencies>
 
 	<build>
 		<plugins>

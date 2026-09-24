@@ -51,6 +51,7 @@ x-app-defaults: &app-defaults
     # Events off unless the redpanda profile is brought up too
     # (EVENTS_EXTERNAL_ENABLED=true docker compose up -d redpanda survey ...).
     EVENTS_EXTERNAL_ENABLED: "${EVENTS_EXTERNAL_ENABLED:-false}"
+    KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-redpanda:29092}"
     # Service-mesh auth (order→restaurant stock reservation, order→payment
     # charge, admin→identity user ops). Same secret as the user JWT secret in
     # dev — in prod these are separate secrets.
@@ -119,6 +120,7 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:1.22
     container_name: backend-pgbouncer
+    profiles: ["pgbouncer"]
     environment:
       - PG_BOUNCER_DB=core
       - PG_BOUNCER_USER=app
@@ -167,6 +169,7 @@ services:
   redpanda:
     image: redpandadata/redpanda:v23.3.13
     container_name: backend-redpanda
+    profiles: ["events"]
     command:
       - redpanda start
       - --smp 1
@@ -215,6 +218,7 @@ services:
         -XX:ActiveProcessorCount=1
         -XX:MaxRAMPercentage=50
       spring.datasource.hikari.maximum-pool-size: "8"
+      APP_SECURITY_PASSWORD-ENCODER_ALGORITHM: bcrypt
     deploy:
       resources:
         limits:
@@ -388,6 +392,17 @@ services:
     environment:
       <<: *app-env
       POSTGRES_HOST: postgres
+
+  social:
+    <<: *app-defaults
+    build: {context: .., dockerfile: docker/Dockerfile.service, args: {MODULE: social}}
+    container_name: backend-social
+    image: backend/social:dev
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+      RESTAURANT_SERVICE_URL: http://restaurant:8080
+      ORDER_SERVICE_URL: http://order:8080
 
   # Optional profile "edge": nginx needs every upstream container resolvable at
   # boot (static upstream blocks); keep it out of staged bring-ups.

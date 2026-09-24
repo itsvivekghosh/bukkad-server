@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: maven
       - run: chmod +x mvnw
       - name: Build + verify services reactor (platform-lib + all services)
@@ -51,7 +51,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: maven
       - run: chmod +x mvnw
       # P2 repair: run against the services reactor (the repo root has no
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: maven
       - run: chmod +x mvnw
       - name: Run Pitest
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: maven
       - run: chmod +x mvnw
       - name: Run OWASP Dependency Check
@@ -146,7 +146,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: maven
 
       - name: Make Maven wrapper executable
@@ -184,7 +184,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: maven
 
       - name: Make Maven wrapper executable

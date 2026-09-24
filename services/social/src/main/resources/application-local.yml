@@ -26,6 +26,7 @@ spring:
       port: ${REDIS_PORT:6379}
   main:
     lazy-initialization: true
+    allow-bean-definition-overriding: true
 management:
   tracing:
     sampling:

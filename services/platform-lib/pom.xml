@@ -110,6 +110,16 @@
 			<artifactId>spring-security-oauth2-jose</artifactId>
 		</dependency>
 
+		<!-- BouncyCastle lightweight API required by Spring Security's
+		     Argon2PasswordEncoder. Without this the identity service (and any
+		     other service that hashes passwords with Argon2id) fails with
+		     ClassNotFoundException: org.bouncycastle.crypto.params.Argon2Parameters$Builder -->
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk15on</artifactId>
+			<version>1.70</version>
+		</dependency>
+
 		<!-- JJWT for service-to-service JWT tokens. -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>

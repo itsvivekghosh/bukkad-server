@@ -22,7 +22,7 @@ public interface CustomerMembershipRepository extends JpaRepository<CustomerMemb
             SELECT m FROM CustomerMembership m
             JOIN FETCH m.plan
             WHERE m.customer.id = :customerId
-              AND m.status = com.bhukkad.identity.domain.entity.CustomerMembership$MembershipStatus.ACTIVE
+              AND m.status = 'ACTIVE'
               AND m.startsAt <= :now
               AND m.endsAt >= :now
             ORDER BY m.endsAt DESC

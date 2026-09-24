@@ -10,13 +10,12 @@ import com.bhukkad.restaurant.domain.entity.PromotionCampaign;
 
 public interface PromotionCampaignRepository extends JpaRepository<PromotionCampaign, Long> {
     List<PromotionCampaign> findByActiveTrueAndStartsAtBeforeAndEndsAtAfter(LocalDateTime now, LocalDateTime now2);
-
     @Query("""
             SELECT c FROM PromotionCampaign c
             WHERE c.active = true
               AND (c.startsAt IS NULL OR c.startsAt <= :now)
               AND (c.endsAt IS NULL OR c.endsAt >= :now)
-            ORDER BY c.discountPercent DESC NULLS LAST
+            ORDER BY c.discountPercent DESC
             """)
     List<PromotionCampaign> findActiveCampaigns(@Param("now") LocalDateTime now);
 }

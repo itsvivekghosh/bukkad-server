@@ -27,7 +27,7 @@
 # personalization). Declared here AND re-declared inside each stage: an ARG
 # declared before the first FROM is not automatically visible after FROM.
 ARG MODULE
-FROM --platform=$BUILDPLATFORM maven:3.9.9-eclipse-temurin-17 AS builder
+FROM --platform=$BUILDPLATFORM maven:3.9.9-eclipse-temurin-21 AS builder
 ARG MODULE
 WORKDIR /build
 
@@ -61,6 +61,7 @@ COPY supportticket/pom.xml ./supportticket/pom.xml
 COPY realtime/pom.xml ./realtime/pom.xml
 COPY personalization/pom.xml ./personalization/pom.xml
 COPY growth/pom.xml ./growth/pom.xml
+COPY social/pom.xml ./social/pom.xml
 COPY test-support/pom.xml ./test-support/pom.xml
 COPY test-app/pom.xml ./test-app/pom.xml
 COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
@@ -70,15 +71,33 @@ COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
 # subsequent build (any module, any source change) resolves from cache.
 # The pom-first COPY order above still keeps the classic layer cache warm for
 # builders without cache-mount support.
-# Source copy: platform-lib + the target module (the poms above let the
-# reactor parse; other services' sources are irrelevant to this image).
+# Source copy: platform-lib + the target module + every other service module
+# that can appear in the reactor when Maven resolves -am dependencies.
 COPY platform-lib ./platform-lib
+COPY admin-analytics ./admin-analytics
+COPY delivery ./delivery
+COPY gateway ./gateway
+COPY growth ./growth
+COPY identity ./identity
+COPY notification ./notification
+COPY order ./order
+COPY payment ./payment
+COPY personalization ./personalization
+COPY realtime ./realtime
+COPY referral ./referral
+COPY restaurant ./restaurant
+COPY search ./search
+COPY social ./social
+COPY supportticket ./supportticket
+COPY survey ./survey
+COPY test-app ./test-app
+COPY test-support ./test-support
 COPY ${MODULE} ./${MODULE}
 RUN --mount=type=cache,target=/root/.m2,sharing=locked \
     mvn -B -q clean package -DskipTests -Dmaven.test.skip=true -pl ${MODULE} -am
 
 # --- runtime stage -----------------------------------------------------------
-FROM eclipse-temurin:17-jre-jammy AS runtime
+FROM eclipse-temurin:21-jre-jammy AS runtime
 ARG MODULE
 ENV TZ=Asia/Kolkata \
     LANG=C.UTF-8 \
@@ -109,12 +128,13 @@ RUN apt-get update \
     && groupadd -r -g 1001 bhukkad \
     && useradd -r -u 1001 -g bhukkad -d /app -s /usr/sbin/nologin bhukkad \
     && mkdir -p /tmp/logs/bhukkad /app \
-    && chown -R bhukkad:bhukkad /app
+    && chown -R bhukkad:bhukkad /tmp/logs/bhukkad /app
 
 WORKDIR /app
 # exec form via sh -c so $JAVA_OPTS expands; `exec` hands PID 1 to the JVM so
 # SIGTERM (G-16 graceful drain, terminationGracePeriodSeconds=90) reaches it.
-COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/app.jar
+COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/
+RUN if ls /app/${MODULE}-*-exec.jar >/dev/null 2>&1; then mv /app/${MODULE}-*-exec.jar /app/app.jar; else mv /app/${MODULE}-[0-9]*.jar /app/app.jar; fi
 USER bhukkad
 EXPOSE 8080
 HEALTHCHECK --interval=20s --timeout=5s --start-period=300s --retries=10 \
