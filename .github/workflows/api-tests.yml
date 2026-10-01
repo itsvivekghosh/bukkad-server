@@ -53,12 +53,12 @@ jobs:
 
       - name: Build all services
         run: |
-          cd backend-server
+          cd "$GITHUB_WORKSPACE"
           ./mvnw -f services/pom.xml clean package -DskipTests -B
 
       - name: Start infrastructure
         run: |
-          cd backend-server
+          cd "$GITHUB_WORKSPACE"
           docker compose -f services/docker/docker-compose.ci.yml up -d postgres redis
           # Wait for databases to be ready
           sleep 15
@@ -72,7 +72,7 @@ jobs:
 
       - name: Start all services
         run: |
-          cd backend-server
+          cd "$GITHUB_WORKSPACE"
           export APP_AUTH_JWT_SECRET="test-secret-key-for-ci-testing-32-chars-min"
           export APP_AUTH_SERVICE_JWT_SECRET="test-service-secret-key-for-ci-32"
           export JWT_SECRET="${APP_AUTH_JWT_SECRET}"
@@ -130,12 +130,12 @@ jobs:
 
       - name: Run curl E2E tests
         run: |
-          cd backend-server
+          cd "$GITHUB_WORKSPACE"
           bash scripts/curl-e2e-tests.sh
 
       - name: Run Python API tests
         run: |
-          cd backend-server
+          cd "$GITHUB_WORKSPACE"
           python3 scripts/test-all-apis.py \
             --base-url http://localhost:8095 \
             --restaurant-url http://localhost:8082 \
@@ -159,13 +159,13 @@ jobs:
         with:
           name: api-test-reports
           path: |
-            backend-server/scripts/reports/*.md
-            backend-server/scripts/reports/*.json
+            scripts/reports/*.md
+            scripts/reports/*.json
 
       - name: Cleanup
         if: always()
         run: |
-          cd backend-server
+          cd "$GITHUB_WORKSPACE"
           # Stop services
           for pid in $(awk '{print $1}' .local-stack.pids 2>/dev/null); do
             kill $pid 2>/dev/null || true

@@ -211,7 +211,7 @@ jobs:
       # P2: the edit runs against a TEMP COPY of k8s/ — the checkout itself is
       # never touched by the deploy.
       - name: "Install kustomize"
-        uses: azure/setup-kustomize@v4
+        uses: imranismail/setup-kustomize@v2
 
       - name: "Download pushed image digests"
         uses: actions/download-artifact@v5

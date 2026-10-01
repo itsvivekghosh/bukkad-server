@@ -97,6 +97,17 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- @AutoConfigureMockMvc applies the real security filter chain only when
+		     spring-security-test is present (SecurityMockMvcConfigurers lives
+		     there). Without it MockMvc bypassed FilterChainProxy, so the platform
+		     JWT validator never governed the request and every assertion needing
+		     a VALID token saw 401, while the unauthenticated cases passed only
+		     because they expected 401. Two tests had been @Disabled over this. -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 
 		<dependency>
 			<groupId>net.datafaker</groupId>
