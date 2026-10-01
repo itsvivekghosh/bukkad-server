@@ -41,7 +41,19 @@ public class SecurityConfig {
      */
 
 
+    /**
+     * Authoritative chain for the whole admin service.
+     *
+     * <p>The consolidated admin service also declares a support-ticket chain
+     * ({@code SupportSecurityConfig#supportSecurityFilterChain}). Both use an
+     * {@code anyRequest()} catch-all, and Spring Security applies only the FIRST
+     * chain that matches — so without explicit ordering, whichever bean won the
+     * race silently governed every endpoint and the other's rules (including the
+     * ADMIN gate on the cache-ops telemetry endpoints) were never evaluated.
+     * Pinning this chain first makes the behaviour deterministic.</p>
+     */
     @Bean
+    @org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityHeadersFilter securityHeadersFilter,
                                                    ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
