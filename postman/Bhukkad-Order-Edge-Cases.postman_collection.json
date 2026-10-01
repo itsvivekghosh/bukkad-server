@@ -25,6 +25,14 @@
     {
       "key": "restaurant_id",
       "value": "1"
+    },
+    {
+      "key": "host",
+      "value": "localhost"
+    },
+    {
+      "key": "port",
+      "value": "8095"
     }
   ],
   "item": [
@@ -52,8 +60,16 @@
             "url": {
               "raw": "{{base_url}}/api/v1/auth/login",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "port": "{{port}}"
             },
             "description": "Login as bootstrap admin to obtain JWT token for authenticated requests."
           },
@@ -104,8 +120,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Valid order creation. Expect 200 with OrderResponse."
           },
@@ -146,8 +169,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Missing customerId. Expect 400 validation error."
           },
@@ -187,8 +217,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Negative restaurantId. Expect 400 validation error."
           },
@@ -228,8 +265,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Empty items array. Expect 400 validation error."
           },
@@ -269,8 +313,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Zero quantity item. Expect 400 validation error."
           },
@@ -310,8 +361,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Negative unit price. Expect 400 validation error."
           },
@@ -347,8 +405,15 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "port": "{{port}}"
             },
             "description": "Missing Authorization header. Expect 401 UNAUTHORIZED."
           },
@@ -380,8 +445,16 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/{{order_id}}",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "{{order_id}}"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_id}}"
+              ],
+              "port": "{{port}}"
             },
             "description": "Get existing order. Expect 200 with OrderResponse."
           },
@@ -414,8 +487,16 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/999999",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "999999"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "999999"
+              ],
+              "port": "{{port}}"
             },
             "description": "Order ID that does not exist. Expect 404."
           },
@@ -447,8 +528,16 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/-1",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "-1"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "-1"
+              ],
+              "port": "{{port}}"
             },
             "description": "Negative order ID. Expect 400 validation error from @Positive on service method."
           },
@@ -476,8 +565,16 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/{{order_id}}",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "{{order_id}}"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_id}}"
+              ],
+              "port": "{{port}}"
             },
             "description": "Missing Authorization header. Expect 401."
           },
@@ -509,8 +606,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/{{order_id}}/cancel",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "{{order_id}}", "cancel"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_id}}",
+                "cancel"
+              ],
+              "port": "{{port}}"
             },
             "description": "Cancel existing order. Expect 200 with updated OrderResponse."
           },
@@ -543,8 +649,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/999999/cancel",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "999999", "cancel"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "999999",
+                "cancel"
+              ],
+              "port": "{{port}}"
             },
             "description": "Cancel non-existent order. Expect 404."
           },
@@ -576,8 +691,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/0/cancel",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "0", "cancel"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "0",
+                "cancel"
+              ],
+              "port": "{{port}}"
             },
             "description": "Zero order ID. Expect 400 validation error from @Positive."
           },
@@ -605,8 +729,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/{{order_id}}/cancel",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "{{order_id}}", "cancel"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_id}}",
+                "cancel"
+              ],
+              "port": "{{port}}"
             },
             "description": "Missing Authorization header. Expect 401."
           },
@@ -638,8 +771,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/{{order_id}}/details",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "{{order_id}}", "details"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_id}}",
+                "details"
+              ],
+              "port": "{{port}}"
             },
             "description": "Get order details. Expect 200 with OrderDetailsResponse."
           },
@@ -672,8 +814,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/999999/details",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "999999", "details"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "999999",
+                "details"
+              ],
+              "port": "{{port}}"
             },
             "description": "Details for non-existent order. Expect 404."
           },
@@ -705,8 +856,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/-1/details",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "-1", "details"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "-1",
+                "details"
+              ],
+              "port": "{{port}}"
             },
             "description": "Negative order ID. Expect 400 validation error from @Positive."
           },
@@ -734,8 +894,17 @@
             "url": {
               "raw": "{{base_url}}/api/v1/orders/{{order_id}}/details",
               "protocol": "http",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "orders", "{{order_id}}", "details"]
+              "host": [
+                "{{host}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_id}}",
+                "details"
+              ],
+              "port": "{{port}}"
             },
             "description": "Missing Authorization header. Expect 401."
           },

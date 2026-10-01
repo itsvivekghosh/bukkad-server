@@ -25,7 +25,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 /**
- * Port of the monolith {@code com.bhukkad.referral.ReferralService} (WAVE 2).
+ * Port of the monolith {@code com.bhukkad.identity.referral.ReferralService} (WAVE 2).
  * Refers to identity-owned customer state only.
  *
  * <p>ADR-005 (audit feature #4): identity is NO LONGER a code generator —

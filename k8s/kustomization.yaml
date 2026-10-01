@@ -20,14 +20,15 @@ resources:
   # ---------------------------------------------------------------------------
   - secret-store.yaml
   - external-secret.yaml
+  - common/priority-class.yaml
   - postgres/pvc.yaml
   # WAL archiving spool for the wal-g sidecar (PITR, k8s/docs/RUNBOOK-PITR.md).
   - postgres/pvc-wal-spool.yaml
   - postgres/configmap.yaml
   - postgres/deployment.yaml
-   - postgres/service.yaml
-   - postgres/pdb.yaml
-   # P8 read scale-out: read-replica StatefulSet + Service (streams from the
+  - postgres/service.yaml
+  - postgres/pdb.yaml
+  # P8 read scale-out: read-replica StatefulSet + Service (streams from the
   # primary via the `repl` role; read-only workloads route here).
   - postgres/read-replica.yaml
   - postgres/failover-role.yaml
@@ -35,105 +36,25 @@ resources:
   - postgres/failover-cronjob.yaml
   # P8 connection pooler: pgbouncer caps per-app Hikari sockets to the primary.
   - pgbouncer/deployment.yaml
-   - pgbouncer/service.yaml
-   - pgbouncer/pdb.yaml
-   - redis/configmap.yaml
-  - redis/pvc.yaml
-  - redis/deployment.yaml
-   - redis/service.yaml
-   - redis/pdb.yaml
-   # Redis Sentinel — enabled: the sentinel manifest now supports password auth
-  # (sentinel auth-pass via REDIS_PASSWORD secret) so the three-replica sentinel
-  # deployment can monitor the password-protected master. Requires the
-  # bhukkad-redis service and redis-sentinel ConfigMap/deployment to be present.
-  - redis/redis-sentinel.yaml
+  - pgbouncer/service.yaml
+  - pgbouncer/pdb.yaml
   # RabbitMQ removed (W3-RESTRUCTURE, SPOF #8): the STOMP relay was retired with
   # the monolith — services publish over the transactional outbox to Kafka/
   # Redpanda (docs/event-catalog.md) and stream via the realtime service + SSE.
   # k8s/rabbitmq/ was deleted; STOMP_BROKER_TYPE stays "simple" in configmap.yaml.
-  # Survey service (P2).
-  - survey/deployment.yaml
-  - survey/service.yaml
-  - survey/pdb.yaml
-  - survey/hpa.yaml
-  - referral/deployment.yaml
-  - referral/service.yaml
-  - referral/pdb.yaml
-  - referral/hpa.yaml
-  - supportticket/deployment.yaml
-  - supportticket/service.yaml
-  - supportticket/pdb.yaml
-  - supportticket/hpa.yaml
-  - restaurant/deployment.yaml
-  - restaurant/service.yaml
-  - restaurant/pdb.yaml
-  - restaurant/hpa.yaml
+  # Consolidated services (5 services replacing 16):
   - identity/deployment.yaml
   - identity/service.yaml
   - identity/pdb.yaml
   - identity/hpa.yaml
-  - order/deployment.yaml
-  - order/service.yaml
-  - order/pdb.yaml
-  - order/hpa.yaml
-  - payment/deployment.yaml
-  - payment/service.yaml
-  - payment/pdb.yaml
-  - payment/hpa.yaml
-  - delivery/deployment.yaml
-  - delivery/service.yaml
-  - delivery/pdb.yaml
-  - delivery/hpa.yaml
-  - notification/deployment.yaml
-  - notification/service.yaml
-  - notification/pdb.yaml
-  - notification/hpa.yaml
-  - search/deployment.yaml
-  - search/service.yaml
-  - search/pdb.yaml
-  - search/hpa.yaml
-  - admin-analytics/deployment.yaml
-  - admin-analytics/service.yaml
-  - admin-analytics/pdb.yaml
-  - admin-analytics/hpa.yaml
-  # Fleet completion (P2): the three remaining Spring services. Ports follow
-  # each service's application.yml server.port (realtime 8077, personalization
-  # 8088, growth 8089) and match the Service targetPorts.
-  - realtime/deployment.yaml
-  - realtime/service.yaml
-  - realtime/pdb.yaml
-  - realtime/hpa.yaml
-  - personalization/deployment.yaml
-  - personalization/service.yaml
-  - personalization/pdb.yaml
-  - personalization/hpa.yaml
-   - growth/deployment.yaml
-   - growth/service.yaml
-   - growth/pdb.yaml
-   - growth/hpa.yaml
-   - social/deployment.yaml
-   - social/service.yaml
-   - social/pdb.yaml
-   - social/hpa.yaml
-   - gateway/deployment.yaml
+  - commerce/deployment.yaml
+  - catalog/deployment.yaml
+  - engagement/deployment.yaml
+  - admin/deployment.yaml
+  - gateway/deployment.yaml
   - gateway/service.yaml
   - gateway/pdb.yaml
   - gateway/hpa.yaml
-  # P2 fleet completion: realtime (SSE order streams, consumes order.events.v1),
-  # personalization (recommendations) and growth (loyalty/referral/campaigns) —
-  # modeled on the survey base (same labels, env pattern, probes, HPA/PDB).
-  - realtime/deployment.yaml
-  - realtime/service.yaml
-  - realtime/pdb.yaml
-  - realtime/hpa.yaml
-  - personalization/deployment.yaml
-  - personalization/service.yaml
-  - personalization/pdb.yaml
-  - personalization/hpa.yaml
-  - growth/deployment.yaml
-  - growth/service.yaml
-  - growth/pdb.yaml
-  - growth/hpa.yaml
   # Logging: FluentBit DaemonSet tails /var/log/containers and ships to Loki at
   # ${LOKI_HOST} (wired via the DaemonSet env; k8s/logging/).
   - logging/fluent-bit-configmap.yaml
@@ -141,7 +62,7 @@ resources:
   - logging/fluent-bit-daemonset.yaml
   - logging/loki-configmap.yaml
   - logging/loki-statefulset.yaml
-  - logging/loki-service.yaml
+  - logging/opensearch-service.yaml
   - logging/loki-alerting-rules.yaml
   - logging/loki-rbac.yaml
   - logging/loki-oidc-secret.yaml
@@ -153,15 +74,14 @@ resources:
   - monitoring/grafana-dashboards.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
-   - nginx/service.yaml
-   - nginx/pdb.yaml
+  - nginx/service.yaml
+  - nginx/pdb.yaml
   # Network policies for zero-trust cluster networking
   - network-policies/default-deny-ingress.yaml
   - network-policies/allow-ingress-from-nginx.yaml
-  - network-policies/allow-gateway-to-services.yaml
-  - network-policies/allow-services-to-infra.yaml
   - network-policies/allow-ingress-to-services.yaml
-   - ingress.yaml
+  - network-policies/allow-services-to-infra.yaml
+  - ingress.yaml
   - backup-scripts.yaml
   - backup-pvc.yaml
   - backup-cronjob.yaml
@@ -171,6 +91,7 @@ resources:
   # the release: bhukkad-prometheus rule selector) is present.
   - monitoring/service-monitors.yaml
   - monitoring/prometheus-rules.yaml
+  - monitoring/alertmanager-config.yaml
   # Kafka consumer-lag alerting (P2): tripwires over the danielqsj
   # kafka-exporter metrics (component below) — DLT parking, stalled groups,
   # exporter-down watchdog. Makes the pre-existing MoneyTopicDltLag /
@@ -225,7 +146,7 @@ components:
   # DB_SSL_ENABLED / the commented client env blocks in configmap.yaml — the
   # full flip order is k8s/README-TLS.md. Default OFF = dev-boot-compatible.
   # ---------------------------------------------------------------------------
-  - components/tls
+  # - components/tls
 
 labels:
   - includeSelectors: true

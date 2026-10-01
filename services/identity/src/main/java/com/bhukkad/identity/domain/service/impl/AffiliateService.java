@@ -29,7 +29,7 @@ import java.util.Locale;
 /**
  * Influencer/affiliate code registry and referral tracking (Affiliate/Referral
  * Program). Port of the monolith
- * {@code com.bhukkad.referral.AffiliateService} (WAVE 2), superseding the slim
+ * {@code com.bhukkad.identity.referral.AffiliateService} (WAVE 2), superseding the slim
  * WAVE 1 service.
  */
 @Service

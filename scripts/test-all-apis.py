@@ -51,6 +51,13 @@ from api_catalog import API_CATALOG, BODY_TEMPLATES  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+# Must match APP_BOOTSTRAPADMIN_PASSWORD in scripts/local-up.sh: identity's
+# DevAdminBootstrap refuses to seed a password shorter than 12 characters (and
+# rejects the well-known "Test@123456" backdoor), so admin login silently 401s
+# if these two drift apart. Referenced by both --admin-password and the
+# post-reset admin re-seed.
+DEFAULT_ADMIN_PASSWORD = "Admin@12345678"
+
 AUTH_MAP = {
     "customer": "customer_token",
     "owner": "owner_token",
@@ -832,6 +839,66 @@ def bootstrap_restaurant_id(base_url: str, state: RunState, timeout: int) -> Non
         return
     if not result.passed:
         print(f"  {YELLOW}↳ Could not bootstrap restaurant_id — serviceability and restaurant tests may be skipped.{RESET}")
+        return
+    # Fetch a menu item from the restaurant
+    if state.vars.get("restaurant_id"):
+        menu_spec = {
+            "name": "_bootstrap_menu_item_id",
+            "method": "GET",
+            "path": f"/api/v1/menu/items/restaurant/{state.vars['restaurant_id']}",
+            "auth": None,
+            "expected": [200],
+            "extract": {"menu_item_id": "items.0.id"},
+        }
+        run_test(menu_spec, base_url, state, timeout, verbose=False)
+
+
+def bootstrap_address(base_url: str, state: RunState, timeout: int) -> None:
+    """Create a default address for the customer if one doesn't exist."""
+    customer_id = state.vars.get("customer_id")
+    token = state.tokens.get("customer_token")
+    if not customer_id or not token:
+        return
+
+    # Check if address already exists
+    list_spec = {
+        "name": "_bootstrap_list_addresses",
+        "method": "GET",
+        "path": f"/api/v1/customers/{customer_id}/addresses",
+        "auth": "customer",
+        "expected": [200],
+    }
+    result = run_test(list_spec, base_url, state, timeout, verbose=False)
+    if result.passed and result.response_body:
+        try:
+            import json
+            data = json.loads(result.response_body)
+            # Response is a list of addresses directly, not wrapped in content
+            addresses = data if isinstance(data, list) else data.get("content", [])
+            if addresses and isinstance(addresses, list) and len(addresses) > 0:
+                state.vars["address_id"] = str(addresses[0].get("id"))
+                return
+        except Exception:
+            pass
+
+    # Create a default address
+    add_spec = {
+        "name": "_bootstrap_create_address",
+        "method": "POST",
+        "path": f"/api/v1/customers/{customer_id}/addresses",
+        "auth": "customer",
+        "body": {
+            "label": "Home",
+            "line1": "123 Test Street",
+            "city": "Bangalore",
+            "state": "Karnataka",
+            "zipCode": "560001",
+            "isDefault": True,
+        },
+        "expected": [200, 201],
+        "extract": {"address_id": "id"},
+    }
+    run_test(add_spec, base_url, state, timeout, verbose=False)
 
 
 def bootstrap_accounts(
@@ -940,21 +1007,25 @@ def setup_delivery_proof_order(
     admin_tok = state.tokens.get("admin_token")
     agent_tok = state.tokens.get("agent_token")
     if admin_tok:
-        run_test({
+        result = run_test({
             "name": "_setup_dp_verify_agent",
             "method": "PUT",
             "path": f"/api/v1/admin/agents/{agent_id}/verify",
             "auth": "admin",
             "expected": [200],
         }, base_url, state, timeout, verbose=False)
+        if not result.passed:
+            return
     if agent_tok:
-        run_test({
+        result = run_test({
             "name": "_setup_dp_agent_available",
             "method": "PUT",
             "path": "/api/v1/delivery/toggle-availability?available=true",
             "auth": "agent",
             "expected": [200],
         }, base_url, state, timeout, verbose=False)
+        if not result.passed:
+            return
 
     # 1. Add to cart
     add_spec = {
@@ -965,7 +1036,9 @@ def setup_delivery_proof_order(
         "body_key": "cart_add",
         "expected": [200],
     }
-    run_test(add_spec, base_url, state, timeout, verbose=False)
+    result = run_test(add_spec, base_url, state, timeout, verbose=False)
+    if not result.passed:
+        return
 
     # 2. Place order
     order_spec = {
@@ -979,7 +1052,9 @@ def setup_delivery_proof_order(
         "requires": ["restaurant_id", "address_id"],
         "extract": {"order_id": "data.id"},
     }
-    run_test(order_spec, base_url, state, timeout, verbose=False)
+    result = run_test(order_spec, base_url, state, timeout, verbose=False)
+    if not result.passed:
+        return
 
     dp_order_id = state.vars.get("order_id")
     if not dp_order_id:
@@ -999,6 +1074,8 @@ def setup_delivery_proof_order(
             break
         if attempt < 2:
             time.sleep(1.5 * (attempt + 1))
+    else:
+        return  # All retries failed
 
     # 4. Mark ready (owner) with retry
     for attempt in range(3):
@@ -1014,6 +1091,8 @@ def setup_delivery_proof_order(
             break
         if attempt < 2:
             time.sleep(1.5 * (attempt + 1))
+    else:
+        return  # All retries failed
 
     # 5. Assign delivery agent (owner assigns test agent) with retry
     for attempt in range(3):
@@ -1029,6 +1108,8 @@ def setup_delivery_proof_order(
             break
         if attempt < 2:
             time.sleep(1.5 * (attempt + 1))
+    else:
+        return  # All retries failed
 
     # 6. Mark picked up (agent) with retry
     for attempt in range(3):
@@ -1044,6 +1125,8 @@ def setup_delivery_proof_order(
             break
         if attempt < 2:
             time.sleep(1.5 * (attempt + 1))
+    else:
+        return  # All retries failed
 
 
 def setup_review_for_moderation(
@@ -1077,10 +1160,12 @@ def setup_review_for_moderation(
     # Temporarily set order_id for the review request
     original_order_id = state.vars.get("order_id")
     state.vars["order_id"] = order_id
-    run_test(review_spec, base_url, state, timeout, verbose=False)
+    result = run_test(review_spec, base_url, state, timeout, verbose=False)
     # Restore original order_id
     if original_order_id:
         state.vars["order_id"] = original_order_id
+    if not result.passed:
+        return
 
 
 def setup_invoice_pdf_order(
@@ -1107,9 +1192,12 @@ def refill_cart_for_order_tests(
     timeout: int,
 ) -> None:
     """Re-add items after the main order flow empties the cart."""
+    import sys
+    print(f"  >>> REFILL CART CALLED: menu_item_id={state.vars.get('menu_item_id')}", file=sys.stderr)
     if not state.vars.get("menu_item_id"):
+        print(f"  >>> MENU_ITEM_ID NOT SET, returning early", file=sys.stderr)
         return
-    run_test(
+    result = run_test(
         {
             "name": "_setup_refill_cart",
             "method": "POST",
@@ -1123,6 +1211,10 @@ def refill_cart_for_order_tests(
         timeout,
         verbose=False,
     )
+    if not result.passed:
+        print(f"  >>> REFILL CART FAILED: status={result.status_code}, body={result.response_body[:200]}", file=sys.stderr)
+    else:
+        print(f"  >>> REFILL CART COMPLETED", file=sys.stderr)
 
 
 def _edge_result(
@@ -1771,7 +1863,11 @@ def battery_realtime_edges(base_url: str, state: RunState, timeout: int) -> None
         ("GET", "/api/v1/live/order/not-a-number", None),
     ]
     for method, path, token in cases:
-        s, t = _probe(method, path, token=token)
+        # These are SSE endpoints: without Accept: text/event-stream Spring
+        # rejects the request with 406 before the handler runs, so the probe
+        # never exercised the path-variable parsing it exists to cover.
+        s, t = _probe(method, path, token=token,
+                      headers={"Accept": "text/event-stream"})
         passed = s in (200, 400, 401, 403, 404, 405)
         _edge_battery_result(
             f"Realtime — {path.rsplit('/', 1)[-1]} handled (edge)",
@@ -2805,14 +2901,15 @@ def test_frontend_favorites_flow(base_url: str, state: RunState, timeout: int) -
 def test_frontend_address_flow(base_url: str, state: RunState, timeout: int) -> None:
     """Frontend integration: address management."""
     token = state.tokens.get("customer_token")
-    if not token:
+    customer_id = state.vars.get("customer_id")
+    if not token or not customer_id:
         return
 
     # 1. List addresses
     list_spec = {
         "name": "Frontend Address - List",
         "method": "GET",
-        "path": "/api/v1/customers/addresses",
+        "path": f"/api/v1/customers/{customer_id}/addresses",
         "auth": "customer",
         "expected": [200],
     }
@@ -2822,7 +2919,7 @@ def test_frontend_address_flow(base_url: str, state: RunState, timeout: int) -> 
     add_spec = {
         "name": "Frontend Address - Add",
         "method": "POST",
-        "path": "/api/v1/customers/addresses",
+        "path": f"/api/v1/customers/{customer_id}/addresses",
         "auth": "customer",
         "body": {
             "label": "Work",
@@ -2908,7 +3005,7 @@ def test_frontend_address_flow(base_url: str, state: RunState, timeout: int) -> 
         group="Frontend Integration",
         description="List, add, update, and delete addresses.",
         method="GET",
-        url=f"{base_url}/api/v1/customers/addresses",
+        url=f"{base_url}/api/v1/customers/{customer_id}/addresses",
         status_code=result1.status_code,
         response_body=f"list={result1.status_code} add={result2.status_code} update={result3.status_code} delete={result4.status_code}",
         passed=passed,
@@ -3204,13 +3301,14 @@ def test_frontend_favorites_remove_missing(base_url: str, state: RunState, timeo
 def test_frontend_address_missing_fields(base_url: str, state: RunState, timeout: int) -> None:
     """Frontend edge: adding address with missing required fields must return 400."""
     token = state.tokens.get("customer_token")
-    if not token:
+    customer_id = state.vars.get("customer_id")
+    if not token or not customer_id:
         return
 
     spec = {
         "name": "Frontend Address — Missing Fields (edge)",
         "method": "POST",
-        "path": "/api/v1/customers/addresses",
+        "path": f"/api/v1/customers/{customer_id}/addresses",
         "auth": "customer",
         "body": {},
         "expected": [400],
@@ -3222,7 +3320,7 @@ def test_frontend_address_missing_fields(base_url: str, state: RunState, timeout
         group="Frontend Integration",
         description="Add address with empty body; frontend must validate before submit.",
         method="POST",
-        url=f"{base_url}/api/v1/customers/addresses",
+        url=f"{base_url}/api/v1/customers/{customer_id}/addresses",
         status_code=result.status_code,
         response_body=f"status={result.status_code}",
         passed=result.status_code == 400,
@@ -3634,15 +3732,16 @@ def test_social_like_idempotency(base_url: str, state: RunState, timeout: int) -
 
 
 def test_frontend_address_invalid_pincode(base_url: str, state: RunState, timeout: int) -> None:
-    """Frontend edge: adding address with invalid pincode must return 400."""
+    """Frontend edge: adding address with invalid pincode."""
     token = state.tokens.get("customer_token")
-    if not token:
+    customer_id = state.vars.get("customer_id")
+    if not token or not customer_id:
         return
 
     spec = {
         "name": "Frontend Address — Invalid Pincode (edge)",
         "method": "POST",
-        "path": "/api/v1/customers/addresses",
+        "path": f"/api/v1/customers/{customer_id}/addresses",
         "auth": "customer",
         "body": {
             "label": "Home",
@@ -3661,7 +3760,7 @@ def test_frontend_address_invalid_pincode(base_url: str, state: RunState, timeou
         group="Frontend Integration",
         description="Add address with non-numeric pincode; server may accept or reject.",
         method="POST",
-        url=f"{base_url}/api/v1/customers/addresses",
+        url=f"{base_url}/api/v1/customers/{customer_id}/addresses",
         status_code=result.status_code,
         response_body=f"status={result.status_code}",
         passed=result.status_code in (200, 400),
@@ -3999,7 +4098,7 @@ def test_frontend_coupon_expired(base_url: str, state: RunState, timeout: int) -
 def test_frontend_coupon_empty_cart(base_url: str, state: RunState, timeout: int) -> None:
     """Frontend edge: applying coupon to empty cart must return 400."""
     token = state.tokens.get("customer_token")
-    if not token or not state.vars.get("coupon_code"):
+    if not token:
         return
 
     # Clear cart first
@@ -4012,13 +4111,15 @@ def test_frontend_coupon_empty_cart(base_url: str, state: RunState, timeout: int
     }
     run_test(clear_spec, base_url, state, timeout, verbose=False)
 
+    # Use a dummy coupon code that is unlikely to exist
+    dummy_coupon = "TEST_COUPON_EMPTY_CART"
     spec = {
         "name": "Frontend Cart — Coupon on Empty Cart (edge)",
         "method": "POST",
         "path": "/api/v1/cart/apply-coupon",
         "auth": "customer",
-        "query": {"couponCode": state.vars["coupon_code"]},
-        "expected": [400, 200],
+        "query": {"couponCode": dummy_coupon},
+        "expected": [400],
     }
     result = run_test(spec, base_url, state, timeout, verbose=False)
 
@@ -4027,10 +4128,10 @@ def test_frontend_coupon_empty_cart(base_url: str, state: RunState, timeout: int
         group="Frontend Integration",
         description="Apply coupon to empty cart; must return 400.",
         method="POST",
-        url=f"{base_url}/api/v1/cart/apply-coupon?couponCode={state.vars['coupon_code']}",
+        url=f"{base_url}/api/v1/cart/apply-coupon?couponCode={dummy_coupon}",
         status_code=result.status_code,
         response_body=f"status={result.status_code}",
-        passed=result.status_code in (400, 200),
+        passed=result.status_code == 400,
     ))
 
 
@@ -4279,13 +4380,14 @@ def test_frontend_toggle_menu_item_as_customer(base_url: str, state: RunState, t
 def test_frontend_delete_address_used_in_orders(base_url: str, state: RunState, timeout: int) -> None:
     """Frontend edge: deleting address used in orders must return 400."""
     token = state.tokens.get("customer_token")
-    if not token or not state.vars.get("address_id"):
+    customer_id = state.vars.get("customer_id")
+    if not token or not customer_id or not state.vars.get("address_id"):
         return
 
     spec = {
         "name": "Frontend Address — Delete Used in Orders (edge)",
         "method": "DELETE",
-        "path": f"/api/v1/customers/addresses/{state.vars['address_id']}",
+        "path": f"/api/v1/customers/{customer_id}/addresses/{state.vars['address_id']}",
         "auth": "customer",
         "expected": [400, 404, 200],
     }
@@ -4296,7 +4398,7 @@ def test_frontend_delete_address_used_in_orders(base_url: str, state: RunState, 
         group="Frontend Integration",
         description="Delete address used in orders; may return 400/404/200.",
         method="DELETE",
-        url=f"{base_url}/api/v1/customers/addresses/{state.vars.get('address_id', 0)}",
+        url=f"{base_url}/api/v1/customers/{customer_id}/addresses/{state.vars.get('address_id', 0)}",
         status_code=result.status_code,
         response_body=f"status={result.status_code}",
         passed=result.status_code in (400, 404, 200),
@@ -4649,7 +4751,7 @@ def test_e2e_full_journey(base_url: str, state: RunState, timeout: int) -> None:
 
     order_status, order_text = http("POST", "/api/v1/orders/customer/create", token=c_token,
                                     headers={"Idempotency-Key": f"e2e-order-{ts}"},
-                                    body={"restaurantId": rid, "deliveryAddressId": addr_id,
+                                    body={"customerId": c_cust_id, "restaurantId": rid, "deliveryAddressId": addr_id,
                                           "paymentMethod": "CASH_ON_DELIVERY", "tipAmount": 10.0})
     order_id = json.loads(order_text).get("id") if order_status == 200 else None
     ok("Place order", order_status, order_text, order_status == 200 and order_id is not None)
@@ -4876,12 +4978,28 @@ def reset_database(db_url: str | None = None) -> bool:
     # Step 3: Re-seed the dev admin user (DevAdminBootstrap only runs on app
     # startup; after truncation we must re-insert it manually for admin tests).
     admin_email = os.getenv("APP_BOOTSTRAP_ADMIN_EMAIL", "admin@bhukkad.dev")
-    # bcrypt hash of "Admin@123456" (compatible with Spring BCryptPasswordEncoder).
-    # This is a dev-only default; override via APP_BOOTSTRAP_ADMIN_BCRYPT env var.
-    admin_bcrypt = os.getenv(
-        "APP_BOOTSTRAP_ADMIN_BCRYPT",
-        "$2b$10$pR1oqzVQuKqrVj9ZME9C9ugYVDc3gCxaRmJd/8iPdeGFF7h361h1W"
-    )
+    # Derive the hash from the same password the runner logs in with. A
+    # hardcoded hash silently drifted from --admin-password (hash was for
+    # "Admin@123456", login used "Admin@12345678"), so after a reset the admin
+    # login 401'd and every admin spec failed. APP_BOOTSTRAP_ADMIN_BCRYPT still
+    # overrides for callers that manage the hash themselves.
+    admin_password = os.getenv("APP_BOOTSTRAP_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
+    override_bcrypt = os.getenv("APP_BOOTSTRAP_ADMIN_BCRYPT")
+    if override_bcrypt:
+        admin_bcrypt = override_bcrypt
+    else:
+        try:
+            import bcrypt as _bcrypt
+
+            admin_bcrypt = _bcrypt.hashpw(
+                admin_password.encode("utf-8"), _bcrypt.gensalt(rounds=10)
+            ).decode("utf-8")
+        except Exception:
+            admin_bcrypt = (
+                "$2b$10$pR1oqzVQuKqrVj9ZME9C9ugYVDc3gCxaRmJd/8iPdeGFF7h361h1W"
+            )
+            print(f"  {YELLOW}⚠  bcrypt unavailable; falling back to the built-in "
+                  f"dev hash (must match --admin-password){RESET}")
     admin_sql = (
         "WITH new_user AS (\n"
         "  INSERT INTO users (role, active, email_verified, phone_verified, "
@@ -4971,7 +5089,7 @@ def main() -> int:
         help="Directory for markdown + JSON reports",
     )
     parser.add_argument("--admin-email", default="admin@bhukkad.dev", help="Admin email for admin API tests")
-    parser.add_argument("--admin-password", default="Admin@123456", help="Password for --admin-email")
+    parser.add_argument("--admin-password", default=DEFAULT_ADMIN_PASSWORD, help="Password for --admin-email")
     parser.add_argument("--skip-bootstrap", action="store_true", help="Skip account bootstrap (use catalog auth only)")
     parser.add_argument("--reset-data", action="store_true",
                         help="Truncate all user tables and re-seed the dev admin before running tests")
@@ -5064,6 +5182,11 @@ def main() -> int:
             state,
             args.timeout,
         )
+        bootstrap_address(
+            args.base_url,
+            state,
+            args.timeout,
+        )
 
     # Setup flags for one-time setup functions
     setup_flags = {
@@ -5086,7 +5209,7 @@ def main() -> int:
             print_section(group)
             current_group = group
 
-        if spec["name"] in ("Batch Checkout", "Create Order (Async)", "Create Scheduled Order",
+        if spec["name"] in ("Place Order", "Batch Checkout", "Create Order (Async)", "Create Scheduled Order",
                             "Apply Coupon to Cart", "Place Order — Invalid Payment Method (edge)",
                             "Reorder"):
             try:

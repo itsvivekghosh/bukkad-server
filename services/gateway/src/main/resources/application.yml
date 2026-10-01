@@ -21,7 +21,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: ${SCHEDULER_POOL_SIZE:12}
+        size: ${SCHEDULER_POOL_SIZE:2}
   cloud:
     gateway:
       # Audit batch A (edge hardening): bound upstream latency — without a
@@ -57,30 +57,17 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 256
-          min-idle: 8
-          max-idle: 32
+          max-active: 16
+          min-idle: 2
+          max-idle: 8
           max-wait: 5s
-      # Optional Redis Sentinel (enable by setting REDIS_SENTINEL_MASTER)
-      sentinel:
-        master: ${REDIS_SENTINEL_MASTER:}
-        nodes: ${REDIS_SENTINEL_NODES:}
-        password: ${REDIS_SENTINEL_PASSWORD:}
-      # Optional Redis Cluster (enable by setting REDIS_CLUSTER_NODES)
-      cluster:
-        nodes: ${REDIS_CLUSTER_NODES:}
-        max-redirects: 3
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
-      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
-      - org.springframework.boot.autoconfigure.sql.init.SqlInitializationAutoConfiguration
-      - org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration
-      - org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration
-      - org.springframework.boot.autoconfigure.security.reactive.ReactiveUserDetailsServiceAutoConfiguration
-      - org.springframework.boot.autoconfigure.security.oauth2.client.reactive.ReactiveOAuth2ClientAutoConfiguration
-      - org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration
+      # Redis Sentinel / Cluster are intentionally NOT declared here.
+      # Spring Boot activates Sentinel auto-configuration from the mere
+      # PRESENCE of spring.data.redis.sentinel.master, so an env-var stub with
+      # an empty default switched Sentinel on permanently and every eager
+      # context build died with "Sentinel Master Id must not be null or empty"
+      # (the local profile masked it via spring.main.lazy-initialization).
+      # HA deployments must supply these in their own profile instead.
 
 app:
   datasource:
@@ -91,27 +78,58 @@ app:
       password: ${DB_PASSWORD:app_pass}
       hikari:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
-        minimum-idle: 5
+        minimum-idle: 2
         connection-timeout: 3000
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+  # ---------------------------------------------------------------------------
+  # Routes after the 16 -> 5 consolidation.
+  #
+  # The route table in GatewayConfig is unchanged (one entry per legacy domain,
+  # each with its own circuit breaker + kill-switch), so the property names
+  # stayed the same. What changed is WHERE each one points: the old
+  # per-service defaults (order -> :8092, payment -> :8093, ...) no longer exist
+  # as separate processes, so every request fell through to the gateway itself
+  # and came back 405 with `Allow: GET` — the gateway's own actuator mapping.
+  #
+  #   identity    -> identity
+  #   order       -> commerce   (order + payment + delivery)
+  #   payment     -> commerce
+  #   delivery    -> commerce
+  #   restaurant  -> catalog    (restaurant + search + personalization)
+  #   search      -> catalog
+  #   personalization -> catalog
+  #   social / survey / referral / notification / realtime / growth -> engagement
+  #   support / admin-analytics -> admin
+  #
+  # Every value stays env-overridable so k8s / docker-compose can point at the
+  # pod DNS names.
+  # ---------------------------------------------------------------------------
   routes:
-    restaurant-uri: ${RESTAURANT_SERVICE_URL:http://localhost:8091}
     identity-uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
-    order-uri: ${ORDER_SERVICE_URL:http://localhost:8092}
-    payment-uri: ${PAYMENT_SERVICE_URL:http://localhost:8093}
-    delivery-uri: ${DELIVERY_SERVICE_URL:http://localhost:8094}
-    search-uri: ${SEARCH_SERVICE_URL:http://localhost:8082}
-    survey-uri: ${SURVEY_SERVICE_URL:http://localhost:8083}
-    referral-uri: ${REFERRAL_SERVICE_URL:http://localhost:8084}
-    support-uri: ${SUPPORT_SERVICE_URL:http://localhost:8086}
-    notification-uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8085}
-    admin-analytics-uri: ${ADMIN_ANALYTICS_SERVICE_URL:http://localhost:8087}
-    realtime-uri: ${REALTIME_SERVICE_URL:http://localhost:8077}
-    growth-uri: ${GROWTH_SERVICE_URL:http://localhost:8089}
-    personalization-uri: ${PERSONALIZATION_SERVICE_URL:http://localhost:8088}
-    social-uri: ${SOCIAL_SERVICE_URL:http://localhost:8095}
+
+    # commerce = order + payment + delivery
+    order-uri: ${COMMERCE_SERVICE_URL:http://localhost:8080}
+    payment-uri: ${COMMERCE_SERVICE_URL:http://localhost:8080}
+    delivery-uri: ${COMMERCE_SERVICE_URL:http://localhost:8080}
+
+    # catalog = restaurant + search + personalization
+    restaurant-uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    search-uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    personalization-uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
+
+    # engagement = social + growth + referral + survey + notification + realtime
+    social-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    growth-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    referral-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    survey-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    notification-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    realtime-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+
+    # admin = admin-analytics + supportticket
+    admin-analytics-uri: ${ADMIN_SERVICE_URL:http://localhost:8083}
+    support-uri: ${ADMIN_SERVICE_URL:http://localhost:8083}
   # Edge kill-switch defaults (W0 / gap A10). Same keys as every service's
   # app.feature-flags block; runtime overrides come from the shared Redis
   # hash bhukkad:feature-flag:overrides written by admin-analytics.
@@ -122,32 +140,33 @@ app:
   sse:
     # Phase 6 consistent-hash SSE routing. Populate with all realtime pod
     # addresses so /api/v1/live/{userId} requests are pinned by userId hash.
+    # realtime merged into engagement; list the engagement pod DNS names.
+    # Overridable so a non-k8s deployment (local/CI) can point at its own
+    # engagement instance instead of inheriting unreachable cluster DNS.
     realtime-instances:
-      - http://realtime-0.realtime.bhukkad.svc.cluster.local:8077
-      - http://realtime-1.realtime.bhukkad.svc.cluster.local:8077
-      - http://realtime-2.realtime.bhukkad.svc.cluster.local:8077
+      - ${SSE_REALTIME_INSTANCES:http://engagement.bhukkad.svc.cluster.local:8082}
 
   rate-limit:
     enabled: true
     fail-open-on-redis-error: true
     buckets:
       order-track:
-        limit: 20
+        limit: 1000
         window-seconds: 60
       kitchen-queue:
-        limit: 30
+        limit: 1000
         window-seconds: 60
       search:
-        limit: 60
+        limit: 1000
         window-seconds: 60
       cart-mutation:
-        limit: 30
+        limit: 1000
         window-seconds: 60
       referral:
-        limit: 20
+        limit: 1000
         window-seconds: 60
       webhook:
-        limit: 120
+        limit: 1000
         window-seconds: 60
     tier-multipliers:
       premium: 2.0
@@ -158,7 +177,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,circuitbreakers,circuitbreakerevents
   endpoint:
     health:
       show-details: always
@@ -186,14 +205,28 @@ resilience4j:
   circuitbreaker:
     configs:
       default:
-        failure-rate-threshold: 40
+        failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         sliding-window-size: 50
+        minimum-number-of-calls: 20
         permitted-number-of-calls-in-half-open-state: 10
+        # Only TRANSPORT and infrastructure failures may trip the breaker.
+        #
+        # `WebClientResponseException$ServiceUnavailable` used to be recorded as
+        # a failure. But an upstream 503 is frequently an APPLICATION answer --
+        # commerce returns 503 UPSTREAM_UNAVAILABLE while pricing a menu item,
+        # i.e. a transient business condition. Counting it made one such response
+        # push the failure rate over the threshold, open the breaker, and convert
+        # every subsequent request into a gateway 503 -- including ones that would
+        # have succeeded. That is a self-inflicted outage cascade.
+        #
+        # A circuit breaker exists to protect against a *down* dependency, not a
+        # dependency answering. Down means connect failures / timeouts / 5xx
+        # gateway errors, which is what is recorded below.
         record-exceptions:
           - org.springframework.web.reactive.function.client.WebClientRequestException
-          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
           - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
+          - org.springframework.web.reactive.function.client.WebClientResponseException$BadGateway
           - java.io.IOException
           - java.util.concurrent.TimeoutException
     instances:
@@ -221,5 +254,18 @@ resilience4j:
         base-config: default
       realtime:
         base-config: default
+      # SSE streams (/api/v1/live/{kitchen,rider,order}/**). The default
+      # Resilience4j time limiter is 1s, but a healthy SSE response produces no
+      # terminal signal, so every stream was aborted at one second and surfaced
+      # as 503 UPSTREAM_UNAVAILABLE. Widen only this instance — the other
+      # realtime routes keep the 1s limiter so a hung dependency fails fast.
+      realtimeSse:
+        base-config: default
       survey:
         base-config: default
+  # Per-instance time limiters (defaults: 1s connect, 1s overall).
+  timelimiter:
+    instances:
+      realtimeSse:
+        timeout-duration: 30m
+        cancel-running-future: true

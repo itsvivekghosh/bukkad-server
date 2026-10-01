@@ -22,30 +22,19 @@
 		remains the standalone "before" build until the teardown phase.</description>
 
 <modules>
- 		<module>platform-lib</module>
- 		<module>test-support</module>
- 		<!-- Edge gateway (P0). Built last-relevant; routes by path to per-service
- 		     k8s DNS names so strangler flips are route-only edits. -->
- 		<module>gateway</module>
-		<module>restaurant</module>
-		<module>identity</module>
-		<module>order</module>
-		<module>payment</module>
-		<module>delivery</module>
-		<module>notification</module>
-		<module>search</module>
-		<module>admin-analytics</module>
-		<!-- W0/G12: complete the reactor — these three services existed on disk but
-		     were never aggregated; DECOMMISSION Gate parity and feature-ci require it. -->
-		<module>survey</module>
-		<module>referral</module>
-		<module>supportticket</module>
-		<!-- W3: realtime (SSE/WebSocket order tracking), personalization (recommendations), growth (campaigns/loyalty) -->
-		<module>realtime</module>
-		<module>personalization</module>
-  		<module>growth</module>
-  		<module>test-app</module>
-  		<module>social</module>
+  		<module>platform-lib</module>
+  		<!-- Edge gateway (P0). Built last-relevant; routes by path to per-service
+  		     k8s DNS names so strangler flips are route-only edits. -->
+  		<module>gateway</module>
+  		<module>identity</module>
+  		<!-- Core commerce domain: orders + payments + delivery -->
+  		<module>commerce</module>
+  		<!-- Read-heavy catalog domain: restaurants + search + personalization -->
+  		<module>catalog</module>
+  		<!-- User-facing engagement features: social + growth + referral + survey + notification + realtime -->
+  		<module>engagement</module>
+  		<!-- Internal tools: admin analytics + support tickets -->
+  		<module>admin</module>
   	</modules>
 
 	<properties>
@@ -82,11 +71,7 @@
  			<artifactId>platform-lib</artifactId>
  			<version>${project.version}</version>
  		</dependency>
- 		<dependency>
- 			<groupId>com.bhukkad</groupId>
- 			<artifactId>test-support</artifactId>
- 			<version>${project.version}</version>
- 		</dependency>
+
 			<dependency>
 				<groupId>net.bytebuddy</groupId>
 				<artifactId>byte-buddy</artifactId>
@@ -96,6 +81,18 @@
 				<groupId>net.bytebuddy</groupId>
 				<artifactId>byte-buddy-agent</artifactId>
 				<version>${byte-buddy.version}</version>
+			</dependency>
+			<!-- Lettuce connection pooling. spring-boot-starter-data-redis marks
+			     commons-pool2 optional, so with
+			     spring.data.redis.lettuce.pool.enabled=true the pool was
+			     silently never built and the configured budgets
+			     (max-active / max-idle / max-wait) had no effect. Modules that
+			     turn pooling on must declare it; admin needs it or the Redis
+			     health contributor fails with
+			     NoClassDefFoundError: GenericObjectPoolConfig. -->
+			<dependency>
+				<groupId>org.apache.commons</groupId>
+				<artifactId>commons-pool2</artifactId>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
@@ -311,23 +308,23 @@
 						</systemPropertyVariables>
 					</configuration>
 				</plugin>
-				<plugin>
-					<groupId>org.apache.maven.plugins</groupId>
-					<artifactId>maven-compiler-plugin</artifactId>
-					<version>3.12.0</version>
-					<configuration>
-						<source>17</source>
-						<target>17</target>
-						<useIncrementalCompilation>false</useIncrementalCompilation>
-						<annotationProcessorPaths>
-							<path>
-								<groupId>org.projectlombok</groupId>
-								<artifactId>lombok</artifactId>
-								<version>${lombok.version}</version>
-							</path>
-						</annotationProcessorPaths>
-					</configuration>
-				</plugin>
+<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.12.0</version>
+				<configuration>
+					<source>21</source>
+					<target>21</target>
+					<useIncrementalCompilation>false</useIncrementalCompilation>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>${lombok.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
 			</plugins>
 		</pluginManagement>
 	</build>

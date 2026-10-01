@@ -3,6 +3,8 @@ kind: PrometheusRule
 metadata:
   name: bhukkad-slo-alerts
   namespace: bhukkad
+  labels:
+    release: bhukkad-prometheus
 spec:
   groups:
     - name: bhukkad.outbox
@@ -57,56 +59,109 @@ spec:
           labels:
             severity: warn
 
-     - name: bhukkad.social.feed
-       rules:
-         - record: job:feed_requests:rate5m
-           expr: rate(social_feed_requests_total[5m])
-         - record: job:feed_latency:p95
-           expr: histogram_quantile(0.95, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le))
-         - record: job:feed_latency:p99
-           expr: histogram_quantile(0.99, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le))
-         - record: job:feed_errors:rate5m
-           expr: rate(social_feed_errors_total[5m])
-         - alert: HighFeedLatency
-           expr: histogram_quantile(0.95, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le)) > 0.2
-           for: 3m
-           labels:
-             severity: warn
-           annotations:
-             summary: "Feed p95 latency > 200ms"
-         - alert: LowRedisHitRatio
-           expr: (rate(social_feed_requests_total[5m]) - rate(social_feed_errors_total[5m])) / rate(social_feed_requests_total[5m]) < 0.8
-           for: 5m
-           labels:
-             severity: warn
-           annotations:
-             summary: "Feed cache hit ratio < 80%"
+    - name: bhukkad.social.feed
+      rules:
+        - record: job:feed_requests:rate5m
+          expr: rate(social_feed_requests_total[5m])
+        - record: job:feed_latency:p95
+          expr: histogram_quantile(0.95, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le))
+        - record: job:feed_latency:p99
+          expr: histogram_quantile(0.99, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le))
+        - record: job:feed_errors:rate5m
+          expr: rate(social_feed_errors_total[5m])
+        - alert: HighFeedLatency
+          expr: histogram_quantile(0.95, sum(rate(social_feed_latency_seconds_bucket[5m])) by (le)) > 0.2
+          for: 3m
+          labels:
+            severity: warn
+          annotations:
+            summary: "Feed p95 latency > 200ms"
+        - alert: LowRedisHitRatio
+          expr: (rate(social_feed_requests_total[5m]) - rate(social_feed_errors_total[5m])) / rate(social_feed_requests_total[5m]) < 0.8
+          for: 5m
+          labels:
+            severity: warn
+          annotations:
+            summary: "Feed cache hit ratio < 80%"
 
-     - name: bhukkad.social.like
-       rules:
-         - record: job:like_requests:rate5m
-           expr: rate(social_like_requests_total[5m])
-         - record: job:like_latency:p95
-           expr: histogram_quantile(0.95, sum(rate(social_like_latency_seconds_bucket[5m])) by (le))
+    - name: bhukkad.social.like
+      rules:
+        - record: job:like_requests:rate5m
+          expr: rate(social_like_requests_total[5m])
+        - record: job:like_latency:p95
+          expr: histogram_quantile(0.95, sum(rate(social_like_latency_seconds_bucket[5m])) by (le))
 
-     - name: bhukkad.social.order
-       rules:
-         - record: job:order_requests:rate5m
-           expr: rate(social_order_requests_total[5m])
-         - record: job:order_latency:p95
-           expr: histogram_quantile(0.95, sum(rate(social_order_latency_seconds_bucket[5m])) by (le))
-         - alert: HighOrderErrorRate
-           expr: rate(social_order_errors_total[5m]) / rate(social_order_requests_total[5m]) > 0.01
-           for: 5m
-           labels:
-             severity: page
-           annotations:
-             summary: "Order-from-post error rate > 1%"
+    - name: bhukkad.social.order
+      rules:
+        - record: job:order_requests:rate5m
+          expr: rate(social_order_requests_total[5m])
+        - record: job:order_latency:p95
+          expr: histogram_quantile(0.95, sum(rate(social_order_latency_seconds_bucket[5m])) by (le))
+        - alert: HighOrderErrorRate
+          expr: rate(social_order_errors_total[5m]) / rate(social_order_requests_total[5m]) > 0.01
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: "Order-from-post error rate > 1%"
 
-     - name: bhukkad.circuit
-       rules:
-         - alert: CircuitBreakerOpen
-           expr: circuit_breaker_open == 1
-           for: 1m
-           labels:
-             severity: page
+    - name: bhukkad.circuit
+      rules:
+        - alert: CircuitBreakerOpen
+          expr: circuit_breaker_open == 1
+          for: 1m
+          labels:
+            severity: page
+
+    # Platform-level saturation/latency alerts
+    - name: bhukkad.platform.saturation
+      rules:
+        - alert: PodCPUUsageHigh
+          expr: sum(rate(container_cpu_usage_seconds_total{namespace="bhukkad", container!="", container!="POD"}[5m])) by (pod) / sum(container_spec_cpu_quota{namespace="bhukkad", container!="", container!="POD"} / container_spec_cpu_period{namespace="bhukkad", container!="", container!="POD"}) by (pod) > 0.85
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: "Pod {{ $labels.pod }} CPU usage > 85%"
+
+        - alert: PodMemoryUsageHigh
+          expr: (container_memory_working_set_bytes{namespace="bhukkad", container!="", container!="POD"} / container_spec_memory_limit_bytes{namespace="bhukkad", container!="", container!="POD"}) > 0.85
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: "Pod {{ $labels.pod }} memory usage > 85%"
+
+        - alert: PodRestartLoop
+          expr: increase(kube_pod_container_status_restarts_total{namespace="bhukkad"}[15m]) > 3
+          for: 2m
+          labels:
+            severity: page
+          annotations:
+            summary: "Pod {{ $labels.pod }} restarting frequently"
+
+        - alert: HPAAtMaxReplicas
+          expr: kube_horizontalpodautoscaler_status_desired_replicas == kube_horizontalpodautoscaler_spec_max_replicas
+          for: 10m
+          labels:
+            severity: warn
+          annotations:
+            summary: "HPA {{ $labels.horizontalpodautoscaler }} at max replicas"
+
+    - name: bhukkad.platform.latency
+      rules:
+        - alert: HighRequestLatency
+          expr: histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{namespace="bhukkad"}[5m])) by (le, handler)) > 2
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: "p99 latency > 2s for {{ $labels.handler }}"
+
+        - alert: HighErrorRate
+          expr: sum(rate(http_server_requests_seconds_count{namespace="bhukkad", status=~"5.."}[5m])) by (service) / sum(rate(http_server_requests_seconds_count{namespace="bhukkad"}[5m])) by (service) > 0.05
+          for: 3m
+          labels:
+            severity: page
+          annotations:
+            summary: "Error rate > 5% for {{ $labels.service }}"

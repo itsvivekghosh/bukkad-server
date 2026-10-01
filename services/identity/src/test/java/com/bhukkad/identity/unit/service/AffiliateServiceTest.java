@@ -36,7 +36,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Port of the monolith {@code com.bhukkad.referral.AffiliateServiceTest}
+ * Port of the monolith {@code com.bhukkad.identity.referral.AffiliateServiceTest}
  * (WAVE 2) for the identity-side {@link AffiliateService}.
  */
 @ExtendWith(MockitoExtension.class)

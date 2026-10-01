@@ -6,6 +6,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerAwareListenerErrorHandler;
 import org.springframework.kafka.listener.ListenerExecutionFailedException;
@@ -20,8 +21,17 @@ import java.util.Map;
 /**
  * Logs Kafka consumer lag metrics to help detect stuck or slow consumers.
  * This is a lightweight alternative to full consumer lag monitoring.
+ *
+ * <p>Gated by the same single expression as
+ * {@link com.bhukkad.common.kafka.KafkaPlatformConfig} and
+ * {@link com.bhukkad.common.outbox.OutboxPlatformConfig}. This listener is a
+ * Kafka client, so leaving it ungated made every service dial the broker even
+ * when platform events were disabled (the previous single-gate gap), flooding
+ * the log with "Broker may not be available" warnings on broker-less stacks.
  */
 @Component
+@ConditionalOnExpression(
+        "'${app.events.external.enabled:false}' == 'true' && '${app.events.external.type:log}' == 'kafka'")
 public class KafkaLagLogger {
 
     private static final Logger log = LoggerFactory.getLogger("KAFKA_LAG");

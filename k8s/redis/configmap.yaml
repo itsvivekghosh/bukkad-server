@@ -21,7 +21,7 @@ data:
     save 900 1
     save 300 10
     save 60 10000
-    maxmemory 512mb
+    maxmemory 1536mb
     # volatile-lru ensures only keys with TTL are evicted — locks, rate-limit
     # counters and idempotency keys MUST have TTLs (see RedisCacheService +
     # RateLimitService). Using allkeys-lru would evict those and cause duplicate

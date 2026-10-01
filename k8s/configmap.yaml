@@ -130,7 +130,7 @@ data:
   # RAZORPAY_WEBHOOK_SECRET) in bhukkad-secrets to enable the real gateway.
   APP_PAYMENT_RAZORPAY_ENABLED: "true"
 
-  # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
   # In-cluster TLS (P2) — k8s/components/tls + k8s/README-TLS.md.
   #
   # DB_SSL_ENABLED gates the CLIENT side of Postgres TLS. Default "false" =
@@ -148,7 +148,6 @@ data:
   #      Vault, which override this ConfigMap via secretKeyRef) to
   #      sslmode=require (stage A) or verify-full + mounted CA (stage B);
   #   3. set DB_SSL_ENABLED="true" and rolling-restart the fleet.
-  DB_SSL_ENABLED: "false"
   # --- COMMENTED-READY: client blocks for the TLS flip (uncomment together) --
   # Stage A/B Postgres JDBC URLs (documented variants; per-service URLs live
   # in Vault, not here):
@@ -164,9 +163,16 @@ data:
   #   KAFKA_SASL_USERNAME: "bhukkad-admin"
   #   # KAFKA_SASL_PASSWORD from bhukkad-secrets key REDPANDA_SUPERUSER_PASSWORD
   #   # (secretKeyRef in each producer/consumer deployment — do NOT put it here).
+  #   # TLS bootstrap (flip together with the block above):
+  #   # KAFKA_BOOTSTRAP_SERVERS: >-
+  #   #   redpanda-0.redpanda-headless.bhukkad.svc.cluster.local:9095,
+  #   #   redpanda-1.redpanda-headless.bhukkad.svc.cluster.local:9095,
+  #   #   redpanda-2.redpanda-headless.bhukkad.svc.cluster.local:9095
   # Redis client SSL (server tls-port 6380 comes from components/tls):
   #   SPRING_DATA_REDIS_PORT: "6380"
   #   SPRING_DATA_REDIS_SSL_ENABLED: "true"   # Boot 3.2 spring.data.redis.ssl.enabled
+  # ---------------------------------------------------------------------------
+
   # ---------------------------------------------------------------------------
 
   # ---------------------------------------------------------------------------

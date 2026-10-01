@@ -1,0 +1,173 @@
+name: API Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  JAVA_VERSION: '21'
+  MAVEN_OPTS: '-Xmx2g'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bhukkad
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U app -d bhukkad"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'microsoft'
+          cache: 'maven'
+
+      - name: Build all services
+        run: |
+          cd backend-server
+          ./mvnw -f services/pom.xml clean package -DskipTests -B
+
+      - name: Start infrastructure
+        run: |
+          cd backend-server
+          docker compose -f services/docker/docker-compose.ci.yml up -d postgres redis
+          # Wait for databases to be ready
+          sleep 15
+          for i in {1..30}; do
+            if nc -z localhost 5432 && nc -z localhost 6379; then
+              echo "Databases ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Start all services
+        run: |
+          cd backend-server
+          export APP_AUTH_JWT_SECRET="test-secret-key-for-ci-testing-32-chars-min"
+          export APP_AUTH_SERVICE_JWT_SECRET="test-service-secret-key-for-ci-32"
+          export JWT_SECRET="${APP_AUTH_JWT_SECRET}"
+          export SERVICE_JWT_SECRET="${APP_AUTH_SERVICE_JWT_SECRET}"
+          export IDENTITY_JWKS_URL="http://localhost:8081/.well-known/jwks.json"
+          export SPRING_PROFILES_ACTIVE=local
+          export EVENTS_EXTERNAL_ENABLED=false
+          export REDIS_HOST=localhost
+          export SPRING_DATA_REDIS_HOST=localhost
+          export APP_BOOTSTRAPADMIN_ENABLED=true
+          export APP_BOOTSTRAPADMIN_EMAIL=admin@bhukkad.dev
+          export APP_BOOTSTRAPADMIN_PASSWORD='Admin@12345678'
+          
+          # Start services in background
+          for service in identity catalog commerce engagement admin gateway; do
+            jar=$(find services/${service}/target -name "${service}-1.0.0-exec.jar" | head -1)
+            port=$(case $service in
+              identity) echo 8081 ;;
+              catalog) echo 8082 ;;
+              commerce) echo 8091 ;;
+              engagement) echo 8083 ;;
+              admin) echo 8087 ;;
+              gateway) echo 8095 ;;
+            esac)
+            java -Xms128m -Xmx512m -XX:MaxMetaspaceSize=256m -XX:+UseSerialGC \
+              -Dserver.port=$port \
+              -Dspring.main.allow-bean-definition-overriding=true \
+              -Dapp.bootstrap-admin.enabled=true \
+              -Dapp.bootstrap-admin.email=admin@bhukkad.dev \
+              -Dapp.bootstrap-admin.password=Admin@12345678 \
+              -Dapp.bootstrap-admin.full-name="Platform Admin" \
+              -jar "$jar" > /tmp/${service}.log 2>&1 &
+            echo $! ${service} >> .local-stack.pids
+            sleep 10
+          done
+
+          # Wait for all services to be healthy
+          deadline=$(($(date +%s) + 300))
+          while true; do
+            ok=0
+            for port in 8081 8082 8083 8087 8091 8095; do
+              if curl -sf -o /dev/null --max-time 3 "http://localhost:${port}/actuator/health"; then
+                ok=$((ok+1))
+              fi
+            done
+            echo "Ready: $ok/6"
+            [ "$ok" -eq 6 ] && break
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Services failed to start"
+              cat /tmp/*.log
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Run curl E2E tests
+        run: |
+          cd backend-server
+          bash scripts/curl-e2e-tests.sh
+
+      - name: Run Python API tests
+        run: |
+          cd backend-server
+          python3 scripts/test-all-apis.py \
+            --base-url http://localhost:8095 \
+            --restaurant-url http://localhost:8082 \
+            --order-url http://localhost:8091 \
+            --payment-url http://localhost:8091 \
+            --delivery-url http://localhost:8091 \
+            --search-url http://localhost:8082 \
+            --survey-url http://localhost:8083 \
+            --referral-url http://localhost:8083 \
+            --notification-url http://localhost:8083 \
+            --admin-url http://localhost:8087 \
+            --realtime-url http://localhost:8083 \
+            --growth-url http://localhost:8083 \
+            --personalization-url http://localhost:8082 \
+            --social-url http://localhost:8083 \
+            --report-dir scripts/reports
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-reports
+          path: |
+            backend-server/scripts/reports/*.md
+            backend-server/scripts/reports/*.json
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd backend-server
+          # Stop services
+          for pid in $(awk '{print $1}' .local-stack.pids 2>/dev/null); do
+            kill $pid 2>/dev/null || true
+          done
+          docker compose -f services/docker/docker-compose.ci.yml down

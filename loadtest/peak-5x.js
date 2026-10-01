@@ -1,8 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { BASE_URL, login, baseThresholds } from './config.js';
-
-const IDEMPOTENCY_PREFIX = `k6-${__VU}-${__ITER}`;
+import { BASE_URL, login, baseThresholds, authedGet, authedPost } from './config.js';
 
 export const options = {
     stages: [
@@ -18,32 +16,56 @@ export const options = {
         'http_req_duration{endpoint:/api/v1/menu/items}': ['p(95)<500'],
         'http_req_duration{endpoint:/api/v1/serviceability}': ['p(95)<500'],
         'http_req_duration{endpoint:/api/v1/auth/login}': ['p(95)<800'],
+        'http_req_duration{endpoint:/api/v1/orders}': ['p(95)<1000'],
     },
 };
 
+let token = null;
+
+export function setup() {
+    // Pre-create test users if needed
+    return {};
+}
+
 export default function () {
-    const token = login();
+    // Login once per VU
+    if (!token) {
+        token = login(__VU);
+    }
+    
     const headers = { Authorization: `Bearer ${token}` };
+    const idempotencyKey = `k6-${__VU}-${__ITER}`;
 
     // Health
-    http.get(`${BASE_URL}/api/v1/health/ping`, { tags: { endpoint: '/api/v1/health/ping' } });
+    authedGet(token, '/api/v1/health/ping');
 
     // Restaurant read surface
-    http.get(`${BASE_URL}/api/v1/feed`, { tags: { endpoint: '/api/v1/feed' } });
-    http.get(`${BASE_URL}/api/v1/restaurants/public`, { tags: { endpoint: '/api/v1/restaurants/public' } });
-    http.get(`${BASE_URL}/api/v1/menu/items?restaurantId=1`, { tags: { endpoint: '/api/v1/menu/items' } });
+    authedGet(token, '/api/v1/feed');
+    authedGet(token, '/api/v1/restaurants/public');
+    authedGet(token, '/api/v1/menu/items?restaurantId=1');
 
     // Serviceability
-    http.get(`${BASE_URL}/api/v1/serviceability?lat=12.9716&lng=77.5946`, { tags: { endpoint: '/api/v1/serviceability' } });
+    authedGet(token, '/api/v1/serviceability?lat=12.9716&lng=77.5946');
 
-    // Auth probe
-    http.post(`${BASE_URL}/api/v1/auth/login`, JSON.stringify({
-        email: 'loadtest@example.com',
-        password: 'LoadTest@123456',
-    }), {
-        headers: { 'Content-Type': 'application/json' },
-        tags: { endpoint: '/api/v1/auth/login' },
-    });
+    // Write operations (20% of iterations)
+    if (__ITER % 5 === 0) {
+        authedPost(token, '/api/v1/orders', {
+            customerId: 1,
+            restaurantId: 1,
+            items: [
+                {
+                    menuItemId: 1,
+                    name: 'Test Item',
+                    unitPrice: 100.00,
+                    quantity: 1
+                }
+            ]
+        }, idempotencyKey);
+    }
 
     sleep(1);
+}
+
+export function teardown(data) {
+    // Cleanup if needed
 }

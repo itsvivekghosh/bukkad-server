@@ -72,15 +72,13 @@ spring:
           min-idle: 8
           max-idle: 32
           max-wait: 5s
-      # Optional Redis Sentinel (enable by setting REDIS_SENTINEL_MASTER)
-      sentinel:
-        master: ${REDIS_SENTINEL_MASTER:}
-        nodes: ${REDIS_SENTINEL_NODES:}
-        password: ${REDIS_SENTINEL_PASSWORD:}
-      # Optional Redis Cluster (enable by setting REDIS_CLUSTER_NODES)
-      cluster:
-        nodes: ${REDIS_CLUSTER_NODES:}
-        max-redirects: 3
+      # Redis Sentinel / Cluster are intentionally NOT declared here.
+      # Spring Boot activates Sentinel auto-configuration from the mere
+      # PRESENCE of spring.data.redis.sentinel.master, so an env-var stub with
+      # an empty default switched Sentinel on permanently and every eager
+      # context build died with "Sentinel Master Id must not be null or empty"
+      # (the local profile masked it via spring.main.lazy-initialization).
+      # HA deployments must supply these in their own profile instead.
 
 app:
   datasource:
@@ -122,8 +120,8 @@ app:
       # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
       # mesh secret; internal paths REQUIRE a valid service token when the
       # secret is set. allowed-services is deny-by-default.
-      jwt-secret: ${SERVICE_JWT_SECRET:}
-      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
+      jwt-secret: ${SERVICE_JWT_SECRET:bhukkad-local-service-secret-2024}
+      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
       enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
   jwt:
     # HMAC secret for the ADR-004 grace window (legacy HS256 verification).
@@ -145,7 +143,7 @@ app:
     ttl-minutes: ${JWT_TTL_MINUTES:1440}
     # Short-lived access tokens (HS256 JWT). Renewal happens through the
     # rotating, revocable refresh-token store, never by extending this TTL.
-    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:15}
+    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:60}
     # Absolute refresh-token session horizon in days; rotation never extends
     # a session past its issue-time + refresh-ttl-days.
     refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:30}
@@ -165,13 +163,18 @@ app:
           linger-ms: 5
           batch-size: 16384
           compression-type: lz4
-        consumer:
-          max-poll-records: 1000
-          session-timeout-ms: 30000
-          heartbeat-interval-ms: 10000
-          auto-offset-reset: earliest
-          max-poll-interval-ms: 300000
-          concurrency: 3
+        # NOTE: these bind DIRECTLY under app.events.external.kafka — the
+        # KafkaPlatformProperties.Kafka record has maxPollRecords /
+        # sessionTimeoutMs / heartbeatIntervalMs / maxPollIntervalMs /
+        # listenerConcurrency as flat fields. They used to sit under a
+        # `consumer:` sub-block, which Spring silently ignored, leaving the
+        # int fields at 0; Kafka then refused to start the listener registry
+        # with "Invalid value 0 for configuration max.poll.records".
+        max-poll-records: 1000
+        session-timeout-ms: 30000
+        heartbeat-interval-ms: 10000
+        max-poll-interval-ms: 300000
+        listener-concurrency: 3
 
   rate-limit:
     enabled: true

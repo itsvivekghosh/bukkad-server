@@ -12,7 +12,7 @@
 #
 #   docker buildx build \
 #     -f services/docker/Dockerfile.service \
-#     --build-arg MODULE=order \
+#     --build-arg MODULE=commerce \
 #     services/
 #
 # CI note (integrator): .github/workflows/services.yml builds each matrix
@@ -22,10 +22,14 @@
 
 # --- build stage -------------------------------------------------------------
 # MODULE is passed via --build-arg and selects the service reactor module
-# (identity, restaurant, order, payment, delivery, notification, search,
-# survey, referral, supportticket, admin-analytics, gateway, realtime, growth,
-# personalization). Declared here AND re-declared inside each stage: an ARG
-# declared before the first FROM is not automatically visible after FROM.
+# (identity, commerce, catalog, engagement, admin, gateway). Declared here AND
+# re-declared inside each stage: an ARG declared before the first FROM is not
+# automatically visible after FROM.
+#
+# NOTE ON MERGED MODULES: commerce / catalog / engagement / admin are the
+# post-merge consolidations. `mvn -am` pulls in their intra-merge dependencies
+# (engagement depends on commerce + catalog), and the source COPY below lists
+# every reactor module so `-am` can always resolve them.
 ARG MODULE
 FROM --platform=$BUILDPLATFORM maven:3.9.9-eclipse-temurin-21 AS builder
 ARG MODULE
@@ -36,6 +40,7 @@ WORKDIR /build
 # into a locked cache mount, THEN copy sources — unchanged sources no longer
 # invalidate the expensive dependency layer.
 COPY pom.xml .
+COPY pom.xml ./services/pom.xml
 # lombok.config at the build-context root (repo commit 2b42050: without it the
 # copyableAnnotations += @Lazy setting is lost). Glob form tolerates contexts
 # where the file is absent, unlike `COPY x . 2>/dev/null || true` which is NOT
@@ -47,23 +52,11 @@ COPY lombok.config* ./
 # service = add its pom line here AND to services/pom.xml.
 COPY platform-lib/pom.xml ./platform-lib/pom.xml
 COPY gateway/pom.xml ./gateway/pom.xml
-COPY restaurant/pom.xml ./restaurant/pom.xml
 COPY identity/pom.xml ./identity/pom.xml
-COPY order/pom.xml ./order/pom.xml
-COPY payment/pom.xml ./payment/pom.xml
-COPY delivery/pom.xml ./delivery/pom.xml
-COPY notification/pom.xml ./notification/pom.xml
-COPY search/pom.xml ./search/pom.xml
-COPY admin-analytics/pom.xml ./admin-analytics/pom.xml
-COPY survey/pom.xml ./survey/pom.xml
-COPY referral/pom.xml ./referral/pom.xml
-COPY supportticket/pom.xml ./supportticket/pom.xml
-COPY realtime/pom.xml ./realtime/pom.xml
-COPY personalization/pom.xml ./personalization/pom.xml
-COPY growth/pom.xml ./growth/pom.xml
-COPY social/pom.xml ./social/pom.xml
-COPY test-support/pom.xml ./test-support/pom.xml
-COPY test-app/pom.xml ./test-app/pom.xml
+COPY commerce/pom.xml ./commerce/pom.xml
+COPY catalog/pom.xml ./catalog/pom.xml
+COPY engagement/pom.xml ./engagement/pom.xml
+COPY admin/pom.xml ./admin/pom.xml
 COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
 # No dependency:go-offline pre-pass: it is notoriously flaky ("Failed to read
 # artifact descriptor" on transitive poms) and the locked cache mount below
@@ -74,24 +67,12 @@ COPY ${MODULE}/pom.xml ./${MODULE}/pom.xml
 # Source copy: platform-lib + the target module + every other service module
 # that can appear in the reactor when Maven resolves -am dependencies.
 COPY platform-lib ./platform-lib
-COPY admin-analytics ./admin-analytics
-COPY delivery ./delivery
+COPY admin ./admin
+COPY catalog ./catalog
+COPY commerce ./commerce
+COPY engagement ./engagement
 COPY gateway ./gateway
-COPY growth ./growth
 COPY identity ./identity
-COPY notification ./notification
-COPY order ./order
-COPY payment ./payment
-COPY personalization ./personalization
-COPY realtime ./realtime
-COPY referral ./referral
-COPY restaurant ./restaurant
-COPY search ./search
-COPY social ./social
-COPY supportticket ./supportticket
-COPY survey ./survey
-COPY test-app ./test-app
-COPY test-support ./test-support
 COPY ${MODULE} ./${MODULE}
 RUN --mount=type=cache,target=/root/.m2,sharing=locked \
     mvn -B -q clean package -DskipTests -Dmaven.test.skip=true -pl ${MODULE} -am
@@ -137,6 +118,6 @@ COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/
 RUN if ls /app/${MODULE}-*-exec.jar >/dev/null 2>&1; then mv /app/${MODULE}-*-exec.jar /app/app.jar; else mv /app/${MODULE}-[0-9]*.jar /app/app.jar; fi
 USER bhukkad
 EXPOSE 8080
-HEALTHCHECK --interval=20s --timeout=5s --start-period=300s --retries=10 \
-  CMD curl -fsS "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=1800s --retries=40 \
+  CMD curl -fsS "http://localhost:${SERVER_PORT}/actuator/health/readiness" >/dev/null || exit 1
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

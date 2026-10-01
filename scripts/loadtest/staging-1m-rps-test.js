@@ -14,20 +14,51 @@ export const options = {
   },
 };
 
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8095';
+
+let token = null;
+
+function login(vuId) {
+    const email = `loadtest-vu${vuId}@bhukkad.dev`;
+    const res = http.post(`${BASE_URL}/api/v1/auth/login`, JSON.stringify({
+        email: email,
+        password: 'LoadTest@123456',
+    }), { headers: { 'Content-Type': 'application/json' } });
+
+    if (res.status !== 200) {
+        return null;
+    }
+    const payload = res.json();
+    const data = payload.data || payload;
+    if (!data || !data.token) {
+        return null;
+    }
+    return data.token;
+}
+
+function authedGet(token, path) {
+    return http.get(`${BASE_URL}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        tags: { endpoint: path },
+    });
+}
+
 export default function () {
-  const base = 'http://localhost:8080';
+    // Login once per VU
+    if (!token) {
+        token = login(__VU);
+    }
 
-  // Restaurant read
-  http.get(`${base}/api/v1/restaurants/1`);
-  // Feed read
-  http.get(`${base}/api/v1/feed`);
-  // Auth probe
-  http.post(`${base}/api/v1/auth/login`, JSON.stringify({
-    email: 'loadtest@example.com',
-    password: 'loadtest',
-  }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
+    if (!token) {
+        // Skip if auth failed
+        sleep(1);
+        return;
+    }
 
-  sleep(1);
+    // Restaurant read
+    authedGet(token, '/api/v1/restaurants/public');
+    // Feed read
+    authedGet(token, '/api/v1/feed');
+
+    sleep(1);
 }

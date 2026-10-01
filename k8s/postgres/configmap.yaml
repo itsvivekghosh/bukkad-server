@@ -18,7 +18,7 @@ data:
     max_connections = 1000
     wal_buffers = 16MB
     checkpoint_completion_target = 0.9
-    synchronous_commit = off
+    synchronous_commit = remote_write
     log_min_duration_statement = 1000
     log_statement = none
     log_connections = on

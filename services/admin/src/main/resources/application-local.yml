@@ -1,0 +1,108 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      - org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration
+      - org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
+      - org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.reactive.ReactiveUserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.client.reactive.ReactiveOAuth2ClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: ${ADMIN_DB_URL:jdbc:postgresql://localhost:5432/admin}
+    username: ${ADMIN_DB_USERNAME:app}
+    password: ${ADMIN_DB_PASSWORD:app_pass}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 3000
+      keepalive-time: 300000
+      max-lifetime: 900000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+        jdbc.batch_versioned_data: true
+        query_plan_cache_size: 200
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration-pg
+    baseline-on-migrate: true
+    validate-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2000
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 8
+          min-idle: 1
+          max-idle: 4
+          max-wait: 5s
+  main:
+    lazy-initialization: true
+  banner:
+    location: classpath:banner.txt
+    charset: UTF-8
+management:
+  tracing:
+    sampling:
+      probability: 0.0
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+logging:
+  level:
+    com.bhukkad: WARN
+app:
+  environment: development
+  events:
+    external:
+      enabled: false
+  routes:
+    identity-uri: ${IDENTITY_SERVICE_URL:http://identity:8080}
+    order-uri: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+    payment-uri: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+    delivery-uri: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+    restaurant-uri: ${CATALOG_SERVICE_URL:http://catalog:8080}
+    search-uri: ${CATALOG_SERVICE_URL:http://catalog:8080}
+    personalization-uri: ${CATALOG_SERVICE_URL:http://catalog:8080}
+    social-uri: ${ENGAGEMENT_SERVICE_URL:http://engagement:8080}
+    growth-uri: ${ENGAGEMENT_SERVICE_URL:http://engagement:8080}
+    referral-uri: ${ENGAGEMENT_SERVICE_URL:http://engagement:8080}
+    survey-uri: ${ENGAGEMENT_SERVICE_URL:http://engagement:8080}
+    notification-uri: ${ENGAGEMENT_SERVICE_URL:http://engagement:8080}
+    realtime-uri: ${ENGAGEMENT_SERVICE_URL:http://engagement:8080}
+    admin-analytics-uri: ${ADMIN_SERVICE_URL:http://admin:8080}
+    support-uri: ${ADMIN_SERVICE_URL:http://admin:8080}
+  auth:
+    jwt:
+      jwks-url: ${IDENTITY_JWKS_URL:http://identity:8080/.well-known/jwks.json}
+    lockout:
+      gateway-enabled: false
+    service:
+      jwt-secret: ${SERVICE_JWT_SECRET:bhukkad-local-service-secret-2024}

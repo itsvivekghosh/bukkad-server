@@ -187,6 +187,12 @@ public class RsaSigningKeys {
 
     /** Public-only JWKS served at {@code /.well-known/jwks.json}. */
     public JWKSet publicJwks() {
-        return new JWKSet(List.of(signingKey.toPublicJWK()));
+        RSAKey publicKey = signingKey.toPublicJWK();
+        // Ensure the algorithm is explicitly set to RS256 for proper JWT validation
+        return new JWKSet(List.of(new RSAKey.Builder(publicKey)
+                .algorithm(JWSAlgorithm.RS256)
+                .keyUse(KeyUse.SIGNATURE)
+                .keyID(signingKey.getKeyID())
+                .build()));
     }
 }

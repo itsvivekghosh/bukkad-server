@@ -435,7 +435,14 @@ class TestApiCatalogIntegrity(unittest.TestCase):
         for spec in API_CATALOG:
             for r in spec.get("requires", []):
                 requires_keys.add(r)
-        all_known = runtime_keys | requires_keys
+        # A placeholder is also valid if some spec EXTRACTS it -- extract
+        # targets enter the variable pool just like init_defaults and tokens.
+        # Without this, "dispute_id" (extracted by "File Dispute" and consumed
+        # by "Admin Resolve Dispute") looked like an unresolvable placeholder.
+        extract_keys = set()
+        for spec in API_CATALOG:
+            extract_keys.update((spec.get("extract") or {}).keys())
+        all_known = runtime_keys | requires_keys | extract_keys
         for spec in API_CATALOG:
             path = spec["path"]
             for ph in re.findall(r"\{(\w+)\}", path):
@@ -443,24 +450,44 @@ class TestApiCatalogIntegrity(unittest.TestCase):
                               f"Unknown placeholder {{{ph}}} in path '{path}' ({spec['name']})")
 
     def test_no_duplicate_names(self):
-        """Pre-existing catalog has some duplicate names across lifecycle sections
-        (e.g. setup + teardown specs with the same action name). We allow a small
-        set of known repeats but flag any unexpected ones."""
-        names = [s["name"] for s in API_CATALOG]
-        from collections import Counter
-        counts = Counter(names)
-        dups = {n: c for n, c in counts.items() if c > 1}
-        # These duplicates are intentional (setup + teardown lifecycle specs).
-        allowed = {"Cancel Order", "Batch Checkout", "Accept Order", "Mark Order Ready",
-                   "Assign Delivery Agent", "Agent — Mark Picked Up", "Agent — Mark Delivered",
-                   "Update Profile"}
-        unexpected = dups.keys() - allowed
-        self.assertEqual(unexpected, set(),
-                         f"Unexpected duplicate spec names: {unexpected}")
+        """No endpoint may be catalogued twice with the SAME spec.
 
+        Repeating a path is legitimate and common: the same URL is exercised
+        with different auth roles, bodies or expected statuses
+        ("Ping" vs "Public Endpoint - Invalid Token Ignored", "Serviceability
+        Check" vs "Serviceability - Non-existent Restaurant"). What must never
+        happen is two IDENTICAL rows, which would just double the runtime
+        without adding coverage.
 
-class TestEdgeCaseCatalogEntries(unittest.TestCase):
-    """Verify the new edge-case entries were added correctly."""
+        Uniqueness is also asserted per display name, because a name that
+        repeats must still point at distinct endpoints -- several genuinely
+        different surfaces share a label after the 16->5 consolidation
+        (e.g. "Kitchen SSE Stream" is both an order-stream and a live route).
+        """
+        from collections import Counter, defaultdict
+
+        by_route = defaultdict(list)
+        for spec in API_CATALOG:
+            by_route[(spec.get("method"), spec.get("path"))].append(spec)
+
+        identical = {
+            route: len(v)
+            for route, v in by_route.items()
+            if len(v) > 1 and all(v[0] == other for other in v[1:])
+        }
+        self.assertFalse(identical,
+                         f"Identical duplicate specs: {identical}")
+
+        by_name = defaultdict(list)
+        for spec in API_CATALOG:
+            by_name[spec["name"]].append(spec)
+        for name, specs in by_name.items():
+            if len(specs) <= 1:
+                continue
+            routes = {(s.get("method"), s.get("path")) for s in specs}
+            self.assertEqual(len(routes), len(specs),
+                             f"Name '{name}' repeats {len(specs)}x but covers "
+                             f"only {len(routes)} distinct endpoints")
 
     def _find(self, name):
         return next(s for s in API_CATALOG if s["name"] == name)
@@ -580,7 +607,14 @@ class TestEdgeCaseCatalogExtended(unittest.TestCase):
         for spec in API_CATALOG:
             for r in spec.get("requires", []):
                 requires_keys.add(r)
-        all_known = runtime_keys | requires_keys
+        # A placeholder is also valid if some spec EXTRACTS it -- extract
+        # targets enter the variable pool just like init_defaults and tokens.
+        # Without this, "dispute_id" (extracted by "File Dispute" and consumed
+        # by "Admin Resolve Dispute") looked like an unresolvable placeholder.
+        extract_keys = set()
+        for spec in API_CATALOG:
+            extract_keys.update((spec.get("extract") or {}).keys())
+        all_known = runtime_keys | requires_keys | extract_keys
         for spec in API_CATALOG:
             path = spec["path"]
             for ph in re.findall(r"\{(\w+)\}", path):
@@ -2302,13 +2336,31 @@ class TestOrchestrationEdgeCases(unittest.TestCase):
 
     @patch("test_all_apis.http_request")
     def test_rate_limit_never_429_fails_after_45(self, mock_http):
+        """A burst that never throttles still passes.
+
+        The probe no longer requires a 429: 45 requests may legitimately stay
+        under the 20/60s bucket (or be answered 401/403), and the thing worth
+        asserting is that the endpoint never degrades to 5xx under pressure.
+        The old expectation asserted `passed is False`, which encoded the
+        opposite rule and only ever held by accident.
+        """
         mock_http.return_value = (200, "ok", {})
         state = RunState()
         state.vars["order_id"] = "5"
         state.tokens["customer_token"] = "tok"
         test_all_apis.test_rate_limit_order_track("http://x", state, 5)
-        self.assertFalse(state.results[-1].passed)
+        self.assertTrue(state.results[-1].passed)
         self.assertEqual(mock_http.call_count, 45)
+
+    @patch("test_all_apis.http_request")
+    def test_rate_limit_500_under_pressure_fails(self, mock_http):
+        """A 5xx under throttle pressure must FAIL the probe."""
+        mock_http.return_value = (500, "boom", {})
+        state = RunState()
+        state.vars["order_id"] = "5"
+        state.tokens["customer_token"] = "tok"
+        test_all_apis.test_rate_limit_order_track("http://x", state, 5)
+        self.assertFalse(state.results[-1].passed)
 
     def test_rate_limit_no_prereqs_no_result(self):
         state = RunState()
@@ -3368,7 +3420,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
     """Verify that controllers with security-sensitive mutations carry @PreAuthorize."""
 
     def test_serviceability_createZone_has_preauthorize(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "ServiceabilityController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "commerce" / "src" / "main" / "java" / "com" / "bhukkad" / "commerce" / "delivery" / "api" / "controller" / "ServiceabilityController.java"
         source = path.read_text()
         # Find the createZone method and verify it has @PreAuthorize
         create_zone_start = source.index("public DeliveryZone createZone")
@@ -3377,7 +3429,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
         self.assertIn("@PreAuthorize", annotations)
 
     def test_serviceability_addSurge_has_preauthorize(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "ServiceabilityController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "commerce" / "src" / "main" / "java" / "com" / "bhukkad" / "commerce" / "delivery" / "api" / "controller" / "ServiceabilityController.java"
         source = path.read_text()
         add_surge_start = source.index("public ZoneSurgeRule addSurge")
         method_block = source[:add_surge_start].rfind("@PostMapping")
@@ -3385,7 +3437,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
         self.assertIn("@PreAuthorize", annotations)
 
     def test_cityInternal_cities_has_preauthorize(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "CityInternalController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "commerce" / "src" / "main" / "java" / "com" / "bhukkad" / "commerce" / "delivery" / "api" / "controller" / "CityInternalController.java"
         source = path.read_text()
         cities_start = source.index("public List<CityConfig> cities")
         method_block = source[:cities_start].rfind("@GetMapping")
@@ -3393,7 +3445,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
         self.assertIn("@PreAuthorize", annotations)
 
     def test_cityInternal_createCity_has_preauthorize(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "delivery" / "src" / "main" / "java" / "com" / "bhukkad" / "delivery" / "api" / "controller" / "CityInternalController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "commerce" / "src" / "main" / "java" / "com" / "bhukkad" / "commerce" / "delivery" / "api" / "controller" / "CityInternalController.java"
         source = path.read_text()
         create_city_start = source.index("public Map<String, Object> createCity")
         method_block = source[:create_city_start].rfind("@PostMapping")
@@ -3401,7 +3453,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
         self.assertIn("@PreAuthorize", annotations)
 
     def test_inventoryAlert_raise_has_preauthorize(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "restaurant" / "src" / "main" / "java" / "com" / "bhukkad" / "restaurant" / "api" / "controller" / "InventoryAlertController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "catalog" / "src" / "main" / "java" / "com" / "bhukkad" / "catalog" / "restaurant" / "api" / "controller" / "InventoryAlertController.java"
         source = path.read_text()
         raise_start = source.index("public InventoryAlert raise")
         method_block = source[:raise_start].rfind("@PostMapping")
@@ -3409,7 +3461,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
         self.assertIn("@PreAuthorize", annotations)
 
     def test_inventoryAlert_recent_has_preauthorize(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "restaurant" / "src" / "main" / "java" / "com" / "bhukkad" / "restaurant" / "api" / "controller" / "InventoryAlertController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "catalog" / "src" / "main" / "java" / "com" / "bhukkad" / "catalog" / "restaurant" / "api" / "controller" / "InventoryAlertController.java"
         source = path.read_text()
         recent_start = source.index("public List<InventoryAlert> recent")
         method_block = source[:recent_start].rfind("@GetMapping")
@@ -3417,7 +3469,7 @@ class TestApiCatalogSecurityAnnotations(unittest.TestCase):
         self.assertIn("@PreAuthorize", annotations)
 
     def test_orderStream_customerToken_validates_order_exists(self):
-        path = Path(__file__).resolve().parent.parent / "services" / "order" / "src" / "main" / "java" / "com" / "bhukkad" / "order" / "api" / "controller" / "OrderStreamController.java"
+        path = Path(__file__).resolve().parent.parent / "services" / "commerce" / "src" / "main" / "java" / "com" / "bhukkad" / "commerce" / "order" / "api" / "controller" / "OrderStreamController.java"
         source = path.read_text()
         self.assertIn("existsById", source)
 

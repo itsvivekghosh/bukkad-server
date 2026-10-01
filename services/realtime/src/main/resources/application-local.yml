@@ -1,9 +1,0 @@
-spring:
-  config:
-    activate:
-      on-profile: local
-  main:
-    allow-bean-definition-overriding: true
-server:
-  ssl:
-    enabled: false

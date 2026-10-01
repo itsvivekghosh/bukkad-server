@@ -18,6 +18,10 @@ CUSTOMER_EMAIL="customer_$(date +%s)@bhukkad.test"
 OWNER_EMAIL="owner_$(date +%s)@bhukkad.test"
 AGENT_EMAIL="agent_$(date +%s)@bhukkad.test"
 PASSWORD="Test@123456"
+# Must match APP_BOOTSTRAPADMIN_PASSWORD in scripts/local-up.sh. The identity
+# DevAdminBootstrap refuses to seed a password shorter than 12 chars (and the
+# well-known Test@123456 backdoor), so this must stay >= 12 characters.
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-Admin@12345678}"
 
 # Tokens
 CUSTOMER_TOKEN=""
@@ -61,6 +65,7 @@ print_result() {
 }
 
 # Helper: extract value from JSON
+# Supports dotted object keys and numeric list indices, e.g. "data.id", "0.id".
 extract_json() {
     local json="$1"
     local path="$2"
@@ -68,14 +73,18 @@ extract_json() {
 import sys, json
 try:
     d = json.load(sys.stdin)
-    parts = '$path'.split('.')
-    for p in parts:
+    for p in '$path'.split('.'):
         if isinstance(d, dict):
             d = d.get(p, '')
+        elif isinstance(d, list) and p.lstrip('-').isdigit():
+            i = int(p)
+            d = d[i] if -len(d) <= i < len(d) else ''
         else:
             d = ''
+    if isinstance(d, (dict, list)):
+        d = json.dumps(d)
     print(d if d is not None else '')
-except:
+except Exception:
     print('')
 " 2>/dev/null
 }
@@ -179,7 +188,6 @@ test "Memory Health" "GET" "/api/v1/health/memory" "none" "" "200"
 test "Environment Info" "GET" "/api/v1/health/env" "none" "" "200"
 test "Platform Status" "GET" "/api/v1/platform/status" "none" "" "200"
 test "OpenAPI Spec" "GET" "/api/v1/swagger-doc" "none" "" "404"
-test "Cache Health" "GET" "/api/v1/cache/health" "none" "" "200"
 
 # ==================== AUTHENTICATION ====================
 print_section "Authentication"
@@ -246,17 +254,34 @@ AGENT_TOKEN=$(extract_json "$RESP" "token")
 BODY=$(cat <<EOF
 {
   "email": "admin@bhukkad.dev",
-  "password": "Admin@123456"
+  "password": "$ADMIN_PASSWORD"
 }
 EOF
 )
-RESP=$(test "Login Admin" "POST" "/api/v1/auth/login" "none" "$BODY" "200,401,429")
+# Strict: 401 here means the dev-admin bootstrap is misconfigured, and every
+# admin test below would 401 too. Accepting 401 turned 6 real failures into
+# silent passes, so this is deliberately 200-only.
+RESP=$(test "Login Admin" "POST" "/api/v1/auth/login" "none" "$BODY" "200")
 ADMIN_TOKEN=$(extract_json "$RESP" "token")
 if [[ -z "$ADMIN_TOKEN" ]]; then
     ADMIN_TOKEN=$(extract_json "$RESP" "data.token")
 fi
 
 echo -e "  Tokens: Customer=${CUSTOMER_TOKEN:+YES}${CUSTOMER_TOKEN:-NO} Owner=${OWNER_TOKEN:+YES}${OWNER_TOKEN:-NO} Agent=${AGENT_TOKEN:+YES}${AGENT_TOKEN:-NO} Admin=${ADMIN_TOKEN:+YES}${ADMIN_TOKEN:-NO}"
+
+# Fail fast: a missing token invalidates whole sections of the suite and would
+# otherwise surface as dozens of confusing downstream 401s.
+for pair in "customer:$CUSTOMER_TOKEN" "owner:$OWNER_TOKEN" "agent:$AGENT_TOKEN" "admin:$ADMIN_TOKEN"; do
+    role="${pair%%:*}"
+    tok="${pair#*:}"
+    if [[ -z "$tok" ]]; then
+        echo -e "  ${RED}ABORT${RESET} | could not obtain ${role} token — cannot continue" >&2
+        exit 2
+    fi
+done
+
+# Cache Health (requires admin auth)
+test "Cache Health" "GET" "/api/v1/cache/health" "admin" "" "200"
 
 # ==================== CUISINES ====================
 print_section "Cuisines"
@@ -266,6 +291,20 @@ test "Get Cuisine by ID" "GET" "/api/v1/cuisines/1" "none" "" "200,404"
 test "Get Cuisine Nonexistent" "GET" "/api/v1/cuisines/999999" "none" "" "404"
 test "Get Cuisine Invalid ID" "GET" "/api/v1/cuisines/abc" "none" "" "400"
 
+# Create a cuisine for this run. The suite previously hardcoded cuisineId=1,
+# which only worked against a dev-seeded database; on a clean CI database the
+# FK restaurants_cuisine_id_fkey rejected the insert with a 409.
+# POST /cuisines is authenticated (GET is the public part), so send admin.
+RESP=$(test "Create Cuisine" "POST" "/api/v1/cuisines?name=E2E+Cuisine+$(date +%s)" "admin" "" "200,201")
+CUISINE_ID=$(extract_json "$RESP" "data.id")
+if [[ -z "$CUISINE_ID" ]]; then
+    CUISINE_ID=$(extract_json "$RESP" "id")
+fi
+if [[ -z "$CUISINE_ID" ]]; then
+    echo -e "  ${RED}ABORT${RESET} | could not create cuisine — restaurant tests cannot run" >&2
+    exit 2
+fi
+
 # ==================== RESTAURANTS ====================
 print_section "Restaurants"
 
@@ -274,7 +313,7 @@ BODY=$(cat <<EOF
 {
   "name": "Test Restaurant $(date +%s)",
   "description": "Test restaurant for curl E2E",
-  "cuisineId": 1,
+  "cuisineId": ${CUISINE_ID},
   "address": {
     "addressLine1": "123 Test St",
     "city": "Bangalore",
@@ -297,6 +336,10 @@ EOF
 )
 RESP=$(test "Create Restaurant" "POST" "/api/v1/restaurants/owner" "owner" "$BODY" "200,201")
 RESTAURANT_ID=$(extract_json "$RESP" "id")
+if [[ -z "$RESTAURANT_ID" ]]; then
+    echo -e "  ${RED}ABORT${RESET} | could not create restaurant — menu/cart/order tests cannot run" >&2
+    exit 2
+fi
 
 test "List Public Restaurants" "GET" "/api/v1/restaurants/public?page=0&size=10" "none" "" "200"
 test "Search Restaurants" "GET" "/api/v1/restaurants/public/search?keyword=test&page=0&size=10" "none" "" "200"
@@ -321,28 +364,39 @@ BODY=$(cat <<EOF
 EOF
 )
 RESP=$(test "Create Menu Category" "POST" "/api/v1/restaurants/categories?restaurantId=${RESTAURANT_ID}" "owner" "$BODY" "200,201")
-CATEGORY_ID=$(extract_json "$RESP" "id")
+# This endpoint wraps in ApiResponse, so the id lives under "data". Reading a
+# bare "id" returned "" and silently skipped the menu-item step.
+CATEGORY_ID=$(extract_json "$RESP" "data.id")
+if [[ -z "$CATEGORY_ID" ]]; then
+    CATEGORY_ID=$(extract_json "$RESP" "id")
+fi
 
 # Create menu item
+# The bulk endpoint's contract is BulkItem(id, name, price, available) and it
+# returns a JSON array. The previous payload sent categoryId/description/
+# foodType/... (ignored or rejected) and read the id with a plain "id" path,
+# which always yielded "" for an array response and left MENU_ITEM_ID unset —
+# silently skipping every cart/order test downstream.
 if [[ -n "$CATEGORY_ID" ]]; then
     BODY=$(cat <<EOF
 [
   {
     "name": "Test Menu Item",
-    "description": "Test menu item",
-    "categoryId": ${CATEGORY_ID},
     "price": 199.0,
-    "foodType": "VEG",
-    "isVeg": true,
-    "isSpicy": true,
-    "spiceLevel": "MEDIUM",
-    "preparationTime": 15
+    "available": true
   }
 ]
 EOF
 )
     RESP=$(test "Create Menu Item" "POST" "/api/v1/restaurants/${RESTAURANT_ID}/menu/bulk" "owner" "$BODY" "200,201")
-    MENU_ITEM_ID=$(extract_json "$RESP" "id")
+    MENU_ITEM_ID=$(extract_json "$RESP" "0.id")
+    if [[ -z "$MENU_ITEM_ID" ]]; then
+        MENU_ITEM_ID=$(extract_json "$RESP" "data.0.id")
+    fi
+fi
+if [[ -z "$MENU_ITEM_ID" ]]; then
+    echo -e "  ${RED}ABORT${RESET} | could not create menu item — cart/order tests cannot run" >&2
+    exit 2
 fi
 
 if [[ -n "$MENU_ITEM_ID" ]]; then
@@ -380,9 +434,12 @@ if [[ -n "$CART_ITEM_ID" ]]; then
 fi
 
 # Cart edge cases
+# These use the real MENU_ITEM_ID: the API resolves the menu item before
+# validating quantity, so a stale fallback id (e.g. 1) yields 404 "Menu item
+# not found" instead of the 400 the quantity rule should produce.
 test "Cart Nonexistent Item" "POST" "/api/v1/cart/add" "customer" '{"menuItemId": 999999, "quantity": 1}' "400,404"
-test "Cart Zero Quantity" "POST" "/api/v1/cart/add" "customer" "{\"menuItemId\": ${MENU_ITEM_ID:-1}, \"quantity\": 0}" "400"
-test "Cart Negative Quantity" "POST" "/api/v1/cart/add" "customer" "{\"menuItemId\": ${MENU_ITEM_ID:-1}, \"quantity\": -1}" "400"
+test "Cart Zero Quantity" "POST" "/api/v1/cart/add" "customer" "{\"menuItemId\": ${MENU_ITEM_ID}, \"quantity\": 0}" "400"
+test "Cart Negative Quantity" "POST" "/api/v1/cart/add" "customer" "{\"menuItemId\": ${MENU_ITEM_ID}, \"quantity\": -1}" "400"
 test "Cart Missing Fields" "POST" "/api/v1/cart/add" "customer" '{"quantity": 1}' "400"
 test "Cart Unauthenticated" "GET" "/api/v1/cart" "none" "" "401"
 

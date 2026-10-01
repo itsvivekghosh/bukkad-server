@@ -1511,7 +1511,9 @@ API_CATALOG = [
         "description": "Redis read/write probe and cache statistics.",
         "method": "GET",
         "path": "/api/v1/cache/health",
-        "auth": None,
+        # Admin-only surface (Redis keyspace + hit/miss internals). Declaring
+        # auth: None sent the request unauthenticated and every run 401'd.
+        "auth": "admin",
         "expected": [200],
     },
     {
@@ -1520,7 +1522,7 @@ API_CATALOG = [
         "description": "Hit/miss and keyspace statistics from Redis.",
         "method": "GET",
         "path": "/api/v1/cache/stats",
-        "auth": None,
+        "auth": "admin",
         "expected": [200],
     },
     # ── Security negatives ─────────────────────────────────────────────────────
@@ -3737,20 +3739,12 @@ API_CATALOG = [
         "auth": "owner"
     },
     {
-        "group": "Payments",
-        "name": "Get Order Payment",
-        "description": "Returns payment details for a specific order.",
-        "method": "GET",
-        "path": "/api/v1/payments/orders/{order_id}",
-        "expected": [
-            200
-        ],
-        "auth": "customer",
-        "requires": [
-            "order_id"
-        ]
-    },
-    {
+        # NOTE: the duplicate "Get Order Payment" spec was removed here. It hit
+        # the same GET /api/v1/payments/orders/{order_id} endpoint as
+        # "Payment for Order" above, but asserted 200 unconditionally. That
+        # order is CASH_ON_DELIVERY, so no payment row exists and the endpoint
+        # correctly answers 404 (documented in PaymentController#byOrder).
+        # "Payment for Order" already covers the contract with [200, 404].
         "group": "Health & Platform",
         "name": "Platform Cities",
         "description": "Returns the list of active delivery cities.",
@@ -4695,17 +4689,6 @@ API_CATALOG = [
             "customer_id"
         ]
     },
-{
-        "group": "Authentication",
-        "name": "Logout Customer",
-        "description": "Invalidates the customer session/token.",
-        "method": "POST",
-        "path": "/api/v1/auth/logout",
-        "auth": "customer",
-        "expected": [200],
-        "requires": ["customer_token"],
-        "phase": "teardown",
-    },
     # ── Edge Cases & Boundaries (extra coverage) ───────────────────────────────
     {
         "group": "Security",
@@ -5102,6 +5085,7 @@ API_CATALOG = [
         "method": "GET",
         "path": "/api/v1/live/kitchen/{restaurant_id}",
         "auth": "owner",
+        "headers": {"Accept": "text/event-stream"},
         "expected": [200, 401, 403],
         "requires": ["owner_token"],
         "optional": True,
@@ -5113,6 +5097,7 @@ API_CATALOG = [
         "method": "GET",
         "path": "/api/v1/live/rider/{agent_id}",
         "auth": "agent",
+        "headers": {"Accept": "text/event-stream"},
         "expected": [200, 401, 403],
         "requires": ["agent_token"],
         "optional": True,
@@ -5124,6 +5109,7 @@ API_CATALOG = [
         "method": "GET",
         "path": "/api/v1/live/order/{order_id}",
         "auth": None,
+        "headers": {"Accept": "text/event-stream"},
         "expected": [200, 401, 403],
         "optional": True,
     },
@@ -5620,7 +5606,18 @@ API_CATALOG = [
         "body_key": "order_from_post",
         "optional": True,
     },
-]
+
+{
+        "group": "Authentication",
+        "name": "Logout Customer",
+        "description": "Invalidates the customer session/token.",
+        "method": "POST",
+        "path": "/api/v1/auth/logout",
+        "auth": "customer",
+        "expected": [200],
+        "requires": ["customer_token"],
+        "phase": "teardown",
+    },]
 
 # Request body templates — {placeholders} resolved at runtime
 BODY_TEMPLATES = {
@@ -5799,6 +5796,7 @@ BODY_TEMPLATES = {
         "quantity": 1,
     },
     "order": {
+        "customerId": "{customer_id}",
         "restaurantId": "{restaurant_id}",
         "deliveryAddressId": "{address_id}",
         "specialInstructions": "Ring the bell",
@@ -5807,6 +5805,7 @@ BODY_TEMPLATES = {
         "tipAmount": 20.0,
     },
     "batch_order": {
+        "customerId": "{customer_id}",
         "deliveryAddressId": "{address_id}",
         "specialInstructions": "Batch checkout test",
         "contactlessDelivery": False,
@@ -5814,6 +5813,7 @@ BODY_TEMPLATES = {
         "tipAmount": 30.0,
     },
     "scheduled_order": {
+        "customerId": "{customer_id}",
         "restaurantId": "{restaurant_id}",
         "deliveryAddressId": "{address_id}",
         "paymentMethod": "CASH_ON_DELIVERY",

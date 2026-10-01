@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         # Must match the service deployments in k8s/ and the services.yml matrix.
-        service: [identity, restaurant, order, payment, delivery, notification, admin-analytics, gateway, search, survey, referral, supportticket]
+        service: [identity, commerce, catalog, engagement, admin, gateway]
     permissions:
       contents: read
       packages: write
@@ -172,7 +172,7 @@ jobs:
           KUSTOMIZE_DIR="$(mktemp -d /tmp/bhukkad-prod-k8s.XXXXXX)"
           cp -R k8s "${KUSTOMIZE_DIR}/k8s"
           cd "${KUSTOMIZE_DIR}/k8s"
-          for svc in identity restaurant order payment delivery notification admin-analytics gateway search survey referral supportticket; do
+          for svc in identity commerce catalog engagement admin gateway; do
             if [ "${DEPLOY_BY_DIGEST}" = "true" ]; then
               DIGEST_FILE="/tmp/digests/${svc}"
               [ -s "${DIGEST_FILE}" ] || { echo "::error::missing digest for ${svc} (build job did not record it)"; exit 1; }
@@ -196,11 +196,11 @@ jobs:
           set -euo pipefail
           kubectl apply -k "${KUSTOMIZE_DIR}/k8s"
           kubectl rollout status deployment/bhukkad-gateway -n bhukkad --timeout=600s
-          kubectl rollout status deployment/bhukkad-restaurant -n bhukkad --timeout=600s
           kubectl rollout status deployment/bhukkad-identity -n bhukkad --timeout=600s
-          kubectl rollout status deployment/bhukkad-order -n bhukkad --timeout=600s
-          kubectl rollout status deployment/bhukkad-payment -n bhukkad --timeout=600s
-          kubectl rollout status deployment/bhukkad-delivery -n bhukkad --timeout=600s
+          kubectl rollout status deployment/bhukkad-commerce -n bhukkad --timeout=600s
+          kubectl rollout status deployment/bhukkad-catalog -n bhukkad --timeout=600s
+          kubectl rollout status deployment/bhukkad-engagement -n bhukkad --timeout=600s
+          kubectl rollout status deployment/bhukkad-admin -n bhukkad --timeout=600s
 
       # ─────────────────────────────────────────────────────────────
       # 🏥 PHASE 3 — Health check & smoke test

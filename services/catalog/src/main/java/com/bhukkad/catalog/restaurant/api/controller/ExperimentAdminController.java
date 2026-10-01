@@ -1,0 +1,27 @@
+package com.bhukkad.catalog.restaurant.api.controller;
+
+import com.bhukkad.catalog.restaurant.domain.service.impl.ExperimentAssignmentService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1/admin/experiments")
+@RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
+public class ExperimentAdminController {
+
+    private final ExperimentAssignmentService assignmentService;
+
+    @GetMapping("/{experimentKey}/exposures")
+    public ResponseEntity<Map<String, Long>> exposures(
+            @PathVariable("experimentKey") String experimentKey) {
+        return ResponseEntity.ok(assignmentService.exposureCounts(experimentKey));
+    }
+}

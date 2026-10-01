@@ -3,6 +3,7 @@ package com.bhukkad.common.config;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -23,8 +24,18 @@ public class JpaConfig {
      * performing external I/O (e.g. order creation commits, then the payment
      * gateway is called outside any transaction). Keeps JDBC connections from
      * being held open during network calls.
+     *
+     * <p>{@code @Primary} because platform-lib also exposes
+     * {@code outboxRelayTransactionTemplate} (OutboxPlatformConfig) for the
+     * relay's own claim/state transactions. Two beans of the same type made
+     * every by-type {@code TransactionTemplate} injection point ambiguous —
+     * after the 16→5 merge that surfaced as
+     * "expected single matching bean but found 2" in services such as
+     * catalog's MenuVersionService. The relay keeps its own bean; the general
+     * purpose one is the default.
      */
     @Bean
+    @Primary
     public TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
         return new TransactionTemplate(transactionManager);
     }

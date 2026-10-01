@@ -64,3 +64,109 @@ spec:
           port: 9094
         - protocol: TCP
           port: 9095
+    # Allow Prometheus scraping
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow inter-service communication for JWKS, health checks, etc.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8087
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+        - protocol: TCP
+          port: 8090
+        - protocol: TCP
+          port: 8091
+        - protocol: TCP
+          port: 8092
+        - protocol: TCP
+          port: 8093
+        - protocol: TCP
+          port: 8094
+        - protocol: TCP
+          port: 8077
+        - protocol: TCP
+          port: 8095
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bhukkad-allow-gateway-to-services
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+spec:
+  podSelector:
+    matchLabels:
+      app: bhukkad
+      component: gateway
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bhukkad
+          podSelector:
+            matchLabels:
+              app: bhukkad
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8087
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+        - protocol: TCP
+          port: 8090
+        - protocol: TCP
+          port: 8091
+        - protocol: TCP
+          port: 8092
+        - protocol: TCP
+          port: 8093
+        - protocol: TCP
+          port: 8094
+        - protocol: TCP
+          port: 8077

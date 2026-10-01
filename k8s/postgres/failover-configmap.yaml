@@ -93,6 +93,13 @@ data:
             if PGPASSWORD="$DB_PASSWORD" pg_isready -h "$replica" -p "$REPLICA_PORT" -U "$DB_USERNAME" -d "$DB_NAME" >/dev/null 2>&1; then
                 if promote_replica "$replica"; then
                     log "FAILOVER COMPLETED - new primary: $replica"
+                    
+                    # Update the primary service to point to the new primary
+                    # This requires the service account to have patch permissions on the service
+                    kubectl patch service bhukkad-postgresql -n bhukkad -p "{\"spec\":{\"selector\":{\"statefulset.kubernetes.io/pod-name\":\"$replica\"}}}" || {
+                        log "WARNING: Failed to update primary service selector"
+                    }
+                    
                     exit 0
                 fi
             else

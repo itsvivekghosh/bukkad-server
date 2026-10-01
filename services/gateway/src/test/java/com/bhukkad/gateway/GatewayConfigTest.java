@@ -58,6 +58,7 @@ class GatewayConfigTest {
                 .block();
 
         assertThat(byId).containsKeys(
+                "actuator", "internal-guard", "customer-disputes", "compliance-users",
                 "notification", "survey",
                 "customer-cart", "customer-wallet", "customer-group-orders",
                 "customer-subscriptions", "customer-order-extras",
@@ -68,7 +69,7 @@ class GatewayConfigTest {
                 "cache", "platform", "compliance",
                 "analytics-exports", "swagger",
                 "search", "referral", "support", "social",
-                "notification", "live", "live-realtime", "growth",
+                "notification", "live", "live-realtime", "live-realtime-sse", "growth",
                 "inventory", "restaurant", "identity", "personalization",
                 "order", "payment", "delivery",
                 "admin-restaurant-stats", "admin-restaurants", "commission",
@@ -79,7 +80,10 @@ class GatewayConfigTest {
         // admin-restaurants/stats carve-out kept the analytics read model) plus
         // the observable unmatched-/api 404 route (audit V-20) and the
         // admin-disputes route (ADR-001: support is the dispute SOR).
-        assertThat(routes.getRoutes().collectList().block()).hasSize(55);
+        // New routes: actuator, internal-guard, customer-disputes, compliance-users,
+        // live-realtime-sse (SSE stream paths split off the shared "realtime"
+        // breaker so they can carry a long time limiter).
+        assertThat(routes.getRoutes().collectList().block()).hasSize(57);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");

@@ -6,7 +6,7 @@ metadata:
   labels:
     app: bhukkad
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/cluster-issuer: "bhukkad-internal-ca"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
@@ -32,7 +32,7 @@ spec:
               service:
                 name: bhukkad-gateway
                 port:
-                  number: 8080
+                  number: 80
     - host: localhost
       http:
         paths:
@@ -42,4 +42,4 @@ spec:
               service:
                 name: bhukkad-gateway
                 port:
-                  number: 8080
+                  number: 80

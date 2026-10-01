@@ -1,0 +1,240 @@
+server:
+  port: 8082
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+    min-response-size: 1024
+  tomcat:
+    threads:
+      max: 200
+      virtual: true
+    accept-count: 200
+    max-connections: 4096
+    connection-timeout: 10s
+    max-swallow-size: 2MB
+  max-http-request-header-size: 8KB
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  application:
+    name: engagement
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULER_POOL_SIZE:4}
+  datasource:
+    url: ${ENGAGEMENT_DB_URL:jdbc:postgresql://localhost:5432/engagement}
+    username: ${ENGAGEMENT_DB_USERNAME:app}
+    password: ${ENGAGEMENT_DB_PASSWORD:app_pass}
+    hikari:
+      maximum-pool-size: ${ENGAGEMENT_DB_POOL_SIZE:20}
+      minimum-idle: 8
+      connection-timeout: 3000
+      keepalive-time: 300000
+      max-lifetime: 900000
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+        jdbc.batch_versioned_data: true
+        query_plan_cache_size: 200
+    open-in-view: false
+  spring:
+    flyway:
+      enabled: true
+      locations: classpath:db/migration-pg,classpath:db/migration-social
+      baseline-on-migrate: true
+      validate-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2000
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 64
+          min-idle: 8
+          max-idle: 32
+          max-wait: 5s
+      # Redis Sentinel / Cluster are intentionally NOT declared here.
+      # Spring Boot activates Sentinel auto-configuration from the mere
+      # PRESENCE of spring.data.redis.sentinel.master, so an env-var stub with
+      # an empty default switched Sentinel on permanently and every eager
+      # context build died with "Sentinel Master Id must not be null or empty"
+      # (the local profile masked it via spring.main.lazy-initialization).
+      # HA deployments must supply these in their own profile instead.
+  autoconfigure:
+    exclude:
+    - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+    - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+    - org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration
+    - org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
+    - org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
+  banner:
+    location: classpath:banner.txt
+    charset: UTF-8
+management:
+  metrics:
+    enable:
+      jdbc: false
+      hibernate: false
+      lettuce: false
+      reactor.netty: false
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        failure-rate-threshold: 20
+        wait-duration-in-open-state: 20s
+        sliding-window-size: 100
+        permitted-number-of-calls-in-half-open-state: 5
+        record-exceptions:
+        - java.io.IOException
+        - java.util.concurrent.TimeoutException
+        - org.springframework.data.redis.RedisConnectionFailureException
+        - java.lang.RuntimeException
+logging:
+  level:
+    com.bhukkad: INFO
+app:
+  datasource:
+    read-replica:
+      enabled: ${DB_REPLICA_ENABLED:false}
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_USERNAME:app}
+      password: ${DB_PASSWORD:app_pass}
+      hikari:
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
+        minimum-idle: 2
+        connection-timeout: 3000
+        idle-timeout: 600000
+        max-lifetime: 1800000
+        read-only: true
+  environment: production
+  services:
+    # Address of the catalog service for cross-domain reads. Required: the
+    # @Value in the engagement clients has no default, so an unset value
+    # aborts startup.
+    restaurant:
+      url: ${APP_SERVICES_RESTAURANT_URL:http://localhost:8081}
+    commerce:
+      url: ${COMMERCE_SERVICE_URL:http://localhost:8080}
+    catalog:
+      url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    admin:
+      url: ${ADMIN_SERVICE_URL:http://localhost:8083}
+    # Social order-from-post flow. The order domain is part of the
+    # consolidated commerce service; this key had no entry, so the client's
+    # @Value fell back to the retired "http://order:8080" host.
+    order:
+      url: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+  # Order-ownership oracle for the customer SSE stream and for survey
+  # eligibility. It is served by the order domain (now inside commerce); the
+  # @Value defaults still pointed at the retired "order" host, so every check
+  # failed to connect, timed out after 3s and failed closed — the order's own
+  # customer was answered 403 "Not the order owner".
+  live:
+    order-base-url: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+  survey:
+    order-base-url: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+  auth:
+    jwt:
+      secret: ${JWT_SECRET:}
+      jwks-url: ${JWKS_URL:http://identity:8081/.well-known/jwks.json}
+      issuer: ${JWT_ISSUER:}
+      audience: ${JWT_AUDIENCE:}
+      hmac-grace-enabled: false
+    service:
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,catalog,commerce,engagement,admin}
+      enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
+  events:
+    external:
+      enabled: true
+      type: kafka
+      kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        consumer-group: ${KAFKA_CONSUMER_GROUP:engagement-platform-consumer}
+        platform-topic: notification.events.v1
+        dlq-topic: notification.events.v1.dlt
+        producer:
+          acks: all
+          retries: 10
+          max-in-flight-requests-per-connection: 5
+          linger-ms: 5
+          batch-size: 16384
+          compression-type: lz4
+        # NOTE: these bind DIRECTLY under app.events.external.kafka — the
+        # KafkaPlatformProperties.Kafka record has maxPollRecords /
+        # sessionTimeoutMs / heartbeatIntervalMs / maxPollIntervalMs /
+        # listenerConcurrency as flat fields. They used to sit under a
+        # `consumer:` sub-block, which Spring silently ignored, leaving the
+        # int fields at 0; Kafka then refused to start the listener registry
+        # with "Invalid value 0 for configuration max.poll.records".
+        max-poll-records: 1000
+        session-timeout-ms: 30000
+        heartbeat-interval-ms: 10000
+        max-poll-interval-ms: 300000
+        listener-concurrency: 3
+  rate-limit:
+    enabled: true
+    fail-open-on-redis-error: true
+    buckets:
+      search:
+        limit: 60
+        window-seconds: 60
+      referral:
+        limit: 20
+        window-seconds: 60
+      webhook:
+        limit: 120
+        window-seconds: 60
+    tier-multipliers:
+      premium: 2.0
+      gold: 3.0
+      platinum: 4.0
+      free: 1.0
+main:
+  lazy-initialization: true
+  banner-mode: 'off'
+jpa:
+  open-in-view: false
+  properties:
+    hibernate.jdbc.batch_size: 20
+    hibernate.order_inserts: true
+    hibernate.order_updates: true
+    hibernate.jdbc.fetch_size: 50
+flyway:
+  baseline-on-migrate: true

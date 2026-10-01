@@ -1,0 +1,252 @@
+# Local development - Lightweight for low-end PCs (4GB RAM)
+# Usage: docker-compose -f docker-compose.local.yml up -d
+# Start minimal: identity + gateway (core auth + routing)
+# Start full:  --profile full (adds commerce, catalog, engagement, admin)
+
+name: bhukkad-local
+
+x-common-env: &common-env
+  SPRING_PROFILES_ACTIVE: local
+  SERVER_PORT: '8080'
+  REDIS_HOST: redis
+  SPRING_DATA_REDIS_HOST: redis
+  JWT_SECRET: ${JWT_SECRET:-local-dev-secret-min-32-chars-long!!}
+  # RS256 verification. Without this the platform validator falls back to
+  # HMAC, every gateway-forwarded request is rejected 401, and the order
+  # circuit breaker trips (surfacing as a 503 fallback).
+  JWKS_URL: ${JWKS_URL:-http://identity:8080/.well-known/jwks.json}
+  SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET:-bhukkad-local-service-secret-2024}
+  # Service-mesh allow-list (ServiceJwtAuthFilter, platform-lib). MUST contain
+  # every value a service can present as its token subject — i.e. each
+  # consolidated service's spring.application.name (identity, catalog,
+  # commerce, engagement, admin, gateway). The legacy pre-merge names
+  # (restaurant/order/payment/delivery/...) are kept so old deployments and
+  # docs still resolve. Missing a name => that service's own internal calls
+  # are answered 403 (e.g. commerce -> /internal/delivery/earnings).
+  SERVICE_ALLOWED_SERVICES: gateway,identity,catalog,commerce,engagement,admin,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth
+  TRACING_SAMPLE_PROBABILITY: '0.0'
+  EVENTS_EXTERNAL_ENABLED: 'false'
+  MALLOC_ARENA_MAX: '1'
+  JAVA_OPTS: >-
+    -Xms96m -Xmx320m
+    -XX:MaxMetaspaceSize=256m
+    -XX:ReservedCodeCacheSize=96m
+    -XX:MaxDirectMemorySize=32m
+    -XX:+UseSerialGC
+    -XX:TieredStopAtLevel=1
+    -Xss512k
+    -XX:MinHeapFreeRatio=10
+    -XX:MaxHeapFreeRatio=25
+    -XX:ActiveProcessorCount=2
+    -XX:+UseStringDeduplication
+    -XX:+UseCompressedOops
+    -XX:+UseCompressedClassPointers
+    -Djava.net.preferIPv4Stack=true
+    -Dserver.address=0.0.0.0
+    -Dspring.main.lazy-initialization=true
+    -Dspring.jmx.enabled=false
+    -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration,org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration,org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration,org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration,org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
+  spring.datasource.hikari.maximum-pool-size: '4'
+  SERVER_ADDRESS: 0.0.0.0
+
+x-common-deploy: &common-deploy
+  resources:
+    limits:
+      memory: 1024M
+
+x-common-depends: &common-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_started
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bhukkad-postgres
+    environment:
+      POSTGRES_DB: core
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_pass}
+    ports:
+      - 5432:5432
+    volumes:
+      - bhukkad-pgdata:/var/lib/postgresql/data
+      - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d core"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  redis:
+    image: redis:7-alpine
+    container_name: bhukkad-redis
+    command:
+      - redis-server
+      - --save
+      - ''
+      - --appendonly
+      - 'no'
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - volatile-lru
+    ports:
+      - 6379:6379
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # Identity service - always running (core auth)
+  identity:
+    profiles: ["core", "full"]
+    restart: on-failure
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
+      APP_BOOTSTRAPADMIN_ENABLED: 'true'
+      APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
+      APP_BOOTSTRAPADMIN_PASSWORD: ${APP_BOOTSTRAPADMIN_PASSWORD:-Admin@123456}
+      APP_SECURITY_PASSWORD_ENCODER_ALGORITHM: bcrypt
+    deploy: *common-deploy
+    depends_on: *common-depends
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: identity
+    container_name: bhukkad-identity
+    image: bhukkad/identity:local
+
+  # Commerce service - order + payment + delivery merged
+  commerce:
+    profiles: ["full"]
+    restart: on-failure
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      COMMERCE_DB_URL: jdbc:postgresql://postgres:5432/commerce
+      CATALOG_SERVICE_URL: http://catalog:8080
+      ENGAGEMENT_SERVICE_URL: http://engagement:8080
+      ADMIN_SERVICE_URL: http://admin:8080
+    deploy: *common-deploy
+    depends_on: *common-depends
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: commerce
+    container_name: bhukkad-commerce
+    image: bhukkad/commerce:local
+
+  # Catalog service - restaurant + search + personalization merged
+  catalog:
+    profiles: ["full"]
+    restart: on-failure
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalog
+      COMMERCE_SERVICE_URL: http://commerce:8080
+      ENGAGEMENT_SERVICE_URL: http://engagement:8080
+      ADMIN_SERVICE_URL: http://admin:8080
+    deploy: *common-deploy
+    depends_on: *common-depends
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: catalog
+    container_name: bhukkad-catalog
+    image: bhukkad/catalog:local
+
+  # Engagement service - social + growth + referral + survey + notification + realtime
+  engagement:
+    profiles: ["full"]
+    restart: on-failure
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      ENGAGEMENT_DB_URL: jdbc:postgresql://postgres:5432/engagement
+      COMMERCE_SERVICE_URL: http://commerce:8080
+      CATALOG_SERVICE_URL: http://catalog:8080
+      ADMIN_SERVICE_URL: http://admin:8080
+    deploy: *common-deploy
+    depends_on: *common-depends
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: engagement
+    container_name: bhukkad-engagement
+    image: bhukkad/engagement:local
+
+  # Admin service - admin-analytics + supportticket merged
+  admin:
+    profiles: ["full"]
+    restart: on-failure
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      ADMIN_DB_URL: jdbc:postgresql://postgres:5432/admin
+      COMMERCE_SERVICE_URL: http://commerce:8080
+      CATALOG_SERVICE_URL: http://catalog:8080
+      ENGAGEMENT_SERVICE_URL: http://engagement:8080
+    command: ["sh", "-c", "exec java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -XX:+UseStringDeduplication -Xlog:gc*:file=/tmp/logs/bhukkad/gc.log:time,uptime:filecount=5,filesize=20M -Djava.security.egd=file:/dev/./urandom -Dspring.profiles.active=local -jar /app/app.jar"]
+    deploy: *common-deploy
+    depends_on: *common-depends
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: admin
+    container_name: bhukkad-admin
+    image: bhukkad/admin:local
+
+  # Gateway - always running (entry point)
+  gateway:
+    profiles: ["core", "full"]
+    restart: on-failure
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      IDENTITY_SERVICE_URL: http://identity:8080
+      COMMERCE_SERVICE_URL: http://commerce:8080
+      CATALOG_SERVICE_URL: http://catalog:8080
+      ENGAGEMENT_SERVICE_URL: http://engagement:8080
+      ADMIN_SERVICE_URL: http://admin:8080
+    deploy: *common-deploy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      identity:
+        condition: service_started
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: gateway
+    container_name: bhukkad-gateway
+    image: bhukkad/gateway:local
+    ports:
+      - 8095:8080
+
+volumes:
+  bhukkad-pgdata:
+    name: bhukkad_pgdata_local

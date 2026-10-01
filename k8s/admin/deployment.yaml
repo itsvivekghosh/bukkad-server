@@ -1,0 +1,220 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bhukkad-admin
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: admin
+spec:
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: admin
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: admin
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8083"
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: admin
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bhukkad
+              component: admin
+      serviceAccountName: bhukkad-app
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: bhukkad-admin
+          image: ghcr.io/bhukkad/admin:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+              name: http
+          envFrom:
+            - configMapRef:
+                name: bhukkad-config
+          env:
+            - name: SERVER_PORT
+              value: "8083"
+            - name: WAIT_FOR_SERVICES
+              value: "false"
+            - name: HEALTH_PATH
+              value: /api/v1/health/ping
+            - name: ADMIN_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: ADMIN_DB_URL
+            - name: ADMIN_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: ADMIN_DB_USERNAME
+            - name: ADMIN_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: ADMIN_DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: JWT_SECRET
+            - name: SERVICE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: SERVICE_JWT_SECRET
+            - name: JWKS_URL
+              value: http://bhukkad-identity/.well-known/jwks.json
+            - name: COMMERCE_SERVICE_URL
+              value: http://bhukkad-commerce.bhukkad.svc.cluster.local
+            - name: CATALOG_SERVICE_URL
+              value: http://bhukkad-catalog.bhukkad.svc.cluster.local
+            - name: ENGAGEMENT_SERVICE_URL
+              value: http://bhukkad-engagement.bhukkad.svc.cluster.local
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseContainerSupport
+                -XX:MaxRAMPercentage=75.0
+                -XX:+UseG1GC
+                -XX:MaxGCPauseMillis=200
+                -XX:+ExitOnOutOfMemoryError
+                -XX:+UseStringDeduplication
+                -Djava.security.egd=file:/dev/./urandom
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1024Mi
+            limits:
+              cpu: 1500m
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-admin
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: admin
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8083
+      protocol: TCP
+      name: http
+  selector:
+    app: bhukkad
+    component: admin
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bhukkad-admin-pdb
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: admin
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: admin
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bhukkad-admin-hpa
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: admin
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bhukkad-admin
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Pods
+      pods:
+        metric:
+          name: http_server_requests_seconds_count
+        target:
+          type: AverageValue
+          averageValue: 800
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+      selectPolicy: Max

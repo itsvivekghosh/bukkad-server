@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * Deferred in-process implementation of {@link WalletCreditPort}. The wallet
  * domain (authoritative {@code wallet_balances} ledger) is not yet extracted,
  * so crediting is a no-op that logs; the monolith working copy under
- * {@code com.bhukkad.referral.ReferralService} still performs the real bonus
+ * {@code com.bhukkad.identity.referral.ReferralService} still performs the real bonus
  * credits during the transition.
  *
  * <p>TODO (wallet extraction wave): replace with an outbox event or a

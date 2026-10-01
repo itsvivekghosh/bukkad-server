@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: bhukkad-redis
   namespace: bhukkad
@@ -7,13 +7,12 @@ metadata:
     app: bhukkad
     component: redis
 spec:
-   replicas: 3
+  serviceName: bhukkad-redis-headless
+  replicas: 3
   selector:
     matchLabels:
       app: bhukkad
       component: redis
-  strategy:
-    type: Recreate
   template:
     metadata:
       labels:
@@ -42,21 +41,6 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
-          # The app is always given REDIS_PASSWORD (spring.data.redis.password),
-          # so the server MUST require the same password -- otherwise Lettuce
-          # sends AUTH to a passwordless server, the `redis` health indicator
-          # fails, and since the readiness group is `readinessState,db,redis`
-          # every app pod stays NotReady forever.
-          #
-          # requirepass is injected on the command line rather than baked into
-          # redis.conf so the secret is never stored in a ConfigMap. `sh -c` is
-          # required for $REDIS_PASSWORD expansion.
-          #
-          # TLS (k8s/tls/README-TLS.md): TLS_ARGS appends the tls-port ONLY
-          # when TLS_ENABLED=true; with the default false this exec line is
-          # byte-identical to the pre-TLS launcher. During the cutover window
-          # BOTH ports answer (6379 plaintext as shipped today + 6380 TLS);
-          # the plaintext port is retired per README step 6, not by this flag.
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -68,6 +52,10 @@ spec:
                 configMapKeyRef:
                   name: bhukkad-config
                   key: TLS_ENABLED
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           command:
             - sh
             - -c
@@ -76,17 +64,19 @@ spec:
               if [ "${TLS_ENABLED:-false}" = "true" ]; then
                 TLS_ARGS="--tls-port 6380 --tls-cert-file /etc/redis/tls/tls.crt --tls-key-file /etc/redis/tls/tls.key --tls-ca-cert-file /etc/redis/tls/ca.crt --tls-auth-clients no"
               fi
-              exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD" ${TLS_ARGS}
+              # First pod (ordinal 0) is master, others are replicas
+              if [ "$(echo $POD_NAME | grep -oE '[0-9]+$')" = "0" ]; then
+                exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD" ${TLS_ARGS}
+              else
+                exec redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD" --replicaof bhukkad-redis-0.bhukkad-redis-headless 6379 ${TLS_ARGS}
+              fi
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
+              cpu: 200m
               memory: 512Mi
-          # Probes must authenticate now that requirepass is set: an
-          # unauthenticated PING replies NOAUTH, which would fail every probe.
-          # `grep -q PONG` makes the probe independent of redis-cli exit codes.
+            limits:
+              cpu: 1000m
+              memory: 2Gi
           startupProbe:
             exec:
               command:
@@ -95,7 +85,7 @@ spec:
                 - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
             periodSeconds: 5
             timeoutSeconds: 5
-            failureThreshold: 30
+            failureThreshold: 60
           livenessProbe:
             exec:
               command:
@@ -118,15 +108,10 @@ spec:
             - name: redis-config
               mountPath: /etc/redis/redis.conf
               subPath: redis.conf
-            # cert-manager leaf (Secret bhukkad-redis-tls, k8s/tls/) — OPTIONAL
-            # and only READ when TLS_ENABLED=true (README-TLS.md).
             - name: tls-cert
               mountPath: /etc/redis/tls
               readOnly: true
       volumes:
-        - name: redis-data
-          persistentVolumeClaim:
-            claimName: bhukkad-redis-pvc
         - name: redis-config
           configMap:
             name: bhukkad-redis-config
@@ -135,3 +120,46 @@ spec:
             secretName: bhukkad-redis-tls
             optional: true
             defaultMode: 0440
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        storageClassName: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-redis-headless
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redis
+spec:
+  clusterIP: None
+  selector:
+    app: bhukkad
+    component: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bhukkad-redis
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: redis
+spec:
+  selector:
+    app: bhukkad
+    component: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

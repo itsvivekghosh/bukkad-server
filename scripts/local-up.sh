@@ -18,6 +18,8 @@ export APP_AUTH_SERVICE_JWT_SECRET="${APP_AUTH_JWT_SECRET}"
 # so the local profile must receive the canonical variable names too.
 export JWT_SECRET="${APP_AUTH_JWT_SECRET}"
 export SERVICE_JWT_SECRET="${APP_AUTH_SERVICE_JWT_SECRET}"
+export JWKS_URL="http://localhost:8081/.well-known/jwks.json"
+export IDENTITY_JWKS_URL="http://localhost:8081/.well-known/jwks.json"
 export SPRING_PROFILES_ACTIVE=local
 export TRACING_SAMPLE_PROBABILITY=0.0
 export EVENTS_EXTERNAL_ENABLED=false
@@ -27,65 +29,64 @@ export SPRING_DATA_REDIS_HOST=127.0.0.1
 # identity needs the dev admin bootstrap the e2e suite logs in with
 export APP_BOOTSTRAPADMIN_ENABLED=true
 export APP_BOOTSTRAPADMIN_EMAIL=admin@bhukkad.dev
-export APP_BOOTSTRAPADMIN_PASSWORD='Admin@123456'
+export APP_BOOTSTRAPADMIN_PASSWORD='Admin@12345678'
 
-# Service-mesh URLs: in Docker the compose file injects container DNS names
-# (payment:8080, order:8092, ...). Host JVMs must talk to each other over
-# localhost instead — otherwise mesh calls (order→payment charge, survey→order
-# ownership oracle, delivery→payment earnings, admin→identity/ops proxies)
-# die on UnknownHostException and surface as 500s in the API suite.
-export RESTAURANT_SERVICE_URL=http://localhost:8091
-export ORDER_SERVICE_URL=http://localhost:8092
-export PAYMENT_SERVICE_URL=http://localhost:8093
-export DELIVERY_SERVICE_URL=http://localhost:8094
+# Service-mesh URLs: consolidated services expose multiple domains on single ports
 export IDENTITY_SERVICE_URL=http://localhost:8081
-export SUPPORTTICKET_SERVICE_URL=http://localhost:8086
-export NOTIFICATION_SERVICE_URL=http://localhost:8085
-export ADMIN_ANALYTICS_SERVICE_URL=http://localhost:8087
-export SEARCH_SERVICE_URL=http://localhost:8082
+export CATALOG_SERVICE_URL=http://localhost:8082
+export COMMERCE_SERVICE_URL=http://localhost:8091
+export ENGAGEMENT_SERVICE_URL=http://localhost:8083
+export ADMIN_SERVICE_URL=http://localhost:8087
+export GATEWAY_URL=http://localhost:8095
 
-# --- local stack canonical mesh URLs (restructured yml placeholders read *_BASE_URL;
-# gateway routes still read the legacy *_SERVICE_URL — both exported to cover all
-# consumers, mirroring the k8s ConfigMap) ---
+# Mesh URLs for gateway routing (matching k8s ConfigMap)
 export IDENTITY_BASE_URL=http://localhost:8081
-export RESTAURANT_BASE_URL=http://localhost:8091
-export ORDER_BASE_URL=http://localhost:8092
-export PAYMENT_BASE_URL=http://localhost:8093
-export DELIVERY_BASE_URL=http://localhost:8094
-export NOTIFICATION_BASE_URL=http://localhost:8085
-export SUPPORT_BASE_URL=http://localhost:8086
-export ADMIN_ANALYTICS_BASE_URL=http://localhost:8087
-export SEARCH_BASE_URL=http://localhost:8082
-export PERSONALIZATION_BASE_URL=http://localhost:8088
-export GROWTH_BASE_URL=http://localhost:8089
-export REALTIME_BASE_URL=http://localhost:8077
-export SURVEY_BASE_URL=http://localhost:8083
-export REFERRAL_BASE_URL=http://localhost:8084
-export APP_SERVICES_PAYMENT_URL=http://localhost:8093
-export SURVEY_SERVICE_URL=http://localhost:8083
-export REFERRAL_SERVICE_URL=http://localhost:8084
-export REALTIME_SERVICE_URL=http://localhost:8077
-export GROWTH_SERVICE_URL=http://localhost:8089
-export SOCIAL_SERVICE_URL=http://localhost:8090
-export SOCIAL_BASE_URL=http://localhost:8090
-# delivery's PaymentServiceClient reads app.services.payment.url (no
-# PAYMENT_SERVICE_URL indirection): env alias for the same target.
-export APP_SERVICES_PAYMENT_URL=http://localhost:8093
-# supportticket's OrderServiceClient reads app.services.order.url the same
-# way (its yml placeholder is nested under payment by mistake, so the
-# ORDER_SERVICE_URL env never reaches it) — alias for the order target.
-export APP_SERVICES_ORDER_URL=http://localhost:8092
+export CATALOG_BASE_URL=http://localhost:8082
+export COMMERCE_BASE_URL=http://localhost:8091
+export ENGAGEMENT_BASE_URL=http://localhost:8083
+export ADMIN_BASE_URL=http://localhost:8087
+export GATEWAY_BASE_URL=http://localhost:8095
 
-# "name port" pairs (gateway port overridable via GATEWAY_PORT)
+# Legacy mesh URLs for backward compatibility (point to consolidated services)
+export RESTAURANT_SERVICE_URL=http://localhost:8082
+export ORDER_SERVICE_URL=http://localhost:8091
+export PAYMENT_SERVICE_URL=http://localhost:8091
+export DELIVERY_SERVICE_URL=http://localhost:8091
+export SEARCH_SERVICE_URL=http://localhost:8082
+export PERSONALIZATION_SERVICE_URL=http://localhost:8082
+export SURVEY_SERVICE_URL=http://localhost:8083
+export REFERRAL_SERVICE_URL=http://localhost:8083
+export NOTIFICATION_SERVICE_URL=http://localhost:8083
+export REALTIME_SERVICE_URL=http://localhost:8083
+export GROWTH_SERVICE_URL=http://localhost:8083
+export SOCIAL_SERVICE_URL=http://localhost:8083
+export SUPPORTTICKET_SERVICE_URL=http://localhost:8087
+export ADMIN_ANALYTICS_SERVICE_URL=http://localhost:8087
+
+# Local stack canonical mesh URLs
+export IDENTITY_BASE_URL=http://localhost:8081
+export CATALOG_BASE_URL=http://localhost:8082
+export COMMERCE_BASE_URL=http://localhost:8091
+export ENGAGEMENT_BASE_URL=http://localhost:8083
+export ADMIN_BASE_URL=http://localhost:8087
+export GATEWAY_BASE_URL=http://localhost:8095
+
+# Delivery's PaymentServiceClient reads app.services.payment.url
+export APP_SERVICES_PAYMENT_URL=http://localhost:8091
+# Supportticket's OrderServiceClient reads app.services.order.url
+export APP_SERVICES_ORDER_URL=http://localhost:8091
+
+# Consolidated services: "name port" pairs (gateway port overridable via GATEWAY_PORT)
 ALL_SERVICES=(
-  "identity 8081" "search 8082" "survey 8083" "referral 8084"
-  "notification 8085" "supportticket 8086" "admin-analytics 8087"
-  "personalization 8088" "growth 8089" "social 8090" "restaurant 8091" "order 8092"
-  "payment 8093" "delivery 8094" "realtime 8077" "gateway ${GATEWAY_PORT:-8095}"
+  "identity 8081"
+  "catalog 8082"
+  "commerce 8091"
+  "engagement 8083"
+  "admin 8087"
+  "gateway ${GATEWAY_PORT:-8095}"
 )
 
 # Optional positional args restrict the launch to a subset of services
-# (canonical ports are kept so mesh URLs still resolve): local-up.sh identity gateway
 SERVICES=()
 if [ "$#" -gt 0 ]; then
   for entry in "${ALL_SERVICES[@]}"; do
@@ -104,9 +105,7 @@ else
   SERVICES=("${ALL_SERVICES[@]}")
 fi
 
-# Use JDK 21 to avoid ARM64 C1 JIT crash on OpenJDK 17 (SIGSEGV during
-# spring-kafka/shedlock auto-configuration). JDK 21's C1 compiler no longer
-# crashes, so JIT can remain enabled and startup is materially faster.
+# Use JDK 21 to avoid ARM64 C1 JIT crash on OpenJDK 17
 export JAVA_HOME="/Users/vivekghosh/Library/Java/JavaVirtualMachines/ms-21.0.12/Contents/Home"
 export PATH="$JAVA_HOME/bin:$PATH"
 
@@ -115,35 +114,30 @@ mkdir -p "$LOG_DIR"
 PIDFILE=.local-stack.pids
 : > "$PIDFILE"
 # Lean JVM defaults mirror the memory-tight container tuning.
-#
-# JIT is intentionally left enabled because the ARM64 C1 JIT crash was
-# specific to OpenJDK 17.0.x and is fixed in JDK 21. Keeping JIT enabled
-# avoids the interpreter-only mode that made local boots take 30+ minutes.
-# On a roomy host override for faster boots, e.g.: LOCAL_JVM_OPTS="-Xmx512m"
-LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms32m -Xmx224m -XX:MaxMetaspaceSize=160m -XX:+UseSerialGC}"
+LEAN_OPTS="${LOCAL_JVM_OPTS:--Xms128m -Xmx512m -XX:MaxMetaspaceSize=256m -XX:+UseSerialGC}"
 
 echo "== launching ${#SERVICES[@]} JVMs (logs: $LOG_DIR/<service>.log) =="
 for entry in "${SERVICES[@]}"; do
   name=${entry% *}
   port=${entry##* }
-  # Search only the service's own target dir: a repo-wide find dies under
-  # `set -e` when it hits unreadable (root-owned) directories like .m2repo.
   jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0-exec.jar" 2>/dev/null | head -1 || true)
   if [ -z "$jar" ]; then
     jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
   fi
   [ -n "$jar" ] || { echo "MISSING JAR for $name — run: ./mvnw -f services/pom.xml package -DskipTests"; exit 1; }
-  java $LEAN_OPTS "-Dserver.port=$port" -Dspring.main.allow-bean-definition-overriding=true -jar "$jar" > "$LOG_DIR/$name.log" 2>&1 &
+java $LEAN_OPTS "-Dserver.port=$port" -Dspring.main.allow-bean-definition-overriding=true \
+    -Dapp.bootstrap-admin.enabled=true \
+    -Dapp.bootstrap-admin.email=admin@bhukkad.dev \
+    -Dapp.bootstrap-admin.password=Admin@12345678 \
+    -Dapp.bootstrap-admin.full-name="Platform Admin" \
+    -jar "$jar" > "$LOG_DIR/$name.log" 2>&1 &
   echo "$! $name" >> "$PIDFILE"
   # Stagger: 15 JVMs racing docker-proxy/Redis simultaneously cause connect
   # refusions at boot (observed as Lettuce 'Unable to connect' + hard-fail).
-  sleep 2
+  sleep 10
 done
 
 echo "== waiting for services to report healthy =="
-# The local profile sets logging.level.com.bhukkad=WARN, which suppresses the
-# "Started ... Application" INFO line — readiness is therefore probed on
-# /actuator/health (200/UP), not on the log.
 deadline=$(( $(date +%s) + 1800 ))
 count=${#SERVICES[@]}
 RESTARTED=" "
@@ -159,17 +153,19 @@ while true; do
       pid=$(awk -v n="$name" '$2==n{print $1}' "$PIDFILE")
       if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
         if case "$RESTARTED" in *" $name "*) false;; *) true;; esac; then
-          # Self-heal: one automatic restart — boot-storm connect refusals
-          # kill JVMs that lose the Redis/docker-proxy race; a restart on a
-          # quiet network succeeds (verified repeatedly by hand).
           echo "   $name died at boot — restarting once"
           RESTARTED="$RESTARTED$name "
-  jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0-exec.jar" 2>/dev/null | head -1 || true)
-  if [ -z "$jar" ]; then
-    jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
-  fi
+          jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0-exec.jar" 2>/dev/null | head -1 || true)
+          if [ -z "$jar" ]; then
+            jar=$(find "$PWD/services/${name}/target" -maxdepth 1 -name "${name}-1.0.0.jar" 2>/dev/null | head -1 || true)
+          fi
           if [ -n "$jar" ]; then
-            java $LEAN_OPTS "-Dserver.port=$port" -jar "$jar" >> "$LOG_DIR/$name.log" 2>&1 &
+            java $LEAN_OPTS "-Dserver.port=$port" -Dspring.main.allow-bean-definition-overriding=true \
+                -Dapp.bootstrap-admin.enabled=true \
+                -Dapp.bootstrap-admin.email=admin@bhukkad.dev \
+                -Dapp.bootstrap-admin.password=Admin@12345678 \
+                -Dapp.bootstrap-admin.full-name="Platform Admin" \
+                -jar "$jar" >> "$LOG_DIR/$name.log" 2>&1 &
             newpid=$!
             grep -v " $name\$" "$PIDFILE" > "$PIDFILE.tmp" && mv "$PIDFILE.tmp" "$PIDFILE"
             echo "$newpid $name" >> "$PIDFILE"
@@ -186,8 +182,6 @@ while true; do
   printf '   ready %d/%d\n' "$ok" "$count"
   [ "$ok" -eq "$count" ] && break
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    # Do not give up (a 600 s cap on a contended boot killed live JVMs):
-    # warn and keep watching, re-reporting every 5 minutes.
     echo "   STILL WAITING:$waiting (tip: LOCAL_JVM_OPTS can raise the dev heap)"
     deadline=$(( $(date +%s) + 300 ))
   fi
@@ -196,12 +190,14 @@ done
 
 echo "== local stack ready =="
 echo "   gateway: http://localhost:${GATEWAY_PORT:-8095}"
-echo "   logs:    $LOG_DIR/<service>.log"
+echo "   identity: http://localhost:8081"
+echo "   catalog:  http://localhost:8082"
+echo "   commerce: http://localhost:8091"
+echo "   engagement: http://localhost:8083"
+echo "   admin:    http://localhost:8087"
+echo "   logs:     $LOG_DIR/<service>.log"
 echo "   staying attached — Ctrl+C stops the stack (or: scripts/local-down.sh)"
 
-# Foreground supervisor: keep this script alive for the lifetime of the JVMs so
-# the stack (and whoever tracks this script) owns the whole tree. Signals sent
-# to the process group reach the service JVMs directly.
 trap '' HUP
 for pid_entry in $(awk '{print $1}' "$PIDFILE"); do
   wait "$pid_entry" 2>/dev/null || true

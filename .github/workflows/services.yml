@@ -95,7 +95,7 @@ jobs:
     needs: [pool-budget, http-client-guard, full-scan-guard, kustomize-gate]
     strategy:
       matrix:
-        service: [identity, restaurant, order, payment, delivery, notification, admin-analytics, gateway, search, survey, referral, supportticket]
+        service: [identity, commerce, catalog, engagement, admin, gateway]
     env:
       # Scan/sign/deploy knobs (feature #16): severities that fail the build,
       # and whether deploys consume the pushed digest instead of the sha tag.
@@ -120,7 +120,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v5
         with:
           distribution: temurin

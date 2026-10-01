@@ -67,6 +67,23 @@ class KafkaTopicParityTest {
             "admin-analytics", "admin.events.v1",
             "survey", "bhukkad.platform.events");
 
+    /**
+     * Logical producer name (the key used by {@link #PRODUCER_TOPICS} and
+     * {@link #CATALOG_EVENTS}) to the module that now physically contains it
+     * after the 16-&gt;5 consolidation. Several logical producers share one
+     * application.yml, so the configured {@code platform-topic} can only be
+     * asserted for the module that OWNS that value.
+     */
+    private static final Map<String, String> PRODUCER_MODULE = Map.of(
+            "order", "commerce",
+            "payment", "commerce",
+            "delivery", "commerce",
+            "identity", "identity",
+            "restaurant", "catalog",
+            "notification", "engagement",
+            "admin-analytics", "admin",
+            "survey", "engagement");
+
     /** Catalog event type → producing service (docs/event-catalog.md "Event types"). */
     private static final Map<String, String> CATALOG_EVENTS = Map.ofEntries(
             Map.entry("CustomerRegistered", "identity"),
@@ -96,23 +113,23 @@ class KafkaTopicParityTest {
     private static Map<String, Map<String, Map<String, String>>> buildListeners() {
         Map<String, Map<String, Map<String, String>>> listeners = new LinkedHashMap<>();
         // services/notification/.../NotificationEventConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/notification/src/main/java/com/bhukkad/notification/infrastructure/messaging/NotificationEventConsumer.java",
+        listeners.put("services/engagement/src/main/java/com/bhukkad/engagement/notification/infrastructure/messaging/NotificationEventConsumer.java",
                 Map.of("order.events.v1", Map.of("OrderCreated", "order")));
         // services/realtime/.../OrderLiveEventConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/realtime/src/main/java/com/bhukkad/realtime/domain/service/impl/OrderLiveEventConsumer.java",
+        listeners.put("services/engagement/src/main/java/com/bhukkad/engagement/realtime/domain/service/impl/OrderLiveEventConsumer.java",
                 Map.of("order.events.v1", Map.of("OrderCreated", "order", "OrderStatusChanged", "order")));
         // services/admin-analytics/.../AdminCqrsEventConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/admin-analytics/src/main/java/com/bhukkad/admin/infrastructure/messaging/AdminCqrsEventConsumer.java",
+        listeners.put("services/admin/src/main/java/com/bhukkad/admin/analytics/infrastructure/messaging/AdminCqrsEventConsumer.java",
                 Map.of("order.events.v1", Map.of("OrderCreated", "order")));
         // services/survey/.../OrderItemsSnapshotConsumer.java (TOPIC_ORDER_EVENTS)
-        listeners.put("services/survey/src/main/java/com/bhukkad/survey/infrastructure/messaging/OrderItemsSnapshotConsumer.java",
+        listeners.put("services/engagement/src/main/java/com/bhukkad/engagement/survey/infrastructure/messaging/OrderItemsSnapshotConsumer.java",
                 Map.of("order.events.v1", Map.of("ORDER_ITEMS_SNAPSHOT", "order")));
         // services/order/.../PaymentSagaEventConsumer.java (TOPIC_PAYMENT_EVENTS + TOPIC_ORDER_EVENTS)
-        listeners.put("services/order/src/main/java/com/bhukkad/order/domain/service/impl/PaymentSagaEventConsumer.java",
+        listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/order/domain/service/impl/PaymentSagaEventConsumer.java",
                 Map.of("payment.events.v1", Map.of("payment_settled", "payment", "payment_failed", "payment"),
                         "order.events.v1", Map.of("stock_release_requested", "order")));
         // services/search/.../SearchSyncEventConsumer.java (TOPIC_RESTAURANT_EVENTS)
-        listeners.put("services/search/src/main/java/com/bhukkad/search/infrastructure/messaging/SearchSyncEventConsumer.java",
+        listeners.put("services/catalog/src/main/java/com/bhukkad/catalog/search/infrastructure/messaging/SearchSyncEventConsumer.java",
                 Map.of("restaurant.events.v1",
                         Map.of("restaurant_updated", "restaurant",
                                 "menu_item_changed", "restaurant",
@@ -121,9 +138,9 @@ class KafkaTopicParityTest {
         // everyListenerTopicIsProducedBySomeService; per-type pairing omitted
         // (payment_requested is order-produced; dispute_resolved has no
         // producer yet — cross-batch, see class javadoc).
-        listeners.put("services/payment/src/main/java/com/bhukkad/payment/infrastructure/messaging/PaymentRequestedConsumer.java",
+        listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/payment/infrastructure/messaging/PaymentRequestedConsumer.java",
                 Map.of("payment.events.v1", Map.of()));
-        listeners.put("services/payment/src/main/java/com/bhukkad/payment/infrastructure/messaging/DisputeResolvedConsumer.java",
+        listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/payment/infrastructure/messaging/DisputeResolvedConsumer.java",
                 Map.of("payment.events.v1", Map.of()));
         return listeners;
     }
@@ -160,15 +177,37 @@ class KafkaTopicParityTest {
         }
     }
 
-    /** The yml on disk must keep matching the catalog's producer topic table. */
+    /**
+     * The yml on disk must keep matching the catalog's producer topic table.
+     *
+     * <p>Only producers whose topic comes from {@code platform-topic} can be
+     * asserted this way. After the 16-&gt;5 merge a module hosts several logical
+     * producers but owns exactly ONE {@code platform-topic} value, so
+     * {@code payment} and {@code delivery} (now inside commerce) and
+     * {@code restaurant} (now inside catalog) are excluded here — they pin their
+     * topic in code via a constant, which {@link #listenerTopics_matchTheConsumerSourceFiles()}
+     * verifies indirectly by checking those constants are the topics real
+     * listeners subscribe to.
+     */
     @Test
     void producerTopicConfigMatchesTheCatalog() {
         for (Map.Entry<String, String> expected : PRODUCER_TOPICS.entrySet()) {
+            if (!CONFIG_OWNED_PRODUCERS.contains(expected.getKey())) {
+                continue;
+            }
             assertThat(configuredProducerTopic(expected.getKey()))
                     .as("services/%s application.yml platform-topic", expected.getKey())
                     .isEqualTo(expected.getValue());
         }
     }
+
+    /**
+     * Logical producers whose topic is declared by the host module's
+     * {@code app.events.external.kafka.platform-topic}. Everything else pins a
+     * constant because its module is shared with another logical producer.
+     */
+    private static final java.util.Set<String> CONFIG_OWNED_PRODUCERS = java.util.Set.of(
+            "order", "identity", "notification", "admin-analytics");
 
     // ── 2. consumer side ──────────────────────────────────────────────────────
 
@@ -200,7 +239,7 @@ class KafkaTopicParityTest {
                 for (Map.Entry<String, String> handled : subscription.getValue().entrySet()) {
                     String eventType = handled.getKey();
                     String producer = handled.getValue();
-                    assertThat(configuredProducerTopic(producer))
+                    assertThat(effectiveProducerTopic(producer))
                             .as("%s handles %s (produced by %s) — producer topic must equal "
                                             + "the listener topic %s",
                                     listener.getKey(), eventType, producer, listenerTopic)
@@ -247,8 +286,28 @@ class KafkaTopicParityTest {
      * service's application.yml, resolving {@code ${ENV:default}} placeholders
      * to their default (topics contain no ':' so first-colon split is safe).
      */
+    /**
+     * The topic a logical producer actually publishes to.
+     *
+     * <p>Constant-owned producers ({@link #CONSTANT_OWNED_PRODUCER_TOPICS})
+     * pin their topic in code because after the 16-&gt;5 merge their module
+     * shares one {@code platform-topic} with another logical producer — reading
+     * the yml would report the wrong topic. Everything else reads its host
+     * module's configured value.
+     */
+    private static String effectiveProducerTopic(String producer) {
+        String constant = CONSTANT_OWNED_PRODUCER_TOPICS.get(producer);
+        return constant != null ? constant : configuredProducerTopic(producer);
+    }
+
+    private static final Map<String, String> CONSTANT_OWNED_PRODUCER_TOPICS = Map.of(
+            "payment", "payment.events.v1",
+            "delivery", "delivery.events.v1",
+            "restaurant", "restaurant.events.v1",
+            "survey", "bhukkad.platform.events");
+
     private static String configuredProducerTopic(String service) {
-        Path yml = REPO_ROOT.resolve("services").resolve(service)
+        Path yml = REPO_ROOT.resolve("services").resolve(PRODUCER_MODULE.getOrDefault(service, service))
                 .resolve("src/main/resources/application.yml");
         assertThat(yml).as("application.yml of %s", service).exists();
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bhukkad-postgres-ci
+    environment:
+      POSTGRES_DB: bhukkad
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pass
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d bhukkad"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - bhukkad-ci
+
+  redis:
+    image: redis:7-alpine
+    container_name: bhukkad-redis-ci
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /data
+    networks:
+      - bhukkad-ci
+
+networks:
+  bhukkad-ci:
+    driver: bridge

@@ -19,6 +19,7 @@ spec:
         app: bhukkad
         component: postgres-read
     spec:
+      terminationGracePeriodSeconds: 90
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -53,39 +54,53 @@ spec:
             - postgres
             - -c
             - config_file=/etc/postgresql/postgresql.conf
-          readinessProbe:
-            exec:
-              command:
-                - pg_isready
-                - -U
-                - bhukkad
-            initialDelaySeconds: 15
-            periodSeconds: 5
-          livenessProbe:
-            exec:
-              command:
-                - pg_isready
-                - -U
-                - bhukkad
-            initialDelaySeconds: 90
-            periodSeconds: 10
-            failureThreshold: 5
-          startupProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 10
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    # Wait for primary to be ready, then set up replication
+                    until pg_isready -h bhukkad-postgresql -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; do
+                      sleep 2
+                    done
+                    # Create standby.signal to indicate this is a replica
+                    touch /var/lib/postgresql/data/pgdata/standby.signal
+                    # Configure primary connection info
+                    echo "primary_conninfo = 'host=bhukkad-postgresql port=5432 user=repl password=$POSTGRES_REPLICATION_PASSWORD application_name=$HOSTNAME'" >> /etc/postgresql/postgresql.conf
+                    echo "hot_standby = on" >> /etc/postgresql/postgresql.conf
+                    echo "wal_receiver_status_interval = 10s" >> /etc/postgresql/postgresql.conf
           resources:
             requests:
-              cpu: 300m
-              memory: 1Gi
-            limits:
-              cpu: "1500m"
+              cpu: 500m
               memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+      volumes:
+        - name: postgres-config
+          configMap:
+            name: bhukkad-postgres-config
+            items:
+              - key: postgresql.conf
+                path: postgresql.conf
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        storageClassName: standard
 ---
 apiVersion: v1
 kind: Service

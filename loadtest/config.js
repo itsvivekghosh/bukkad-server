@@ -11,7 +11,7 @@
 
 import http from 'k6/http';
 
-export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8095';
 export const TEST_EMAIL = __ENV.TEST_EMAIL || 'loadtest@example.com';
 export const TEST_PASSWORD = __ENV.TEST_PASSWORD || 'LoadTest@123456';
 
@@ -27,15 +27,32 @@ export const baseThresholds = {
  * Authenticates once and returns the Bearer access token. Fails the scenario
  * fast if the load-test account cannot sign in, so a broken credential secret
  * is surfaced immediately instead of silently skewing every request.
+ * 
+ * Uses a per-VU email to avoid rate limiting on the auth endpoint.
  */
-export function login() {
+export function login(vuId = 0) {
+    const email = `loadtest-vu${vuId}@bhukkad.dev`;
     const res = http.post(`${BASE_URL}/api/v1/auth/login`, JSON.stringify({
-        email: TEST_EMAIL,
+        email: email,
         password: TEST_PASSWORD,
     }), { headers: { 'Content-Type': 'application/json' } });
 
     if (res.status !== 200) {
-        throw new Error(`load-test login failed: HTTP ${res.status} ${res.body}`);
+        // Try fallback to the default test account
+        const fallbackRes = http.post(`${BASE_URL}/api/v1/auth/login`, JSON.stringify({
+            email: TEST_EMAIL,
+            password: TEST_PASSWORD,
+        }), { headers: { 'Content-Type': 'application/json' } });
+        
+        if (fallbackRes.status !== 200) {
+            throw new Error(`load-test login failed: HTTP ${fallbackRes.status} ${fallbackRes.body}`);
+        }
+        const payload = fallbackRes.json();
+        const data = payload.data || payload;
+        if (!data || !data.token) {
+            throw new Error(`load-test login did not return a token: ${fallbackRes.body}`);
+        }
+        return data.token;
     }
     const payload = res.json();
     const data = payload.data || payload;
@@ -52,6 +69,23 @@ export function login() {
 export function authedGet(token, path) {
     return http.get(`${BASE_URL}${path}`, {
         headers: { Authorization: `Bearer ${token}` },
+        tags: { endpoint: path },
+    });
+}
+
+/**
+ * POST helper with auth and idempotency key
+ */
+export function authedPost(token, path, body, idempotencyKey) {
+    const headers = { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+    };
+    if (idempotencyKey) {
+        headers['Idempotency-Key'] = idempotencyKey;
+    }
+    return http.post(`${BASE_URL}${path}`, JSON.stringify(body), {
+        headers: headers,
         tags: { endpoint: path },
     });
 }

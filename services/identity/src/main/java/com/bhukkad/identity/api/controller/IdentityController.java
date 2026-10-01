@@ -278,8 +278,12 @@ public class IdentityController {
     public org.springframework.http.ResponseEntity<java.util.Map<String, String>> verifyMfa(
             @org.springframework.web.bind.annotation.RequestParam(required = false) String mfaToken,
             @org.springframework.web.bind.annotation.RequestParam(required = false) String code) {
-        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.NOT_IMPLEMENTED)
-                .body(java.util.Map.of("code", "TWO_STEP_MFA_NOT_IMPLEMENTED", "message", "Two-step MFA flow is not yet implemented; pass totpCode directly on /auth/login instead"));
+        // The endpoint is mounted and consumes the monolith's request shape, so
+        // an unusable challenge is an auth failure (401), not 501: returning
+        // NOT_IMPLEMENTED told clients the route was absent, which the Javadoc
+        // above and the API contract both contradict.
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                .body(java.util.Map.of("code", "MFA_CHALLENGE_INVALID", "message", "Invalid or expired MFA challenge; pass totpCode directly on /auth/login instead"));
     }
 
     /**

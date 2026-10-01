@@ -5,15 +5,17 @@ metadata:
   namespace: bhukkad
   labels:
     app: bhukkad
-    component: redis
+    component: redis-sentinel
 data:
   sentinel.conf: |
     port 26379
-    sentinel monitor bhukkad-master bhukkad-redis 6379 2
+    sentinel monitor bhukkad-master bhukkad-redis-0.bhukkad-redis-headless 6379 2
     sentinel down-after-milliseconds bhukkad-master 5000
     sentinel failover-timeout bhukkad-master 10000
     sentinel parallel-syncs bhukkad-master 1
     sentinel auth-pass bhukkad-master ${REDIS_PASSWORD}
+    sentinel announce-ip $(POD_IP)
+    sentinel announce-port 26379
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -35,20 +37,27 @@ spec:
         app: bhukkad
         component: redis-sentinel
     spec:
-      terminationGracePeriodSeconds: 90
+      terminationGracePeriodSeconds: 30
       containers:
         - name: sentinel
           image: redis:7-alpine
           command:
             - sh
             - -c
-            - cp /etc/redis/sentinel.conf /tmp/sentinel.conf && sed -i "s|\${REDIS_PASSWORD}|${REDIS_PASSWORD}|g" /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf
+            - |
+              cp /etc/redis/sentinel.conf /tmp/sentinel.conf
+              sed -i "s|\${REDIS_PASSWORD}|$REDIS_PASSWORD|g" /tmp/sentinel.conf
+              redis-sentinel /tmp/sentinel.conf
           env:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: REDIS_PASSWORD
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           ports:
             - containerPort: 26379
           volumeMounts:

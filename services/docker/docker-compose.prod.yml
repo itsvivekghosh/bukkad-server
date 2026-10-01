@@ -1,0 +1,282 @@
+# Production environment - Production-ready with proper resources, no debug features
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+# Requires: External PostgreSQL, Redis, Kafka (managed services)
+# Or run with: docker-compose -f docker-compose.prod.yml -f docker-compose.infra.yml up -d
+
+name: bhukkad-prod
+
+x-common-env: &common-env
+  SPRING_PROFILES_ACTIVE: prod
+  SERVER_PORT: '8080'
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  SPRING_DATA_REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  REDIS_SSL: ${REDIS_SSL:-false}
+  JWT_SECRET: ${JWT_SECRET}
+  # RS256 verification. Without this the platform validator falls back to
+  # HMAC, every gateway-forwarded request is rejected 401, and the order
+  # circuit breaker trips (surfacing as a 503 fallback).
+  JWKS_URL: ${JWKS_URL:-http://identity:8080/.well-known/jwks.json}
+  SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET}
+  TRACING_SAMPLE_PROBABILITY: ${TRACING_SAMPLE_PROBABILITY:-0.05}
+  EVENTS_EXTERNAL_ENABLED: 'true'
+  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+  JAVA_OPTS: >-
+    -XX:+UseContainerSupport
+    -XX:MaxRAMPercentage=75.0
+    -XX:+UseG1GC
+    -XX:MaxGCPauseMillis=200
+    -XX:+ExitOnOutOfMemoryError
+    -XX:+UseStringDeduplication
+    -Djava.security.egd=file:/dev/./urandom
+    -Dserver.address=0.0.0.0
+    -Dspring.jmx.enabled=false
+    -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration,org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration,org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration,org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration,org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
+  SERVER_ADDRESS: 0.0.0.0
+
+x-common-deploy: &common-deploy
+  resources:
+    limits:
+      memory: 2G
+    reservations:
+      memory: 1G
+
+x-prod-depends: &prod-depends
+  redis:
+    condition: service_started
+
+services:
+  # External infrastructure - uncomment if running locally for prod testing
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: core
+  #     POSTGRES_USER: app
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - bhukkad-pgdata:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U app -d core"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+
+  # pgbouncer:
+  #   image: edoburu/pgbouncer:1.22
+  #   environment:
+  #     PG_BOUNCER_DB: core
+  #     PG_BOUNCER_USER: app
+  #     PG_BOUNCER_PASSWORD: ${POSTGRES_PASSWORD}
+  #     PG_BOUNCER_POOL_MODE: transaction
+  #     PG_BOUNCER_MAX_CLIENT_CONN: 10000
+  #     PG_BOUNCER_DEFAULT_POOL_SIZE: 200
+  #   ports:
+  #     - 6432:6432
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: bhukkad-redis
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - volatile-lru
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    ports:
+      - 6379:6379
+    volumes:
+      - bhukkad-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # Identity service
+  identity:
+    restart: always
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      IDENTITY_DB_URL: ${IDENTITY_DB_URL}
+      APP_BOOTSTRAPADMIN_ENABLED: 'false'
+      APP_SECURITY_PASSWORD_ENCODER_ALGORITHM: argon2
+      SPRING_PROFILES_ACTIVE: prod
+      spring.datasource.hikari.maximum-pool-size: ${DB_POOL_SIZE:-20}
+      spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-10}
+    deploy: *common-deploy
+    depends_on: *prod-depends
+    image: ghcr.io/bhukkad/identity:${VERSION:-latest}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Commerce service (order + payment + delivery)
+  commerce:
+    restart: always
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      COMMERCE_DB_URL: ${COMMERCE_DB_URL}
+      CATALOG_SERVICE_URL: ${CATALOG_SERVICE_URL:-http://catalog:8080}
+      ENGAGEMENT_SERVICE_URL: ${ENGAGEMENT_SERVICE_URL:-http://engagement:8080}
+      ADMIN_SERVICE_URL: ${ADMIN_SERVICE_URL:-http://admin:8080}
+      SPRING_PROFILES_ACTIVE: prod
+      spring.datasource.hikari.maximum-pool-size: ${DB_POOL_SIZE:-30}
+      spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-15}
+    deploy: *common-deploy
+    depends_on: *prod-depends
+    image: ghcr.io/bhukkad/commerce:${VERSION:-latest}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Catalog service
+  catalog:
+    restart: always
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      CATALOG_DB_URL: ${CATALOG_DB_URL}
+      COMMERCE_SERVICE_URL: ${COMMERCE_SERVICE_URL:-http://commerce:8080}
+      ENGAGEMENT_SERVICE_URL: ${ENGAGEMENT_SERVICE_URL:-http://engagement:8080}
+      ADMIN_SERVICE_URL: ${ADMIN_SERVICE_URL:-http://admin:8080}
+      SPRING_PROFILES_ACTIVE: prod
+      spring.datasource.hikari.maximum-pool-size: ${DB_POOL_SIZE:-20}
+      spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-10}
+    deploy: *common-deploy
+    depends_on: *prod-depends
+    image: ghcr.io/bhukkad/catalog:${VERSION:-latest}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Engagement service
+  engagement:
+    restart: always
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      ENGAGEMENT_DB_URL: ${ENGAGEMENT_DB_URL}
+      COMMERCE_SERVICE_URL: ${COMMERCE_SERVICE_URL:-http://commerce:8080}
+      CATALOG_SERVICE_URL: ${CATALOG_SERVICE_URL:-http://catalog:8080}
+      ADMIN_SERVICE_URL: ${ADMIN_SERVICE_URL:-http://admin:8080}
+      SPRING_PROFILES_ACTIVE: prod
+      spring.datasource.hikari.maximum-pool-size: ${DB_POOL_SIZE:-25}
+      spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-12}
+    deploy: *common-deploy
+    depends_on: *prod-depends
+    image: ghcr.io/bhukkad/engagement:${VERSION:-latest}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Admin service
+  admin:
+    restart: always
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      ADMIN_DB_URL: ${ADMIN_DB_URL}
+      COMMERCE_SERVICE_URL: ${COMMERCE_SERVICE_URL:-http://commerce:8080}
+      CATALOG_SERVICE_URL: ${CATALOG_SERVICE_URL:-http://catalog:8080}
+      ENGAGEMENT_SERVICE_URL: ${ENGAGEMENT_SERVICE_URL:-http://engagement:8080}
+      SPRING_PROFILES_ACTIVE: prod
+      spring.datasource.hikari.maximum-pool-size: ${DB_POOL_SIZE:-15}
+      spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-8}
+    deploy: *common-deploy
+    depends_on: *prod-depends
+    image: ghcr.io/bhukkad/admin:${VERSION:-latest}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Gateway
+  gateway:
+    restart: always
+    init: true
+    environment:
+      <<: *common-env
+      SERVER_PORT: '8080'
+      IDENTITY_SERVICE_URL: ${IDENTITY_SERVICE_URL:-http://identity:8080}
+      COMMERCE_SERVICE_URL: ${COMMERCE_SERVICE_URL:-http://commerce:8080}
+      CATALOG_SERVICE_URL: ${CATALOG_SERVICE_URL:-http://catalog:8080}
+      ENGAGEMENT_SERVICE_URL: ${ENGAGEMENT_SERVICE_URL:-http://engagement:8080}
+      ADMIN_SERVICE_URL: ${ADMIN_SERVICE_URL:-http://admin:8080}
+      SPRING_PROFILES_ACTIVE: prod
+      spring.datasource.hikari.maximum-pool-size: ${DB_POOL_SIZE:-10}
+      spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-5}
+    deploy: *common-deploy
+    depends_on: *prod-depends
+    image: ghcr.io/bhukkad/gateway:${VERSION:-latest}
+    ports:
+      - 8095:8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Edge proxy
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bhukkad-nginx
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - gateway
+      - identity
+      - commerce
+      - catalog
+      - engagement
+      - admin
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+volumes:
+  bhukkad-redis-data:
+    driver: local
+  # bhukkad-pgdata:
+  #   driver: local

@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 
 /**
  * Validates Kafka consumer concurrency against actual topic partition counts
@@ -13,6 +14,7 @@ import org.springframework.context.event.EventListener;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(KafkaPlatformProperties.class)
+@ConditionalOnExpression("#{'${app.events.external.enabled:false}' == 'true' && '${app.events.external.type:log}' == 'kafka'}")
 public class KafkaConcurrencyValidator {
 
     private final KafkaConcurrencyGuard guard;

@@ -11,9 +11,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  * Identity service (P3). Owns {@code identity}: customers, addresses;
  * issues JWTs (plan §8 — identity is the authN source of truth).
  */
-@SpringBootApplication(scanBasePackages = {"com.bhukkad.identity", "com.bhukkad.common"})
-@EntityScan(basePackages = {"com.bhukkad.identity", "com.bhukkad.common"})
-@EnableJpaRepositories(basePackages = {"com.bhukkad.identity", "com.bhukkad.common"})
+@SpringBootApplication(scanBasePackages = {"com.bhukkad.identity", "com.bhukkad.common", "com.bhukkad.identity.growth", "com.bhukkad.identity.notification", "com.bhukkad.identity.referral", "com.bhukkad.identity.support"})
+@EntityScan(basePackages = {"com.bhukkad.identity", "com.bhukkad.common", "com.bhukkad.identity.growth", "com.bhukkad.identity.notification", "com.bhukkad.identity.referral", "com.bhukkad.identity.support"})
+@EnableJpaRepositories(basePackages = {"com.bhukkad.identity", "com.bhukkad.common", "com.bhukkad.identity.growth", "com.bhukkad.identity.notification", "com.bhukkad.identity.referral", "com.bhukkad.identity.support"})
 @EnableJpaAuditing
 @ConfigurationPropertiesScan(basePackages = "com.bhukkad.identity")
 public class IdentityServiceApplication {

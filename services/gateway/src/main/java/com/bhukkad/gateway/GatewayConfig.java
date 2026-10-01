@@ -37,6 +37,19 @@ import java.util.stream.Collectors;
 @Configuration
 public class GatewayConfig {
 
+    /**
+     * Per-route response timeout for SSE streams, in milliseconds. The shared
+     * {@code httpclient} response-timeout (8s) is sized for request/response
+     * calls and is far too short for a stream that is expected to stay open;
+     * {@code NettyRoutingFilter} reads this value from the route metadata and
+     * falls back to the global default only when it is absent. Without it the
+     * gateway tore every customer/kitchen/rider stream down after 8s and the
+     * client saw 503 UPSTREAM_UNAVAILABLE instead of events.
+     */
+    private static final String SSE_RESPONSE_TIMEOUT_METADATA = "response-timeout";
+
+    private static final String SSE_RESPONSE_TIMEOUT_MS = "1800000";
+
     private final String restaurantUri;
     private final String identityUri;
     private final String orderUri;
@@ -97,15 +110,21 @@ public class GatewayConfig {
                                       ObjectProvider<MeterRegistry> meterRegistryProvider) {
         MeterRegistry meters = meterRegistryProvider.getIfAvailable();
         return builder.routes()
+                // Actuator endpoints - bypass gateway routing and circuit breakers
+                .route("actuator", r -> r.path(
+                        "/actuator/**")
+                        .uri("http://127.0.0.1:8080"))
                 // Service-internal surfaces (mesh clients, service JWT auth)
                 // must never be reachable through the edge. Declared first so
                 // no route ever forwards to /api/v1/internal/**.
                 .route("internal-guard", r -> r.path(
+                        "/api/v1/internal",
                         "/api/v1/internal/**")
                         .filters(f -> f.setStatus(403))
                         .uri(orderUri))
                 // Notification service (P2): notification dispatch and history.
                 .route("notification", r -> r.path(
+                        "/api/v1/notifications",
                         "/api/v1/notifications/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("notification")))
                         .uri(notificationUri))
@@ -173,6 +192,7 @@ public class GatewayConfig {
                 // call /api/v1/cart/**; served by the order service from the
                 // token subject.
                 .route("cart-legacy", r -> r.path(
+                        "/api/v1/cart",
                         "/api/v1/cart/**").uri(orderUri))
                 // Home/mobile BFF surfaces (monolith parity): composite feed is
                 // served by the restaurant service; campaigns and membership
@@ -191,9 +211,11 @@ public class GatewayConfig {
                 // Cache ops surface (platform-lib controller) — served by the
                 // admin-analytics deployment; clears are ADMIN-gated there.
                 .route("cache", r -> r.path(
+                        "/api/v1/cache",
                         "/api/v1/cache/**").uri(adminAnalyticsUri))
                 // Platform status: identity carries the shared HealthController.
                 .route("platform", r -> r.path(
+                        "/api/v1/platform",
                         "/api/v1/platform/**").uri(identityUri))
                 // Customer self-service compliance surface (DPDP): consents and
                 // data export served by the identity service's consent store.
@@ -201,9 +223,11 @@ public class GatewayConfig {
                 .route("compliance-users", r -> r.path(
                         "/api/v1/compliance/users/**").uri(adminAnalyticsUri))
                 .route("compliance", r -> r.path(
+                        "/api/v1/compliance",
                         "/api/v1/compliance/**").uri(identityUri))
                 // Analytics CSV exports (admin-analytics owns the export tasks).
                 .route("analytics-exports", r -> r.path(
+                        "/api/v1/analytics",
                         "/api/v1/analytics/**").uri(adminAnalyticsUri))
                 // Swagger UI + OpenAPI documents (identity hosts the aggregate).
                 .route("swagger", r -> r.path(
@@ -212,12 +236,14 @@ public class GatewayConfig {
 
                 // Search service (P1): unified search + autocomplete.
                 .route("search", r -> r.path(
+                        "/api/v1/search",
                         "/api/v1/search/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("search")))
                         .uri(searchUri))
                 // Referral service (P2): referral codes + affiliate program.
                 // Declared before the restaurant slice.
                 .route("referral", r -> r.path(
+                        "/api/v1/referrals",
                         "/api/v1/referrals/**",
                         "/api/v1/admin/affiliates/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("referral")))
@@ -225,6 +251,7 @@ public class GatewayConfig {
                         .uri(referralUri))
                 // Support ticket service (P2): ticket lifecycle.
                 .route("support", r -> r.path(
+                        "/api/v1/support",
                         "/api/v1/support/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("support")))
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.support.enabled")
@@ -234,16 +261,40 @@ public class GatewayConfig {
                 // so declared before the order slice. Order ownership (customer
                 // stream) is enforced inside the order service, which also owns
                 // the order read-model; /api/v1/live/** remains on realtime.
+                //
+                // Both SSE routes carry a long per-route response-timeout so the
+                // shared 8s httpclient default cannot cut a healthy stream short.
                 .route("live", r -> r.path(
-                        "/api/v1/orders/stream/**").metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
+                        "/api/v1/orders/stream/**")
+                        .metadata(SSE_RESPONSE_TIMEOUT_METADATA, SSE_RESPONSE_TIMEOUT_MS)
+                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
                         .uri(orderUri))
+                // SSE streams get their own circuit-breaker instance. The shared
+                // "realtime" breaker uses the Resilience4j default 1s time
+                // limiter, which aborted every stream at one second (the client
+                // saw 503 UPSTREAM_UNAVAILABLE) because an SSE response never
+                // reaches a terminal signal while it is healthy. Only the stream
+                // paths are widened; the remaining realtime routes (e.g.
+                // /api/v1/live/stats/connections) keep the 1s limiter so a hung
+                // dependency still fails fast.
+                .route("live-realtime-sse", r -> r.path(
+                        "/api/v1/live/kitchen/**",
+                        "/api/v1/live/rider/**",
+                        "/api/v1/live/order/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("realtimeSse")))
+                        .metadata(SSE_RESPONSE_TIMEOUT_METADATA, SSE_RESPONSE_TIMEOUT_MS)
+                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.live.enabled")
+                        .uri(realtimeUri))
                 .route("live-realtime", r -> r.path(
+                        "/api/v1/live",
                         "/api/v1/live/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("realtime")))
+                        .metadata(SSE_RESPONSE_TIMEOUT_METADATA, SSE_RESPONSE_TIMEOUT_MS)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.live.enabled")
                         .uri(realtimeUri))
                 // Growth service: campaigns + customer loyalty accounts.
                 .route("growth", r -> r.path(
+                        "/api/v1/campaigns",
                         "/api/v1/campaigns/**",
                         "/api/v1/customers/*/loyalty/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("growth")))
@@ -255,6 +306,7 @@ public class GatewayConfig {
                         .uri(restaurantUri))
                 // Social service (Phase 2): posts, likes, comments, feed.
                 .route("social", r -> r.path(
+                        "/api/v1/social",
                         "/api/v1/social/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("social")))
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.social.enabled")
@@ -262,26 +314,48 @@ public class GatewayConfig {
                 // Strangler slice: restaurant read surface (owned by the
                 // restaurant service per the ownership matrix).
                 .route("restaurant", r -> r.path(
+                        "/api/v1/restaurants",
                         "/api/v1/restaurants/**",
+                        "/api/v1/cuisines",
                         "/api/v1/cuisines/**",
+                        "/api/v1/menu",
                         "/api/v1/menu/**",
+                        "/api/v1/reviews",
                         "/api/v1/reviews/**",
+                        "/api/v1/feed",
                         "/api/v1/feed/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("restaurant")))
                         .uri(restaurantUri))
                 // Identity cut-over (P3): auth endpoints served by the identity
                 // service. Declared before the broad slices so /api/v1/auth/**
                 // and /api/v1/customers/** win their respective path matches.
+                // identity owns auth, customers, tenants, affiliate, membership,
+                // compliance, platform AND the JWKS document. `/.well-known/jwks.json`
+                // and `/api/v1/membership/**` were missing here: both answered 200
+                // when called on identity directly but 404 through the gateway,
+                // which also broke RS256 verification for anything that fetched
+                // keys through the edge.
                 .route("identity", r -> r.path(
+                        "/.well-known/jwks.json",
+                        "/api/v1/auth",
                         "/api/v1/auth/**",
+                        "/api/v1/customers",
                         "/api/v1/customers/**",
+                        "/api/v1/tenants",
                         "/api/v1/tenants/**",
+                        "/api/v1/affiliate",
                         "/api/v1/affiliate/**",
+                        "/api/v1/membership",
+                        "/api/v1/membership/**",
+                        "/api/v1/compliance",
+                        "/api/v1/compliance/**",
+                        "/api/v1/health",
                         "/api/v1/health/**")
                         .uri(identityUri))
                 // Personalization service: recommendation feed ranking +
                 // item-to-item similarity served by the personalization service.
                 .route("personalization", r -> r.path(
+                        "/api/v1/recommendations",
                         "/api/v1/recommendations/**",
                         "/api/v1/feed/ranked/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("personalization")))
@@ -295,9 +369,12 @@ public class GatewayConfig {
                 // the admin-disputes route below (declared before the
                 // admin-analytics catch-all).
                 .route("order", r -> r.path(
+                        "/api/v1/orders",
                         "/api/v1/orders/**",
                         "/api/v1/delivery-truth/**",
+                        "/api/v1/coupons",
                         "/api/v1/coupons/**",
+                        "/api/v1/gift-cards",
                         "/api/v1/gift-cards/**")
                         .filters(f -> f.circuitBreaker(
                                 c -> c.setName("order")
@@ -306,7 +383,9 @@ public class GatewayConfig {
                         .uri(orderUri))
                 // Payment service (P6): payment endpoints.
                 .route("payment", r -> r.path(
+                        "/api/v1/payments",
                         "/api/v1/payments/**",
+                        "/api/v1/wallet",
                         "/api/v1/wallet/**")
                         .filters(f -> f.circuitBreaker(
                                 c -> c.setName("payment")
@@ -315,9 +394,13 @@ public class GatewayConfig {
                         .uri(paymentUri))
                 // Delivery service (P7): delivery endpoints.
                 .route("delivery", r -> r.path(
+                        "/api/v1/delivery",
                         "/api/v1/delivery/**",
+                        "/api/v1/deliveries",
                         "/api/v1/deliveries/**",
+                        "/api/v1/zones",
                         "/api/v1/zones/**",
+                        "/api/v1/serviceability",
                         "/api/v1/serviceability/**")
                         .filters(f -> f.circuitBreaker(
                                 c -> c.setName("delivery")

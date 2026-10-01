@@ -9,21 +9,24 @@ metadata:
 data:
   pgbouncer.ini: |
     [databases]
-    orders            = host=bhukkad-postgresql port=5432 dbname=orders            pool_size=2000
-    payments          = host=bhukkad-postgresql port=5432 dbname=payments          pool_size=2000
-    restaurants       = host=bhukkad-postgresql port=5432 dbname=restaurants       pool_size=2000
-    identity          = host=bhukkad-postgresql port=5432 dbname=identity          pool_size=1000
-    realtime          = host=bhukkad-postgresql port=5432 dbname=realtime          pool_size=1000
-    notification      = host=bhukkad-postgresql port=5432 dbname=notification      pool_size=1000
-    delivery          = host=bhukkad-postgresql port=5432 dbname=delivery          pool_size=2000
-    admin-analytics   = host=bhukkad-postgresql port=5432 dbname=admin-analytics   pool_size=1000
-    search            = host=bhukkad-postgresql port=5432 dbname=search            pool_size=1000
-    referral          = host=bhukkad-postgresql port=5432 dbname=referral          pool_size=1000
-    survey            = host=bhukkad-postgresql port=5432 dbname=survey            pool_size=1000
-    supportticket     = host=bhukkad-postgresql port=5432 dbname=supportticket     pool_size=1000
-    growth            = host=bhukkad-postgresql port=5432 dbname=growth            pool_size=1000
-    personalization   = host=bhukkad-postgresql port=5432 dbname=personalization   pool_size=1000
-    social            = host=bhukkad-postgresql port=5432 dbname=social            pool_size=2500
+    ; Pool sizes tuned for Postgres max_connections=1000 with 2 pgbouncer replicas
+    ; Each pgbouncer instance gets ~475 server connections (950 total / 2)
+    ; Sum of pool_size across all DBs <= 475 per instance
+    orders            = host=bhukkad-postgresql port=5432 dbname=orders            pool_size=50
+    payments          = host=bhukkad-postgresql port=5432 dbname=payments          pool_size=40
+    restaurants       = host=bhukkad-postgresql port=5432 dbname=restaurants       pool_size=40
+    identity          = host=bhukkad-postgresql port=5432 dbname=identity          pool_size=30
+    realtime          = host=bhukkad-postgresql port=5432 dbname=realtime          pool_size=30
+    notification      = host=bhukkad-postgresql port=5432 dbname=notification      pool_size=30
+    delivery          = host=bhukkad-postgresql port=5432 dbname=delivery          pool_size=40
+    admin-analytics   = host=bhukkad-postgresql port=5432 dbname=admin-analytics   pool_size=30
+    search            = host=bhukkad-postgresql port=5432 dbname=search            pool_size=30
+    referral          = host=bhukkad-postgresql port=5432 dbname=referral          pool_size=20
+    survey            = host=bhukkad-postgresql port=5432 dbname=survey            pool_size=20
+    supportticket     = host=bhukkad-postgresql port=5432 dbname=supportticket     pool_size=20
+    growth            = host=bhukkad-postgresql port=5432 dbname=growth            pool_size=20
+    personalization   = host=bhukkad-postgresql port=5432 dbname=personalization   pool_size=20
+    social            = host=bhukkad-postgresql port=5432 dbname=social            pool_size=55
     * = host=bhukkad-postgresql port=5432
 
     [pgbouncer]
@@ -32,10 +35,10 @@ data:
     auth_type = md5
     auth_file = /etc/pgbouncer/userlist.txt
     pool_mode = transaction
-    max_client_conn = 17500
-    default_pool_size = 150
+    max_client_conn = 10000
+    default_pool_size = 20
     min_pool_size = 5
-    reserve_pool_size = 5
+    reserve_pool_size = 10
     server_idle_timeout = 600
     server_lifetime = 3600
     server_reset_query_always = DISCARD ALL

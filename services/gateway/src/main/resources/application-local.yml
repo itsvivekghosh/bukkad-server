@@ -2,21 +2,17 @@ spring:
   config:
     activate:
       on-profile: local
-  datasource:
-    hikari:
-      maximum-pool-size: 2
-      minimum-idle: 1
-      connection-timeout: 10000
-      idle-timeout: 600000
-      max-lifetime: 1800000
-      register-mbeans: false
-  jpa:
-    open-in-view: false
-    show-sql: false
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.sql.init.SqlInitializationAutoConfiguration
+      - org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.reactive.ReactiveUserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.client.reactive.ReactiveOAuth2ClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration
   main:
     lazy-initialization: true
 management:
@@ -39,8 +35,58 @@ logging:
     com.bhukkad: WARN
 app:
   environment: development
+  sse:
+    # application.yml ships the k8s pod DNS name (engagement.bhukkad.svc...).
+    # ConsistentHashSseFilter rewrites every /api/v1/live/** request to one of
+    # these backends, so on a host/CI box that name does not resolve: each SSE
+    # request failed to connect and the gateway answered 503 in ~1s. An empty
+    # list makes the filter pass through and the normal app.routes.realtime-uri
+    # (http://localhost:8083) serves the stream.
+    realtime-instances: []
+  # Mirrors app.routes in application.yml after the 16 -> 5 consolidation.
+  # This file is the ACTIVE one under SPRING_PROFILES_ACTIVE=local, and it
+  # OVERRIDES application.yml for every key it declares. It still carried the
+  # pre-merge hosts (order/payment/delivery/...), so the gateway tried to
+  # resolve the host "order" -- which no longer exists -- and every order route
+  # died in the CircuitBreaker with
+  # `java.net.UnknownHostException: Failed to resolve 'order'`.
+  routes:
+    identity-uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+
+    # commerce = order + payment + delivery
+    order-uri: ${COMMERCE_SERVICE_URL:http://localhost:8091}
+    payment-uri: ${COMMERCE_SERVICE_URL:http://localhost:8091}
+    delivery-uri: ${COMMERCE_SERVICE_URL:http://localhost:8091}
+
+    # catalog = restaurant + search + personalization
+    restaurant-uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+    search-uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+    personalization-uri: ${CATALOG_SERVICE_URL:http://localhost:8082}
+
+    # engagement = social + growth + referral + survey + notification + realtime
+    social-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8083}
+    growth-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8083}
+    referral-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8083}
+    survey-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8083}
+    notification-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8083}
+    realtime-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8083}
+
+    # admin = admin-analytics + supportticket
+    admin-analytics-uri: ${ADMIN_SERVICE_URL:http://localhost:8087}
+    support-uri: ${ADMIN_SERVICE_URL:http://localhost:8087}
   auth:
     jwt:
-      jwks-url: http://localhost:8081/.well-known/jwks.json
+      jwks-url: ${IDENTITY_JWKS_URL:http://localhost:8081/.well-known/jwks.json}
     lockout:
       gateway-enabled: false
+  rate-limit:
+    buckets:
+      order-track:
+        limit: 1000
+        window-seconds: 60
+      kitchen-queue:
+        limit: 1000
+        window-seconds: 60
+      search:
+        limit: 1000
+        window-seconds: 60

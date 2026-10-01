@@ -7,7 +7,7 @@ metadata:
     app: bhukkad
     component: nginx
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: bhukkad
@@ -52,11 +52,11 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
               cpu: 200m
-              memory: 128Mi
+              memory: 256Mi
+            limits:
+              cpu: "1000m"
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /
@@ -95,3 +95,49 @@ spec:
                 path: bhukkad-api-80.conf
               - key: bhukkad-routes.conf
                 path: bhukkad-routes.conf
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bhukkad-nginx-hpa
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: nginx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bhukkad-nginx
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max

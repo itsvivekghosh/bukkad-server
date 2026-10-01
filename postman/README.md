@@ -102,45 +102,12 @@ Several requests save IDs for follow-up calls:
 
 Set `restaurantId` / `menuItemId` manually if using seed data instead of owner flow.
 
-## Newman (CLI)
+## Newman (CLI) — Removed
+
+Newman usage has been removed from this repository. API contract validation is now covered by the Java/Gradle test suite (mvn test). To run API tests locally, execute:
 
 ```bash
-npm install -g newman
-
-newman run postman/Bhukkad-API.postman_collection.json \
-  -e postman/environments/Bhukkad-Local.postman_environment.json \
-  --folder "01 - Health" \
-  --reporters cli,htmlextra \
-  --reporter-htmlextra-export postman/reports/health.html
-```
-
-Full collection (requires registered users + seed IDs):
-
-```bash
-newman run postman/Bhukkad-API.postman_collection.json \
-  -e postman/environments/Bhukkad-Local.postman_environment.json \
-  --delay-request 200
-```
-
-## Recommended test order
-
-1. **01 - Health** — verify server is up
-2. **02 - Auth** — register/login all roles
-3. **05 - Restaurant Owner** — create restaurant, category, menu item (saves IDs)
-4. **04 - Customer** — address → cart → order
-5. **05 - Restaurant Owner** — accept → ready → assign agent
-6. **06 - Delivery Agent** — accept → picked up → delivered
-7. **17–19 - Edge / Access / Transport** — negative suites (after Auth)
-8. **99 - E2E Flow** — single-folder happy path
-
-## Newman (CLI) — full suite including negative tests
-
-```bash
-newman run postman/Bhukkad-API.postman_collection.json \
-  -e postman/environments/Bhukkad-Local.postman_environment.json \
-  --folder "02 - Auth" --folder "17 - Edge & Boundary" \
-  --folder "18 - Auth & Access Errors" --folder "19 - Transport & Server Errors" \
-  --reporters cli
+mvn -f services/pom.xml test
 ```
 
 ## Environment variables

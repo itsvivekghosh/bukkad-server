@@ -50,11 +50,10 @@ spec:
             - name: loki-tls
               mountPath: /etc/loki/tls
               readOnly: true
-          args:
-            - -config.file=/etc/loki/config.yaml
-          volumeMounts:
             - name: loki-config
               mountPath: /etc/loki
+          args:
+            - -config.file=/etc/loki/config.yaml
       volumes:
         - name: loki-config
           configMap:
