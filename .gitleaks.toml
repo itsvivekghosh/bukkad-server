@@ -1,9 +1,9 @@
 # gitleaks configuration
 #
 # Baseline rules are used unchanged; this file only carves out narrow,
-# auditable exceptions. Every allowlist entry must name the exact path and
-# rule it exempts — never a whole directory, never a bare regex that would
-# also mask a real credential elsewhere.
+# auditable exceptions. Every allowlist entry must name the exact literal and
+# the narrowest path scope that covers it — never a whole directory of real
+# source, and never a loose regex that would also mask a genuine credential.
 
 title = "bhukkad gitleaks config"
 
@@ -14,19 +14,23 @@ useDefault = true
 
 [[allowlists]]
 description = """
-Test-only JWT secret fixture inside a @SpringBootTest(properties=...) block.
-CacheOpsControllerIntegrationTest mints legacy HS256 tokens locally, so it
-must supply a secret; the value is the literal placeholder
-0123456789abcdef0123456789abcdef (sequential hex, not a key). Scoped to that
-one file and that one rule so a real credential committed anywhere else,
-including in tests, is still caught.
+Shared HS256 test-fixture key.
+
+`0123456789abcdef0123456789abcdef` is the repo-wide unit-test signing key:
+it appears in ~15 *Test.java files across every service (each mints local
+HS256 tokens to exercise the auth filter) and in platform-lib's
+SecretValidationConfig as a guard value. It is sequential hex repeated twice,
+not a key — the validator itself requires >= 32 bytes and this is exactly
+that.
+
+Scoped to src/test/ only, AND-matched against this one literal. A real
+credential committed to main source is still reported, and so is any other
+hardcoded value in a test.
 """
 paths = [
-  '''services/admin/src/test/java/com/bhukkad/admin/admin/CacheOpsControllerIntegrationTest\.java''',
+  '''src/test/''',
 ]
 regexes = [
   '''0123456789abcdef0123456789abcdef''',
 ]
-# defaultRuleMatch: AND semantics — the path AND the regex must both match,
-# so a different secret in the same file is still reported.
 defaultRuleMatch = "AND"
