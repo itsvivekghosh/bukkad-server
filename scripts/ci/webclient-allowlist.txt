@@ -11,17 +11,30 @@
 # batch removes its lines when it migrates the file onto the platform
 # WebClient factory (com.bhukkad.common.web.client.PlatformWebClientBuilderFactory).
 #
-# ── delivery service: OsrmRestTemplate bean (owner: W3-DELIVERY batch) ──────
-# NOTE: file moved to services/delivery/src/main/java/com/bhukkad/delivery/config/
-# The stale path below is intentionally left as a no-op reference until the
-# owning batch updates it.
-# services/delivery/src/main/java/com/bhukkad/delivery/OsrmHttpConfig.java
-services/delivery/src/main/java/com/bhukkad/delivery/config/OsrmHttpConfig.java
-#
+# ── PATHS REPOINTED AT THE 16→5 CONSOLIDATION ────────────────────────────────
+# These entries previously named pre-merge modules (services/delivery/...,
+# services/search/..., services/admin-analytics/...). Those trees no longer
+# exist, so the allowlist silently stopped matching and G-13 failed on code
+# that was already reviewed. Paths below are the post-merge locations of the
+# same files; the migration debt and its owner are unchanged.
+
+# ── admin (was admin-analytics): shared RestClient builder ──────────────────
+# Owner: admin-analytics extraction batch.
+services/admin/src/main/java/com/bhukkad/admin/analytics/config/RestClientBuilderConfig.java
+
+# ── catalog (was search): RestaurantSourceClient — RestClient w/ timeouts ───
+# Owner: search batch. Timeouts configured via SimpleClientHttpRequestFactory.
+services/catalog/src/main/java/com/bhukkad/catalog/search/infrastructure/client/SearchSourceClient.java
+
+# ── commerce (was delivery): OsrmRestTemplate bean ──────────────────────────
+# Owner: W3-DELIVERY batch.
+services/commerce/src/main/java/com/bhukkad/commerce/delivery/config/OsrmHttpConfig.java
+
+# ── engagement (was social): mesh clients with explicit timeouts ───────────
+# Owner: social extraction batch.
+services/engagement/src/main/java/com/bhukkad/engagement/social/infrastructure/client/OrderServiceClient.java
+services/engagement/src/main/java/com/bhukkad/engagement/social/infrastructure/client/RestaurantClient.java
+
 # ── platform-lib security (NOT web/client): JWKS fetch via RestClient ───────
 # Owner: the security-package batch (W3-RESTRUCTURE owns security packaging).
 services/platform-lib/src/main/java/com/bhukkad/common/security/PlatformJwtValidator.java
-#
-# ── search service: RestaurantSourceClient — RestClient with explicit timeouts ─
-# Owner: search batch. Timeouts are configured via SimpleClientHttpRequestFactory.
-services/search/src/main/java/com/bhukkad/search/infrastructure/client/SearchSourceClient.java

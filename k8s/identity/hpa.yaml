@@ -11,8 +11,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: bhukkad-identity
-  minReplicas: 10
-  maxReplicas: 50
+  minReplicas: 2
+  maxReplicas: 8
   metrics:
     # CPU only in base HPA — memory is unreliable for JVM heap (heap ≠ RSS).
     # Custom metrics overlay (k8s/overlays/custom-metrics-hpa) adds request-rate

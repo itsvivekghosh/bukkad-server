@@ -9,24 +9,27 @@ metadata:
 data:
   pgbouncer.ini: |
     [databases]
+    ; One database per CONSOLIDATED service (post 16→5 merge). The pre-merge
+    ; entries (orders, payments, restaurants, realtime, notification, delivery,
+    ; admin-analytics, search, referral, survey, supportticket, growth,
+    ; personalization, social) name databases that NO LONGER EXIST, so the four
+    ; services other than identity had no pool at all and fell through to the
+    ; catch-all below — which carries default_pool_size and bypassed the
+    ; per-DB budget entirely.
+    ;
     ; Pool sizes tuned for Postgres max_connections=1000 with 2 pgbouncer replicas
     ; Each pgbouncer instance gets ~475 server connections (950 total / 2)
     ; Sum of pool_size across all DBs <= 475 per instance
-    orders            = host=bhukkad-postgresql port=5432 dbname=orders            pool_size=50
-    payments          = host=bhukkad-postgresql port=5432 dbname=payments          pool_size=40
-    restaurants       = host=bhukkad-postgresql port=5432 dbname=restaurants       pool_size=40
-    identity          = host=bhukkad-postgresql port=5432 dbname=identity          pool_size=30
-    realtime          = host=bhukkad-postgresql port=5432 dbname=realtime          pool_size=30
-    notification      = host=bhukkad-postgresql port=5432 dbname=notification      pool_size=30
-    delivery          = host=bhukkad-postgresql port=5432 dbname=delivery          pool_size=40
-    admin-analytics   = host=bhukkad-postgresql port=5432 dbname=admin-analytics   pool_size=30
-    search            = host=bhukkad-postgresql port=5432 dbname=search            pool_size=30
-    referral          = host=bhukkad-postgresql port=5432 dbname=referral          pool_size=20
-    survey            = host=bhukkad-postgresql port=5432 dbname=survey            pool_size=20
-    supportticket     = host=bhukkad-postgresql port=5432 dbname=supportticket     pool_size=20
-    growth            = host=bhukkad-postgresql port=5432 dbname=growth            pool_size=20
-    personalization   = host=bhukkad-postgresql port=5432 dbname=personalization   pool_size=20
-    social            = host=bhukkad-postgresql port=5432 dbname=social            pool_size=55
+    ;
+    ; Budget rule enforced by scripts/ci/pool-budget-check.py:
+    ;     hpa_max x hikari_pool <= 0.8 x pool_size
+    ; identity: hpa_max 8 x pool 20 = 160 <= 0.8 x 210 = 168
+    ; sum = 475
+    identity          = host=bhukkad-postgresql port=5432 dbname=identity          pool_size=210
+    commerce          = host=bhukkad-postgresql port=5432 dbname=commerce          pool_size=90
+    catalog           = host=bhukkad-postgresql port=5432 dbname=catalog           pool_size=70
+    engagement        = host=bhukkad-postgresql port=5432 dbname=engagement        pool_size=60
+    admin             = host=bhukkad-postgresql port=5432 dbname=admin             pool_size=45
     * = host=bhukkad-postgresql port=5432
 
     [pgbouncer]

@@ -150,8 +150,28 @@ def enclosing_member(lines: list[str], depths: list[int], site_idx: int):
     return None, None
 
 
-def is_allowed_call(match: re.Match) -> bool:
-    return match.group(1) != "findAllById"
+def is_allowed_call(match: re.Match, cleaned: str) -> bool:
+    """True when the matched call should be REPORTED as a violation.
+
+    The scan loop skips this call when the result is False, so False means
+    "provably not a whole-table read". Two bounded shapes are exempt,
+    matching this module's stated contract:
+
+    * ``findAllById(...)`` — bounded by the supplied ids.
+    * ``findAll(<arg>)``    — a paged/sorted variant. Spring Data derives
+      ``Page``/``Slice`` from an argument, so the query is LIMIT-ed and can
+      never read the whole table. A bare ``findAll()`` has no argument and
+      stays a violation.
+    """
+    name = match.group(1)
+    if name == "findAllById":
+        return False
+    if name == "findAll":
+        tail = cleaned[match.end():]
+        close = tail.find(")")
+        args = tail if close == -1 else tail[:close]
+        return args.strip() == ""
+    return True
 
 
 def scan_file(path: Path, root: Path) -> tuple[list[str], list[str]]:
@@ -165,7 +185,7 @@ def scan_file(path: Path, root: Path) -> tuple[list[str], list[str]]:
     violations: list[str] = []
     allowed: list[str] = []
     for match in CALL_RE.finditer(cleaned):
-        if not is_allowed_call(match):
+        if not is_allowed_call(match, cleaned):
             continue
         site_idx = cleaned[: match.start()].count("\n")
         member_idx, member_kind = enclosing_member(lines, depths, site_idx)
