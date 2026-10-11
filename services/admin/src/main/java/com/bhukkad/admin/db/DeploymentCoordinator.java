@@ -1,4 +1,4 @@
-package com.bhukkad.common.db;
+package com.bhukkad.admin.db;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

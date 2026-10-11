@@ -1,4 +1,4 @@
-package com.bhukkad.common.db;
+package com.bhukkad.admin.db;
 
 import org.flywaydb.core.api.callback.Callback;
 import org.flywaydb.core.api.callback.Context;

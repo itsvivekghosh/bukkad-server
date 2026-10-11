@@ -1,5 +1,6 @@
 package com.bhukkad.common.kafka;
 
+import com.bhukkad.common.kafka.dlq.DlqProperties;
 import com.bhukkad.common.event.PlatformEventMessage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -139,9 +140,9 @@ class KafkaTopicParityTest {
         // (payment_requested is order-produced; dispute_resolved has no
         // producer yet — cross-batch, see class javadoc).
         listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/payment/infrastructure/messaging/PaymentRequestedConsumer.java",
-                Map.of("payment.events.v1", Map.of()));
+                Map.of("payment.events.v1", java.util.Collections.<String, String>emptyMap()));
         listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/payment/infrastructure/messaging/DisputeResolvedConsumer.java",
-                Map.of("payment.events.v1", Map.of()));
+                Map.of("payment.events.v1", java.util.Collections.<String, String>emptyMap()));
         return listeners;
     }
 
@@ -272,12 +273,13 @@ class KafkaTopicParityTest {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    /** Builds the publisher exactly like KafkaPlatformConfig.kafkaPlatformEventPublisher does. */
+/** Builds the publisher exactly like KafkaPlatformConfig.kafkaPlatformEventPublisher does. */
     private KafkaPlatformEventPublisher publisherFor(String service, String topic,
                                                      KafkaTemplate<String, String> template) {
         var properties = new KafkaPlatformProperties(true, "kafka",
                 new KafkaPlatformProperties.Kafka("localhost:9092", service + "-group",
-                        topic, topic + ".dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
+                        topic, topic + ".dlt", 3, 500, 300000, 30000, 10000, false, java.util.Collections.<String, Integer>emptyMap()),
+                false, 3, new DlqProperties(false, 100, "dlq-consumer"));
         return new KafkaPlatformConfig().kafkaPlatformEventPublisher(template, properties);
     }
 

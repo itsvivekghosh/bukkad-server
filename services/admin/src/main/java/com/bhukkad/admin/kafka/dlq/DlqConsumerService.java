@@ -1,4 +1,4 @@
-package com.bhukkad.common.kafka.dlq;
+package com.bhukkad.admin.kafka.dlq;
 
 import com.bhukkad.common.kafka.KafkaPlatformProperties;
 import com.fasterxml.jackson.databind.JsonNode;

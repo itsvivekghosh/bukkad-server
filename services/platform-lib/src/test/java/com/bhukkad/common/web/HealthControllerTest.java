@@ -1,5 +1,6 @@
 package com.bhukkad.common.web;
 
+import com.bhukkad.common.kafka.dlq.DlqProperties;
 import com.bhukkad.common.kafka.KafkaPlatformProperties;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.DescribeClusterResult;
@@ -60,7 +61,7 @@ class HealthControllerTest {
 
     private static final KafkaPlatformProperties KAFKA =
             new KafkaPlatformProperties(true, "kafka",
-                    new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlq", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
+                    new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlq", 3, 500, 300000, 30000, 10000, false, java.util.Collections.<String, Integer>emptyMap()), false, 3, DlqProperties.defaults());
 
     @Test
     void ping_and_health_and_env_envelopes() {

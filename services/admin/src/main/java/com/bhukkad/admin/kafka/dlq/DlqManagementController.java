@@ -1,6 +1,7 @@
-package com.bhukkad.common.kafka.dlq;
+package com.bhukkad.admin.kafka.dlq;
 
-import com.bhukkad.common.web.ApiError;
+import com.bhukkad.common.error.ApiError;
+import com.bhukkad.common.tracing.TraceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -44,7 +45,7 @@ public class DlqManagementController {
         } catch (Exception e) {
             log.error("Failed to list DLQ events: {}", e.getMessage());
             return ResponseEntity.internalServerError()
-                    .body(ApiError.of(500, "DLQ_FETCH_FAILED", "Failed to fetch DLQ events: " + e.getMessage()));
+                    .body(ApiError.of(500, "DLQ_FETCH_FAILED", "Failed to fetch DLQ events: " + e.getMessage(), TraceContext.currentTraceId()));
         }
     }
 
@@ -59,7 +60,7 @@ public class DlqManagementController {
         } catch (Exception e) {
             log.error("Failed to get DLQ count: {}", e.getMessage());
             return ResponseEntity.internalServerError()
-                    .body(ApiError.of(500, "DLQ_COUNT_FAILED", "Failed to get DLQ count: " + e.getMessage()));
+                    .body(ApiError.of(500, "DLQ_COUNT_FAILED", "Failed to get DLQ count: " + e.getMessage(), TraceContext.currentTraceId()));
         }
     }
 
@@ -87,7 +88,7 @@ public class DlqManagementController {
         } catch (Exception e) {
             log.error("Failed to reprocess DLQ event: {}", e.getMessage());
             return ResponseEntity.internalServerError()
-                    .body(ApiError.of(500, "DLQ_REPROCESS_FAILED", "Failed to reprocess: " + e.getMessage()));
+                    .body(ApiError.of(500, "DLQ_REPROCESS_FAILED", "Failed to reprocess: " + e.getMessage(), TraceContext.currentTraceId()));
         }
     }
 
@@ -107,7 +108,7 @@ public class DlqManagementController {
         } catch (Exception e) {
             log.error("Failed to batch reprocess DLQ events: {}", e.getMessage());
             return ResponseEntity.internalServerError()
-                    .body(ApiError.of(500, "DLQ_BATCH_REPROCESS_FAILED", "Failed to batch reprocess: " + e.getMessage()));
+                    .body(ApiError.of(500, "DLQ_BATCH_REPROCESS_FAILED", "Failed to batch reprocess: " + e.getMessage(), TraceContext.currentTraceId()));
         }
     }
 
@@ -132,7 +133,7 @@ public class DlqManagementController {
         } catch (Exception e) {
             log.error("Failed to skip DLQ event: {}", e.getMessage());
             return ResponseEntity.internalServerError()
-                    .body(ApiError.of(500, "DLQ_SKIP_FAILED", "Failed to skip event: " + e.getMessage()));
+                    .body(ApiError.of(500, "DLQ_SKIP_FAILED", "Failed to skip event: " + e.getMessage(), TraceContext.currentTraceId()));
         }
     }
 }

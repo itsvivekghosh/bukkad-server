@@ -123,6 +123,10 @@ public class GatewayConfig {
                         "/api/v1/internal/**")
                         .filters(f -> f.setStatus(403))
                         .uri(orderUri))
+                // Actuator endpoints - bypass gateway routing and circuit breakers
+                .route("actuator", r -> r.path(
+                        "/actuator/**")
+                        .uri("http://127.0.0.1:8080"))
                 // Notification service (P2): notification dispatch and history.
                 .route("notification", r -> r.path(
                         "/api/v1/notifications",

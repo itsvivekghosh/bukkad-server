@@ -1,11 +1,13 @@
-package com.bhukkad.common.kafka.dlq;
+package com.bhukkad.admin.kafka.dlq;
 
+import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
 import com.bhukkad.common.kafka.KafkaPlatformProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -81,11 +83,11 @@ public class DlqReprocessService {
             );
             
             // Use the platform publisher
-            publisher.publish(envelope, resolvedTarget);
+            publisher.publish(PlatformEventMessage.of(eventType, event.getFailedTopic(), objectMapper.writeValueAsString(envelope)));
             
             // Mark as reprocessed
             reprocessCache.put(cacheKey, new ReprocessStatus(true, 
-                    "Successfully reprocessed to " + resolvedTopic, java.time.Instant.now()));
+                    "Successfully reprocessed to " + resolvedTarget, java.time.Instant.now()));
             
             log.info("DLQ_REPROCESS | topic={} partition={} offset={} -> {}", 
                     topic, partition, offset, resolvedTarget);
@@ -128,10 +130,10 @@ public class DlqReprocessService {
         try {
             var partitions = java.util.Collections.singletonList(
                     new org.apache.kafka.common.TopicPartition(topic, partition));
-            consumerService.dlqConsumer().assign(partitions);
-            consumerService.dlqConsumer().seek(partitions.get(0), offset);
+            consumerService.getDlqConsumer().assign(partitions);
+            consumerService.getDlqConsumer().seek(partitions.get(0), offset);
             
-            var records = consumerService.dlqConsumer().poll(java.time.Duration.ofMillis(500));
+            var records = consumerService.getDlqConsumer().poll(java.time.Duration.ofMillis(500));
             for (var record : records) {
                 if (record.offset() == offset) {
                     return consumerService.convertRecord(record);

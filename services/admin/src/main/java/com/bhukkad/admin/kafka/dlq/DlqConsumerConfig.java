@@ -1,5 +1,6 @@
-package com.bhukkad.common.kafka.dlq;
+package com.bhukkad.admin.kafka.dlq;
 
+import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
 import com.bhukkad.common.kafka.KafkaPlatformProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -44,8 +46,9 @@ public class DlqConsumerConfig {
 
     @Bean
     public DlqConsumerService dlqConsumerService(ObjectMapper objectMapper,
-                                                  KafkaPlatformProperties properties) {
-        return new DlqConsumerService(objectMapper, properties, environment);
+                                                  KafkaPlatformProperties properties,
+                                                  KafkaConsumer<String, String> dlqKafkaConsumer) {
+        return new DlqConsumerService(objectMapper, properties, dlqKafkaConsumer);
     }
 
     @Bean
@@ -75,7 +78,9 @@ public class DlqConsumerConfig {
 
     @Bean
     public DlqReprocessService dlqReprocessService(DlqConsumerService consumerService,
-                                                    KafkaPlatformProperties properties) {
-        return new DlqReprocessService(consumerService, properties);
+                                                    KafkaPlatformProperties properties,
+                                                    KafkaPlatformEventPublisher publisher,
+                                                    ObjectMapper objectMapper) {
+        return new DlqReprocessService(objectMapper, properties, publisher, consumerService);
     }
 }

@@ -10,6 +10,8 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.bhukkad.common.kafka.dlq.DlqProperties;
+
 import java.util.Map;
 
 /**
@@ -148,15 +150,15 @@ class KafkaPlatformConfigTest {
         assertThat(KafkaPlatformProperties.disabled().isKafkaEnabled()).isFalse();
 
         KafkaPlatformProperties enabledKafka = new KafkaPlatformProperties(true, "kafka",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, false, java.util.Collections.<String, Integer>emptyMap()), false, 3, DlqProperties.defaults());
         assertThat(enabledKafka.isKafkaEnabled()).isTrue();
 
         KafkaPlatformProperties enabledLog = new KafkaPlatformProperties(true, "log",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, false, java.util.Collections.<String, Integer>emptyMap()), false, 3, DlqProperties.defaults());
         assertThat(enabledLog.isKafkaEnabled()).isFalse();
 
         KafkaPlatformProperties disabledKafka = new KafkaPlatformProperties(false, "kafka",
-                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, java.util.Map.of()), false, 3);
+                new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlt", 3, 500, 300000, 30000, 10000, false, java.util.Collections.<String, Integer>emptyMap()), false, 3, DlqProperties.defaults());
         assertThat(disabledKafka.isKafkaEnabled()).isFalse();
     }
 }
