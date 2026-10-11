@@ -4,20 +4,21 @@ import com.bhukkad.common.security.PlatformJwtAuthFilter;
 import com.bhukkad.common.security.ServiceJwtAuthFilter;
 import com.bhukkad.common.web.SecurityHeadersFilter;
 import jakarta.servlet.FilterChain;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -32,40 +33,56 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>Uses a JPA-free test application (the production app class enables JPA
  * auditing, which the servlet-only slice has no metamodel for).</p>
+ *
+ * <p>The {@link PlatformJwtAuthFilter} and {@link ServiceJwtAuthFilter} beans
+ * are mocked with {@code @MockBean} (not a {@code @TestConfiguration @Bean})
+ * to prevent the mock from being auto-discovered by Spring Boot's
+ * {@code SpringBootConfigurationFinder} and leaking into sibling
+ * {@code @SpringBootTest} contexts (e.g. {@code AdminApiE2ETest}), where the
+ * real filter is needed for end-to-end JWT validation.</p>
  */
 @SpringBootTest(
         classes = SupportSecurityConfigTest.TestApp.class,
         webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class SupportSecurityConfigTest {
 
-    @TestConfiguration
-    @Import(SupportSecurityConfig.class)
-    static class FilterBeans {
-        /** Chain-forwarding filter mocks: the security chain must run to completion. */
-        private static <F extends jakarta.servlet.Filter> F passthrough(Class<F> type) {
-            return Mockito.mock(type, invocation -> {
-                if (invocation.getMethod().getName().equals("doFilter")) {
-                    FilterChain chain = invocation.getArgument(2);
-                    chain.doFilter(invocation.getArgument(0), invocation.getArgument(1));
-                    return null;
-                }
-                return Mockito.RETURNS_DEFAULTS.answer(invocation);
-            });
-        }
+    @MockBean
+    PlatformJwtAuthFilter platformJwtAuthFilter;
 
-        @Bean
-        PlatformJwtAuthFilter platformJwtAuthFilter() {
-            return passthrough(PlatformJwtAuthFilter.class);
-        }
+    @MockBean
+    ServiceJwtAuthFilter serviceJwtAuthFilter;
 
-        // Distinct bean name: platform-lib's ServiceAuthAutoConfiguration already
-        // publishes a bean called "serviceJwtAuthFilter", and a same-named
-        // @Bean here aborted context startup with BeanDefinitionOverrideException.
-        @Bean
-        ServiceJwtAuthFilter testServiceJwtAuthFilter() {
-            return passthrough(ServiceJwtAuthFilter.class);
-        }
+    /**
+     * Both mock filters must pass through to the rest of the security chain
+     * (chain.doFilter) without doing real authentication — the test has no
+     * JWT secret to verify against.
+     */
+    @BeforeEach
+    void configureFilterMocks() throws Exception {
+        // Both mock filters must pass through to the rest of the security chain
+        // (chain.doFilter) without doing real authentication — the test has no
+        // JWT secret to verify against.
+        doAnswer(invocation -> {
+            try {
+                FilterChain chain = invocation.getArgument(2);
+                chain.doFilter(invocation.getArgument(0), invocation.getArgument(1));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        }).when(platformJwtAuthFilter).doFilter(any(), any(), any());
+
+        doAnswer(invocation -> {
+            try {
+                FilterChain chain = invocation.getArgument(2);
+                chain.doFilter(invocation.getArgument(0), invocation.getArgument(1));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        }).when(serviceJwtAuthFilter).doFilter(any(), any(), any());
     }
 
     // NOTE: deliberately NOT @SpringBootConfiguration / @EnableAutoConfiguration.
@@ -83,7 +100,7 @@ class SupportSecurityConfigTest {
             org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration.class,
             org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration.class,
             org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration.class})
-    @Import({SecurityHeadersFilter.class, FilterBeans.class})
+    @Import({SecurityHeadersFilter.class, SupportSecurityConfig.class})
     static class TestApp {
     }
 
@@ -95,13 +112,6 @@ class SupportSecurityConfigTest {
 
     @Autowired
     private SecurityHeadersFilter securityHeadersFilter;
-
-    @Autowired
-    private PlatformJwtAuthFilter platformJwtAuthFilter;
-
-    @Autowired
-    @Qualifier("testServiceJwtAuthFilter")
-    private ServiceJwtAuthFilter serviceJwtAuthFilter;
 
     @Test
     void chainRegistersHeaderServiceAndPlatformFilters() {

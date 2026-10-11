@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +42,7 @@ import java.time.LocalDateTime;
  * and parks the poison record on {@code order.events.v1.dlt}; only
  * uninteresting event types are deliberately (and explicitly) skipped.</p>
  */
+@ConditionalOnProperty(prefix = "app.events.external", name = "enabled", havingValue = "true", matchIfMissing = false)
 @Slf4j
 @Component
 @RequiredArgsConstructor

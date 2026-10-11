@@ -4,6 +4,8 @@ import com.bhukkad.gateway.flags.EdgeKillSwitchFilter;
 import com.bhukkad.gateway.sse.ConsistentHashSseFilter;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
@@ -49,6 +51,8 @@ public class GatewayConfig {
     private static final String SSE_RESPONSE_TIMEOUT_METADATA = "response-timeout";
 
     private static final String SSE_RESPONSE_TIMEOUT_MS = "1800000";
+
+    private static final Logger log = LoggerFactory.getLogger(GatewayConfig.class);
 
     private final String restaurantUri;
     private final String identityUri;
@@ -96,6 +100,7 @@ public class GatewayConfig {
         this.growthUri = growthUri;
         this.personalizationUri = personalizationUri;
         this.socialUri = socialUri;
+        log.info("GatewayConfig initialized: identityUri={}, orderUri={}", identityUri, orderUri);
     }
 
     /**
@@ -110,10 +115,6 @@ public class GatewayConfig {
                                       ObjectProvider<MeterRegistry> meterRegistryProvider) {
         MeterRegistry meters = meterRegistryProvider.getIfAvailable();
         return builder.routes()
-                // Actuator endpoints - bypass gateway routing and circuit breakers
-                .route("actuator", r -> r.path(
-                        "/actuator/**")
-                        .uri("http://127.0.0.1:8080"))
                 // Service-internal surfaces (mesh clients, service JWT auth)
                 // must never be reachable through the edge. Declared first so
                 // no route ever forwards to /api/v1/internal/**.
@@ -193,7 +194,10 @@ public class GatewayConfig {
                 // token subject.
                 .route("cart-legacy", r -> r.path(
                         "/api/v1/cart",
-                        "/api/v1/cart/**").uri(orderUri))
+                        "/api/v1/cart/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("order")
+                                .setFallbackUri(URI.create("forward:/fallback/order"))))
+                        .uri(orderUri))
                 // Home/mobile BFF surfaces (monolith parity): composite feed is
                 // served by the restaurant service; campaigns and membership
                 // plans are narrow rewrites onto the owning services.

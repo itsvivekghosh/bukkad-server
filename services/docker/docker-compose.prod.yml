@@ -43,43 +43,170 @@ x-common-deploy: &common-deploy
       memory: 1G
 
 x-prod-depends: &prod-depends
-  redis:
-    condition: service_started
+  redis-1:
+    condition: service_healthy
+  redis-sentinel-1:
+    condition: service_healthy
 
 services:
   # External infrastructure - uncomment if running locally for prod testing
-  # postgres:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_DB: core
-  #     POSTGRES_USER: app
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #   volumes:
-  #     - bhukkad-pgdata:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U app -d core"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
+  postgres:
+    image: postgres:16-alpine
+    container_name: bhukkad-postgres
+    environment:
+      POSTGRES_DB: core
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Heavy traffic settings (applied via ALTER SYSTEM in 01-postgres-config.sql)
+      # max_connections = 5000, shared_buffers = 2GB, effective_cache_size = 6GB
+    volumes:
+      - bhukkad-pgdata:/var/lib/postgresql/data
+      - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+      - ./initdb/01-postgres-config.sql:/docker-entrypoint-initdb.d/01-postgres-config.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d core"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
 
-  # pgbouncer:
-  #   image: edoburu/pgbouncer:1.22
-  #   environment:
-  #     PG_BOUNCER_DB: core
-  #     PG_BOUNCER_USER: app
-  #     PG_BOUNCER_PASSWORD: ${POSTGRES_PASSWORD}
-  #     PG_BOUNCER_POOL_MODE: transaction
-  #     PG_BOUNCER_MAX_CLIENT_CONN: 10000
-  #     PG_BOUNCER_DEFAULT_POOL_SIZE: 200
-  #   ports:
-  #     - 6432:6432
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
+  pgbouncer:
+    image: pgbouncer/pgbouncer:1.22
+    container_name: bhukkad-pgbouncer
+    environment:
+      PG_BOUNCER_DB: core
+      PG_BOUNCER_USER: app
+      PG_BOUNCER_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_BOUNCER_POOL_MODE: transaction
+      PG_BOUNCER_MAX_CLIENT_CONN: 10000
+      PG_BOUNCER_DEFAULT_POOL_SIZE: 500
+      PG_BOUNCER_MIN_POOL_SIZE: 100
+      PG_BOUNCER_RESERVE_POOL_SIZE: 50
+    ports:
+      - 6432:6432
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "app", "-d", "core", "-h", "localhost", "-p", "6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
-  redis:
-    image: redis:7-alpine
-    container_name: bhukkad-redis
+  x-redis-sentinel-common: &redis-sentinel-common
+  image: redis:7-alpine
+  restart: always
+  init: true
+  deploy:
+    resources:
+      limits:
+        memory: 1G
+      reservations:
+        memory: 512M
+
+x-redis-common: &redis-common
+  image: redis:7-alpine
+  restart: always
+  init: true
+  command:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    - --maxmemory
+    - ${REDIS_MAXMEMORY:-512mb}
+    - --maxmemory-policy
+    - volatile-lru
+    - --requirepass
+    - ${REDIS_PASSWORD}
+    - --masterauth
+    - ${REDIS_PASSWORD}
+  volumes:
+    - bhukkad-redis-data:/data
+  deploy:
+    resources:
+      limits:
+        memory: 1G
+      reservations:
+        memory: 512M
+
+# Redis Sentinel HA setup (3 sentinels + 3 redis nodes)
+  redis-sentinel-1:
+    <<: *redis-sentinel-common
+    container_name: bhukkad-redis-sentinel-1
+    command:
+      - redis-sentinel
+      - /etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - 26379:26379
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-sentinel-2:
+    <<: *redis-sentinel-common
+    container_name: bhukkad-redis-sentinel-2
+    command:
+      - redis-sentinel
+      - /etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - 26380:26379
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-sentinel-3:
+    <<: *redis-sentinel-common
+    container_name: bhukkad-redis-sentinel-3
+    command:
+      - redis-sentinel
+      - /etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - 26381:26379
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-1:
+    <<: *redis-common
+    container_name: bhukkad-redis-1
     command:
       - redis-server
       - --appendonly
@@ -90,19 +217,89 @@ services:
       - volatile-lru
       - --requirepass
       - ${REDIS_PASSWORD}
+      - --masterauth
+      - ${REDIS_PASSWORD}
+      - --replica-announce-ip
+      - redis-1
+      - --replica-announce-port
+      - "6379"
     ports:
       - 6379:6379
     volumes:
-      - bhukkad-redis-data:/data
+      - bhukkad-redis-1-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 1G
+
+  redis-2:
+    <<: *redis-common
+    container_name: bhukkad-redis-2
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - volatile-lru
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --masterauth
+      - ${REDIS_PASSWORD}
+      - --replicaof
+      - redis-1
+      - 6379
+      - --replica-announce-ip
+      - redis-2
+      - --replica-announce-port
+      - "6379"
+    ports:
+      - 6380:6379
+    volumes:
+      - bhukkad-redis-2-data:/data
+    depends_on:
+      - redis-1
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-3:
+    <<: *redis-common
+    container_name: bhukkad-redis-3
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - volatile-lru
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --masterauth
+      - ${REDIS_PASSWORD}
+      - --replicaof
+      - redis-1
+      - 6379
+      - --replica-announce-ip
+      - redis-3
+      - --replica-announce-port
+      - "6379"
+    ports:
+      - 6381:6379
+    volumes:
+      - bhukkad-redis-3-data:/data
+    depends_on:
+      - redis-1
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Identity service
   identity:
@@ -276,7 +473,11 @@ services:
           memory: 128M
 
 volumes:
-  bhukkad-redis-data:
+  bhukkad-redis-1-data:
     driver: local
-  # bhukkad-pgdata:
-  #   driver: local
+  bhukkad-redis-2-data:
+    driver: local
+  bhukkad-redis-3-data:
+    driver: local
+  bhukkad-pgdata:
+    driver: local

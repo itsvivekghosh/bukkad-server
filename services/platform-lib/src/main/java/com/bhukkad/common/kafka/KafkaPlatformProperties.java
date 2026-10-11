@@ -1,5 +1,6 @@
 package com.bhukkad.common.kafka;
 
+import com.bhukkad.common.kafka.dlq.DlqProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.Map;
@@ -25,12 +26,12 @@ import java.util.Map;
  * @param listenerConcurrency number of concurrent Kafka listener threads (default 1)
  */
 @ConfigurationProperties(prefix = "app.events.external")
-public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka, boolean consumerStartup, int listenerConcurrency) {
+public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka, boolean consumerStartup, int listenerConcurrency, DlqProperties dlq) {
 
     /** Kafka connection and topic settings. */
     public record Kafka(String bootstrapServers, String consumerGroup, String platformTopic, String dlqTopic, int listenerConcurrency,
                         int maxPollRecords, int maxPollIntervalMs, int sessionTimeoutMs, int heartbeatIntervalMs,
-                        Map<String, Integer> topicConcurrency) {
+                        boolean enableAutoCommit, Map<String, Integer> topicConcurrency) {
     }
 
     /** True only when the pipeline is enabled AND the transport is Kafka. */
@@ -40,6 +41,6 @@ public record KafkaPlatformProperties(boolean enabled, String type, Kafka kafka,
 
     /** Safe default representing a fully disabled external event pipeline. */
     public static KafkaPlatformProperties disabled() {
-        return new KafkaPlatformProperties(false, "log", new Kafka("", "", "", "", 1, 500, 300000, 30000, 10000, Map.of()), false, 1);
+        return new KafkaPlatformProperties(false, "log", new Kafka("", "", "", "", 1, 500, 300000, 30000, 10000, false, Map.of()), false, 1, DlqProperties.defaults());
     }
 }

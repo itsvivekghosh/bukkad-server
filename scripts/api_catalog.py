@@ -4626,12 +4626,12 @@ API_CATALOG = [
     {
         "group": "Edge Cases & Boundaries",
         "name": "Cart — Oversized Quantity (edge)",
-        "description": "Boundary: an absurdly large quantity is accepted by the API (no max cap enforced).",
+        "description": "Boundary: a quantity above the per-item cap (99) is rejected with 400.",
         "method": "POST",
         "path": "/api/v1/cart/add",
         "auth": "customer",
-        "body": {"menuItemId": 1, "quantity": 99999},
-        "expected": [200],
+        "body": {"menuItemId": "{menu_item_id}", "quantity": 99999},
+        "expected": [400],
     },
     {
         "group": "Edge Cases & Boundaries",

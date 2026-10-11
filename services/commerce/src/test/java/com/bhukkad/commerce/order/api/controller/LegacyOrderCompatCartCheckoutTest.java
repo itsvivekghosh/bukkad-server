@@ -81,8 +81,8 @@ class LegacyOrderCompatCartCheckoutTest {
         CreateOrderRequest scoped = captor.getValue();
         assertThat(scoped.customerId()).isEqualTo(7L);
         assertThat(scoped.items()).hasSize(1);
-        assertThat(scoped.items().getFirst().menuItemId()).isEqualTo(42L);
-        assertThat(scoped.items().getFirst().quantity()).isEqualTo(2);
+        assertThat(scoped.items().get(0).menuItemId()).isEqualTo(42L);
+        assertThat(scoped.items().get(0).quantity()).isEqualTo(2);
         // Cart checkout is destructive: the cart must be cleared afterwards.
         verify(cartService).clear(7L);
     }

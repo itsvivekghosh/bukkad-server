@@ -11,6 +11,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.client.RestClient;
@@ -30,17 +31,26 @@ import static org.assertj.core.api.Assertions.assertThat;
  * path for each ported endpoint (churn high-risk, churn rescore, experiment
  * exposures, feature-flag get/set/list).
  */
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = {
-        "app.auth.jwt.secret=0123456789abcdef0123456789abcdef",
-        "app.auth.jwt.issuer=bhukkad-identity",
-        // This test mints legacy HS256 tokens with the shared secret. admin
-        // ships hmac-grace-enabled=false (HS256 is rejected in production), so
-        // without this the tokens were unauthenticated and the call returned
-        // 401 instead of the expected authorization result.
-        "app.auth.jwt.hmac-grace-enabled=true"
-})
+    @TestPropertySource(properties = {
+            "app.auth.jwt.secret=0123456789abcdef0123456789abcdef",
+            "app.auth.jwt.issuer=bhukkad-identity",
+            // Clear the default JWKS URL so PlatformJwtValidator does not
+            // attempt an async fetch to identity:8081 during context startup.
+            "app.auth.jwt.jwks-url=",
+            // This test mints legacy HS256 tokens with the shared secret. admin
+            // ships hmac-grace-enabled=false (HS256 is rejected in production), so
+            // without this flag the real PlatformJwtAuthFilter would reject the
+            // tokens and the authenticated test calls would return 401.
+            "app.auth.jwt.hmac-grace-enabled=true",
+            "app.events.external.kafka.bootstrap-servers=localhost:9092",
+            "app.events.external.enabled=false"
+    })
 class AdminApiE2ETest extends AbstractAdminPostgresTest {
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    com.bhukkad.admin.analytics.infrastructure.messaging.AdminCqrsEventConsumer adminCqrsEventConsumer;
 
     @org.springframework.boot.test.web.server.LocalServerPort
     private int port;

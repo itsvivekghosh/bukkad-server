@@ -57,6 +57,9 @@ spring:
     locations: classpath:db/migration-pg
     baseline-on-migrate: true
     validate-on-migrate: true
+    out-of-order: true
+    clean-disabled: true
+    callbacks: com.bhukkad.common.db.MigrationCallbacks
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -207,6 +210,10 @@ app:
         heartbeat-interval-ms: 10000
         max-poll-interval-ms: 300000
         listener-concurrency: 3
+        enable-auto-commit: false
+        dlq:
+          enabled: true
+          max-fetch-records: 100
   rate-limit:
     enabled: true
     fail-open-on-redis-error: true

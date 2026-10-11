@@ -31,6 +31,13 @@ export APP_BOOTSTRAPADMIN_ENABLED=true
 export APP_BOOTSTRAPADMIN_EMAIL=admin@bhukkad.dev
 export APP_BOOTSTRAPADMIN_PASSWORD='Admin@12345678'
 
+# Razorpay webhook signing secret for the LOCAL stack. The test runner
+# (scripts/test-all-apis.py) signs webhook specs with this exact value, and
+# RazorpayWebhookVerifier HMACs provider callbacks with app.payment.razorpay.
+# webhook-secret. The preflight only blocks PROD startup with this default, so
+# local/dev keep the shared dev secret for the e2e suite.
+export RAZORPAY_WEBHOOK_SECRET=dev-webhook-secret
+
 # Service-mesh URLs: consolidated services expose multiple domains on single ports
 export IDENTITY_SERVICE_URL=http://localhost:8081
 export CATALOG_SERVICE_URL=http://localhost:8082

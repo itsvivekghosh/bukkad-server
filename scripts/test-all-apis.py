@@ -479,8 +479,19 @@ def run_test(
         else:
             headers["Authorization"] = f"Bearer {token}"
 
+    # Each spec execution gets its own Idempotency-Key. state.vars["idempotency_key"]
+    # is a single per-run UUID shared by 7 specs (place order, batch checkout,
+    # async/scheduled create, reorder, ...), so while the first order was still
+    # in flight the rest were rejected with 409 DUPLICATE_REQUEST
+    # ("still in progress"). Minting one key per spec removes that cross-spec
+    # collision while still giving a retry of THIS request (the 503 path below)
+    # the dedupe protection the header exists for.
+    idem_for_this_spec = str(uuid.uuid4())
     for hk, hv in (spec.get("headers") or {}).items():
-        headers[hk] = resolve_string(hv, state)
+        val = resolve_string(hv, state)
+        if hk.lower() == "idempotency-key" and val == state.vars.get("idempotency_key"):
+            val = idem_for_this_spec
+        headers[hk] = val
 
     body_obj = None
     body_bytes = None
@@ -528,6 +539,18 @@ def run_test(
         # One-shot resilience retry for upstream-unavailable 503s (container
         # churn during restart).
         if status == 503 and '"code":"UPSTREAM_UNAVAILABLE"' in response_text.replace(" ", ""):
+            status, response_text, _ = http_request(method, url, headers, body_bytes, timeout)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+        # Gateway per-customer rate limiter. Back the suite is re-run repeatedly
+        # against the same identity, so a throttled 429 is a transient throttle,
+        # not a defect: wait out Retry-After (or a short default) and retry
+        # rather than recording a false failure.
+        if status == 429:
+            retry_after = 0.0
+            m = re.search(r"Retry-After[:=]\s*(\d+)", response_text, re.I)
+            if m:
+                retry_after = float(m.group(1))
+            time.sleep(min(max(retry_after, 1.0), 10.0) if retry_after else 2.0)
             status, response_text, _ = http_request(method, url, headers, body_bytes, timeout)
             duration_ms = int((time.perf_counter() - start) * 1000)
         expected = spec.get("expected", [200])
