@@ -42,7 +42,13 @@ on:
 
 jobs:
   loadtest:
-    name: k6 ${{ github.event.inputs.scenario || 'browse' }}
+    # Static name on purpose: a job-level ${{ github.event.inputs.* }}
+    # expression is re-evaluated by GitHub's push-time workflow validation
+    # (this workflow carries a schedule, so every push re-parses it). The
+    # inputs context is undefined outside workflow_dispatch, which produced a
+    # phantom 0-job "workflow file issue" run on every push. Inputs are read
+    # at step level instead, where they are only evaluated when the job runs.
+    name: k6 load test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
