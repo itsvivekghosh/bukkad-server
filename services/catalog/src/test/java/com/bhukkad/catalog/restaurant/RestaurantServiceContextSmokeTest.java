@@ -33,9 +33,16 @@ class RestaurantServiceContextSmokeTest extends AbstractRestaurantPostgresTest {
     @Test
     void contextBootsAndHealthEndpointResponds() {
         RestClient client = RestClient.builder().baseUrl("http://localhost:" + port).build();
-        String health = client.get().uri("/actuator/health").retrieve().body(String.class);
+        // onStatus no-op: this Testcontainers slice provisions Postgres only, so
+        // the aggregate /actuator/health status is DOWN (redis absent) and
+        // retrieve() would throw HttpServerErrorException on the 503 before any
+        // assertion runs. The db component is the provisioned signal.
+        String health = client.get().uri("/actuator/health")
+                .retrieve()
+                .onStatus(org.springframework.http.HttpStatusCode::isError, (request, response) -> { })
+                .body(String.class);
 
-        assertThat(health).contains("\"status\":\"UP\"");
+        assertThat(health).contains("\"db\":{\"status\":\"UP\"");
     }
 
     @Test

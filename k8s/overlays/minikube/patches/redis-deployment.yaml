@@ -1,5 +1,8 @@
 apiVersion: apps/v1
-kind: Deployment
+# Redis is a StatefulSet in the current topology (k8s/redis/deployment.yaml
+# declares kind: StatefulSet); this patch was written when it was a Deployment
+# and kustomize refused it with "no resource matches strategic merge patch".
+kind: StatefulSet
 metadata:
   name: bhukkad-redis
   namespace: bhukkad

@@ -3,15 +3,21 @@ kind: Kustomization
 
 # Low-memory profile for local minikube (3–4 GB Docker RAM).
 #
-# W3-RESTRUCTURE fix: this overlay had TWO defects — (1) referencing
-# `../../namespace.yaml` style single files outside the overlay root is
-# refused by kustomize's default loader ("must build at directory"), so the
-# overlay has been un-buildable since those paths were introduced — the fix
-# is running kustomize with `--load-restrictor LoadRestrictionsNone` (kubectl
-# apply -k cannot pass it, so use: `kubectl kustomize --load-restrictor
-# LoadRestrictionsNone k8s/overlays/minikube`); (2) the patches target the
-# retired monolith bhukkad-app Deployment (k8s/app/ is gone with W5). Dead
-# patches dropped, low-memory patches for postgres/redis kept.
+# The overlay reaches ../../ base files by design (see below), so it must be
+# built with the relaxed loader — plain `kustomize build` / `kubectl apply -k`
+# forbid `../` traversal:
+#   kustomize build --load-restrictor LoadRestrictionsNone k8s/overlays/minikube
+#
+# POST-CONSOLIDATION (16 services → 6): the resource list previously pointed at
+# the retired pre-merge service directories (survey/referral/restaurant/order/
+# payment/delivery/notification/search/admin-analytics/realtime/
+# personalization/growth/supportticket/social) plus redis/pvc.yaml and
+# redis/service.yaml, none of which exist — `kustomize build` died with
+# "open k8s/redis/pvc.yaml: no such file or directory". It now mirrors the
+# base k8s/kustomization.yaml: one Deployment per CONSOLIDATED service
+# (identity, commerce, catalog, engagement, admin) + gateway, the infra each
+# needs, and the redpanda component. The low-memory postgres/redis patches are
+# kept.
 #
 # The static secrets.yaml is intentionally NOT included — Vault-less minikube
 # users create bhukkad-secrets out-of-band (see k8s/secrets.yaml header).
@@ -26,6 +32,7 @@ resources:
   - ../../configmap.yaml
   - ../../secret-store.yaml
   - ../../external-secret.yaml
+  - ../../common/priority-class.yaml
   - ../../postgres/pvc.yaml
   # WAL spool consumed by the postgres pod's walg-archive sidecar — must be
   # present here too (the base deployment references the claim). Minikube keeps
@@ -35,44 +42,23 @@ resources:
   - ../../postgres/configmap.yaml
   - ../../postgres/deployment.yaml
   - ../../postgres/service.yaml
-  - ../../postgres/read-replica.yaml
   - ../../pgbouncer/deployment.yaml
   - ../../pgbouncer/service.yaml
   - ../../redis/configmap.yaml
-  - ../../redis/pvc.yaml
   - ../../redis/deployment.yaml
-  - ../../redis/service.yaml
   - ../../redis/redis-sentinel.yaml
-  - ../../survey/deployment.yaml
-  - ../../survey/service.yaml
-  - ../../referral/deployment.yaml
-  - ../../referral/service.yaml
-  - ../../supportticket/deployment.yaml
-  - ../../supportticket/service.yaml
-  - ../../restaurant/deployment.yaml
-  - ../../restaurant/service.yaml
+  # Consolidated services (post 16→5 merge): identity, commerce (order +
+  # payment + delivery), catalog (restaurant + search + personalization),
+  # engagement (social + growth + referral + survey + notification + realtime),
+  # admin (admin-analytics + support), gateway.
   - ../../identity/deployment.yaml
   - ../../identity/service.yaml
-  - ../../order/deployment.yaml
-  - ../../order/service.yaml
-  - ../../payment/deployment.yaml
-  - ../../payment/service.yaml
-  - ../../delivery/deployment.yaml
-  - ../../delivery/service.yaml
-  - ../../notification/deployment.yaml
-  - ../../notification/service.yaml
-  - ../../search/deployment.yaml
-  - ../../search/service.yaml
-  - ../../admin-analytics/deployment.yaml
-  - ../../admin-analytics/service.yaml
+  - ../../commerce/deployment.yaml
+  - ../../catalog/deployment.yaml
+  - ../../engagement/deployment.yaml
+  - ../../admin/deployment.yaml
   - ../../gateway/deployment.yaml
   - ../../gateway/service.yaml
-  - ../../realtime/deployment.yaml
-  - ../../realtime/service.yaml
-  - ../../personalization/deployment.yaml
-  - ../../personalization/service.yaml
-  - ../../growth/deployment.yaml
-  - ../../growth/service.yaml
   - ../../logging/fluent-bit-configmap.yaml
   - ../../logging/fluent-bit-rbac.yaml
   - ../../logging/fluent-bit-daemonset.yaml

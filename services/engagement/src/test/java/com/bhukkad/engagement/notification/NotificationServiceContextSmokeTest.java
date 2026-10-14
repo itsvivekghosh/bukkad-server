@@ -13,8 +13,14 @@ class NotificationServiceContextSmokeTest extends AbstractNotificationPostgresTe
 
     @Test
     void healthEndpointResponds() {
+        // onStatus no-op: this Testcontainers slice provisions Postgres only, so the
+        // aggregate health status is DOWN (redis absent) and retrieve() would
+        // throw HttpServerErrorException on the 503 before any assertion runs.
         String health = RestClient.create("http://localhost:" + port)
-                .get().uri("/actuator/health").retrieve().body(String.class);
-        assertThat(health).contains("\"status\":\"UP\"");
+                .get().uri("/actuator/health")
+                .retrieve()
+                .onStatus(org.springframework.http.HttpStatusCode::isError, (request, response) -> { })
+                .body(String.class);
+        assertThat(health).contains("\"db\":{\"status\":\"UP\"");
     }
 }
