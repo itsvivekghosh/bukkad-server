@@ -1,8 +1,9 @@
 package com.bhukkad.admin.analytics.infrastructure.cache;
-import com.bhukkad.admin.analytics.domain.service.FeatureFlagService;
 
+import com.bhukkad.admin.analytics.domain.service.FeatureFlagService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -15,7 +16,15 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 @Configuration
 public class FeatureFlagRedisConfig {
 
+    /**
+     * @Lazy is REQUIRED: as a SmartLifecycle the container would otherwise be
+     * started during context refresh, and its synchronous subscribe kills boot
+     * when Redis is unreachable ("Failed to start bean
+     * 'featureFlagListenerContainer'"). FeatureFlagListenerStarter creates it
+     * after the application is ready and retries until Redis answers.
+     */
     @Bean
+    @Lazy
     RedisMessageListenerContainer featureFlagListenerContainer(RedisConnectionFactory connectionFactory,
                                                                FeatureFlagService featureFlagService) {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
