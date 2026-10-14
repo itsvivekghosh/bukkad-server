@@ -4,13 +4,15 @@ import com.bhukkad.common.security.BlockHoundSupport;
 import org.junit.jupiter.api.Assumptions;
 
 /**
- * BlockHound scan across all {@code com.bhukkad} packages, including
- * service modules (order, payment, delivery, gateway, etc.).
+ * BlockHound scan across every {@code com.bhukkad} class visible on the test
+ * classpath, so it runs in every reactor module build without preconditioning
+ * on a particular service module being present.
  *
- * <p>This test is most meaningful when run from the repository root
- * ({@code mvn test}) so all service classes are on the test classpath.
- * When run in isolation ({@code -pl services/platform-lib test}) the
- * service packages are absent and the scan trivially passes.</p>
+ * <p>When run from a single module the scan covers that module's own classes
+ * (platform-lib's shared infrastructure); service modules extend
+ * {@link BlockHoundTestBase} for the same guarantee over their code. Only
+ * BlockHound support itself can skip this test (see
+ * {@link BlockHoundSupport}).</p>
  */
 class AllServicesBlockHoundTest extends BlockHoundTestBase {
 
@@ -22,9 +24,8 @@ class AllServicesBlockHoundTest extends BlockHoundTestBase {
     @Override
     void scannedReactiveMethods_neverBlockOnEventLoopThreads() {
         Assumptions.assumeTrue(
-                BlockHoundSupport.isSupported()
-                        && getClass().getClassLoader().getResource("com/bhukkad/order") != null,
-                "BlockHound not supported or service classes not on classpath");
+                BlockHoundSupport.isSupported(),
+                "BlockHound not supported on JDK " + Runtime.version().feature());
         super.scannedReactiveMethods_neverBlockOnEventLoopThreads();
     }
 }

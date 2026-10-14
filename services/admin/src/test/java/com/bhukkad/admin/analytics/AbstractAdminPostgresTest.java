@@ -1,5 +1,6 @@
 package com.bhukkad.admin.analytics;
 
+import com.bhukkad.admin.TestKafkaTestConfig;
 import org.opentest4j.TestAbortedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -8,7 +9,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import org.springframework.context.annotation.Import;
+
 @Testcontainers(disabledWithoutDocker = true)
+@Import(TestKafkaTestConfig.class)
 public abstract class AbstractAdminPostgresTest {
 
     /**
@@ -61,5 +65,7 @@ public abstract class AbstractAdminPostgresTest {
         // single suite, so cap the test pool to keep the container solvent.
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
+        // Service JWT secret for ServiceJwtAuthTokenProvider bean
+        registry.add("app.auth.service.jwt-secret", () -> "test-service-secret-123456789012345678901234");
     }
 }

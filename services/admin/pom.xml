@@ -89,7 +89,6 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
-			<optional>true</optional>
 		</dependency>
 
 		<dependency>
@@ -148,6 +147,14 @@
 				<configuration>
 					<source>21</source>
 					<target>21</target>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>${lombok.version}</version>
+						</path>
+					</annotationProcessorPaths>
+					<parameters>true</parameters>
 				</configuration>
 			</plugin>
 		</plugins>

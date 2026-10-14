@@ -4,6 +4,7 @@ import com.bhukkad.catalog.restaurant.domain.entity.Cuisine;
 import com.bhukkad.catalog.restaurant.domain.service.impl.CuisineService;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,7 +28,14 @@ public class CuisineController {
         return ApiResponse.success(cuisineService.all());
     }
 
+    /**
+     * Cuisine taxonomy is admin-managed. The security config only permits GET
+     * {@code /api/v1/cuisines/**} publicly — writes fell through to plain
+     * {@code authenticated()}, so ANY signed-in customer could mint cuisines.
+     * ADMIN-only matches the rest of the catalog admin surface.
+     */
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Cuisine> create(@RequestParam @NotBlank String name) {
         return ApiResponse.success(cuisineService.create(name));
     }

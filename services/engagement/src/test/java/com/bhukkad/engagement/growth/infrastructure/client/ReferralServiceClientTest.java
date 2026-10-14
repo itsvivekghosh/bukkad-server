@@ -41,7 +41,8 @@ class ReferralServiceClientTest {
     @Mock private ServiceJwtAuthTokenProvider tokenProvider;
 
     private RestClient.Builder builder;
-    private Class<?> codeResponseClass;
+    private Class<?> codeEnvelopeClass;
+    private Class<?> codeDataClass;
 
     @SuppressWarnings("unchecked")
     @BeforeEach
@@ -57,26 +58,34 @@ class ReferralServiceClientTest {
         when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
         when(bodySpec.retrieve()).thenReturn(responseSpec);
 
-        codeResponseClass = Arrays.stream(ReferralServiceClient.class.getDeclaredClasses())
-                .filter(k -> k.getSimpleName().equals("CodeResponse"))
+        codeEnvelopeClass = Arrays.stream(ReferralServiceClient.class.getDeclaredClasses())
+                .filter(k -> k.getSimpleName().equals("CodeEnvelope"))
+                .findFirst().orElseThrow();
+        codeDataClass = Arrays.stream(ReferralServiceClient.class.getDeclaredClasses())
+                .filter(k -> k.getSimpleName().equals("CodeData"))
                 .findFirst().orElseThrow();
     }
 
+    /** Builds the platform ApiResponse envelope that wraps the code under {@code data}. */
     private Object newResponse(String referralCode) throws Exception {
-        Constructor<?> ctor = codeResponseClass.getDeclaredConstructor(String.class);
+        Constructor<?> dataCtor = codeDataClass.getDeclaredConstructor(String.class);
+        dataCtor.setAccessible(true);
+        Object data = dataCtor.newInstance(referralCode);
+        Constructor<?> ctor = codeEnvelopeClass.getDeclaredConstructor(
+                boolean.class, String.class, codeDataClass);
         ctor.setAccessible(true);
-        return ctor.newInstance(referralCode);
+        return ctor.newInstance(true, "Referral code ready", data);
     }
 
     private ReferralServiceClient client() {
-        return new ReferralServiceClient(builder, "http://referral:8084", authProvider);
+        return new ReferralServiceClient(builder, "http://localhost:8080", authProvider);
     }
 
     @Test
     void generateCode_attachesServiceTokenAndReturnsCode() throws Exception {
         when(authProvider.getIfAvailable()).thenReturn(tokenProvider);
         when(tokenProvider.serviceToken()).thenReturn("svc.jwt.token");
-        org.mockito.Mockito.doReturn(newResponse("BK42")).when(responseSpec).body(codeResponseClass);
+        org.mockito.Mockito.doReturn(newResponse("BK42")).when(responseSpec).body(codeEnvelopeClass);
 
         assertThat(client().generateCode(7L)).isEqualTo("BK42");
 
@@ -87,7 +96,7 @@ class ReferralServiceClientTest {
     @Test
     void generateCode_withoutTokenProvider_omitsHeader() throws Exception {
         when(authProvider.getIfAvailable()).thenReturn(null);
-        org.mockito.Mockito.doReturn(newResponse("BK7")).when(responseSpec).body(codeResponseClass);
+        org.mockito.Mockito.doReturn(newResponse("BK7")).when(responseSpec).body(codeEnvelopeClass);
 
         assertThat(client().generateCode(7L)).isEqualTo("BK7");
 
@@ -107,7 +116,7 @@ class ReferralServiceClientTest {
     @SuppressWarnings("unchecked")
     void generateCode_emptyBody_returnsNull() throws Exception {
         when(authProvider.getIfAvailable()).thenReturn(null);
-        org.mockito.Mockito.doReturn(null).when(responseSpec).body(codeResponseClass);
+        org.mockito.Mockito.doReturn(null).when(responseSpec).body(codeEnvelopeClass);
 
         assertThat(client().generateCode(7L)).isNull();
     }
@@ -122,7 +131,11 @@ class ReferralServiceClientTest {
         Object request = ctor.newInstance(3L);
         assertThat(requestClass.getMethod("customerId").invoke(request)).isEqualTo(3L);
         assertThat(requestClass.getMethod("getCustomerId").invoke(request)).isEqualTo(3L);
-        assertThat(codeResponseClass.getMethod("getReferralCode").invoke(newResponse("BK9")))
+        // Jackson deserializes via the bean-style accessors: the code must be
+        // reachable through getReferralCode() on the nested data record.
+        assertThat(codeDataClass.getMethod("getReferralCode")
+                .invoke(codeEnvelopeClass.getMethod("data").invoke(newResponse("BK9"))))
                 .isEqualTo("BK9");
+        assertThat(codeEnvelopeClass.getMethod("data").invoke(newResponse("BK9"))).isNotNull();
     }
 }

@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@TestPropertySource(properties = "app.auth.service.jwt-secret=test-service-secret-123456789012345678901234")
 class AdminCqrsProjectionPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -72,46 +74,39 @@ class AdminCqrsProjectionPostgresIntegrationTest extends AbstractAdminPostgresTe
         jdbcTemplate.update("DELETE FROM idempotency_records");
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @Test
-    void concurrentProjections_twoThreadsFourEvents_sameRestaurant_exactlyEight() throws Exception {
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentProjections_twoThreadsFourEvents_sameRestaurant_exactlyEight() throws InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
         List<Future<?>> futures = new ArrayList<>();
-        try {
-            for (int t = 0; t < 2; t++) {
-                final int thread = t;
-                futures.add(pool.submit(() -> {
-                    awaitStart(start);
-                    for (int i = 0; i < 4; i++) {
-                        String payload = ("{\"orderId\":%d,\"customerId\":9,\"restaurantId\":77,"
-                                + "\"totalAmount\":10.00}").formatted(thread * 100 + i);
-                        PlatformEventMessage event = PlatformEventMessage.of(
-                                "OrderCreated", String.valueOf(thread * 100 + i), payload);
-                        String envelope = envelope(event);
-                        // Real tx per event (listener + @Transactional semantics).
-                        tx.executeWithoutResult(status -> consumer.onOrderEvent(envelope));
-                    }
-                    return null;
-                }));
-            }
-            start.countDown();
-            for (Future<?> f : futures) {
-                f.get(30, TimeUnit.SECONDS);
-            }
-        } finally {
-            pool.shutdownNow();
+
+        for (int i = 0; i < 2; i++) {
+            futures.add(pool.submit(() -> {
+                awaitStart(start);
+                for (int j = 0; j < 4; j++) {
+                    PlatformEventMessage event = PlatformEventMessage.of(
+                            "OrderCreated", "42", "{\"restaurantId\":77,\"totalAmount\":10.00}");
+                    String envelope = envelope(event);
+                    tx.executeWithoutResult(status -> consumer.onOrderEvent(envelope));
+                }
+            }));
         }
+
+        start.countDown();
+        for (Future<?> f : futures) {
+            f.get(30, TimeUnit.SECONDS);
+        }
+        pool.shutdown();
 
         Long count = jdbcTemplate.queryForObject(
                 "SELECT order_count FROM restaurant_order_stats WHERE restaurant_id = 77", Long.class);
-        BigDecimal revenue = jdbcTemplate.queryForObject(
+        BigDecimal rev = jdbcTemplate.queryForObject(
                 "SELECT revenue FROM restaurant_order_stats WHERE restaurant_id = 77", BigDecimal.class);
         assertThat(count).isEqualTo(8L);
-        assertThat(revenue).isEqualByComparingTo("80.00");
+        assertThat(rev).isEqualByComparingTo("80.00");
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @Test
     void sameEventIdTwice_projectsExactlyOnce() {
         PlatformEventMessage event = PlatformEventMessage.of(

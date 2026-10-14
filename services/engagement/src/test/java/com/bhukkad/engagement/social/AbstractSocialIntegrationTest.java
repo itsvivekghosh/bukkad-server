@@ -74,13 +74,8 @@ public abstract class AbstractSocialIntegrationTest {
         registry.add("spring.data.redis.port", REDIS::getFirstMappedPort);
         registry.add("spring.data.redis.password", () -> "");
 
-        // Kafka can be added later if integration tests require event publishing
-        // registry.add("app.events.external.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        // registry.add("app.events.external.kafka.consumer-group", () -> "social-test-consumer");
-        // registry.add("app.events.external.kafka.platform-topic", () -> "social.events.v1");
-        // registry.add("app.events.external.kafka.dlq-topic", () -> "social.events.v1.dlt");
-        // registry.add("app.events.external.enabled", () -> "false");
-        // registry.add("app.events.external.type", () -> "kafka");
+        // Kafka disabled for integration tests (no broker in CI).
+        registry.add("app.events.external.enabled", () -> "false");
 
         // Disable tracing for tests
         registry.add("management.tracing.sampling.probability", () -> "0.0");

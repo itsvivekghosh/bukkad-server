@@ -36,6 +36,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -183,9 +184,14 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
                     ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
                     org.apache.kafka.common.serialization.StringSerializer.class,
                     ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                    org.apache.kafka.common.serialization.StringSerializer.class);
+                    org.apache.kafka.common.serialization.StringSerializer.class,
+                    ProducerConfig.TRANSACTIONAL_ID_CONFIG, "it-tx-" + UUID.randomUUID().toString(),
+                    ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+            DefaultKafkaProducerFactory<String, String> producerFactory =
+                    new DefaultKafkaProducerFactory<>(cfg);
+            producerFactory.setTransactionIdPrefix("it-tx-");
             KafkaTemplate<String, String> template =
-                    new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(cfg));
+                    new KafkaTemplate<>(producerFactory);
             KafkaPlatformEventPublisher publisher =
                     new KafkaPlatformEventPublisher(template, props, Duration.ofSeconds(20));
             return new OutboxPollPublisher(repository, publisher, OutboxProperties.defaults(),
@@ -202,9 +208,14 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
                 org.apache.kafka.common.serialization.StringSerializer.class,
                 ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 100,
-                ProducerConfig.MAX_BLOCK_MS_CONFIG, 100);
+                ProducerConfig.MAX_BLOCK_MS_CONFIG, 100,
+                ProducerConfig.TRANSACTIONAL_ID_CONFIG, "it-dead-tx-" + UUID.randomUUID().toString(),
+                ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        DefaultKafkaProducerFactory<String, String> deadProducerFactory =
+                new DefaultKafkaProducerFactory<>(cfg);
+        deadProducerFactory.setTransactionIdPrefix("it-dead-tx-");
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
-                new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(cfg)),
+                new KafkaTemplate<>(deadProducerFactory),
                 props, Duration.ofMillis(200));
         return new OutboxPollPublisher(repository, publisher, OutboxProperties.defaults(),
                 tx, deadLetters, registry);

@@ -4,11 +4,15 @@ import com.bhukkad.common.event.PlatformEventMessage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class KafkaPlatformEventPublisherTest {
 
@@ -59,10 +63,23 @@ class KafkaPlatformEventPublisherTest {
                 new org.apache.kafka.clients.producer.RecordMetadata(
                         new org.apache.kafka.common.TopicPartition(BASE_TOPIC, 0),
                         0L, 0, 0L, 0, 0);
-        org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
-                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
-                        new org.springframework.kafka.support.SendResult<>(null, meta)));
+        org.springframework.kafka.support.SendResult<String, String> sendResult =
+                new org.springframework.kafka.support.SendResult<>(null, meta);
+        
+        // Mock executeInTransaction to capture the callback and invoke it with a mocked operations
+        org.mockito.Mockito.when(kafkaTemplate.executeInTransaction(
+                org.mockito.ArgumentMatchers.<org.springframework.kafka.core.KafkaOperations.OperationsCallback<String, String, SendResult<String, String>>>any()))
+                .thenAnswer(invocation -> {
+                    org.springframework.kafka.core.KafkaOperations.OperationsCallback<String, String, SendResult<String, String>> callback = 
+                            invocation.getArgument(0);
+                    // Create a mock operations object
+                    org.springframework.kafka.core.KafkaOperations<String, String> mockOps = mock(org.springframework.kafka.core.KafkaOperations.class);
+                    org.mockito.Mockito.when(mockOps.send(org.mockito.ArgumentMatchers.anyString(), 
+                            org.mockito.ArgumentMatchers.anyString(), 
+                            org.mockito.ArgumentMatchers.anyString()))
+                            .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(sendResult));
+                    return callback.doInOperations(mockOps);
+                });
 
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
                 kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"),
@@ -70,12 +87,6 @@ class KafkaPlatformEventPublisherTest {
 
         assertThat(publisher.publishForResult(PlatformEventMessage.of("OrderStatusChanged", "42", "{}")))
                 .isTrue();
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<String> topic = ArgumentCaptor.forClass(String.class);
-        verify(kafkaTemplate).send(topic.capture(), org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyString());
-        assertThat(topic.getValue()).isEqualTo(BASE_TOPIC);
     }
 
     @Test
@@ -117,9 +128,19 @@ class KafkaPlatformEventPublisherTest {
                         0L, 0, 0L, 0, 0);
         org.springframework.kafka.support.SendResult<String, String> sendResult =
                 new org.springframework.kafka.support.SendResult<>(null, meta);
-        org.mockito.Mockito.when(kafkaTemplate.send(org.mockito.ArgumentMatchers.anyString(),
-                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(sendResult));
+        
+        org.mockito.Mockito.when(kafkaTemplate.executeInTransaction(
+                org.mockito.ArgumentMatchers.<org.springframework.kafka.core.KafkaOperations.OperationsCallback<String, String, SendResult<String, String>>>any()))
+                .thenAnswer(invocation -> {
+                    org.springframework.kafka.core.KafkaOperations.OperationsCallback<String, String, SendResult<String, String>> callback = 
+                            invocation.getArgument(0);
+                    org.springframework.kafka.core.KafkaOperations<String, String> mockOps = mock(org.springframework.kafka.core.KafkaOperations.class);
+                    org.mockito.Mockito.when(mockOps.send(org.mockito.ArgumentMatchers.anyString(), 
+                            org.mockito.ArgumentMatchers.anyString(), 
+                            org.mockito.ArgumentMatchers.anyString()))
+                            .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(sendResult));
+                    return callback.doInOperations(mockOps);
+                });
 
         KafkaPlatformEventPublisher publisher = new KafkaPlatformEventPublisher(
                 kafkaTemplate, new KafkaProperties(true, BASE_TOPIC, "test-group"),

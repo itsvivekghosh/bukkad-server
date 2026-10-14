@@ -43,6 +43,10 @@ public abstract class AbstractSearchPostgresTest {
         registry.add("spring.flyway.locations", () -> "classpath:db/migration-pg");
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
+        // Disable external event backbone (Kafka) for integration tests;
+        // the listener wiring is tested in platform-lib and consumer logic
+        // is invoked directly in SearchSyncConsumerPostgresIntegrationTest.
+        registry.add("app.events.external.enabled", () -> "false");
         // Keep background schedulers out of the test's way.
         registry.add("app.search.sync.interval-ms", () -> "3600000");
     }

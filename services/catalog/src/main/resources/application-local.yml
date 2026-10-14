@@ -10,4 +10,12 @@ spring:
 app:
   events:
     external:
-      enabled: false
+      enabled: true
+      type: kafka
+      kafka:
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+  search:
+    elasticsearch:
+      enabled: true
+      host: ${ELASTICSEARCH_HOST:elasticsearch}
+      port: ${ELASTICSEARCH_PORT:9200}

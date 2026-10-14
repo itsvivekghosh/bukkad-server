@@ -165,7 +165,6 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
 					<classifier>exec</classifier>
-					<layout>ZIP</layout>
 				</configuration>
 				<executions>
 					<execution>

@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
 import java.time.LocalDateTime;
 
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@TestPropertySource(properties = "app.auth.service.jwt-secret=test-service-secret-123456789012345678901234")
 class FraudAnalyticsPostgresIntegrationTest extends AbstractAdminPostgresTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;

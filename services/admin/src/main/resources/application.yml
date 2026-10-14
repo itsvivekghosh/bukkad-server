@@ -152,6 +152,14 @@ app:
       url: ${CATALOG_SERVICE_URL:http://localhost:8081}
     engagement:
       url: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    # Payment and order were consolidated into commerce. These keys were
+    # missing, so WalletCreditClientImpl / OrderServiceClient fell back to the
+    # retired payment:8080 / order:8080 hosts and every wallet-credit or
+    # order-lookup call failed to connect.
+    payment:
+      url: ${APP_SERVICES_PAYMENT_URL:${COMMERCE_SERVICE_URL:http://localhost:8080}}
+    order:
+      url: ${APP_SERVICES_ORDER_URL:${COMMERCE_SERVICE_URL:http://localhost:8080}}
   auth:
     jwt:
       secret: ${JWT_SECRET:}

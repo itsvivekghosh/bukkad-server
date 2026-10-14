@@ -109,19 +109,24 @@ public class KafkaPlatformEventPublisher {
         // @KafkaListener consumers subscribe to.
         String topic = properties.topic();
         try {
-            CompletableFuture<SendResult<String, String>> future =
-                    kafkaTemplate.send(topic, message.aggregateId(), message.toJson());
-            SendResult<String, String> result = future
-                    .get(sendTimeout.getSeconds(), TimeUnit.SECONDS);
+            // Transactional producer requires send to be within a transaction.
+            // executeInTransaction starts a transaction, executes the callback,
+            // and commits on success / rolls back on exception.
+            SendResult<String, String> result = kafkaTemplate.executeInTransaction(operations -> {
+                CompletableFuture<SendResult<String, String>> future = operations.send(topic, message.aggregateId(), message.toJson());
+                try {
+                    return future.get(sendTimeout.getSeconds(), TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Publish interrupted", e);
+                } catch (Exception e) {
+                    throw new IllegalStateException("Publish failed", e);
+                }
+            });
             RecordMetadata meta = result.getRecordMetadata();
             log.info("KAFKA_PUBLISHED | topic={} | eventId={} | eventType={} | offset={} | partition={}",
                     topic, message.eventId(), message.eventType(), meta.offset(), meta.partition());
             return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("KAFKA_PUBLISH_INTERRUPTED | topic={} | eventId={} | eventType={}",
-                    topic, message.eventId(), message.eventType());
-            return false;
         } catch (Exception e) {
             log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
                     topic, message.eventId(), message.eventType(), e);

@@ -5,8 +5,6 @@ import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -23,12 +21,11 @@ import java.util.Date;
  * service, which reads the same shared secret from
  * {@link ServiceAuthProperties}.</p>
  *
- * <p>Created only when {@code app.auth.service.jwt-secret} is set so that
- * services without service auth degrade gracefully (empty token) rather than
- * failing to start.</p>
+ * <p>The bean is always created; if {@code app.auth.service.jwt-secret} is
+ * not configured it logs a warning and {@link #serviceToken()} returns
+ * {@code null} so callers can skip the header gracefully.</p>
  */
 @Component
-@ConditionalOnProperty(name = "app.auth.service.jwt-secret", matchIfMissing = false)
 public class ServiceJwtAuthTokenProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceJwtAuthTokenProvider.class);

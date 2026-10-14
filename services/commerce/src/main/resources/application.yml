@@ -164,8 +164,11 @@ app:
       url: ${APP_SERVICES_PAYMENT_URL:http://localhost:8080}
     restaurant:
       url: ${APP_SERVICES_RESTAURANT_URL:http://localhost:8081}
+    # Support tickets were consolidated into the engagement service — the
+    # retired supportticket:8083 host no longer exists, so the fallback
+    # resolves to the engagement pod.
     supportticket:
-      url: ${APP_SERVICES_SUPPORTTICKET_URL:http://localhost:8083}
+      url: ${APP_SERVICES_SUPPORTTICKET_URL:${ENGAGEMENT_SERVICE_URL:http://localhost:8082}}
   order:
     async-saga:
       enabled: ${ORDER_ASYNC_SAGA_ENABLED:true}

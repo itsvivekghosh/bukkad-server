@@ -300,11 +300,19 @@ public class GatewayConfig {
                         .metadata(SSE_RESPONSE_TIMEOUT_METADATA, SSE_RESPONSE_TIMEOUT_MS)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.live.enabled")
                         .uri(realtimeUri))
-                // Growth service: campaigns + customer loyalty accounts.
+                // Growth service: campaigns + customer loyalty accounts + referral
+                // self-surface (stats/code/apply live in the growth module's
+                // GrowthController; without these the paths fell through to
+                // the identity /api/v1/customers/** catch-all — which has no
+                // such endpoint — and answered 404).
                 .route("growth", r -> r.path(
                         "/api/v1/campaigns",
                         "/api/v1/campaigns/**",
-                        "/api/v1/customers/*/loyalty/**")
+                        "/api/v1/growth",
+                        "/api/v1/growth/**",
+                        "/api/v1/referral/apply",
+                        "/api/v1/customers/*/loyalty/**",
+                        "/api/v1/customers/*/referral/**")
                         .filters(f -> f.circuitBreaker(c -> c.setName("growth")))
                         .uri(growthUri))
                 // Inventory alerts (P2): restaurant inventory alert endpoints.

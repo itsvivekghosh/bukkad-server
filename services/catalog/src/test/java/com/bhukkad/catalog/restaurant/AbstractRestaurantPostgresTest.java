@@ -43,5 +43,7 @@ public abstract class AbstractRestaurantPostgresTest {
         // single suite, so cap the test pool to keep the container solvent.
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
+        // Disable external event backbone (Kafka) for integration tests.
+        registry.add("app.events.external.enabled", () -> "false");
     }
 }

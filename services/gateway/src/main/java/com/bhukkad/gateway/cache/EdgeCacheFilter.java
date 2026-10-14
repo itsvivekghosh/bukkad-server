@@ -12,6 +12,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -154,15 +155,36 @@ public class EdgeCacheFilter implements GlobalFilter, Ordered {
                                             byte[] bytes = new byte[dataBuffer.readableByteCount()];
                                             dataBuffer.read(bytes);
                                             DataBufferUtils.release(dataBuffer);
-                                            String bodyStr = new String(bytes, StandardCharsets.UTF_8);
                                             HttpStatusCode status = super.getStatusCode();
                                             int statusCode = status != null ? status.value() : HttpStatus.OK.value();
-                                            String cachedValue = statusCode + "|" + bodyStr;
-                                            long jitteredTtl = ttlSeconds + (long) ((JITTER_RANDOM.nextDouble() - 0.5) * 2 * ttlSeconds * JITTER_FACTOR);
-                                            redis.opsForValue().set(cacheKey, cachedValue, Duration.ofSeconds(jitteredTtl))
-                                                    .doOnError(e -> log.warn("EDGE_CACHE_WRITE_FAILED key={} error={}", cacheKey, e.getMessage()))
-                                                    .onErrorResume(e -> Mono.empty())
-                                                    .subscribe();
+
+                                            // Content-negotiation guard: the cache key is
+                                            // method+path+query and knows nothing about
+                                            // Accept-Encoding. Upstreams that compress
+                                            // (e.g. catalog's server.compression) would
+                                            // store gzip/br bytes that are then replayed
+                                            // to identity clients as opaque binary —
+                                            // JSON parsers die on the 0x1F magic. Skip
+                                            // caching encoded variants entirely; the next
+                                            // caller gets a fresh, correctly-negotiated
+                                            // response.
+                                            HttpHeaders respHeaders = super.getHeaders();
+                                            String contentEncoding = respHeaders == null
+                                                    ? null
+                                                    : respHeaders.getFirst(org.springframework.http.HttpHeaders.CONTENT_ENCODING);
+                                            boolean identityEncoded = contentEncoding == null
+                                                    || contentEncoding.isBlank()
+                                                    || "identity".equalsIgnoreCase(contentEncoding.trim());
+
+                                            if (identityEncoded) {
+                                                String bodyStr = new String(bytes, StandardCharsets.UTF_8);
+                                                String cachedValue = statusCode + "|" + bodyStr;
+                                                long jitteredTtl = ttlSeconds + (long) ((JITTER_RANDOM.nextDouble() - 0.5) * 2 * ttlSeconds * JITTER_FACTOR);
+                                                redis.opsForValue().set(cacheKey, cachedValue, Duration.ofSeconds(jitteredTtl))
+                                                        .doOnError(e -> log.warn("EDGE_CACHE_WRITE_FAILED key={} error={}", cacheKey, e.getMessage()))
+                                                        .onErrorResume(e -> Mono.empty())
+                                                        .subscribe();
+                                            }
                                             return originalResponse.writeWith(Mono.just(originalResponse.bufferFactory().wrap(bytes)));
                                         });
                             }

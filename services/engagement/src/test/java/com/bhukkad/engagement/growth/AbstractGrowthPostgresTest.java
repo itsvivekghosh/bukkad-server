@@ -54,5 +54,7 @@ public abstract class AbstractGrowthPostgresTest {
         // single suite, so cap the test pool to keep the container solvent.
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
+        // No Kafka broker in tests; the event consumers stay off.
+        registry.add("app.events.external.enabled", () -> "false");
     }
 }

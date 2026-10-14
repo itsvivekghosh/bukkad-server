@@ -16,6 +16,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.net.URI;
+
 /**
  * Elasticsearch client configuration.
  *
@@ -37,22 +39,18 @@ public class ElasticsearchConfig {
     @Value("${app.search.elasticsearch.password:}")
     private String password;
 
+    @Value("${app.search.elasticsearch.enabled:false}")
+    private boolean enabled;
+
     /**
-     * The ES client is only created when the feature is actually enabled.
-     *
-     * <p>It used to be created unconditionally and return {@code null} from
-     * the body when {@code app.search.elasticsearch.enabled} was false. Spring
-     * still registers a null-returning factory method as a bean definition, so
-     * Boot kept probing {@code localhost:9200} through its Elasticsearch health
-     * indicator and reported the whole catalog service DOWN — even though
-     * search has a Postgres fallback and the feature was switched off.
-     *
-     * <p>Gating the bean with {@code @ConditionalOnProperty} means: flag off →
-     * no client → no health contributor → service stays UP on the DB path.
+     * The ES client is created when the feature is enabled.
+     * When disabled, returns null to allow graceful degradation.
      */
     @Bean
-    @ConditionalOnProperty(prefix = "app.search.elasticsearch", name = "enabled", havingValue = "true")
     public ElasticsearchClient elasticsearchClient() {
+        if (!enabled) {
+            return null;
+        }
         try {
             RestClient restClient = createRestClient();
             RestClientTransport transport = new RestClientTransport(

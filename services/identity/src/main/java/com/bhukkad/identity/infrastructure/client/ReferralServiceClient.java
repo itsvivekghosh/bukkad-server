@@ -31,7 +31,7 @@ public class ReferralServiceClient {
     private final com.bhukkad.common.security.ServiceJwtAuthTokenProvider authTokenProvider;
 
     public ReferralServiceClient(RestClient.Builder restClientBuilder,
-                                 @Value("${app.services.referral.url:http://referral:8084}") String referralServiceUrl,
+                                 @Value("${app.services.referral.url:http://engagement:8080}") String referralServiceUrl,
                                  org.springframework.beans.factory.ObjectProvider<com.bhukkad.common.security.ServiceJwtAuthTokenProvider> authTokenProvider) {
         org.springframework.http.client.SimpleClientHttpRequestFactory factory =
                 new org.springframework.http.client.SimpleClientHttpRequestFactory();
@@ -62,11 +62,11 @@ public class ReferralServiceClient {
             if (token != null) {
                 request = request.header("X-Service-Token", token);
             }
-            CodeResponse response = request
+            CodeEnvelope response = request
                     .body(new CodeRequest(customerId))
                     .retrieve()
-                    .body(CodeResponse.class);
-            return response == null ? null : response.referralCode();
+                    .body(CodeEnvelope.class);
+            return response == null || response.data() == null ? null : response.data().referralCode();
         } catch (RestClientException e) {
             log.error("REFERRAL_CODEGEN_UNAVAILABLE customerId={} error={}", customerId, e.getMessage());
             return null;
@@ -113,7 +113,11 @@ public class ReferralServiceClient {
         }
     }
 
-    private record CodeResponse(String referralCode) {
+    /** Platform ApiResponse envelope: the payload is nested under {@code data}. */
+    private record CodeEnvelope(boolean success, String message, CodeData data) {
+    }
+
+    private record CodeData(String referralCode) {
         public String getReferralCode() {
             return referralCode;
         }

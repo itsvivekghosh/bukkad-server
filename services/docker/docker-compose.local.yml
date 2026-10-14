@@ -25,7 +25,11 @@ x-common-env: &common-env
   # are answered 403 (e.g. commerce -> /internal/delivery/earnings).
   SERVICE_ALLOWED_SERVICES: gateway,identity,catalog,commerce,engagement,admin,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth
   TRACING_SAMPLE_PROBABILITY: '0.0'
-  EVENTS_EXTERNAL_ENABLED: 'false'
+  EVENTS_EXTERNAL_ENABLED: 'true'
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  APP_SEARCH_ELASTICSEARCH_ENABLED: 'true'
+  APP_SEARCH_ELASTICSEARCH_HOST: elasticsearch
+  APP_SEARCH_ELASTICSEARCH_PORT: '9200'
   MALLOC_ARENA_MAX: '1'
   JAVA_OPTS: >-
     -Xms96m -Xmx320m
@@ -45,7 +49,7 @@ x-common-env: &common-env
     -Dserver.address=0.0.0.0
     -Dspring.main.lazy-initialization=true
     -Dspring.jmx.enabled=false
-    -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration,org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration,org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration,org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration,org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
+    -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration,org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration,org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration,org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
   spring.datasource.hikari.maximum-pool-size: '4'
   SERVER_ADDRESS: 0.0.0.0
 
@@ -104,6 +108,84 @@ services:
         limits:
           memory: 64M
 
+  # Elasticsearch for catalog search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    container_name: bhukkad-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx512m"
+      - cluster.name=bhukkad-local
+    ports:
+      - 9200:9200
+      - 9300:9300
+    volumes:
+      - bhukkad-esdata:/usr/share/elasticsearch/data
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # Kafka for event-driven architecture
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: bhukkad-kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+    ports:
+      - 9092:9092
+    volumes:
+      - bhukkad-kafka:/var/lib/kafka/data
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: bhukkad-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 2181:2181
+    volumes:
+      - bhukkad-zookeeper:/var/lib/zookeeper/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   # Identity service - always running (core auth)
   identity:
     profiles: ["core", "full"]
@@ -113,6 +195,8 @@ services:
       <<: *common-env
       SERVER_PORT: '8080'
       IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/identity
+      # Referral module lives in the engagement service (ADR-005 codegen).
+      ENGAGEMENT_SERVICE_URL: http://engagement:8080
       APP_BOOTSTRAPADMIN_ENABLED: 'true'
       APP_BOOTSTRAPADMIN_EMAIL: admin@bhukkad.dev
       APP_BOOTSTRAPADMIN_PASSWORD: ${APP_BOOTSTRAPADMIN_PASSWORD:-Admin@123456}
@@ -140,7 +224,13 @@ services:
       ENGAGEMENT_SERVICE_URL: http://engagement:8080
       ADMIN_SERVICE_URL: http://admin:8080
     deploy: *common-deploy
-    depends_on: *common-depends
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
     build:
       context: ..
       dockerfile: docker/Dockerfile.service
@@ -158,11 +248,20 @@ services:
       <<: *common-env
       SERVER_PORT: '8080'
       CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalog
+      ELASTICSEARCH_URL: http://elasticsearch:9200
       COMMERCE_SERVICE_URL: http://commerce:8080
       ENGAGEMENT_SERVICE_URL: http://engagement:8080
       ADMIN_SERVICE_URL: http://admin:8080
     deploy: *common-deploy
-    depends_on: *common-depends
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_started
     build:
       context: ..
       dockerfile: docker/Dockerfile.service
@@ -184,7 +283,13 @@ services:
       CATALOG_SERVICE_URL: http://catalog:8080
       ADMIN_SERVICE_URL: http://admin:8080
     deploy: *common-deploy
-    depends_on: *common-depends
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
     build:
       context: ..
       dockerfile: docker/Dockerfile.service
@@ -193,7 +298,7 @@ services:
     container_name: bhukkad-engagement
     image: bhukkad/engagement:local
 
-  # Admin service - admin-analytics + supportticket merged
+# Admin service - admin-analytics + supportticket merged
   admin:
     profiles: ["full"]
     restart: on-failure
@@ -207,7 +312,13 @@ services:
       ENGAGEMENT_SERVICE_URL: http://engagement:8080
     command: ["sh", "-c", "exec java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -XX:+UseStringDeduplication -Xlog:gc*:file=/tmp/logs/bhukkad/gc.log:time,uptime:filecount=5,filesize=20M -Djava.security.egd=file:/dev/./urandom -Dspring.profiles.active=local -jar /app/app.jar"]
     deploy: *common-deploy
-    depends_on: *common-depends
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
     build:
       context: ..
       dockerfile: docker/Dockerfile.service
@@ -250,3 +361,9 @@ services:
 volumes:
   bhukkad-pgdata:
     name: bhukkad_pgdata_local
+  bhukkad-esdata:
+    name: bhukkad_esdata_local
+  bhukkad-kafka:
+    name: bhukkad_kafka_local
+  bhukkad-zookeeper:
+    name: bhukkad_zookeeper_local

@@ -6,7 +6,6 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -37,7 +36,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 // rejected in production), so without this the tokens were
                 // unauthenticated and every authorization assertion saw 401
                 // instead of 403/200.
-                "app.auth.jwt.hmac-grace-enabled=true" })
+                "app.auth.jwt.hmac-grace-enabled=true",
+                "app.auth.service.jwt-secret=test-service-secret-123456789012345678901234",
+                "app.events.external.enabled=false" })
 @AutoConfigureMockMvc
 class CacheOpsControllerIntegrationTest extends AbstractAdminPostgresTest {
 
@@ -51,6 +52,11 @@ class CacheOpsControllerIntegrationTest extends AbstractAdminPostgresTest {
         Date now = new Date();
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .subject(String.valueOf(System.currentTimeMillis() / 1000))
+                // Must match app.auth.jwt.issuer (test application.yml):
+                // the validator rejects tokens whose issuer claim is missing
+                // or unexpected, which is why unauthenticated-looking 401s
+                // appeared for otherwise valid tokens.
+                .issuer("bhukkad-identity")
                 .claim("email", "test@bhukkad.test")
                 .claim("scope", scope)
                 .issueTime(now)
@@ -70,10 +76,10 @@ class CacheOpsControllerIntegrationTest extends AbstractAdminPostgresTest {
  * CUSTOMER — could scrape them. They are now ADMIN-only.
  *
  * <p>These assert the unauthenticated half of that contract: no token means
- * no telemetry. The ADMIN half cannot be asserted here because the HS256
- * tokens minted by {@link #bearerToken} do not authenticate in this MockMvc
- * context at all — see the class note on {@code clear_withAdminToken_returnsOk},
- * which is a pre-existing failure unrelated to this change.</p>
+ * no telemetry. The ADMIN half is asserted by {@code clear_withAdminToken_returnsOk}
+ * / {@code clear_withNonAdminToken_returnsForbidden}, whose tokens carry the
+ * issuer claim the validator expects, so they authenticate against the real
+ * {@code PlatformJwtAuthFilter} in this MockMvc context.</p>
  */
 @Test
 void health_withoutAuth_returnsUnauthorized() throws Exception {
@@ -99,7 +105,6 @@ void stats_withoutAuth_returnsUnauthorized() throws Exception {
     }
 
     @Test
-    @Disabled("HS256 tokens minted by bearerToken() do not authenticate in this MockMvc context: every assertion that needs a VALID token saw 401, while the unauthenticated cases passed only because they expected 401. Pre-existing and unrelated to the ADMIN-gating of the GET cache endpoints. The intended contract (ADMIN token -> 200, non-ADMIN -> 403) is documented on CacheOpsController and is covered end-to-end by scripts/curl-e2e-tests.sh. Fixing this requires wiring the platform JWT validator into the MockMvc slice.")
     void clear_withAdminToken_returnsOk() throws Exception {
         String token = bearerToken("admin", 3600);
 
@@ -110,7 +115,6 @@ void stats_withoutAuth_returnsUnauthorized() throws Exception {
     }
 
     @Test
-    @Disabled("HS256 tokens minted by bearerToken() do not authenticate in this MockMvc context: every assertion that needs a VALID token saw 401, while the unauthenticated cases passed only because they expected 401. Pre-existing and unrelated to the ADMIN-gating of the GET cache endpoints. The intended contract (ADMIN token -> 200, non-ADMIN -> 403) is documented on CacheOpsController and is covered end-to-end by scripts/curl-e2e-tests.sh. Fixing this requires wiring the platform JWT validator into the MockMvc slice.")
     void clear_withNonAdminToken_returnsForbidden() throws Exception {
         String token = bearerToken("customer", 3600);
 

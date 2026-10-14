@@ -173,11 +173,83 @@ app:
       gold: 3.0
       platinum: 4.0
       free: 1.0
+
+  # Circuit breaker configuration (local profile: lenient for development)
+  resilience4j:
+    # Spring Cloud Gateway's CircuitBreaker filter resolves a TimeLimiter for
+    # every route. Without any config it falls back to Resilience4j's
+    # 1-second default — and with spring.main.lazy-initialization=true the
+    # FIRST call on each route pays 1-2.5s of lazy context/handler warmup, so
+    # the limiter trips first and the edge answers 503 UPSTREAM_UNAVAILABLE
+    # for a healthy upstream. A 20s per-route limit lets the warmup finish;
+    # genuine hangs still fail (and the breaker still opens on failures).
+    timelimiter:
+      configs:
+        default:
+          timeout-duration: 20s
+    circuitbreaker:
+      configs:
+        default:
+          registerHealthIndicator: true
+          slidingWindowSize: 10
+          minimumNumberOfCalls: 5
+          permittedNumberOfCallsInHalfOpenState: 3
+          automaticTransitionFromOpenToHalfOpenEnabled: true
+          waitDurationInOpenState: 10s
+          failureRateThreshold: 80
+          slowCallRateThreshold: 90
+          slowCallDurationThreshold: 10s
+        local:
+          registerHealthIndicator: true
+          slidingWindowSize: 20
+          minimumNumberOfCalls: 10
+          permittedNumberOfCallsInHalfOpenState: 5
+          automaticTransitionFromOpenToHalfOpenEnabled: true
+          waitDurationInOpenState: 5s
+          failureRateThreshold: 90
+          slowCallRateThreshold: 95
+          slowCallDurationThreshold: 30s
+      instances:
+        catalog:
+          baseConfig: local
+        engagement:
+          baseConfig: local
+        order:
+          baseConfig: local
+        payment:
+          baseConfig: local
+        delivery:
+          baseConfig: local
+        notification:
+          baseConfig: local
+        support:
+          baseConfig: local
+        referral:
+          baseConfig: local
+        survey:
+          baseConfig: local
+        social:
+          baseConfig: local
+        growth:
+          baseConfig: local
+        realtimeSse:
+          baseConfig: local
+        realtime:
+          baseConfig: local
+        identity:
+          baseConfig: local
+        admin-analytics:
+          baseConfig: local
+        restaurant:
+          baseConfig: local
+        search:
+          baseConfig: local
+
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,circuitbreakers,circuitbreakerevents
+        include: health,info,metrics,circuitbreakers,circuitbreakerevents,gateway
   endpoint:
     health:
       show-details: always

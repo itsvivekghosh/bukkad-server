@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -19,6 +20,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Allows manual re-drive of failed events back to their original topic
  * or to a different topic for debugging.</p>
+ *
+ * <p>Both Kafka dependencies are optional so the service can be constructed
+ * when the backbone is disabled: {@link #reprocessEvent} then reports the
+ * problem instead of throwing a missing-bean error at context startup.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -27,7 +32,7 @@ public class DlqReprocessService {
 
     private final ObjectMapper objectMapper;
     private final KafkaPlatformProperties properties;
-    private final KafkaPlatformEventPublisher publisher;
+    private final ObjectProvider<KafkaPlatformEventPublisher> publisherProvider;
     private final DlqConsumerService consumerService;
 
     // In-memory cache for reprocess tracking
@@ -69,6 +74,14 @@ public class DlqReprocessService {
                     ? event.getValue().get("eventType").asText() 
                     : "unknown";
             
+            KafkaPlatformEventPublisher publisher = publisherProvider.getIfAvailable();
+            if (publisher == null) {
+                String message = "Kafka backbone is disabled; cannot reprocess DLQ events";
+                log.warn("DLQ_REPROCESS_UNAVAILABLE | topic={} partition={} offset={}",
+                        topic, partition, offset);
+                return new ReprocessResult(false, message, cacheKey);
+            }
+
             // Create a new event envelope for reprocessing
             Map<String, Object> envelope = Map.of(
                     "eventType", eventType,
@@ -127,13 +140,17 @@ public class DlqReprocessService {
      * Fetches a specific record by topic/partition/offset.
      */
     private DlqConsumerService.DlqEvent fetchSpecificRecord(String topic, int partition, long offset) {
+        KafkaConsumer<String, String> consumer = consumerService.getDlqConsumer();
+        if (consumer == null) {
+            return null;
+        }
         try {
             var partitions = java.util.Collections.singletonList(
                     new org.apache.kafka.common.TopicPartition(topic, partition));
-            consumerService.getDlqConsumer().assign(partitions);
-            consumerService.getDlqConsumer().seek(partitions.get(0), offset);
-            
-            var records = consumerService.getDlqConsumer().poll(java.time.Duration.ofMillis(500));
+            consumer.assign(partitions);
+            consumer.seek(partitions.get(0), offset);
+
+            var records = consumer.poll(java.time.Duration.ofMillis(500));
             for (var record : records) {
                 if (record.offset() == offset) {
                     return consumerService.convertRecord(record);
@@ -143,11 +160,6 @@ public class DlqReprocessService {
             log.warn("Failed to fetch specific record: {}", e.getMessage());
         }
         return null;
-    }
-    
-    // Expose consumer for internal use
-    KafkaConsumer<String, String> dlqConsumer() {
-        return consumerService.getDlqConsumer();
     }
 
     // Request/Response DTOs

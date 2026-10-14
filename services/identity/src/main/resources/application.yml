@@ -97,6 +97,13 @@ app:
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+  services:
+    # Referral (codes + binding) was consolidated into the engagement
+    # service. Without this key the client fell back to the retired
+    # referral:8084 host, so signup-time code generation/apply silently
+    # failed and registration-with-referral-code degraded.
+    referral:
+      url: ${APP_SERVICES_REFERRAL_URL:${ENGAGEMENT_SERVICE_URL:http://localhost:8082}}
   auth:
     jwt:
       # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty

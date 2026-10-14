@@ -149,9 +149,11 @@ app:
   services:
     # Address of the catalog service for cross-domain reads. Required: the
     # @Value in the engagement clients has no default, so an unset value
-    # aborts startup.
+    # aborts startup. Restaurant reads were consolidated into catalog, so the
+    # fallback resolves there (the retired restaurant:8081 host no longer
+    # exists).
     restaurant:
-      url: ${APP_SERVICES_RESTAURANT_URL:http://localhost:8081}
+      url: ${APP_SERVICES_RESTAURANT_URL:${CATALOG_SERVICE_URL:http://localhost:8081}}
     commerce:
       url: ${COMMERCE_SERVICE_URL:http://localhost:8080}
     catalog:
@@ -163,6 +165,12 @@ app:
     # @Value fell back to the retired "http://order:8080" host.
     order:
       url: ${COMMERCE_SERVICE_URL:http://commerce:8080}
+    # Referral was consolidated INTO engagement: the growth module's
+    # ReferralServiceClient self-calls this pod for the single code generator
+    # (ADR-005). The default pointed at the retired referral:8084 host, which
+    # made GET /customers/{id}/referral/code fail 503 (upstream unreachable).
+    referral:
+      url: ${APP_SERVICES_REFERRAL_URL:http://localhost:8080}
   # Order-ownership oracle for the customer SSE stream and for survey
   # eligibility. It is served by the order domain (now inside commerce); the
   # @Value defaults still pointed at the retired "order" host, so every check

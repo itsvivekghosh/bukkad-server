@@ -14,6 +14,7 @@ import com.bhukkad.admin.analytics.config.FeatureFlagProperties;
 import com.bhukkad.admin.analytics.config.FraudProperties;
 import com.bhukkad.admin.analytics.config.FraudScoringProperties;
 import com.bhukkad.admin.analytics.config.OrderArchiveProperties;
+import com.bhukkad.common.security.ServiceAuthProperties;
 
 /**
  * Admin service — consolidated internal tools.
@@ -35,6 +36,7 @@ import com.bhukkad.admin.analytics.config.OrderArchiveProperties;
         "com.bhukkad.common.idempotency"})
 @EnableJpaAuditing
 @EnableConfigurationProperties({
+        ServiceAuthProperties.class,
         ComplianceProperties.class,
         ExperimentProperties.class,
         FeatureFlagProperties.class,

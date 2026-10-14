@@ -48,6 +48,42 @@ x-prod-depends: &prod-depends
   redis-sentinel-1:
     condition: service_healthy
 
+x-redis-sentinel-common: &redis-sentinel-common
+  image: redis:7-alpine
+  restart: always
+  init: true
+  deploy:
+    resources:
+      limits:
+        memory: 1G
+      reservations:
+        memory: 512M
+
+x-redis-common: &redis-common
+  image: redis:7-alpine
+  restart: always
+  init: true
+  command:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    - --maxmemory
+    - ${REDIS_MAXMEMORY:-512mb}
+    - --maxmemory-policy
+    - volatile-lru
+    - --requirepass
+    - ${REDIS_PASSWORD}
+    - --masterauth
+    - ${REDIS_PASSWORD}
+  volumes:
+    - bhukkad-redis-data:/data
+  deploy:
+    resources:
+      limits:
+        memory: 1G
+      reservations:
+        memory: 512M
+
 services:
   # External infrastructure - uncomment if running locally for prod testing
   postgres:
@@ -107,43 +143,7 @@ services:
         reservations:
           memory: 256M
 
-  x-redis-sentinel-common: &redis-sentinel-common
-  image: redis:7-alpine
-  restart: always
-  init: true
-  deploy:
-    resources:
-      limits:
-        memory: 1G
-      reservations:
-        memory: 512M
-
-x-redis-common: &redis-common
-  image: redis:7-alpine
-  restart: always
-  init: true
-  command:
-    - redis-server
-    - --appendonly
-    - 'yes'
-    - --maxmemory
-    - ${REDIS_MAXMEMORY:-512mb}
-    - --maxmemory-policy
-    - volatile-lru
-    - --requirepass
-    - ${REDIS_PASSWORD}
-    - --masterauth
-    - ${REDIS_PASSWORD}
-  volumes:
-    - bhukkad-redis-data:/data
-  deploy:
-    resources:
-      limits:
-        memory: 1G
-      reservations:
-        memory: 512M
-
-# Redis Sentinel HA setup (3 sentinels + 3 redis nodes)
+  # Redis Sentinel HA setup (3 sentinels + 3 redis nodes)
   redis-sentinel-1:
     <<: *redis-sentinel-common
     container_name: bhukkad-redis-sentinel-1
@@ -250,7 +250,7 @@ x-redis-common: &redis-common
       - ${REDIS_PASSWORD}
       - --replicaof
       - redis-1
-      - 6379
+      - "6379"
       - --replica-announce-ip
       - redis-2
       - --replica-announce-port
@@ -284,7 +284,7 @@ x-redis-common: &redis-common
       - ${REDIS_PASSWORD}
       - --replicaof
       - redis-1
-      - 6379
+      - "6379"
       - --replica-announce-ip
       - redis-3
       - --replica-announce-port
@@ -309,6 +309,8 @@ x-redis-common: &redis-common
       <<: *common-env
       SERVER_PORT: '8080'
       IDENTITY_DB_URL: ${IDENTITY_DB_URL}
+      # Referral module lives in the engagement service (ADR-005 codegen).
+      ENGAGEMENT_SERVICE_URL: ${ENGAGEMENT_SERVICE_URL:-http://engagement:8080}
       APP_BOOTSTRAPADMIN_ENABLED: 'false'
       APP_SECURITY_PASSWORD_ENCODER_ALGORITHM: argon2
       SPRING_PROFILES_ACTIVE: prod

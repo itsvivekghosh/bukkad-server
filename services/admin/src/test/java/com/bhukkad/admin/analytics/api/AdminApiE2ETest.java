@@ -44,9 +44,8 @@ import static org.assertj.core.api.Assertions.assertThat;
             // without this flag the real PlatformJwtAuthFilter would reject the
             // tokens and the authenticated test calls would return 401.
             "app.auth.jwt.hmac-grace-enabled=true",
-            "app.events.external.kafka.bootstrap-servers=localhost:9092",
-            "app.events.external.enabled=false"
-    })
+            "app.auth.service.jwt-secret=test-service-secret-123456789012345678901234",
+            "app.events.external.enabled=false" })
 class AdminApiE2ETest extends AbstractAdminPostgresTest {
 
     @org.springframework.boot.test.mock.mockito.MockBean

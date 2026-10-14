@@ -16,7 +16,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link PlatformJwtAuthFilter} is registered and the REST security chain is
  * active (all admin-analytics endpoints require a token).
  */
-@SpringBootTest(properties = "app.auth.jwt.secret=0123456789abcdef0123456789abcdef")
+@SpringBootTest(properties = {
+            "app.auth.jwt.secret=0123456789abcdef0123456789abcdef",
+            "app.auth.service.jwt-secret=test-service-secret-123456789012345678901234"
+    })
 class SecurityConfigTest extends AbstractAdminPostgresTest {
 
     @Autowired

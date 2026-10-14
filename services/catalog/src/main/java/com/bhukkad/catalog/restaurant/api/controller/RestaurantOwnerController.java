@@ -9,6 +9,7 @@ import com.bhukkad.catalog.restaurant.domain.repository.RestaurantRepository;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -50,13 +51,16 @@ public class RestaurantOwnerController {
             Boolean freeDeliveryAvailable,
             Double freeDeliveryAbove,
             Boolean isPureVeg,
-            String phone,
-            String fssaiNumber) {}
+            // varchar(20) / varchar(50) columns: without the bounds an
+            // oversized phone surfaced as a raw DataIntegrityViolation →
+            // 409 DATA_CONFLICT instead of a clean 400 VALIDATION_FAILED.
+            @jakarta.validation.constraints.Size(max = 20) String phone,
+            @jakarta.validation.constraints.Size(max = 50) String fssaiNumber) {}
 
     @PostMapping
     @Transactional
     public Restaurant create(@AuthenticationPrincipal TokenPrincipal principal,
-                             @RequestBody OwnerRestaurantRequest request) {
+                             @Valid @RequestBody OwnerRestaurantRequest request) {
         Long ownerId = subjectId(principal);
         if (request == null || request.name() == null || request.name().isBlank()) {
             throw new BusinessException("name is required");

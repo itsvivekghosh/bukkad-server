@@ -43,5 +43,7 @@ public abstract class AbstractPersonalizationPostgresTest {
         registry.add("spring.flyway.locations", () -> "classpath:db/migration-pg");
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
+        // Disable external event backbone (Kafka) for integration tests.
+        registry.add("app.events.external.enabled", () -> "false");
     }
 }

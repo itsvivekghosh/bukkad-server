@@ -1,0 +1,1268 @@
+{
+  "info": {
+    "name": "Bhukkad Platform E2E — Full API & Edge-Case Suite",
+    "description": "Exhaustive API coverage for the Bhukkad microservices platform through the API gateway: every reachable endpoint plus edge cases (validation, auth, cross-tenant, role escalation, injection, not-found). Import into Postman (Import → File) or run headlessly: npx newman run bhukkad-e2e-postman-collection.json. Requires the local docker-compose stack (gateway on :8095).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8095" }
+  ],
+  "item": [
+    {
+      "name": "0-Warmup",
+      "description": "Services run with lazy-initialization; these one-shot requests pay the per-route warmup cost before asserting folders run. No strict assertions — a transient 503 during a redeploy window must not fail the suite.",
+      "item": [
+        {
+          "name": "Warm identity", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/health", "host": ["{{baseUrl}}"], "path": ["api", "v1", "health"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('responded', () => pm.expect(pm.response.code).to.be.above(0));"] } }]
+        },
+        {
+          "name": "Warm catalog", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/cuisines", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('responded', () => pm.expect(pm.response.code).to.be.above(0));"] } }]
+        },
+        {
+          "name": "Warm search", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/search?keyword=warmup", "host": ["{{baseUrl}}"], "path": ["api", "v1", "search"], "query": [{ "key": "keyword", "value": "warmup" }] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('responded', () => pm.expect(pm.response.code).to.be.above(0));"] } }]
+        },
+        {
+          "name": "Warm order", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{}" }, "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('responded', () => pm.expect(pm.response.code).to.be.above(0));"] } }]
+        },
+        {
+          "name": "Warm growth", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/customers/loyalty-points", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "loyalty-points"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('responded', () => pm.expect(pm.response.code).to.be.above(0));"] } }]
+        },
+        {
+          "name": "Warm admin", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/admin/users", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users"] } },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('responded', () => pm.expect(pm.response.code).to.be.above(0));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "00-Setup",
+      "description": "Seeds unique-per-run fixtures (users, restaurant, menu) and stores tokens/ids as collection variables.",
+      "item": [
+        {
+          "name": "Register customer",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "pm.collectionVariables.set('ts', Date.now());",
+              "pm.collectionVariables.set('tsShort', String(pm.collectionVariables.get('ts')).slice(-5));",
+              "pm.collectionVariables.set('custEmail', 'e2e-cust-' + pm.collectionVariables.get('ts') + '@test.com');",
+              "pm.collectionVariables.set('cust2Email', 'e2e-cust2-' + pm.collectionVariables.get('ts') + '@test.com');",
+              "pm.collectionVariables.set('ownerEmail', 'e2e-owner-' + pm.collectionVariables.get('ts') + '@test.com');"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('register → 200', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('custToken', pm.response.json().token);",
+              "pm.collectionVariables.set('custId', String(pm.response.json().customerId));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"{{custEmail}}\",\"password\":\"Test@123\",\"fullName\":\"E2E Customer\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Register second customer",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('register customer2 → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('cust2Id', String(pm.response.json().customerId));"
+          ] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"{{cust2Email}}\",\"password\":\"Test@123\",\"fullName\":\"E2E Customer 2\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Register restaurant owner",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('register owner → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('ownerToken', pm.response.json().token);"
+          ] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"{{ownerEmail}}\",\"password\":\"Owner@123\",\"fullName\":\"E2E Owner\",\"role\":\"RESTAURANT_OWNER\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Admin login",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('admin login → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('adminToken', pm.response.json().token);"
+          ] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"admin@bhukkad.dev\",\"password\":\"Admin@123456\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Create restaurant",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create restaurant → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('restaurantId', String(pm.response.json().id));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"E2E Restaurant {{ts}}\",\"description\":\"fixture\",\"cuisineId\":1,\"address\":{\"addressLine1\":\"1 Test St\",\"city\":\"Bangalore\",\"state\":\"Karnataka\",\"pincode\":\"560001\"},\"openingTime\":\"10:00\",\"closingTime\":\"22:00\",\"deliveryFee\":30,\"minimumOrderAmount\":100,\"averageDeliveryTime\":30,\"phone\":\"+9198000{{tsShort}}\",\"fssaiNumber\":\"1234567{{tsShort}}\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/restaurants/owner", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "owner"] }
+          }
+        },
+        {
+          "name": "Create menu category",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create category → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('categoryId', String(pm.response.json().id));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"E2E Mains\",\"description\":\"Main course\",\"displayOrder\":1}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/menu/categories?restaurantId={{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "categories"], "query": [{ "key": "restaurantId", "value": "{{restaurantId}}" }] }
+          }
+        },
+        {
+          "name": "Create menu item",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create item → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('itemId', String(pm.response.json().id));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"categoryId\":{{categoryId}},\"name\":\"E2E Burger\",\"description\":\"fixture burger\",\"price\":199,\"isVeg\":false,\"isActive\":true,\"spiceLevel\":\"MILD\",\"preparationTime\":15}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/menu/items", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items"] }
+          }
+        },
+        {
+          "name": "Create second menu item (cart fixture)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create item 2 → 200', () => pm.response.to.have.status(200));",
+            "pm.collectionVariables.set('cartMenuItemId', String(pm.response.json().id));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"categoryId\":{{categoryId}},\"name\":\"E2E Cart Burger\",\"description\":\"cart fixture burger\",\"price\":149,\"isVeg\":true,\"isActive\":true,\"spiceLevel\":\"MILD\",\"preparationTime\":10}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/menu/items", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01-Identity Auth",
+      "item": [
+        {
+          "name": "Register duplicate email → 409",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('duplicate → 409 DUPLICATE_REQUEST', () => {",
+            "  pm.response.to.have.status(409);",
+            "  pm.expect(pm.response.json().code).to.eql('DUPLICATE_REQUEST');",
+            "});"
+          ] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"{{custEmail}}\",\"password\":\"Test@123\",\"fullName\":\"Duplicate\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Register invalid email → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('invalid email → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"not-an-email\",\"password\":\"Test@123\",\"fullName\":\"X\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Register weak password → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('weak password → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"weak-{{ts}}@test.com\",\"password\":\"123\",\"fullName\":\"X\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Register missing fullName → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing fullName → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"nofn-{{ts}}@test.com\",\"password\":\"Test@123\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Register XSS payload in fullName → stored safely",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('XSS fullName accepted/rejected and answered as JSON (never HTML)', () => {",
+            "  pm.expect([200, 201, 400]).to.include(pm.response.code);",
+            "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+            "});"
+          ] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"xss-{{ts}}@test.com\",\"password\":\"Test@123\",\"fullName\":\"<script>alert(1)</script>\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Login wrong password → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('wrong password → 401 UNAUTHORIZED', () => {",
+            "  pm.response.to.have.status(401);",
+            "  pm.expect(pm.response.json().code).to.eql('UNAUTHORIZED');",
+            "});"
+          ] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"{{custEmail}}\",\"password\":\"WrongPass@1\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login unknown user → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown user → 401', () => pm.response.to.have.status(401));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"ghost-{{ts}}@nowhere.test\",\"password\":\"Test@123\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login empty body → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('empty body → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Logout (throwaway session — must not touch the fixture token)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Logout revokes the token FAMILY, so the fixture customer token",
+                  "// must never be used here. Mint a throwaway user at request time.",
+                  "const ts = Date.now();",
+                  "const email = 'e2e-logout-' + ts + '@test.com';",
+                  "const reg = pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/api/v1/auth/register',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: email, password: 'Test@123', fullName: 'Logout Probe' }) }",
+                  "});",
+                  "pm.collectionVariables.set('logoutToken', reg.json().token);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logout → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{logoutToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02-Identity Profile & Addresses",
+      "item": [
+        {
+          "name": "Get own profile → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('profile → 200', () => pm.response.to.have.status(200));",
+            "pm.test('email matches fixture', () => pm.expect(pm.response.json().email).to.eql(pm.collectionVariables.get('custEmail')));"
+          ] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "profile"] }
+          }
+        },
+        {
+          "name": "Create address",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create address → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+            "const id = pm.response.json().id;",
+            "if (id) { pm.collectionVariables.set('addressId', String(id)); }"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"label\":\"Home\",\"line1\":\"42 E2E Street\",\"city\":\"Bangalore\",\"state\":\"Karnataka\",\"zipCode\":\"560001\",\"isDefault\":true}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/addresses", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "addresses"] }
+          }
+        },
+        {
+          "name": "List addresses → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('addresses → 200 array', () => { pm.response.to.have.status(200); pm.expect(pm.response.json()).to.be.an('array'); });"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/addresses", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "addresses"] }
+          }
+        },
+        {
+          "name": "Create address missing city → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing city → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"label\":\"Bad\",\"line1\":\"1 St\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/addresses", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "addresses"] }
+          }
+        },
+        {
+          "name": "Read another customer's addresses → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('cross-customer addresses → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/{{cust2Id}}/addresses", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{cust2Id}}", "addresses"] }
+          }
+        },
+        {
+          "name": "Set address default → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('set-default → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "PUT", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/addresses/{{addressId}}/set-default", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "addresses", "{{addressId}}", "set-default"] }
+          }
+        },
+        {
+          "name": "Delete address → 200/204",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('delete → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/addresses/{{addressId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "addresses", "{{addressId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03-Identity Favorites & Devices",
+      "item": [
+        {
+          "name": "Add favorite restaurant",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('favorite → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/favorites/{{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "favorites", "{{restaurantId}}"] }
+          }
+        },
+        {
+          "name": "List favorites → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('favorites → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/favorites", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "favorites"] }
+          }
+        },
+        {
+          "name": "Remove favorite → 200/204",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unfavorite → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/favorites/{{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "favorites", "{{restaurantId}}"] }
+          }
+        },
+        {
+          "name": "Register device token",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('device token → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+            "const id = pm.response.json().id;",
+            "if (id) { pm.collectionVariables.set('deviceTokenId', String(id)); }"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"token\":\"e2e-fcm-{{ts}}\",\"platform\":\"ANDROID\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/device-tokens", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "device-tokens"] }
+          }
+        },
+        {
+          "name": "Register device token missing platform → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing platform → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"token\":\"no-platform-{{ts}}\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/device-tokens", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "device-tokens"] }
+          }
+        },
+        {
+          "name": "List device tokens → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('devices → 200 array', () => { pm.response.to.have.status(200); pm.expect(pm.response.json()).to.be.an('array'); });"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/device-tokens", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "device-tokens"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04-Identity Membership & Compliance",
+      "item": [
+        {
+          "name": "Membership status → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('membership → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/membership/status", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "membership", "status"] }
+          }
+        },
+        {
+          "name": "Update consent → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('consent update → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"granted\":true}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/compliance/consents/MARKETING", "host": ["{{baseUrl}}"], "path": ["api", "v1", "compliance", "consents", "MARKETING"] }
+          }
+        },
+        {
+          "name": "List consents → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('consents → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/compliance/consents", "host": ["{{baseUrl}}"], "path": ["api", "v1", "compliance", "consents"] }
+          }
+        },
+        {
+          "name": "Update notification preferences → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('prefs → 200', () => pm.response.to.have.status(200));",
+            "pm.test('emailEnabled persisted', () => pm.expect(pm.response.json().emailEnabled).to.eql(false));"
+          ] } }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"emailEnabled\":false,\"smsEnabled\":true,\"whatsappEnabled\":false,\"pushEnabled\":true,\"orderUpdatesEnabled\":true,\"promotionsEnabled\":false}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/notification-preferences", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "notification-preferences"] }
+          }
+        },
+        {
+          "name": "GDPR data export → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('data export → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/data-export", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "data-export"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05-Identity Token & Access Edge Cases",
+      "item": [
+        {
+          "name": "No token → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('no token → 401', () => pm.response.to.have.status(401));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/customers/profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "profile"] } }
+        },
+        {
+          "name": "Garbage token → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('garbage → 401', () => pm.response.to.have.status(401));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer garbage.token.value" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "profile"] } }
+        },
+        {
+          "name": "Malformed bearer → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('malformed → 401', () => pm.response.to.have.status(401));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "notbearer xyz" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "profile"] } }
+        },
+        {
+          "name": "Cross-customer profile → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('cross-customer → 403', () => pm.response.to.have.status(403));",
+            "pm.test('code ACCESS_DENIED', () => pm.expect(pm.response.json().code).to.eql('ACCESS_DENIED'));"
+          ] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/profile/{{cust2Id}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "profile", "{{cust2Id}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06-Catalog Cuisines",
+      "item": [
+        {
+          "name": "List cuisines → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('cuisines → 200', () => pm.response.to.have.status(200));",
+            "pm.test('seeded cuisines present', () => pm.expect(pm.response.json().data.length).to.be.above(0));"
+          ] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/cuisines", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines"] } }
+        },
+        {
+          "name": "Get cuisine by id → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('cuisine → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/cuisines/1", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines", "1"] } }
+        },
+        {
+          "name": "Get unknown cuisine → 404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown cuisine → 404', () => pm.response.to.have.status(404));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/cuisines/999999", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines", "999999"] } }
+        },
+        {
+          "name": "Create cuisine as customer → 403 (ADMIN-only)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create cuisine (customer) → 403', () => pm.response.to.have.status(403));",
+            "pm.test('code ACCESS_DENIED', () => pm.expect(pm.response.json().code).to.eql('ACCESS_DENIED'));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/cuisines?name=Forbidden Cuisine", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines"], "query": [{ "key": "name", "value": "Forbidden Cuisine" }] }
+          }
+        },
+        {
+          "name": "Create cuisine as admin → 200/201",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create cuisine (admin) → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+            "pm.test('echoes the name', () => pm.expect(JSON.stringify(pm.response.json())).to.include('E2E Cuisine'));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/cuisines?name=E2E Cuisine {{ts}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines"], "query": [{ "key": "name", "value": "E2E Cuisine {{ts}}" }] }
+          }
+        },
+        {
+          "name": "Create cuisine without name → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing name → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/cuisines", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cuisines"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07-Catalog Restaurants",
+      "item": [
+        {
+          "name": "List restaurants → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('restaurants → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants"] } }
+        },
+        {
+          "name": "Public restaurants → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('public → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants/public", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "public"] } }
+        },
+        {
+          "name": "Public restaurant by id → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('public by id → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants/public/{{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "public", "{{restaurantId}}"] } }
+        },
+        {
+          "name": "Public restaurant unknown id → 404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown → 404', () => pm.response.to.have.status(404));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants/public/999999", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "public", "999999"] } }
+        },
+        {
+          "name": "Public search → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('search → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants/public/search?keyword=burger", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "public", "search"], "query": [{ "key": "keyword", "value": "burger" }] } }
+        },
+        {
+          "name": "Public nearby missing coords → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('nearby without coords → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants/public/nearby", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "public", "nearby"] } }
+        },
+        {
+          "name": "Public nearby with coords → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('nearby → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/restaurants/public/nearby?latitude=12.9716&longitude=77.5946&radiusKm=5", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "public", "nearby"], "query": [{ "key": "latitude", "value": "12.9716" }, { "key": "longitude", "value": "77.5946" }, { "key": "radiusKm", "value": "5" }] } }
+        },
+        {
+          "name": "Owner my-restaurants → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('my-restaurants → 200', () => pm.response.to.have.status(200));",
+            "pm.test('contains created restaurant', () => pm.expect(JSON.stringify(pm.response.json())).to.include(pm.collectionVariables.get('restaurantId')));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/restaurants/owner/my-restaurants", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "owner", "my-restaurants"] } }
+        },
+        {
+          "name": "Owner my-restaurants as customer → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('owner route (customer) → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/restaurants/owner/my-restaurants", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "owner", "my-restaurants"] } }
+        },
+        {
+          "name": "Create restaurant oversized phone → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('oversized phone → 400 VALIDATION_FAILED (not 409)', () => {",
+            "  pm.response.to.have.status(400);",
+            "  pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED');",
+            "});"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"Oversized {{ts}}\",\"description\":\"edge\",\"cuisineId\":1,\"address\":{\"addressLine1\":\"1 St\",\"city\":\"Bangalore\",\"state\":\"KA\",\"pincode\":\"560001\"},\"phone\":\"+9198000{{ts}}\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/restaurants/owner", "host": ["{{baseUrl}}"], "path": ["api", "v1", "restaurants", "owner"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "08-Catalog Menu CRUD",
+      "item": [
+        {
+          "name": "Categories by restaurant → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('categories → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/menu/categories/restaurant/{{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "categories", "restaurant", "{{restaurantId}}"] } }
+        },
+        {
+          "name": "Menu items by restaurant → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('items → 200', () => pm.response.to.have.status(200));",
+            "pm.test('contains created item', () => pm.expect(JSON.stringify(pm.response.json())).to.include('E2E Burger'));"
+          ] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/menu/items/restaurant/{{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "restaurant", "{{restaurantId}}"] } }
+        },
+        {
+          "name": "Get menu item by id → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('item → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/menu/items/{{itemId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "{{itemId}}"] } }
+        },
+        {
+          "name": "Get unknown menu item → 404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown item → 404', () => pm.response.to.have.status(404));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/menu/items/999999", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "999999"] } }
+        },
+        {
+          "name": "Menu items search → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('item search → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/menu/items/search?keyword=burger", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "search"], "query": [{ "key": "keyword", "value": "burger" }] } }
+        },
+        {
+          "name": "Update menu item → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('update item → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"E2E Burger Deluxe\",\"description\":\"updated\",\"price\":249,\"isVeg\":false,\"isActive\":true}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/menu/items/{{itemId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "{{itemId}}"] }
+          }
+        },
+        {
+          "name": "Toggle item availability → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('toggle → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "PUT", "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/menu/items/{{itemId}}/toggle-availability?available=false", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "{{itemId}}", "toggle-availability"], "query": [{ "key": "available", "value": "false" }] } }
+        },
+        {
+          "name": "Update item as customer → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('menu write (customer) → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"price\":1}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/menu/items/{{itemId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "{{itemId}}"] }
+          }
+        },
+        {
+          "name": "Delete menu item → 200/204",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('delete item → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"] } }],
+          "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/menu/items/{{itemId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "menu", "items", "{{itemId}}"] } }
+        }
+      ]
+    },
+    {
+      "name": "09-Catalog Search & Feed",
+      "item": [
+        {
+          "name": "Search keyword → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('search → 200', () => pm.response.to.have.status(200));",
+            "pm.test('restaurants+menuItems arrays', () => {",
+            "  const j = pm.response.json();",
+            "  pm.expect(j).to.have.property('restaurants');",
+            "  pm.expect(j).to.have.property('menuItems');",
+            "});"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/search?keyword=burger", "host": ["{{baseUrl}}"], "path": ["api", "v1", "search"], "query": [{ "key": "keyword", "value": "burger" }] } }
+        },
+        {
+          "name": "Search missing keyword → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing keyword → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/search", "host": ["{{baseUrl}}"], "path": ["api", "v1", "search"] } }
+        },
+        {
+          "name": "Search SQL-injection keyword → safely handled",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('SQLi handled (200 or 400)', () => pm.expect([200, 400]).to.include(pm.response.code));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/search?keyword=';DROP TABLE restaurants;--", "host": ["{{baseUrl}}"], "path": ["api", "v1", "search"], "query": [{ "key": "keyword", "value": "';DROP TABLE restaurants;--" }] } }
+        },
+        {
+          "name": "Autocomplete → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('autocomplete → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/search/autocomplete?q=bur", "host": ["{{baseUrl}}"], "path": ["api", "v1", "search", "autocomplete"], "query": [{ "key": "q", "value": "bur" }] } }
+        },
+        {
+          "name": "Home feed → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('home feed → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/feed/home", "host": ["{{baseUrl}}"], "path": ["api", "v1", "feed", "home"] } }
+        }
+      ]
+    },
+    {
+      "name": "10-Catalog Reviews",
+      "item": [
+        {
+          "name": "Submit review",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('submit review → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+            "const id = pm.response.json().id;",
+            "if (id) { pm.collectionVariables.set('reviewId', String(id)); }"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"restaurantId\":{{restaurantId}},\"rating\":5,\"comment\":\"Great E2E experience\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/reviews", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews"] }
+          }
+        },
+        {
+          "name": "Restaurant reviews list → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('reviews → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/reviews/restaurant/{{restaurantId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews", "restaurant", "{{restaurantId}}"] } }
+        },
+        {
+          "name": "Review rating above max → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('rating 6 → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"restaurantId\":{{restaurantId}},\"rating\":6,\"comment\":\"out of range\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/reviews", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews"] }
+          }
+        },
+        {
+          "name": "Review missing rating → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing rating → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"restaurantId\":{{restaurantId}},\"comment\":\"no rating\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/reviews", "host": ["{{baseUrl}}"], "path": ["api", "v1", "reviews"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11-Commerce Cart",
+      "item": [
+        {
+          "name": "Add item to cart",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('add item → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+                  "const items = pm.response.json().items || [];",
+                  "if (items.length > 0) { pm.collectionVariables.set('cartItemId', String(items[0].id)); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"menuItemId\":{{cartMenuItemId}},\"quantity\":2}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/cart/items", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "cart", "items"] }
+          }
+        },
+        {
+          "name": "Get cart → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('cart → 200', () => pm.response.to.have.status(200));",
+            "const items = pm.response.json();",
+            "pm.test('cart holds the added item', () => pm.expect(JSON.stringify(items)).to.include(pm.collectionVariables.get('cartMenuItemId')));",
+            "if (Array.isArray(items) && items.length > 0) { pm.collectionVariables.set('cartItemId', String(items[0].id)); }"
+          ] } }],
+          "request": {
+            "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/cart", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "cart"] }
+          }
+        },
+        {
+          "name": "Add item with zero quantity → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('quantity 0 → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"menuItemId\":{{cartMenuItemId}},\"quantity\":0}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/cart/items", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "cart", "items"] }
+          }
+        },
+        {
+          "name": "Add item without menuItemId → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing menuItemId → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"quantity\":1}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/cart/items", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "cart", "items"] }
+          }
+        },
+        {
+          "name": "Add item to another customer's cart → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('cross-customer cart → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"menuItemId\":{{cartMenuItemId}},\"quantity\":1}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/customers/{{cust2Id}}/cart/items", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{cust2Id}}", "cart", "items"] }
+          }
+        },
+        {
+          "name": "Cart without auth → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('cart no auth → 401', () => pm.response.to.have.status(401));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/cart", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "cart"] } }
+        },
+        {
+          "name": "Remove cart item → 200/204",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('remove item → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/cart/items/{{cartItemId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cart", "items", "{{cartItemId}}"] }
+          }
+        },
+        {
+          "name": "Clear cart → 200/204",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('clear cart → 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/cart/clear", "host": ["{{baseUrl}}"], "path": ["api", "v1", "cart", "clear"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12-Commerce Orders",
+      "item": [
+        {
+          "name": "Create order no body → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('empty order → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          }
+        },
+        {
+          "name": "Create order missing restaurantId → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing restaurantId → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"customerId\":{{custId}},\"items\":[]}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          }
+        },
+        {
+          "name": "Create order no auth → 401",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('order no auth → 401', () => pm.response.to.have.status(401));"] } }],
+          "request": {
+            "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          }
+        },
+        {
+          "name": "List my orders → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('orders → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/orders/customer/my-orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "customer", "my-orders"] } }
+        },
+        {
+          "name": "Get unknown order → 404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('unknown order → 404', () => pm.response.to.have.status(404));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/orders/999999", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "999999"] } }
+        }
+      ]
+    },
+    {
+      "name": "13-Commerce Serviceability, Payments, Delivery",
+      "item": [
+        {
+          "name": "Serviceability by zone name → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('serviceability → 200', () => pm.response.to.have.status(200));",
+            "pm.test('serviceable answer present', () => pm.expect(pm.response.json()).to.have.property('serviceable'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/serviceability/check?zoneName=Bangalore", "host": ["{{baseUrl}}"], "path": ["api", "v1", "serviceability", "check"], "query": [{ "key": "zoneName", "value": "Bangalore" }] } }
+        },
+        {
+          "name": "Serviceability by coordinates → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('serviceability (coords) → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/serviceability/check?restaurantId={{restaurantId}}&latitude=12.9716&longitude=77.5946", "host": ["{{baseUrl}}"], "path": ["api", "v1", "serviceability", "check"], "query": [{ "key": "restaurantId", "value": "{{restaurantId}}" }, { "key": "latitude", "value": "12.9716" }, { "key": "longitude", "value": "77.5946" }] } }
+        },
+        {
+          "name": "Serviceability coordinates without restaurantId → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('coords without restaurantId → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/serviceability/check?latitude=12.9716&longitude=77.5946", "host": ["{{baseUrl}}"], "path": ["api", "v1", "serviceability", "check"], "query": [{ "key": "latitude", "value": "12.9716" }, { "key": "longitude", "value": "77.5946" }] } }
+        },
+        {
+          "name": "Serviceability zones → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('serviceability zones → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/serviceability/zones", "host": ["{{baseUrl}}"], "path": ["api", "v1", "serviceability", "zones"] } }
+        },
+        {
+          "name": "Zones → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('zones → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/zones", "host": ["{{baseUrl}}"], "path": ["api", "v1", "zones"] } }
+        },
+        {
+          "name": "Active coupons → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('coupons → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/coupons/active", "host": ["{{baseUrl}}"], "path": ["api", "v1", "coupons", "active"] } }
+        },
+        {
+          "name": "Payments by unknown order → 200/404",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('payments-by-order → 200/404', () => pm.expect([200, 404]).to.include(pm.response.code));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/payments/orders/999999", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "orders", "999999"] } }
+        },
+        {
+          "name": "Gift cards my-cards → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('gift cards → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/gift-cards/my-cards", "host": ["{{baseUrl}}"], "path": ["api", "v1", "gift-cards", "my-cards"] } }
+        },
+        {
+          "name": "Delivery profile → 200/403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('delivery profile → 200/403', () => pm.expect([200, 403]).to.include(pm.response.code));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/delivery/profile", "host": ["{{baseUrl}}"], "path": ["api", "v1", "delivery", "profile"] } }
+        },
+        {
+          "name": "Delivery earnings summary → 200/403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('earnings → 200/403', () => pm.expect([200, 403]).to.include(pm.response.code));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/delivery/earnings/summary", "host": ["{{baseUrl}}"], "path": ["api", "v1", "delivery", "earnings", "summary"] } }
+        }
+      ]
+    },
+    {
+      "name": "14-Engagement Notifications",
+      "item": [
+        {
+          "name": "Notification history as customer → 403 (ADMIN-only)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('customer blocked → 403', () => pm.response.to.have.status(403));",
+            "pm.test('code ACCESS_DENIED', () => pm.expect(pm.response.json().code).to.eql('ACCESS_DENIED'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/notifications?recipient=test@test.com&channel=EMAIL", "host": ["{{baseUrl}}"], "path": ["api", "v1", "notifications"], "query": [{ "key": "recipient", "value": "test@test.com" }, { "key": "channel", "value": "EMAIL" }] } }
+        },
+        {
+          "name": "Notification history missing params → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing params → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/notifications", "host": ["{{baseUrl}}"], "path": ["api", "v1", "notifications"] } }
+        },
+        {
+          "name": "Notification history as admin → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('admin history → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/notifications?recipient=admin@bhukkad.dev&channel=EMAIL", "host": ["{{baseUrl}}"], "path": ["api", "v1", "notifications"], "query": [{ "key": "recipient", "value": "admin@bhukkad.dev" }, { "key": "channel", "value": "EMAIL" }] } }
+        }
+      ]
+    },
+    {
+      "name": "15-Engagement Referral & Loyalty",
+      "item": [
+        {
+          "name": "Referral code (self) → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('referral code → 200', () => pm.response.to.have.status(200));",
+            "pm.test('referralCode present', () => pm.expect(pm.response.json()).to.have.property('referralCode'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/referral/code", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "referral", "code"] } }
+        },
+        {
+          "name": "Referral stats (self) → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('stats → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/referral/stats", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "referral", "stats"] } }
+        },
+        {
+          "name": "Referral stats (other) → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('cross-customer stats → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/{{cust2Id}}/referral/stats", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{cust2Id}}", "referral", "stats"] } }
+        },
+        {
+          "name": "Referral apply self → 200 (success false)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('self-referral blocked → 200 success=false', () => pm.expect(pm.response.json().success).to.eql(false));"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/referral/apply?referrerId={{custId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "referral", "apply"], "query": [{ "key": "referrerId", "value": "{{custId}}" }] } }
+        },
+        {
+          "name": "Referral apply cross-customer → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('apply → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/referral/apply?referrerId={{cust2Id}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "referral", "apply"], "query": [{ "key": "referrerId", "value": "{{cust2Id}}" }] } }
+        },
+        {
+          "name": "Referral validate code → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('validate → 200', () => pm.response.to.have.status(200));",
+            "pm.test('boolean payload', () => pm.expect(pm.response.json().data).to.be.a('boolean'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/referrals/validate/BKNONEXISTENT", "host": ["{{baseUrl}}"], "path": ["api", "v1", "referrals", "validate", "BKNONEXISTENT"] } }
+        },
+        {
+          "name": "Loyalty redeem insufficient points → 200 (success false)",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('redeem → 200', () => pm.response.to.have.status(200));",
+            "pm.test('insufficient balance reported', () => pm.expect(pm.response.json().success).to.eql(false));"
+          ] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/loyalty/redeem?points=100", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "loyalty", "redeem"], "query": [{ "key": "points", "value": "100" }] } }
+        },
+        {
+          "name": "Loyalty calculate → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('calculate → 200', () => pm.response.to.have.status(200));",
+            "pm.test('points computed', () => pm.expect(pm.response.json()).to.have.property('points'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/{{custId}}/loyalty/calculate?orderAmount=500", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "{{custId}}", "loyalty", "calculate"], "query": [{ "key": "orderAmount", "value": "500" }] } }
+        },
+        {
+          "name": "Loyalty points → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('loyalty → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/customers/loyalty-points", "host": ["{{baseUrl}}"], "path": ["api", "v1", "customers", "loyalty-points"] } }
+        }
+      ]
+    },
+    {
+      "name": "16-Engagement Campaigns & Social",
+      "item": [
+        {
+          "name": "Active campaigns → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('campaigns → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/campaigns/active", "host": ["{{baseUrl}}"], "path": ["api", "v1", "campaigns", "active"] } }
+        },
+        {
+          "name": "Best discount → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('best-discount → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/campaigns/best-discount?subtotal=500", "host": ["{{baseUrl}}"], "path": ["api", "v1", "campaigns", "best-discount"], "query": [{ "key": "subtotal", "value": "500" }] } }
+        },
+        {
+          "name": "Create social post",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create post → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+            "const id = pm.response.json().id;",
+            "if (id) { pm.collectionVariables.set('postId', String(id)); }"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"restaurantId\":{{restaurantId}},\"content\":\"E2E post about this place\",\"latitude\":12.9716,\"longitude\":77.5946}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/social/posts", "host": ["{{baseUrl}}"], "path": ["api", "v1", "social", "posts"] }
+          }
+        },
+        {
+          "name": "Create social post missing content → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing content → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"restaurantId\":{{restaurantId}}}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/social/posts", "host": ["{{baseUrl}}"], "path": ["api", "v1", "social", "posts"] }
+          }
+        },
+        {
+          "name": "Feed nearby missing coords → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('feed without coords → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/social/feed/nearby", "host": ["{{baseUrl}}"], "path": ["api", "v1", "social", "feed", "nearby"] } }
+        },
+        {
+          "name": "Feed nearby with coords → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('feed → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/social/feed/nearby?lat=12.9716&lng=77.5946&radiusKm=5", "host": ["{{baseUrl}}"], "path": ["api", "v1", "social", "feed", "nearby"], "query": [{ "key": "lat", "value": "12.9716" }, { "key": "lng", "value": "77.5946" }, { "key": "radiusKm", "value": "5" }] } }
+        },
+        {
+          "name": "Like post → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('like → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/social/posts/{{postId}}/like", "host": ["{{baseUrl}}"], "path": ["api", "v1", "social", "posts", "{{postId}}", "like"] } }
+        },
+        {
+          "name": "Comment on post → 200/201",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('comment → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"postId\":{{postId}},\"content\":\"Nice post!\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/social/posts/{{postId}}/comments", "host": ["{{baseUrl}}"], "path": ["api", "v1", "social", "posts", "{{postId}}", "comments"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "17-Admin Users & Dashboards",
+      "item": [
+        {
+          "name": "Users list (customer token) → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('role escalation blocked → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/users", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users"] } }
+        },
+        {
+          "name": "Users list (admin) → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('users → 200', () => pm.response.to.have.status(200));",
+            "pm.test('items paginated', () => pm.expect(pm.response.json()).to.have.property('items'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/users", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users"] } }
+        },
+        {
+          "name": "Users list filtered by role → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('filtered users → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/users?role=CUSTOMER&page=0&size=5", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "users"], "query": [{ "key": "role", "value": "CUSTOMER" }, { "key": "page", "value": "0" }, { "key": "size", "value": "5" }] } }
+        },
+        {
+          "name": "Restaurant stats → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('restaurant stats → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/restaurants/stats", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "restaurants", "stats"] } }
+        },
+        {
+          "name": "Analytics dashboard → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('analytics → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/analytics", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "analytics"] } }
+        },
+        {
+          "name": "DLQ dashboard → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('dlq → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/dlq", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "dlq"] } }
+        },
+        {
+          "name": "Feature flags → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('flags → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/feature-flags", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "feature-flags"] } }
+        },
+        {
+          "name": "Fraud dashboard → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('fraud → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/admin/fraud", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "fraud"] } }
+        }
+      ]
+    },
+    {
+      "name": "18-Admin Exports",
+      "item": [
+        {
+          "name": "Export orders CSV → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('orders export → 200', () => pm.response.to.have.status(200));",
+            "pm.test('CSV header row', () => pm.expect(pm.response.text()).to.include('Order ID'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/analytics/export/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "analytics", "export", "orders"] } }
+        },
+        {
+          "name": "Export restaurants CSV → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('restaurants export → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/analytics/export/restaurants", "host": ["{{baseUrl}}"], "path": ["api", "v1", "analytics", "export", "restaurants"] } }
+        },
+        {
+          "name": "Export riders CSV → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('riders export → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/analytics/export/riders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "analytics", "export", "riders"] } }
+        },
+        {
+          "name": "Export payments CSV → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('payments export → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/analytics/export/payments", "host": ["{{baseUrl}}"], "path": ["api", "v1", "analytics", "export", "payments"] } }
+        },
+        {
+          "name": "Export as customer → 403",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('export (customer) → 403', () => pm.response.to.have.status(403));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/analytics/export/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "analytics", "export", "orders"] } }
+        }
+      ]
+    },
+    {
+      "name": "19-Support Tickets",
+      "item": [
+        {
+          "name": "Create support ticket",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('create ticket → 200/201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+            "const id = pm.response.json().id;",
+            "if (id) { pm.collectionVariables.set('ticketId', String(id)); }"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"category\":\"ORDER_ISSUE\",\"subject\":\"E2E test ticket {{ts}}\",\"description\":\"Created by the Postman E2E suite\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/support/tickets", "host": ["{{baseUrl}}"], "path": ["api", "v1", "support", "tickets"] }
+          }
+        },
+        {
+          "name": "Create ticket missing subject → 400",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('missing subject → 400', () => pm.response.to.have.status(400));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{custToken}}" }],
+            "body": { "mode": "raw", "raw": "{\"category\":\"ORDER_ISSUE\"}" },
+            "url": { "raw": "{{baseUrl}}/api/v1/support/tickets", "host": ["{{baseUrl}}"], "path": ["api", "v1", "support", "tickets"] }
+          }
+        },
+        {
+          "name": "My tickets → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('tickets → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/support/tickets", "host": ["{{baseUrl}}"], "path": ["api", "v1", "support", "tickets"] } }
+        }
+      ]
+    },
+    {
+      "name": "20-Platform & Security Headers",
+      "item": [
+        {
+          "name": "Platform health → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('health → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/health", "host": ["{{baseUrl}}"], "path": ["api", "v1", "health"] } }
+        },
+        {
+          "name": "Cities → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('cities → 200', () => pm.response.to.have.status(200));"] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/platform/cities", "host": ["{{baseUrl}}"], "path": ["api", "v1", "platform", "cities"] } }
+        },
+        {
+          "name": "JWKS document → 200",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('jwks → 200', () => pm.response.to.have.status(200));",
+            "pm.test('has keys array', () => pm.expect(pm.response.json().keys).to.be.an('array'));"
+          ] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/.well-known/jwks.json", "host": ["{{baseUrl}}"], "path": [".well-known", "jwks.json"] } }
+        },
+        {
+          "name": "Gateway adds correlation + API version headers",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('X-Correlation-Id present', () => pm.expect(pm.response.headers.get('X-Correlation-Id')).to.be.a('string'));",
+            "pm.test('X-API-Version present', () => pm.expect(pm.response.headers.get('X-API-Version')).to.eql('1'));"
+          ] } }],
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{custToken}}" }], "url": { "raw": "{{baseUrl}}/api/v1/health", "host": ["{{baseUrl}}"], "path": ["api", "v1", "health"] } }
+        },
+        {
+          "name": "Unmatched route → 404 ROUTE_NOT_FOUND",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('unmatched → 404', () => pm.response.to.have.status(404));",
+            "pm.test('code ROUTE_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ROUTE_NOT_FOUND'));"
+          ] } }],
+          "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/v1/definitely-not-a-route", "host": ["{{baseUrl}}"], "path": ["api", "v1", "definitely-not-a-route"] } }
+        }
+      ]
+    }
+  ]
+}

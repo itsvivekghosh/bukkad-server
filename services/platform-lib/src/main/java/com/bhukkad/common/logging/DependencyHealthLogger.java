@@ -104,13 +104,22 @@ public class DependencyHealthLogger {
 
     private String testKafka() {
         try {
-            // Verify producer is functional by checking metadata
-            kafkaTemplate.executeInTransaction(operations -> {
-                // Just verify we can get cluster info; don't actually send
-                operations.getProducerFactory().createProducer();
-                return null;
-            });
-            return "OK (producer initialized)";
+            org.springframework.kafka.core.ProducerFactory<?, ?> producerFactory =
+                    kafkaTemplate.getProducerFactory();
+            // A transactional factory additionally proves the outbox relay's
+            // publishForResult() path (executeInTransaction) is usable. A plain
+            // factory only proves the template can hand out a producer — the
+            // fire-and-forget publish() path does not need transactions, so a
+            // missing transaction prefix must not be reported as a Kafka FAIL.
+            boolean transactional = producerFactory.transactionCapable();
+            // Verify the factory can actually build a producer (fails fast on
+            // misconfiguration; does not require a live broker for creation).
+            try (org.apache.kafka.clients.producer.Producer<?, ?> producer =
+                         producerFactory.createProducer()) {
+                return transactional
+                        ? "OK (producer initialized, transactional)"
+                        : "OK (producer initialized, non-transactional)";
+            }
         } catch (Exception e) {
             return "FAIL: " + e.getMessage();
         }

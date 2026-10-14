@@ -1,0 +1,24 @@
+app:
+  events:
+    external:
+      enabled: true
+      type: kafka
+      dlq:
+        enabled: true
+  auth:
+    jwt:
+      secret: 0123456789abcdef0123456789abcdef
+      issuer: bhukkad-identity
+      jwks-url: 
+      hmac-grace-enabled: true
+  events:
+    external:
+      kafka:
+        bootstrap-servers: localhost:9092
+      enabled: true
+      type: kafka
+      dlq:
+        enabled: true
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}

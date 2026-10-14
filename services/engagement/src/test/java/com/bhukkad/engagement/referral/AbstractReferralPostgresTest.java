@@ -49,5 +49,7 @@ public abstract class AbstractReferralPostgresTest {
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
         // Deterministic abuse ceilings inside the suite (override the defaults).
         registry.add("app.referral.abuse.apply-per-customer-per-day", () -> "1000");
+        // No Kafka broker in tests; the referral event consumers stay off.
+        registry.add("app.events.external.enabled", () -> "false");
     }
 }
