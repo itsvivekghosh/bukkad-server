@@ -44,7 +44,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "app.events.external.enabled=false"
+        "app.events.external.enabled=false",
+        // This is a pure MockMvc benchmark: every collaborator is a @MockBean,
+        // so no database is (or should be) involved. Without these two lines
+        // the full context still boots JPA, which needs a reachable datasource
+        // to resolve the dialect ('Unable to determine Dialect without JDBC
+        // metadata') and an initial Hikari connection — the test therefore
+        // only passed on machines with a local PostgreSQL. Pin the dialect and
+        // let the pool start lazily so the context is database-independent.
+        "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect",
+        "spring.datasource.hikari.initialization-fail-timeout=-1"
 })
 class OrderFromPostPerformanceTest {
 
