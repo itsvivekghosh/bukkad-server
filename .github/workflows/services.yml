@@ -157,7 +157,10 @@ jobs:
 
       - name: Trivy image scan (fail on HIGH/CRITICAL)
         if: github.event_name == 'push'
-        uses: aquasecurity/trivy-action@0.28.0
+        # 0.28.0 was never published ('unable to resolve action'); current
+        # release line is v0.36.x. Inputs used here (image-ref/format/exit-code/
+        # ignore-unfixed/severity) are unchanged across that range.
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
           format: table
