@@ -34,3 +34,23 @@ regexes = [
   '''0123456789abcdef0123456789abcdef''',
 ]
 defaultRuleMatch = "AND"
+
+[[allowlists]]
+description = """
+Shared service-mesh test-fixture secret.
+
+`test-service-secret-123456789012345678901234` is the unit-test value the
+service-to-service JWT tests supply for `app.auth.service.jwt-secret`
+(added when ServiceJwtAuthTokenProvider became always-on). It is a readable
+placeholder string, not a credential, and only appears in src/test/ fixtures
+and @SpringBootTest property annotations.
+
+Same policy as the HS256 entry: exact literal, src/test/ scope, AND-matched.
+"""
+paths = [
+  '''src/test/''',
+]
+regexes = [
+  '''test-service-secret-123456789012345678901234''',
+]
+defaultRuleMatch = "AND"
