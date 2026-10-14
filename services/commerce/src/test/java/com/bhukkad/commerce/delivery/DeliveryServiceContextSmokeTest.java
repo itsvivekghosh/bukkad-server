@@ -28,7 +28,12 @@ class DeliveryServiceContextSmokeTest extends AbstractDeliveryPostgresTest {
         String health = RestClient.create("http://localhost:" + port)
                 .get().uri("/actuator/health").retrieve().body(String.class);
         assertThat(health).isNotNull();
+        // Only the db component is provisioned by this Testcontainers slice: assert
+        // IT is UP. Redis/Kafka are intentionally absent, and their nested
+        // "status":"DOWN" must not fail a context smoke test (they made the
+        // old whole-body doesNotContain assertion env-dependent: green on a
+        // laptop with a local Redis, red in CI).
         assertThat(health).contains("\"db\"");
-        assertThat(health).doesNotContain("\"status\":\"DOWN\"");
+        assertThat(health).contains("\"db\":{\"status\":\"UP\"");
     }
 }
