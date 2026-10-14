@@ -29,8 +29,15 @@ class OrderServiceContextSmokeTest extends AbstractOrderPostgresTest {
      * composed stack.</p>
      */
     void healthEndpointResponds() {
+        // onStatus no-op: the aggregate /actuator/health status is DOWN in this
+        // slice (redis/kafka are not provisioned) and retrieve() would throw
+        // HttpServerErrorException on the 503 before any assertion runs. The
+        // body is what the test inspects, not the aggregate status.
         String health = RestClient.create("http://localhost:" + port)
-                .get().uri("/actuator/health").retrieve().body(String.class);
+                .get().uri("/actuator/health")
+                .retrieve()
+                .onStatus(org.springframework.http.HttpStatusCode::isError, (request, response) -> { })
+                .body(String.class);
         assertThat(health).isNotNull();
         // Only the db component is provisioned by this Testcontainers slice: assert
         // IT is UP. Redis/Kafka are intentionally absent, and their nested
