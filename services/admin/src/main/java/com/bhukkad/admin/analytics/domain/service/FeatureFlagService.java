@@ -130,6 +130,12 @@ public class FeatureFlagService implements MessageListener {
         } catch (Exception ex) {
             log.warn("FEATURE_FLAG_SNAPSHOT_REDIS_FAILED | error={}", ex.getMessage());
         }
+        // Local write-through cache last: when Redis is unreachable, setFlag
+        // still records the change locally (and readOverride serves it from
+        // there), so the admin flag list must not be blind to this replica's
+        // own writes during a Redis outage. With Redis healthy these entries
+        // were just repopulated from it above, so the values agree.
+        overrideCache.forEach(result::put);
         return result;
     }
 
