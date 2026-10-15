@@ -40,21 +40,30 @@ import java.nio.charset.StandardCharsets;
 public class SupportSecurityConfig {
 
     @Bean
+    @org.springframework.core.annotation.Order(1)
     public SecurityFilterChain supportSecurityFilterChain(HttpSecurity http,
                                                           SecurityHeadersFilter securityHeadersFilter,
                                                           ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,
                                                           ObjectProvider<ServiceJwtAuthFilter> serviceJwtAuthFilter)
             throws Exception {
         http
+                // Spring Security 6.5 (Boot 3.5) rejects two chains that both
+                // match any request ("UnreachableFilterChainException"), and the
+                // analytics SecurityConfig owns the catch-all chain. Scope this
+                // one to the support surface: /api/v1/support/** is
+                // authenticated here exactly as it was under the analytics
+                // chain's anyRequest().authenticated().
+                // AntPathRequestMatcher (not the default MvcRequestMatcher) so
+                // the chain also builds in JPA-slice test contexts, which boot
+                // the security config without Spring MVC's handler-mapping
+                // introspector.
+                .securityMatcher(new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/api/v1/support/**"))
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(supportAuthenticationEntryPoint()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health/**", "/actuator/**", "/api/v1/health/**").permitAll()
-                        // Error dispatch (404/500 forwards) must keep its real status.
-                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated());
 
         http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);

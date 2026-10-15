@@ -26,7 +26,7 @@
 		<byte-buddy.version>1.17.6</byte-buddy.version>
 		<pact.version>4.7.5</pact.version>
 		<jwt.version>0.12.7</jwt.version>
-		<spring-cloud.version>2023.0.5</spring-cloud.version>
+		<spring-cloud.version>2025.0.3</spring-cloud.version>
 	</properties>
 
 	<dependencyManagement>

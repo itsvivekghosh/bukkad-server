@@ -42,18 +42,21 @@ public class SecurityConfig {
 
 
     /**
-     * Authoritative chain for the whole admin service.
+     * Catch-all chain for the whole admin service.
      *
      * <p>The consolidated admin service also declares a support-ticket chain
-     * ({@code SupportSecurityConfig#supportSecurityFilterChain}). Both use an
-     * {@code anyRequest()} catch-all, and Spring Security applies only the FIRST
-     * chain that matches — so without explicit ordering, whichever bean won the
-     * race silently governed every endpoint and the other's rules (including the
-     * ADMIN gate on the cache-ops telemetry endpoints) were never evaluated.
-     * Pinning this chain first makes the behaviour deterministic.</p>
+     * ({@code SupportSecurityConfig#supportSecurityFilterChain}); that one is
+     * scoped with {@code securityMatcher("/api/v1/support/**")}. Spring Security
+     * 6.5 (Boot 3.5) requires the chain matching {@code anyRequest} to be
+     * published LAST, otherwise the scoped chain is reported unreachable and
+     * context startup fails with UnreachableFilterChainException. So this chain
+     * carries LOWEST_PRECEDENCE and the support chain @Order(1): support paths
+     * are handled by the support chain, every other path (including the
+     * ADMIN-gated cache-ops telemetry) falls through to this authoritative
+     * chain.</p>
      */
     @Bean
-    @org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
+    @org.springframework.core.annotation.Order(org.springframework.core.Ordered.LOWEST_PRECEDENCE)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityHeadersFilter securityHeadersFilter,
                                                    ObjectProvider<PlatformJwtAuthFilter> jwtAuthFilter,

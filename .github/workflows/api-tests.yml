@@ -54,7 +54,12 @@ jobs:
           export SERVICE_JWT_SECRET="${APP_AUTH_SERVICE_JWT_SECRET}"
           export IDENTITY_JWKS_URL="http://localhost:8081/.well-known/jwks.json"
           export SPRING_PROFILES_ACTIVE=local
-          export EVENTS_EXTERNAL_ENABLED=false
+          # Spring's relaxed binding maps env APP_EVENTS_EXTERNAL_ENABLED to the
+          # property app.events.external.enabled — without the APP_ prefix the
+          # bare EVENTS_EXTERNAL_ENABLED maps to events.external.enabled, which
+          # nothing reads, so services kept the profile default (Kafka enabled,
+          # bootstrap kafka:9092) and never became healthy.
+          export APP_EVENTS_EXTERNAL_ENABLED=false
           export REDIS_HOST=localhost
           export SPRING_DATA_REDIS_HOST=localhost
           export APP_BOOTSTRAPADMIN_ENABLED=true

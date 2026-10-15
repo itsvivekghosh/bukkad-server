@@ -32,6 +32,8 @@ import static org.mockito.Mockito.when;
  * Every endpoint is exercised for: (a) happy path, (b) IDOR guard,
  * (c) unauthenticated caller guard.
  */
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class OrderEndpointSecurityTest {
 
     private static TokenPrincipal principal(long userId, String scope) {
