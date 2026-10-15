@@ -50,7 +50,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: bhukkad-admin
-          image: ghcr.io/bhukkad/admin:latest
+          image: ghcr.io/itsvivekghosh/admin:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8083

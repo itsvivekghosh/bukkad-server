@@ -51,7 +51,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: bhukkad-commerce
-          image: ghcr.io/bhukkad/commerce:latest
+          image: ghcr.io/itsvivekghosh/commerce:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

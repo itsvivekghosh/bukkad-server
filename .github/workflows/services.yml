@@ -100,10 +100,10 @@ jobs:
       # Scan/sign/deploy knobs (feature #16): severities that fail the build,
       # and whether deploys consume the pushed digest instead of the sha tag.
       # Digest pinning is the DEFAULT (P2): staging/production kustomize-renders
-      # ghcr.io/bhukkad/<svc>@sha256:<digest> so the cluster can only run the
+      # ghcr.io/itsvivekghosh/<svc>@sha256:<digest> so the cluster can only run the
       # exact bits CI built, scanned and signed. Flip the repo variable
       # DEPLOY_BY_DIGEST to 'false' only for incident rollback drillwork.
-      # The committed k8s/ manifests keep ghcr.io/bhukkad/<svc>:latest as the
+      # The committed k8s/ manifests keep ghcr.io/itsvivekghosh/<svc>:latest as the
       # DEV/MINIKUBE fallback only — :latest must never reach staging or prod.
       TRIVY_SEVERITY: HIGH,CRITICAL
       DEPLOY_BY_DIGEST: 'true'
@@ -152,7 +152,7 @@ jobs:
           docker build
           --build-arg MODULE=${{ matrix.service }}
           -f services/docker/Dockerfile.service
-          -t ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          -t ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }}
           services/
 
       - name: Trivy image scan (fail on HIGH/CRITICAL)
@@ -162,7 +162,7 @@ jobs:
         # ignore-unfixed/severity) are unchanged across that range.
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          image-ref: ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }}
           format: table
           exit-code: '1'
           ignore-unfixed: 'true'
@@ -176,7 +176,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker push ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          docker push ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }}
 
       - name: Capture pushed image digest
         id: capture-digest
@@ -185,7 +185,7 @@ jobs:
         # reference: job output for reuse, GITHUB_ENV for the dev-cluster
         # deploy step at the bottom of this job.
         run: |
-          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }})
+          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }})
           echo "IMAGE_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "Pushed ${DIGEST}"
@@ -194,7 +194,7 @@ jobs:
         if: github.event_name == 'push'
         uses: anchore/sbom-action@v0
         with:
-          image: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          image: ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }}
           format: spdx-json
           artifact-name: sbom-${{ matrix.service }}.spdx.json
 
@@ -219,7 +219,7 @@ jobs:
       - name: Deploy to Kubernetes
         if: github.event_name == 'push'
         run: |
-          REF="ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}"
+          REF="ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }}"
           if [ "${DEPLOY_BY_DIGEST}" = "true" ] && [ -n "${IMAGE_DIGEST}" ]; then
             REF="${IMAGE_DIGEST}"
           fi

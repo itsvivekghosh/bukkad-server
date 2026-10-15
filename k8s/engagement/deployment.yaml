@@ -50,7 +50,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: bhukkad-engagement
-          image: ghcr.io/bhukkad/engagement:latest
+          image: ghcr.io/itsvivekghosh/engagement:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8082

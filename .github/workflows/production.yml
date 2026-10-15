@@ -52,7 +52,7 @@ jobs:
       # services/docker/Dockerfile.service (MODULE build-arg, context = reactor
       # root services/). Pushed under the immutable commit-sha tag; the deploy
       # job pins these tags into the kustomize render below (finding: CI must
-      # push what k8s pulls — ghcr.io/bhukkad/<service>).
+      # push what k8s pulls — ghcr.io/itsvivekghosh/<service>).
       - name: Build and push ${{ matrix.service }} image
         id: build
         uses: docker/build-push-action@v6
@@ -62,7 +62,7 @@ jobs:
           push: true
           build-args: |
             MODULE=${{ matrix.service }}
-          tags: ghcr.io/bhukkad/${{ matrix.service }}:${{ github.sha }}
+          tags: ghcr.io/itsvivekghosh/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
@@ -104,7 +104,7 @@ jobs:
       GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
       HEALTH_PATH: ${{ vars.HEALTH_PATH }}
       # P2 digest-pinned deploys: 'true' (default) pins the kustomize render to
-      # ghcr.io/bhukkad/<svc>@sha256:<digest> captured from the build job, so
+      # ghcr.io/itsvivekghosh/<svc>@sha256:<digest> captured from the build job, so
       # the cluster can only run bits this run built and pushed. Set the repo
       # variable DEPLOY_BY_DIGEST=false to fall back to immutable sha tags.
       # The committed k8s/ manifests keep :latest as the DEV/MINIKUBE fallback
@@ -151,7 +151,7 @@ jobs:
 
       # Wire the images this pipeline pushed into the deploy WITHOUT editing
       # the committed k8s/ manifests (CI-side resolution): the manifests pin
-      # ghcr.io/bhukkad/<service>:latest as their dev/minikube fallback; the
+      # ghcr.io/itsvivekghosh/<service>:latest as their dev/minikube fallback; the
       # render below overrides name→digest (default) or name→sha so the
       # cluster runs the immutable image built from exactly this commit.
       # P2: the edit runs against a TEMP COPY of k8s/ — the checkout itself is
@@ -181,11 +181,11 @@ jobs:
                 echo "::error::digest for ${svc} is not a sha256:<64hex> — '${DIGEST}'"
                 exit 1
               fi
-              REF="ghcr.io/bhukkad/${svc}@${DIGEST}"
+              REF="ghcr.io/itsvivekghosh/${svc}@${DIGEST}"
             else
-              REF="ghcr.io/bhukkad/${svc}:${GITHUB_SHA}"
+              REF="ghcr.io/itsvivekghosh/${svc}:${GITHUB_SHA}"
             fi
-            kustomize edit set image "ghcr.io/bhukkad/${svc}=${REF}"
+            kustomize edit set image "ghcr.io/itsvivekghosh/${svc}=${REF}"
             echo "Pinned ${svc} → ${REF}"
           done
           echo "KUSTOMIZE_DIR=${KUSTOMIZE_DIR}" >> "$GITHUB_ENV"

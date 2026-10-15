@@ -51,7 +51,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: bhukkad-identity
-          image: ghcr.io/bhukkad/identity:latest
+          image: ghcr.io/itsvivekghosh/identity:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081
