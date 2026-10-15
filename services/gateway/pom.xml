@@ -19,6 +19,17 @@
 		validates its own JWT via platform-lib's PlatformJwtValidator).</description>
 
 	<dependencies>
+		<!-- Only GatewayRoutingTest uses WireMock. It previously came in
+		     transitively from platform-lib at COMPILE scope, which shipped
+		     wiremock (and its jetty 11 tree) inside the gateway's production
+		     image — the jetty http2 CVEs Trivy flags are gone once the scope
+		     is test. -->
+		<dependency>
+			<groupId>org.wiremock</groupId>
+			<artifactId>wiremock</artifactId>
+			<version>3.5.4</version>
+			<scope>test</scope>
+		</dependency>
 		<!-- Shared platform infra: actuator health/metrics wiring, tracing,
 		     error model. No web/datasource; web-starter is optional in
 		     platform-lib so this module stays purely reactive (WebFlux). -->

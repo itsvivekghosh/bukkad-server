@@ -1,0 +1,16 @@
+# Trivy ignore file — deliberate, reviewed exceptions ONLY.
+#
+# Policy: every finding must be either fixed (dependency bump) or listed here
+# with an exact CVE ID and a rationale. No blanket rule disables the scanner.
+# Revisit this file whenever the Spring Boot line is upgraded.
+
+# Spring Framework 6.2 (managed by Spring Boot 3.5.16) is end-of-life: the
+# 6.2.x line receives no further patches, and both CVEs are fixed only in
+# Spring Framework 7.0.9, which ships with Spring Boot 4.x. The Boot 4
+# migration is tracked as a follow-up (it removes @MockBean in favour of
+# @MockitoBean, which this repo's several hundred tests use) — until it
+# lands, these two findings are accepted risk on the framework itself:
+#   CVE-2026-47884  spring-webmvc  (fixed in 7.0.9 only)
+#   CVE-2026-47890  spring-webflux (fixed in 7.0.9 only)
+CVE-2026-47884
+CVE-2026-47890

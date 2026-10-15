@@ -64,7 +64,7 @@ jobs:
           export SPRING_DATA_REDIS_HOST=localhost
           export APP_BOOTSTRAPADMIN_ENABLED=true
           export APP_BOOTSTRAPADMIN_EMAIL=admin@bhukkad.dev
-          export APP_BOOTSTRAPADMIN_PASSWORD='Admin@12345678'
+          export APP_BOOTSTRAPADMIN_PASSWORD='Admin@123456'
           
           # Start services in background
           for service in identity catalog commerce engagement admin gateway; do

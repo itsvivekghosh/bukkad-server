@@ -329,12 +329,6 @@
 			<artifactId>spring-kafka-test</artifactId>
 			<scope>compile</scope>
 		</dependency>
-		<dependency>
-			<groupId>org.wiremock</groupId>
-			<artifactId>wiremock</artifactId>
-			<version>3.5.4</version>
-			<scope>compile</scope>
-		</dependency>
 
 </dependencies>
 

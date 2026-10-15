@@ -47,6 +47,14 @@
  		<pact.version>4.7.5</pact.version>
  		<jwt.version>0.12.7</jwt.version>
  		<spring-kafka.version>3.3.16</spring-kafka.version>
+ 		<!-- Patch-level pins for the CI Trivy gate. Boot 3.5.16 manages these
+ 		     lines, but its release predates the security fixes Trivy enforces;
+ 		     these override with the fixed patch releases of the SAME line
+ 		     (no major-version drift). netty is pinned via the netty-bom import
+ 		     in dependencyManagement (a property override leaves foreign pins in
+ 		     place); see the jackson/httpcore5/etc. entries there for artifacts
+ 		     Boot imports via BOMs where a property override would not reach. -->
+ 		<tomcat.version>10.1.61</tomcat.version>
  		<!-- Spring Cloud (Gateway, LoadBalancer). Managed by the BOM import
  		     below; 2025.0.x is the release train aligned with Spring Boot
  		     3.5.x (2025.1.x moved to Boot 4.0). -->
@@ -56,6 +64,36 @@
 
 	<dependencyManagement>
 		<dependencies>
+			<!-- netty-bom imported FIRST so a single version manages every netty
+			     artifact (core + native/classifier). Overriding the Boot
+			     netty.version property alone leaves foreign pins (e.g.
+			     netty-transport-classes-epoll 4.1.108 via kafka/testcontainers,
+			     netty-resolver-dns-native-macos 4.1.135) in place — the mix
+			     breaks reactor-netty (NoClassDefFoundError
+			     DnsNameResolverChannelStrategy). The BOM import wins over all
+			     transitive pins. Version is the fixed release for the CVEs
+			     Trivy flags in the 4.1 line. -->
+			<dependency>
+				<groupId>io.netty</groupId>
+				<artifactId>netty-bom</artifactId>
+				<version>4.1.137.Final</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<!-- The two classifier artifacts netty-bom does NOT manage. Without
+			     them the classpath mixes versions (reactor-netty pins
+			     netty-transport-classes-epoll to its own minimum), which is what
+			     broke reactor-netty's DNS resolver initialization. -->
+			<dependency>
+				<groupId>io.netty</groupId>
+				<artifactId>netty-transport-classes-epoll</artifactId>
+				<version>4.1.137.Final</version>
+			</dependency>
+			<dependency>
+				<groupId>io.netty</groupId>
+				<artifactId>netty-resolver-dns-classes-macos</artifactId>
+				<version>4.1.137.Final</version>
+			</dependency>
 			<!-- Spring Cloud BOM (Gateway, LoadBalancer) aligned to
 			     Spring Boot 3.5.x (release train 2025.0.x). Imported so gateway
 			     transitive versions resolve correctly across the reactor. -->
@@ -91,6 +129,58 @@
 				<groupId>com.github.jknack</groupId>
 				<artifactId>handlebars</artifactId>
 				<version>4.5.2</version>
+			</dependency>
+			<!-- Same rationale as above — fixed patch releases of lines Boot
+			     3.5.16 already manages, pinned because its release predates the
+			     security fixes: jackson 2.21.7 (core + databind + annotations),
+			     netty 4.1.17 (via the netty.version property), Tomcat 10.1.61
+			     (tomcat.version property), httpcore5 5.4.3, jetty http2 11.0.26,
+			     PostgreSQL driver 42.7.14, lz4-java 1.11.4 (kafka-clients
+			     transitive), bouncycastle 1.85. -->
+			<dependency>
+				<groupId>com.fasterxml.jackson.core</groupId>
+				<artifactId>jackson-core</artifactId>
+				<version>2.21.7</version>
+			</dependency>
+			<dependency>
+				<groupId>com.fasterxml.jackson.core</groupId>
+				<artifactId>jackson-databind</artifactId>
+				<version>2.21.7</version>
+			</dependency>
+			<dependency>
+				<groupId>com.fasterxml.jackson.core</groupId>
+				<artifactId>jackson-annotations</artifactId>
+				<version>2.21</version>
+			</dependency>
+			<dependency>
+				<groupId>org.apache.httpcomponents.core5</groupId>
+				<artifactId>httpcore5</artifactId>
+				<version>5.4.3</version>
+			</dependency>
+			<dependency>
+				<groupId>org.apache.httpcomponents.core5</groupId>
+				<artifactId>httpcore5-h2</artifactId>
+				<version>5.4.3</version>
+			</dependency>
+			<dependency>
+				<groupId>org.eclipse.jetty.http2</groupId>
+				<artifactId>http2-common</artifactId>
+				<version>11.0.26</version>
+			</dependency>
+			<dependency>
+				<groupId>org.postgresql</groupId>
+				<artifactId>postgresql</artifactId>
+				<version>42.7.14</version>
+			</dependency>
+			<dependency>
+				<groupId>at.yawk.lz4</groupId>
+				<artifactId>lz4-java</artifactId>
+				<version>1.11.4</version>
+			</dependency>
+			<dependency>
+				<groupId>org.bouncycastle</groupId>
+				<artifactId>bcprov-jdk18on</artifactId>
+				<version>1.85</version>
 			</dependency>
 			<!-- Shared platform library consumed by every service module. -->
  		<dependency>
