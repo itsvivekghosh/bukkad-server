@@ -162,6 +162,15 @@
 				<artifactId>httpcore5-h2</artifactId>
 				<version>5.4.3</version>
 			</dependency>
+			<!-- httpclient5 pinned as well: it is the artifact transitive graphs
+			     pull in (elasticsearch's jetty transport / wiremock), and its own
+			     dependency on httpcore5 would otherwise drag the CVE-flagged 5.0.x
+			     line if any of those paths wins over the httpcore5 entry above. -->
+			<dependency>
+				<groupId>org.apache.httpcomponents.client5</groupId>
+				<artifactId>httpclient5</artifactId>
+				<version>5.5.2</version>
+			</dependency>
 			<dependency>
 				<groupId>org.eclipse.jetty.http2</groupId>
 				<artifactId>http2-common</artifactId>

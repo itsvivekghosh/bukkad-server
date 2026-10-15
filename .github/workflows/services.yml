@@ -133,6 +133,13 @@ jobs:
       - name: Build and test service module
         run: ./mvnw -B -f services/pom.xml -pl ${{ matrix.service }} -am verify
 
+      - name: Diagnose Apache HttpClient versions
+        run: |
+          ./mvnw -B -f services/pom.xml -pl ${{ matrix.service }} dependency:tree \
+            -Dincludes='org.apache.httpcomponents*' \
+            -DoutputFile=target/httpcomponents-tree.txt -q || true
+          grep -E 'httpclient5|httpcore5' target/httpcomponents-tree.txt || echo "NO httpcomponents5 dependency resolved"
+
       - name: Upload service test reports
         if: always()
         uses: actions/upload-artifact@v5
