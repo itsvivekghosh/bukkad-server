@@ -74,11 +74,8 @@ COPY engagement ./engagement
 COPY gateway ./gateway
 COPY identity ./identity
 COPY ${MODULE} ./${MODULE}
-# Verbose (no -q) so CI logs show the exact dependency resolution — the
-# Trivy gate kept reporting an httpcore5 version the runner-side dependency
-# tree did not contain, and the build must be observable.
 RUN --mount=type=cache,target=/root/.m2,sharing=locked \
-    mvn -B clean package -DskipTests -Dmaven.test.skip=true -pl ${MODULE} -am
+    mvn -B -q clean package -DskipTests -Dmaven.test.skip=true -pl ${MODULE} -am
 
 # --- runtime stage -----------------------------------------------------------
 FROM eclipse-temurin:21-jre-jammy AS runtime

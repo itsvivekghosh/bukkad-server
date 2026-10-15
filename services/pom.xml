@@ -223,6 +223,40 @@
 		</dependencies>
 	</dependencyManagement>
 
+	<!-- Shared TEST infrastructure. Testcontainers used to be declared at
+	     COMPILE scope in platform-lib, which leaked testcontainers (and
+	     docker-java's shaded httpclient5 5.0.2 / jetty 11) into every
+	     service's production image — exactly the libraries the CI Trivy gate
+	     flagged. Test scope is not transitive, so declaring the container
+	     modules here gives every module's tests what they need while keeping
+	     them out of BOOT-INF/lib. -->
+	<dependencies>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>postgresql</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>kafka</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>redpanda</artifactId>
+			<version>${testcontainers.version}</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
 	<build>
 		<plugins>
 			<!-- JaCoCo coverage gate for every service module (approved plan

@@ -133,13 +133,6 @@ jobs:
       - name: Build and test service module
         run: ./mvnw -B -f services/pom.xml -pl ${{ matrix.service }} -am verify
 
-      - name: Diagnose Apache HttpClient versions
-        run: |
-          ./mvnw -B -f services/pom.xml -pl ${{ matrix.service }} dependency:tree \
-            -Dincludes='org.apache.httpcomponents*' \
-            -DoutputFile=target/httpcomponents-tree.txt -q || true
-          grep -E 'httpclient5|httpcore5' target/httpcomponents-tree.txt || echo "NO httpcomponents5 dependency resolved"
-
       - name: Upload service test reports
         if: always()
         uses: actions/upload-artifact@v5
@@ -173,6 +166,10 @@ jobs:
           format: table
           exit-code: '1'
           ignore-unfixed: 'true'
+          # Reviewed, documented exceptions only (see .trivyignore): the three
+          # Spring Framework 6.2 CVEs are fixed solely in Framework 7.0.9
+          # (Spring Boot 4.x) and the framework line is EOS.
+          ignorefile: .trivyignore
           severity: ${{ env.TRIVY_SEVERITY }}
 
       - name: Push Docker image
