@@ -123,6 +123,6 @@ COPY --from=builder --chown=bhukkad:bhukkad /build/${MODULE}/target/*.jar /app/
 RUN if ls /app/${MODULE}-*-exec.jar >/dev/null 2>&1; then mv /app/${MODULE}-*-exec.jar /app/app.jar; else mv /app/${MODULE}-[0-9]*.jar /app/app.jar; fi
 USER bhukkad
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=30s --start-period=1800s --retries=40 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -fsS "http://localhost:${SERVER_PORT}/actuator/health/readiness" >/dev/null || exit 1
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

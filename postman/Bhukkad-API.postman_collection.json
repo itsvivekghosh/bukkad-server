@@ -513,10 +513,10 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{baseUrl}}/api/v1/auth/register",
+            "url": "{{baseUrl}}/api/v1/auth/login",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fullName\": \"Postman Admin\",\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{password}}\",\n  \"phoneNumber\": \"9876543210\",\n  \"role\": \"ADMIN\"\n}"
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{password}}\"\n}"
             }
           },
           "response": [],
@@ -938,7 +938,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 9999999998
         },
         {
           "name": "Logout",
@@ -958,7 +959,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 9999999998
         }
       ]
     },
@@ -2159,7 +2161,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 9999999999
         },
         {
           "name": "Get Referral Info",
@@ -2718,7 +2721,7 @@
             "description": "Creates order from cart. 202+jobId when ?async=true. Idempotent on Idempotency-Key.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"CASH_ON_DELIVERY\",\n  \"specialInstructions\": \"Ring doorbell\"\n}"
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"CASH_ON_DELIVERY\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{menuItemId}}\",\n      \"name\": \"Test Menu Item\",\n      \"unitPrice\": 249,\n      \"quantity\": 2\n    }\n  ],\n  \"specialInstructions\": \"Ring doorbell\"\n}"
             }
           },
           "response": [
@@ -2782,7 +2785,7 @@
             "url": "{{baseUrl}}/api/v1/orders/customer/create",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"UPI\",\n  \"useWallet\": true,\n  \"walletAmountToUse\": 50\n}"
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"UPI\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{menuItemId}}\",\n      \"name\": \"Test Menu Item\",\n      \"unitPrice\": 249,\n      \"quantity\": 2\n    }\n  ],\n  \"useWallet\": true,\n  \"walletAmountToUse\": 50\n}"
             }
           },
           "response": [],
@@ -2822,7 +2825,7 @@
             "url": "{{baseUrl}}/api/v1/orders/customer/create?async=true",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"UPI\"\n}"
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"UPI\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{menuItemId}}\",\n      \"name\": \"Test Menu Item\",\n      \"unitPrice\": 249,\n      \"quantity\": 2\n    }\n  ]\n}"
             }
           },
           "response": [],
@@ -3254,7 +3257,7 @@
             "url": "{{baseUrl}}/api/v1/reviews",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"rating\": 5,\n  \"comment\": \"Great food!\"\n}"
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"menuItemId\": \"{{menuItemId}}\",\n  \"rating\": 5,\n  \"comment\": \"Great food!\"\n}"
             }
           },
           "response": [],
@@ -3920,6 +3923,33 @@
           ]
         },
         {
+          "name": "Toggle Item Availability",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/menu/items/{{menuItemId}}/toggle-availability?available=true"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status in [200, 404]', () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));",
+                  "const json = pm.response.json();",
+                  "pm.test('response is object', () => { pm.expect(json).to.have.property('items'); pm.expect(Array.isArray(json.items)).to.eql(true); });",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json).to.have.property('timestamp');",
+                  "    pm.expect(json).to.have.property('traceId');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Delete Menu Item",
           "request": {
             "method": "DELETE",
@@ -3994,33 +4024,6 @@
                   "pm.test('Status in [200, 204, 404]', () => pm.expect(pm.response.code).to.be.oneOf([200, 204, 404]));",
                   "const json = pm.response.json();",
                   "pm.test('envelope: success=true', () => {"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Toggle Item Availability",
-          "request": {
-            "method": "PUT",
-            "header": [],
-            "url": "{{baseUrl}}/api/v1/menu/items/{{menuItemId}}/toggle-availability?available=true"
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status in [200, 404]', () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));",
-                  "const json = pm.response.json();",
-                  "pm.test('response is object', () => { pm.expect(json).to.have.property('items'); pm.expect(Array.isArray(json.items)).to.eql(true); });",
-                  "    pm.expect(json.success).to.eql(true);",
-                  "    pm.expect(json).to.have.property('data');",
-                  "    pm.expect(json).to.have.property('timestamp');",
-                  "    pm.expect(json).to.have.property('traceId');",
-                  "});"
                 ]
               }
             }
@@ -5042,7 +5045,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 9999999997
         },
         {
           "name": "Deactivate User",
@@ -5069,7 +5073,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 9999999997
         },
         {
           "name": "Verify Owner",
@@ -5219,7 +5224,7 @@
             "url": "{{baseUrl}}/api/v1/coupons",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"SAVE10\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 10,\n  \"minOrderAmount\": 200,\n  \"maxDiscount\": 100,\n  \"usageLimit\": 100\n}"
+              "raw": "{\n  \"code\": \"{{couponCode}}\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 10,\n  \"minOrderAmount\": 200,\n  \"maxDiscount\": 100,\n  \"usageLimit\": 100,\n  \"description\": \"Test coupon\",\n  \"validFrom\": \"2025-01-01T00:00:00\",\n  \"validUntil\": \"2027-01-01T00:00:00\"\n}"
             }
           },
           "response": [],
@@ -5257,7 +5262,7 @@
             "url": "{{baseUrl}}/api/v1/coupons/{{couponId}}",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"code\": \"SAVE10\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 15,\n  \"minOrderAmount\": 200,\n  \"maxDiscount\": 150,\n  \"usageLimit\": 100\n}"
+              "raw": "{\n  \"code\": \"{{couponCode}}\",\n  \"discountType\": \"PERCENTAGE\",\n  \"discountValue\": 15,\n  \"minOrderAmount\": 200,\n  \"maxDiscount\": 150,\n  \"usageLimit\": 100,\n  \"description\": \"Updated test coupon\",\n  \"validFrom\": \"2025-01-01T00:00:00\",\n  \"validUntil\": \"2027-01-01T00:00:00\"\n}"
             }
           },
           "response": [],
@@ -5500,6 +5505,144 @@
                   "    pm.expect(json).to.have.property('timestamp');",
                   "    pm.expect(json).to.have.property('traceId');",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Dead Letters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dlq?limit=100"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code).to.eql(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has events array', () => pm.expect(json).to.have.property('events'));",
+                  "pm.test('events is an array', () => pm.expect(json.events).to.be.an('array'));",
+                  "pm.test('Response has pendingCount', () => pm.expect(json).to.have.property('pendingCount'));",
+                  "pm.test('Response has fetched count', () => pm.expect(json).to.have.property('fetched'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Pending Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/count"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code).to.eql(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has pendingCount', () => pm.expect(json).to.have.property('pendingCount'));",
+                  "pm.test('pendingCount is a number', () => pm.expect(json.pendingCount).to.be.a('number'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reprocess Single Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/reprocess"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status in [200, 400, 500]', () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 500]));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has success field', () => pm.expect(json).to.have.property('success'));",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('success is true on 200', () => pm.expect(json.success).to.eql(true));",
+                  "    pm.test('Response has message', () => pm.expect(json).to.have.property('message'));",
+                  "    pm.test('Response has cacheKey', () => pm.expect(json).to.have.property('cacheKey'));",
+                  "}",
+                  "if (pm.response.code === 400) {",
+                  "    pm.test('success is false on 400', () => pm.expect(json.success).to.eql(false));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Batch Reprocess Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/reprocess/batch"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code).to.eql(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has success count', () => pm.expect(json).to.have.property('success'));",
+                  "pm.test('Response has failed count', () => pm.expect(json).to.have.property('failed'));",
+                  "pm.test('Response has results array', () => pm.expect(json).to.have.property('results'));",
+                  "pm.test('results is an array', () => pm.expect(json.results).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Skip DLQ Event",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/skip?topic=test-event&partition=0&offset=0"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status in [200, 403, 500]', () => pm.expect(pm.response.code).to.be.oneOf([200, 403, 500]));",
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('success is true on 200', () => pm.expect(json.success).to.eql(true));",
+                  "    pm.test('message is present', () => pm.expect(json).to.have.property('message'));",
+                  "}"
                 ]
               }
             }
@@ -10681,7 +10824,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 0
         },
         {
           "name": "2 Browse Restaurants",
@@ -10721,7 +10865,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 0
         },
         {
           "name": "3 Add Address",
@@ -10759,7 +10904,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 0
         },
         {
           "name": "4 Add Cart Item",
@@ -10788,7 +10934,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 0
         },
         {
           "name": "5 Place Order",
@@ -10803,7 +10950,7 @@
             "url": "{{baseUrl}}/api/v1/orders/customer/create",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"CASH_ON_DELIVERY\"\n}"
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"deliveryAddressId\": \"{{addressId}}\",\n  \"items\": [\n    {\n      \"menuItemId\": \"{{menuItemId}}\",\n      \"name\": \"Test Menu Item\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentMethod\": \"CASH_ON_DELIVERY\"\n}"
             }
           },
           "response": [],
@@ -10826,7 +10973,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 0
         },
         {
           "name": "6 Track Order",
@@ -10856,7 +11004,8 @@
                 ]
               }
             }
-          ]
+          ],
+          "x-order": 0
         }
       ]
     }

@@ -80,6 +80,8 @@ app:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
         minimum-idle: 2
         connection-timeout: 3000
+        validation-timeout: 3000
+        connection-test-query: SELECT 1
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true

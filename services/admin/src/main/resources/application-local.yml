@@ -22,6 +22,8 @@ spring:
       maximum-pool-size: 5
       minimum-idle: 1
       connection-timeout: 3000
+      validation-timeout: 3000
+      connection-test-query: SELECT 1
       keepalive-time: 300000
       max-lifetime: 900000
   jpa:

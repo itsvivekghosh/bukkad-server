@@ -32,8 +32,8 @@ data:
   # sslmode=require JDBC URLs below in one apply (server certs via the
   # cert-manager internal CA; PostgreSQL accepts plaintext too, so the server
   # side is not breaking).
-  DB_SSL_ENABLED: "false"
-  DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&ssl=false"
+DB_SSL_ENABLED: "true"
+DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&sslmode=require"
   # TLS-ready URL variants — flip WITH DB_SSL_ENABLED ("true") via the
   # tls-internal component; do not hand-edit one without the other.
   # DB_URL: "jdbc:postgresql://bhukkad-postgresql:5432/bhukkad?currentSchema=public&sslmode=require"
@@ -48,7 +48,7 @@ data:
   DB_REPLICA_ENABLED: "true"
   DB_REPLICA_HOST: "bhukkad-postgresql-read"
   DB_REPLICA_PORT: "5432"
-  DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-read:5432/bhukkad?currentSchema=public&ssl=false"
+  DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-read:5432/bhukkad?currentSchema=public&sslmode=require"
   # TLS-ready variant for the replica (flip WITH DB_SSL_ENABLED).
   # DB_REPLICA_URL: "jdbc:postgresql://bhukkad-postgresql-read:5432/bhukkad?currentSchema=public&sslmode=verify-full&sslrootcert=/etc/postgresql-ca/tls.crt"
 
@@ -56,15 +56,15 @@ data:
   REDIS_PORT: "6379"
   REDIS_SENTINEL_MASTER: "bhukkad-master"
   REDIS_SENTINEL_NODES: "bhukkad-redis-sentinel:26379"
-  REDIS_SENTINEL_PASSWORD: ""
+  REDIS_SENTINEL_PASSWORD: ${REDIS_PASSWORD}
   # COMMENTED-READY Redis TLS (k8s/README-TLS.md): the tls-internal component
   # mounts the redis server cert (bhukkad-redis-tls secret → /etc/redis-tls,
   # redis/deployment patch) but the server stays on plaintext until the
   # bhukkad-redis-config TLS directives are uncommented (documented flip).
   # Uncomment BOTH sides together; note the Sentinel pair needs the same
   # treatment (limitation tracked in k8s/README-TLS.md).
-  # REDIS_SSL: "true"
-  # SPRING_DATA_REDIS_SSL_ENABLED: "true"
+REDIS_SSL: "true"
+SPRING_DATA_REDIS_SSL_ENABLED: "true"
 
   APP_ENVIRONMENT: "production"
   APP_DEBUG: "false"
@@ -215,7 +215,7 @@ data:
   # per-client sslmode); follow README-TLS.md's order exactly. This key ONLY
   # gates the server-side wrappers — nothing else consumes it until flipped.
   # ---------------------------------------------------------------------------
-  TLS_ENABLED: "false"
+  TLS_ENABLED: "true"
   # DOCUMENTATION PLACEHOLDER for that same flip: the JDBC target once TLS is
   # on is sslmode=verify-full against bhukkad-postgresql. The app does NOT
   # read this key today — the live source of truth is the inline ssl=false in
