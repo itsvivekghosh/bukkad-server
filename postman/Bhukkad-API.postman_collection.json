@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "9f55d3b1-1869-4c07-a948-5ce75fa8e4de",
     "name": "Bhukkad Food Delivery API",
-    "description": "Full API test suite synchronized with the backend source (services/* controllers, gateway routes) and the live-tested contract suite (scripts/test-all-apis.py).\n\n**Three test layers per surface:**\n1. **Functional (01-16, 99)** — happy paths with ApiResponse envelope schema, field-type schema, data-integrity assertions (pagination caps, ledger ordering, non-negative money, state-machine codes) and response chaining.\n2. **Edge & Boundary (17)** — empty payloads, boundary values (quantity 0/-1/100000, rating 0/6, size 0/10000, out-of-range geo), unusual types (string where number expected), unicode/injection resilience.\n3. **Errors (18-19)** — invalid/missing auth, wrong-role access, missing params, wrong content type, malformed JSON, unknown routes, idempotency replay, internal-surface protection.\n\n**Envelopes:** success = `{success:true, data, timestamp, traceId}`; error = `ApiError{status, code, message, traceId, timestamp}`.\n\n**Setup:** import an environment from `environments/`, run `02 - Auth > Register/Login Customer`, then other folders. Tokens auto-save via the collection pre-request.",
+    "description": "Full API test suite synchronized with the backend source (services/* controllers, gateway routes) and the live-tested contract suite (scripts/test-all-apis.py).\n\n**Three test layers per surface:**\n1. **Functional (01-16, 99)** \u2014 happy paths with ApiResponse envelope schema, field-type schema, data-integrity assertions (pagination caps, ledger ordering, non-negative money, state-machine codes) and response chaining.\n2. **Edge & Boundary (17)** \u2014 empty payloads, boundary values (quantity 0/-1/100000, rating 0/6, size 0/10000, out-of-range geo), unusual types (string where number expected), unicode/injection resilience.\n3. **Errors (18-19)** \u2014 invalid/missing auth, wrong-role access, missing params, wrong content type, malformed JSON, unknown routes, idempotency replay, internal-surface protection.\n\n**Envelopes:** success = `{success:true, data, timestamp, traceId}`; error = `ApiError{status, code, message, traceId, timestamp}`.\n\n**Setup:** import an environment from `environments/`, run `02 - Auth > Register/Login Customer`, then other folders. Tokens auto-save via the collection pre-request.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -3168,7 +3168,7 @@
             "method": "PUT",
             "header": [],
             "url": "{{baseUrl}}/api/v1/orders/customer/{{orderId}}/cancel?reason=Changed mind",
-            "description": "Only cancellable states allowed; terminal orders → 400/409."
+            "description": "Only cancellable states allowed; terminal orders \u2192 400/409."
           },
           "response": [],
           "event": [
@@ -5509,6 +5509,144 @@
               }
             }
           ]
+        },
+        {
+          "name": "List Dead Letters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dlq?limit=100"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code).to.eql(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has events array', () => pm.expect(json).to.have.property('events'));",
+                  "pm.test('events is an array', () => pm.expect(json.events).to.be.an('array'));",
+                  "pm.test('Response has pendingCount', () => pm.expect(json).to.have.property('pendingCount'));",
+                  "pm.test('Response has fetched count', () => pm.expect(json).to.have.property('fetched'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Pending Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/count"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code).to.eql(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has pendingCount', () => pm.expect(json).to.have.property('pendingCount'));",
+                  "pm.test('pendingCount is a number', () => pm.expect(json.pendingCount).to.be.a('number'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reprocess Single Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/reprocess"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status in [200, 400, 500]', () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 500]));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has success field', () => pm.expect(json).to.have.property('success'));",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('success is true on 200', () => pm.expect(json.success).to.eql(true));",
+                  "    pm.test('Response has message', () => pm.expect(json).to.have.property('message'));",
+                  "    pm.test('Response has cacheKey', () => pm.expect(json).to.have.property('cacheKey'));",
+                  "}",
+                  "if (pm.response.code === 400) {",
+                  "    pm.test('success is false on 400', () => pm.expect(json.success).to.eql(false));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Batch Reprocess Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/reprocess/batch"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.expect(pm.response.code).to.eql(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Response has success count', () => pm.expect(json).to.have.property('success'));",
+                  "pm.test('Response has failed count', () => pm.expect(json).to.have.property('failed'));",
+                  "pm.test('Response has results array', () => pm.expect(json).to.have.property('results'));",
+                  "pm.test('results is an array', () => pm.expect(json.results).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Skip DLQ Event",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dlq/skip?topic=test-event&partition=0&offset=0"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status in [200, 403, 500]', () => pm.expect(pm.response.code).to.be.oneOf([200, 403, 500]));",
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('success is true on 200', () => pm.expect(json.success).to.eql(true));",
+                  "    pm.test('message is present', () => pm.expect(json).to.have.property('message'));",
+                  "}"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -6422,7 +6560,7 @@
           ]
         },
         {
-          "name": "Create Comment — Nonexistent Post (edge)",
+          "name": "Create Comment \u2014 Nonexistent Post (edge)",
           "request": {
             "method": "POST",
             "header": [
@@ -6456,7 +6594,7 @@
           ]
         },
         {
-          "name": "Like Post — Idempotency (edge)",
+          "name": "Like Post \u2014 Idempotency (edge)",
           "request": {
             "method": "POST",
             "header": [
@@ -6482,7 +6620,7 @@
           ]
         },
         {
-          "name": "Create Post — Invalid Restaurant ID (edge)",
+          "name": "Create Post \u2014 Invalid Restaurant ID (edge)",
           "request": {
             "method": "POST",
             "header": [
@@ -6516,7 +6654,7 @@
           ]
         },
         {
-          "name": "Create Post — Missing Restaurant ID (edge)",
+          "name": "Create Post \u2014 Missing Restaurant ID (edge)",
           "request": {
             "method": "POST",
             "header": [
@@ -6550,7 +6688,7 @@
           ]
         },
         {
-          "name": "Get Comments — Nonexistent Post (edge)",
+          "name": "Get Comments \u2014 Nonexistent Post (edge)",
           "request": {
             "method": "GET",
             "header": [
@@ -6576,7 +6714,7 @@
           ]
         },
         {
-          "name": "Create Post — Empty Content (edge)",
+          "name": "Create Post \u2014 Empty Content (edge)",
           "request": {
             "method": "POST",
             "header": [
@@ -6610,7 +6748,7 @@
           ]
         },
         {
-          "name": "Create Post — 10k-char Content (edge)",
+          "name": "Create Post \u2014 10k-char Content (edge)",
           "request": {
             "method": "POST",
             "header": [
@@ -7421,7 +7559,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/auth/register",
-            "description": "Empty payload → 400 VALIDATION_FAILED (bean validation).",
+            "description": "Empty payload \u2192 400 VALIDATION_FAILED (bean validation).",
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -7569,7 +7707,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/auth/register",
-            "description": "Second registration with {{customerEmail}} → 409 DATA_CONFLICT (unique constraint).",
+            "description": "Second registration with {{customerEmail}} \u2192 409 DATA_CONFLICT (unique constraint).",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"fullName\": \"Postman Customer\",\n  \"email\": \"{{customerEmail}}\",\n  \"password\": \"{{password}}\",\n  \"phoneNumber\": \"9876543210\",\n  \"role\": \"CUSTOMER\"\n}"
@@ -7668,7 +7806,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/auth/register",
-            "description": "Unexpected enum value → 400 (Jackson + validation), never 500.",
+            "description": "Unexpected enum value \u2192 400 (Jackson + validation), never 500.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"fullName\": \"Edge\",\n  \"email\": \"roleebc6e7@bhukkad.test\",\n  \"password\": \"{{password}}\",\n  \"role\": \"SUPERUSER_X\"\n}"
@@ -7982,7 +8120,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/cart/add",
-            "description": "Unusual data type: Jackson coercion failure → 400 INVALID_BODY.",
+            "description": "Unusual data type: Jackson coercion failure \u2192 400 INVALID_BODY.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"menuItemId\": \"{{menuItemId}}\",\n  \"quantity\": \"two\"\n}"
@@ -8095,7 +8233,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/orders/customer/99999999",
-            "description": "Unknown id → 404 ApiError (never leaks other customers' orders)."
+            "description": "Unknown id \u2192 404 ApiError (never leaks other customers' orders)."
           },
           "response": [],
           "event": [
@@ -8294,7 +8432,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/restaurants/public/nearby?latitude=999&longitude=77.59&radiusKm=5",
-            "description": "Out-of-range coordinates must not 500 — empty/validated result."
+            "description": "Out-of-range coordinates must not 500 \u2014 empty/validated result."
           },
           "response": [],
           "event": [
@@ -8432,7 +8570,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/orders/customer/my-orders?page=0&size=10000",
-            "description": "Server must cap page size (bounded queries) — integrity check enforces the cap."
+            "description": "Server must cap page size (bounded queries) \u2014 integrity check enforces the cap."
           },
           "response": [],
           "event": [
@@ -8461,7 +8599,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/search?keyword=%27%20OR%201%3D1--",
-            "description": "Parameterized queries must treat this as a literal keyword → 200 (never 500)."
+            "description": "Parameterized queries must treat this as a literal keyword \u2192 200 (never 500)."
           },
           "response": [],
           "event": [
@@ -9884,7 +10022,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/customers/profile",
-            "description": "Missing Authorization header → 401 (never 500, never anonymous data)."
+            "description": "Missing Authorization header \u2192 401 (never 500, never anonymous data)."
           },
           "response": [],
           "event": [
@@ -10003,7 +10141,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/admin/dashboard",
-            "description": "Authenticated but wrong role → 403 (identity != authorization)."
+            "description": "Authenticated but wrong role \u2192 403 (identity != authorization)."
           },
           "response": [],
           "event": [
@@ -10237,7 +10375,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/definitely-not-a-real-endpoint-xyz",
-            "description": "Unmatched route → 404 ApiError (observable, never silent)."
+            "description": "Unmatched route \u2192 404 ApiError (observable, never silent)."
           },
           "response": [],
           "event": [
@@ -10323,7 +10461,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/auth/register",
-            "description": "HttpMessageNotReadableException → 400 INVALID_BODY (GlobalExceptionHandler).",
+            "description": "HttpMessageNotReadableException \u2192 400 INVALID_BODY (GlobalExceptionHandler).",
             "body": {
               "mode": "raw",
               "raw": "{\"fullName\": \"Broken\", \"email\": "
@@ -10417,7 +10555,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/v1/serviceability/check?restaurantId={{restaurantId}}&longitude=77.59&subtotal=500",
-            "description": "latitude omitted → 400 MISSING_PARAM (GlobalExceptionHandler mapping)."
+            "description": "latitude omitted \u2192 400 MISSING_PARAM (GlobalExceptionHandler mapping)."
           },
           "response": [],
           "event": [
@@ -10502,7 +10640,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/customers/wallet/top-up?amount=100",
-            "description": "First call with fixed key. Run next request immediately after: same key → same data or 409."
+            "description": "First call with fixed key. Run next request immediately after: same key \u2192 same data or 409."
           },
           "response": [],
           "event": [
@@ -10547,7 +10685,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/customers/wallet/top-up?amount=100",
-            "description": "Same Idempotency-Key → identical stored result (integrity: no double credit) or 409 conflict."
+            "description": "Same Idempotency-Key \u2192 identical stored result (integrity: no double credit) or 409 conflict."
           },
           "response": [],
           "event": [
@@ -10590,7 +10728,7 @@
             "method": "POST",
             "header": [],
             "url": "{{baseUrl}}/api/v1/internal/delivery/cod-wallet/99999999/credit?amount=10",
-            "description": "/internal/** must require a service token (401/403) — never silently process."
+            "description": "/internal/** must require a service token (401/403) \u2014 never silently process."
           },
           "response": [],
           "event": [
