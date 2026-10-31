@@ -39,6 +39,8 @@ spring:
       maximum-pool-size: ${IDENTITY_DB_POOL_SIZE:20}
       minimum-idle: 10
       connection-timeout: 3000
+      validation-timeout: 3000
+      connection-test-query: SELECT 1
       keepalive-time: 300000
       max-lifetime: 900000
   jpa:
@@ -94,6 +96,8 @@ app:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
         minimum-idle: 5
         connection-timeout: 3000
+        validation-timeout: 3000
+        connection-test-query: SELECT 1
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
