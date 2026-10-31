@@ -280,3 +280,47 @@ jpa:
     hibernate.jdbc.fetch_size: 50
 flyway:
   baseline-on-migrate: true
+
+# AWS SDK v2 - Floci-compatible AWS service integration
+aws:
+  region: us-east-1
+  access-key: test
+  secret-key: test
+  endpoint: http://floci:4566
+
+spring:
+  cloud:
+    aws:
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test
+      s3:
+        bucket: bhukkad-commerce-assets
+      dynamodb:
+        table-name: bhukkad-orders
+      sqs:
+        queue-name: bhukkad-commerce-events
+      sns:
+        topic-name: bhukkad-commerce-events
+      secretsmanager:
+        prefix: bhukkad/commerce/
+      kms:
+        key-alias: bhukkad-commerce-key
+
+# AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
+aws:
+  region: us-east-1
+  access-key: test
+  secret-key: test
+  endpoint: http://floci:4566
+
+spring:
+  cloud:
+    aws:
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test

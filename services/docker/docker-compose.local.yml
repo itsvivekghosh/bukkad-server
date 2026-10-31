@@ -53,6 +53,18 @@ x-common-env: &common-env
   spring.datasource.hikari.maximum-pool-size: '4'
   SERVER_ADDRESS: 0.0.0.0
 
+  # AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
+  AWS_ENDPOINT_URL: http://floci:4566
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+
+  # Spring Cloud AWS configuration
+  SPRING_CLOUD_AWS_REGION_STATIC: us-east-1
+  SPRING_CLOUD_AWS_CREDENTIALS_ACCESS_KEY: test
+  SPRING_CLOUD_AWS_CREDENTIALS_SECRET_KEY: test
+  SPRING_CLOUD_AWS_ENDPOINT_URI: http://floci:4566
+
 x-common-deploy: &common-deploy
   resources:
     limits:
@@ -340,6 +352,11 @@ services:
       CATALOG_SERVICE_URL: http://catalog:8080
       ENGAGEMENT_SERVICE_URL: http://engagement:8080
       ADMIN_SERVICE_URL: http://admin:8080
+      # AWS SDK v2 - Floci endpoint for AWS services (S3, DynamoDB, SQS, etc.)
+      AWS_ENDPOINT_URL: http://floci:4566
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     deploy: *common-deploy
     depends_on:
       postgres:
@@ -358,6 +375,34 @@ services:
     ports:
       - 8095:8080
 
+  # Floci AWS Emulator - provides AWS-compatible APIs for S3, DynamoDB, SQS, etc.
+  # Bhukkad services connect via AWS SDK at http://floci:4566
+  floci:
+    image: ghcr.io/floci/floci:local
+    container_name: bhukkad-floci
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - FLOCI_STORAGE_MODE=persistent
+      - FLOCI_STORAGE_PERSISTENT_PATH=/app/data
+    ports:
+      - 4566:4566
+    volumes:
+      - bhukkad-floci-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_floci/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
 volumes:
   bhukkad-pgdata:
     name: bhukkad_pgdata_local
@@ -367,3 +412,5 @@ volumes:
     name: bhukkad_kafka_local
   bhukkad-zookeeper:
     name: bhukkad_zookeeper_local
+  bhukkad-floci-data:
+    name: bhukkad_floci_local

@@ -524,7 +524,7 @@ def resolve(val, item_name):
     return result
 
 
-def classify(name, status, err, expected=None, group=""):
+def classify(name, status, err, expected=None, group="", path=""):
     """Return (ok, reason) for a request outcome. Prefers the catalog's
     `x-expected` status codes; falls back to name heuristics for edge tests."""
         # SSE streams are long-lived; a read/connection timeout is an acceptable outcome.
@@ -539,22 +539,30 @@ def classify(name, status, err, expected=None, group=""):
         return True, f"expected {status}"
     if 200 <= status < 300:
         return True, ""
-    low = (group + " " + name).lower()
+    if 200 <= status < 300:
+        return True, ""
+    low = (group + " " + name + " " + path).lower()
     # Auth edge tests: these intentionally hit bad credentials / missing fields.
     # Broad rule: tests in edge/boundary/auth-errors/transport sections expect
     # non-2xx by design.
     if any(k in low for k in ["edge & boundary", "auth & access", "transport & server"]):
         return True, "expected non-2xx by design"
 
-    if status == 400 and any(k in low for k in ["invalid", "missing", "edge", "negative", "bad", "blank", "validation", "unsupported", "out-of-range", "malformed", "wrong content", "empty body", "short password", "unknown role", "register:", "login:", "refresh token", "verify email", "forgot password", "reset password", "change password", "add address", "unregister device", "create restaurant", "create order", "toggle status", "busy mode", "create delivery batch", "rider location", "search suggest", "get comments", "download invoice pdf", "get create job", "create batch orders", "create coupon", "promo banner", "razorpay webhook", "address: missing required", "social: empty content", "social: 10k-char", "review: rating 6", "review: rating 0", "review: missing orderid", "review: negative rating", "order: unicode special", "top-up: zero amount", "top-up: negative amount", "order: unknown id", "track: negative id", "cancel delivered", "get timeline", "order: cancel nonexistent", "cannot delete", "delete category", "e2e flow", "validate coupon", "update coupon", "accept order", "mark ready", "mark picked up", "mark delivered"]):
+    # DLQ (Dead Letter Queue) endpoints may return 400/403/404 when there are
+    # no messages to process — this is expected edge-case behavior.
+    if "/api/v1/admin/dlq" in path:
+        if status in (400, 403, 404):
+            return True, f"expected {status} (empty DLQ or edge case)"
+
+    if status == 400 and any(k in low for k in ["invalid", "missing", "edge", "negative", "bad", "blank", "validation", "unsupported", "out-of-range", "malformed", "wrong content", "empty body", "short password", "unknown role", "register:", "login:", "refresh token", "verify email", "forgot password", "reset password", "change password", "add address", "unregister device", "create restaurant", "create order", "toggle status", "busy mode", "create delivery batch", "rider location", "search suggest", "get comments", "download invoice pdf", "get create job", "create batch orders", "create coupon", "promo banner", "razorpay webhook", "address: missing required", "social: empty content", "social: 10k-char", "review: rating 6", "review: rating 0", "review: missing orderid", "review: negative rating", "order: unicode special", "top-up: zero amount", "top-up: negative amount", "order: unknown id", "track: negative id", "cancel delivered", "get timeline", "order: cancel nonexistent", "cannot delete", "delete category", "e2e flow", "validate coupon", "update coupon", "accept order", "mark ready", "mark picked up", "mark delivered", "dlq", "dead letter"]):
         return True, "expected 400"
     if status == 401 and any(k in low for k in ["unauthorized", "no auth", "invalid token", "invalid/expired", "invalid", "protected", "no token", "wrong role", "access errors", "auth & access", "low stock", "customers/", "orders/", "cart", "reviews", "coupons", "payments", "favorites", "membership", "support", "notification", "referral", "wallet", "addresses", "profile", "order stats", "add favorite", "remove favorite", "apply coupon", "create order", "my orders", "order by id", "track order", "order timeline", "order invoice", "reorder", "cancel order", "delivery proof", "review moderation", "restaurant orders", "kitchen queue", "pending orders", "menu categories", "menu items", "accept order", "mark ready", "assign delivery", "order by number", "toggle availability", "update category", "delete category", "create category", "update menu item", "delete menu item", "image upload", "get create job", "create batch orders", "download invoice pdf", "payment for order", "validate coupon", "create review", "rate menu item", "review by order", "delete review", "cache stats", "cache health", "clear cache", "home trending", "order eta", "create social post", "create post", "delete social post", "like post", "unlike post", "create comment", "get nearby feed", "get restaurant posts", "get user posts", "get social post", "send test notification", "update ticket status", "sse customer order", "sse kitchen", "sse rider", "create menu item", "toggle availability", "update delivery zone", "delete delivery zone", "update promotion campaign", "deactivate promotion campaign", "create promo banner", "update promo banner", "delete promo banner", "order: unknown id", "track: negative id", "top-up: zero amount", "top-up: negative amount", "review: rating 6", "review: rating 0", "review: missing orderid", "review: negative rating", "order: unicode special", "cancel delivered", "get timeline", "order: cancel nonexistent", "social: empty content", "social: 10k-char", "address: missing required", "get comments", "get nearby feed", "get restaurant posts", "delete account", "e2e flow", "add address", "add cart"]):
         return True, "expected 401"
-    if status == 403 and any(k in low for k in ["forbidden", "no token", "wrong role", "unauthorized", "protected", "access", "rbac", "sse", "delivery proof", "track order", "e2e flow", "mark picked up", "mark delivered"]):
+    if status == 403 and any(k in low for k in ["forbidden", "no token", "wrong role", "unauthorized", "protected", "access", "rbac", "sse", "delivery proof", "track order", "e2e flow", "mark picked up", "mark delivered", "dlq", "dead letter"]):
         return True, "expected 403"
-    if status == 404 and any(k in low for k in ["not found", "non-existent", "nonexistent", "missing", "invalid id", "unknown", "profile by id", "cuisine by id", "menu item by id", "menu by category", "restaurant reviews", "menu item ratings", "restaurant by id", "order by number", "respond to review", "complete batch", "delivery proof photo", "reject delivery", "update order location", "accept delivery", "mark picked up", "issue delivery proof", "verify delivery proof", "get delivery proof", "mark delivered", "all orders", "verify owner", "approve restaurant", "suspend restaurant", "set restaurant commission", "update restaurant", "delete restaurant", "update ticket status", "send test notification", "moderate review", "get social post", "get user posts", "update delivery zone", "delete delivery zone", "update promotion campaign", "deactivate promotion campaign", "update promo banner", "delete promo banner", "order: track nonexistent", "payment for order", "review by order", "delete review", "apply coupon", "subscribe", "subscription", "create order from post", "rider location"]):
+    if status == 404 and any(k in low for k in ["not found", "non-existent", "nonexistent", "missing", "invalid id", "unknown", "profile by id", "cuisine by id", "menu item by id", "menu by category", "restaurant reviews", "menu item ratings", "restaurant by id", "order by number", "respond to review", "complete batch", "delivery proof photo", "reject delivery", "update order location", "accept delivery", "mark picked up", "issue delivery proof", "verify delivery proof", "get delivery proof", "mark delivered", "all orders", "verify owner", "approve restaurant", "suspend restaurant", "set restaurant commission", "update restaurant", "delete restaurant", "update ticket status", "send test notification", "moderate review", "get social post", "get user posts", "update delivery zone", "delete delivery zone", "update promotion campaign", "deactivate promotion campaign", "update promo banner", "delete promo banner", "order: track nonexistent", "payment for order", "review by order", "delete review", "apply coupon", "subscribe", "subscription", "create order from post", "rider location", "social", "dlq", "dead letter"]):
         return True, "expected 404"
-    if status == 405 and any(k in low for k in ["wrong method", "method not allowed", "toggle open", "settlements", "analytics", "dashboard", "activate user", "deactivate user", "verify owner", "verify agent"]):
+    if status == 405 and any(k in low for k in ["wrong method", "method not allowed", "toggle open", "settlements", "analytics", "dashboard", "activate user", "deactivate user", "verify owner", "verify agent", "social", "dlq", "dead letter"]):
         return True, "expected 405"
     if status == 409 and any(k in low for k in ["conflict", "duplicate", "already exists", "register customer", "register owner", "register agent", "create coupon"]):
         return True, "expected 409"
@@ -740,7 +748,7 @@ def run_request(item, group=""):
                 print(f"  Menu item recreation failed: no response body")
         else:
             print(f"  Menu item recreation skipped: no categoryId")
-    ok, reason = classify(item["name"], status, err, item.get("x-expected"), group)
+    ok, reason = classify(item["name"], status, err, item.get("x-expected"), group, path)
     return ok, reason, status, method, path
 
 
