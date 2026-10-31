@@ -12,7 +12,6 @@ import software.amazon.awssdk.services.kms.model.DecryptRequest;
 import software.amazon.awssdk.services.cloudwatch.model.PutMetricDataRequest;
 import software.amazon.awssdk.services.cloudwatch.model.MetricDatum;
 import software.amazon.awssdk.services.cloudwatch.model.Dimension;
-import software.amazon.awssdk.core.sync.RequestBody;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

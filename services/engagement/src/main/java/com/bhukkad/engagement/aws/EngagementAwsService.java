@@ -11,7 +11,6 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.cloudwatch.model.PutMetricDataRequest;
 import software.amazon.awssdk.services.cloudwatch.model.MetricDatum;
-import software.amazon.awssdk.services.cloudwatch.model.Dimension;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -45,13 +44,9 @@ public class EngagementAwsService {
     public void publishSocialPostNotification(String postId, String authorId, String content) {
         snsClient.publish(software.amazon.awssdk.services.sns.model.PublishRequest.builder()
             .topicArn("arn:aws:sns:us-east-1:123456789012:bhukkad-social-events")
-            .message(com.bhukkad.engagement.aws.SocialEventJson.builder()
-                .postId(postId)
-                .authorId(authorId)
-                .content(content)
-                .timestamp(java.time.Instant.now().toString())
-                .build()
-                .toJson())
+            .message(new com.bhukkad.engagement.aws.SocialEventJson(
+                postId, authorId, content, java.time.Instant.now().toString()
+            ).toJson())
             .messageAttributes(Map.of(
                 "eventType", software.amazon.awssdk.services.sns.model.MessageAttributeValue.builder()
                     .dataType("String")
@@ -63,13 +58,9 @@ public class EngagementAwsService {
     public void publishLikeNotification(String postId, String likerId, String authorId) {
         snsClient.publish(software.amazon.awssdk.services.sns.model.PublishRequest.builder()
             .topicArn("arn:aws:sns:us-east-1:123456789012:bhukkad-social-events")
-            .message(com.bhukkad.engagement.aws.SocialEventJson.builder()
-                .postId(postId)
-                .authorId(authorId)
-                .content("User " + likerId + " liked your post")
-                .timestamp(java.time.Instant.now().toString())
-                .build()
-                .toJson())
+            .message(new com.bhukkad.engagement.aws.SocialEventJson(
+                postId, authorId, "User " + likerId + " liked your post", java.time.Instant.now().toString()
+            ).toJson())
             .messageAttributes(Map.of(
                 "eventType", software.amazon.awssdk.services.sns.model.MessageAttributeValue.builder()
                     .dataType("String")
@@ -81,13 +72,9 @@ public class EngagementAwsService {
     public void publishCommentNotification(String postId, String commenterId, String authorId, String commentText) {
         snsClient.publish(software.amazon.awssdk.services.sns.model.PublishRequest.builder()
             .topicArn("arn:aws:sns:us-east-1:123456789012:bhukkad-social-events")
-            .message(com.bhukkad.engagement.aws.SocialEventJson.builder()
-                .postId(postId)
-                .authorId(authorId)
-                .content(commenterId + " commented: " + commentText)
-                .timestamp(java.time.Instant.now().toString())
-                .build()
-                .toJson())
+            .message(new com.bhukkad.engagement.aws.SocialEventJson(
+                postId, authorId, commenterId + " commented: " + commentText, java.time.Instant.now().toString()
+            ).toJson())
             .messageAttributes(Map.of(
                 "eventType", software.amazon.awssdk.services.sns.model.MessageAttributeValue.builder()
                     .dataType("String")
@@ -191,5 +178,36 @@ public class EngagementAwsService {
                 .timestamp(Instant.now())
                 .build())
             .build());
+    }
+
+    // Inner class for JSON serialization
+    public static class SocialEventJson {
+        private String postId;
+        private String authorId;
+        private String content;
+        private String timestamp;
+
+        public SocialEventJson() {}
+
+        public SocialEventJson(String postId, String authorId, String content, String timestamp) {
+            this.postId = postId;
+            this.authorId = authorId;
+            this.content = content;
+            this.timestamp = timestamp;
+        }
+
+        public String getPostId() { return postId; }
+        public void setPostId(String postId) { this.postId = postId; }
+        public String getAuthorId() { return authorId; }
+        public void setAuthorId(String authorId) { this.authorId = authorId; }
+        public String getContent() { return content; }
+        public void setContent(String content) { this.content = content; }
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+
+        public String toJson() {
+            return "{\"postId\":\"" + postId + "\",\"authorId\":\"" + authorId +
+                "\",\"content\":\"" + content + "\",\"timestamp\":\"" + timestamp + "\"}";
+        }
     }
 }

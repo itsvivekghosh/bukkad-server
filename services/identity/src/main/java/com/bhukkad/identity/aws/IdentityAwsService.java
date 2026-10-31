@@ -1,8 +1,6 @@
 package com.bhukkad.identity.aws;
 
 import com.bhukkad.common.aws.AwsProperties;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.kms.KmsClient;
@@ -18,8 +16,6 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * AWS Service implementations for Identity Service.

@@ -1,7 +1,6 @@
 package com.bhukkad.catalog.aws;
 
 import com.bhukkad.common.aws.AwsProperties;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -163,8 +162,6 @@ public class CatalogAwsService {
                     .value(keyword)
                     .build())
                 .timestamp(Instant.now())
-                .build())
-            .build());
                 .build())
             .build());
     }

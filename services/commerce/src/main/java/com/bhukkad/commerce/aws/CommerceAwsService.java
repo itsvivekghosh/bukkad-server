@@ -13,7 +13,7 @@ import software.amazon.awssdk.services.kms.model.DecryptRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.core.sync.RequestBody;
+
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -80,13 +80,9 @@ public class CommerceAwsService {
     public void publishOrderEvent(String orderId, String status, String customerEmail) {
         snsClient.publish(software.amazon.awssdk.services.sns.model.PublishRequest.builder()
             .topicArn("arn:aws:sns:us-east-1:123456789012:bhukkad-order-events")
-            .message(com.bhukkad.commerce.aws.OrderEventJson.builder()
-                .orderId(orderId)
-                .status(status)
-                .customerEmail(customerEmail)
-                .timestamp(java.time.Instant.now().toString())
-                .build()
-                .toJson())
+            .message(new com.bhukkad.commerce.aws.OrderEventJson(
+                orderId, status, customerEmail, java.time.Instant.now().toString()
+            ).toJson())
             .messageAttributes(Map.of(
                 "eventType", software.amazon.awssdk.services.sns.model.MessageAttributeValue.builder()
                     .dataType("String")
@@ -98,20 +94,16 @@ public class CommerceAwsService {
     public void publishDeliveryNotification(String orderId, String status, String agentId) {
         snsClient.publish(software.amazon.awssdk.services.sns.model.PublishRequest.builder()
             .topicArn("arn:aws:sns:us-east-1:123456789012:bhukkad-delivery-events")
-            .message(com.bhukkad.commerce.aws.DeliveryEventJson.builder()
-                .orderId(orderId)
-                .status(status)
-                .agentId(agentId)
-                .timestamp(java.time.Instant.now().toString())
-                .build()
-                .toJson())
+            .message(new com.bhukkad.commerce.aws.DeliveryEventJson(
+                orderId, status, agentId, java.time.Instant.now().toString()
+            ).toJson())
             .build());
     }
 
     // ========== KMS Operations - Payment Encryption ==========
 
     public byte[] encryptPaymentData(String plaintextPaymentData) {
-        return kmsClient.Encrypt(software.amazon.awssdk.services.kms.model.EncryptRequest.builder()
+        return kmsClient.encrypt(software.amazon.awssdk.services.kms.model.EncryptRequest.builder()
             .keyId(awsProperties.getKmsKeyAlias())
             .plaintext(ByteBuffer.wrap(plaintextPaymentData.getBytes(StandardCharsets.UTF_8)))
             .build())
@@ -139,7 +131,6 @@ public class CommerceAwsService {
         item.put("totalAmount", AttributeValue.fromN(totalAmount.toString()));
         item.put("itemsJson", AttributeValue.fromS(itemsJson));
         item.put("createdAt", AttributeValue.fromS(Instant.now().toString()));
-        item.put("status", AttributeValue.fromS("CREATED"));
 
         dynamoDbClient.putItem(software.amazon.awssdk.services.dynamodb.model.PutItemRequest.builder()
             .tableName("bhukkad-orders")
