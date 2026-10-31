@@ -482,7 +482,7 @@ Used for fast feed cache invalidation within the social service.
 1. Per-service matrix build
 2. Pre-build guards: HPA×pool ≤ 0.8×pgbouncer, HTTP client checks
 3. `mvn verify` + tests
-4. Docker build + push to `ghcr.io/bhukkad/<service>:<sha>`
+4. Docker build + push to `ghcr.io/itsvivekghosh/<service>:<sha>`
 5. Trivy security scan (HIGH, CRITICAL)
 6. Syft SBOM generation
 7. cosign image signing

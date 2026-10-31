@@ -220,6 +220,24 @@
 				<groupId>org.apache.commons</groupId>
 				<artifactId>commons-pool2</artifactId>
 			</dependency>
+			<!-- OpenTelemetry distributed tracing (H3). All services inherit
+			     these via dependencyManagement; each service module declares
+			     opentelemetry-spring-boot-starter in its own dependencies
+			     section to enable tracing. -->
+			<dependency>
+				<groupId>io.opentelemetry</groupId>
+				<artifactId>opentelemetry-bom</artifactId>
+				<version>1.39.0</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>io.opentelemetry.instrumentation</groupId>
+				<artifactId>opentelemetry-instrumentation-bom</artifactId>
+				<version>1.39.0-alpha</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 

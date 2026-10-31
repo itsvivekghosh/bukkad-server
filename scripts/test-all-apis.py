@@ -15,7 +15,7 @@ Exercises REST endpoints in dependency order, printing and saving for each call:
 
 Usage::
   python3 scripts/test-all-apis.py
-  python3 scripts/test-all-apis.py --base-url http://localhost:8080
+  python3 scripts/test-all-apis.py --base-url http://localhost:8095
   python3 scripts/test-all-apis.py --verbose
   python3 scripts/test-all-apis.py --report-dir scripts/reports
 
@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 # rejects the well-known "Test@123456" backdoor), so admin login silently 401s
 # if these two drift apart. Referenced by both --admin-password and the
 # post-reset admin re-seed.
-DEFAULT_ADMIN_PASSWORD = "Admin@12345678"
+DEFAULT_ADMIN_PASSWORD = "Admin@123456"
 
 AUTH_MAP = {
     "customer": "customer_token",
@@ -221,6 +221,10 @@ class RunState:
             "admin_phone": self._unique_phone("95"),
             "referred_customer_phone": self._unique_phone("94"),
             "idempotency_key": str(uuid.uuid4()),
+            "payment_id": "test_payment_1",
+            "post_id": "test_post_1",
+            "earning_id": "test_earning_1",
+            "version_id": "test_version_1",
         }
 
     @staticmethod
@@ -5102,7 +5106,7 @@ def check_server_available(base_url: str, timeout: int) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bhukkad API feature test runner")
-    parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8080"), help="Server base URL")
+    parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8095"), help="Server base URL (gateway)")
     parser.add_argument("--password", default="Test@123456", help="Password for test accounts")
     parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout seconds")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print full request/response")

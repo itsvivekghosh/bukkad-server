@@ -291,27 +291,27 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
-	<!-- Test dependencies for platform-lib test-support classes -->
-
-<dependency>
+		<!-- Test dependencies for platform-lib test-support classes -->
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-test-autoconfigure</artifactId>
 			<scope>test</scope>
 		</dependency>
-
-
-<dependency>
+		<!-- testcontainers:kafka at COMPILE scope ships the testcontainers
+		     runtime (and docker-java's shaded httpcore5 5.0.2) inside every
+		     consumer's production image. Inherited from the parent at test
+		     scope; scope overridden back to test to match intent. -->
+		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>kafka</artifactId>
-			<scope>compile</scope>
+			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.kafka</groupId>
 			<artifactId>spring-kafka-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-
-</dependencies>
+	</dependencies>
 
 	<build>
 		<plugins>

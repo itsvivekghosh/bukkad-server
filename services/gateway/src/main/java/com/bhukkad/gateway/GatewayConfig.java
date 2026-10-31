@@ -574,4 +574,14 @@ public class GatewayConfig {
     public ConsistentHashSseFilter consistentHashSseFilter() {
         return new ConsistentHashSseFilter();
     }
+
+    /**
+     * API versioning filter: adds Deprecation/Sunset headers to v1 requests,
+     * supports path-based (/api/v2/**) and header-based (X-API-Version)
+     * version selection.
+     */
+    @Bean
+    public ApiVersioningFilter apiVersioningFilter() {
+        return new ApiVersioningFilter();
+    }
 }

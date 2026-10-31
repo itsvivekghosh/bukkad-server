@@ -24,6 +24,8 @@ spring:
       maximum-pool-size: ${IDENTITY_DB_POOL_SIZE:15}
       minimum-idle: ${IDENTITY_DB_POOL_SIZE:8}
       metrics-tracker-class: com.zaxxer.hikari.metrics.prometheus.PrometheusMetricsTracker
+      validation-timeout: 3000
+      connection-test-query: SELECT 1
 
   # ADR-004: disable HMAC grace in prod — RS256-only verification
   auth:
@@ -41,6 +43,8 @@ app:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
         minimum-idle: 5
         connection-timeout: 3000
+        validation-timeout: 3000
+        connection-test-query: SELECT 1
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true

@@ -85,39 +85,51 @@ x-redis-common: &redis-common
         memory: 512M
 
 services:
-  # External infrastructure - uncomment if running locally for prod testing
-  postgres:
-    image: postgres:16-alpine
-    container_name: bhukkad-postgres
-    environment:
-      POSTGRES_DB: core
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Heavy traffic settings (applied via ALTER SYSTEM in 01-postgres-config.sql)
-      # max_connections = 5000, shared_buffers = 2GB, effective_cache_size = 6GB
-    volumes:
-      - bhukkad-pgdata:/var/lib/postgresql/data
-      - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
-      - ./initdb/01-postgres-config.sql:/docker-entrypoint-initdb.d/01-postgres-config.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d core"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-        reservations:
-          memory: 4G
+  # PostgreSQL is provided externally (cloud-managed Multi-AZ, e.g. AWS RDS
+  # Multi-AZ, Azure Flexible Server, or GCP Cloud SQL Regional). Connection
+  # details are injected via *DB_URL environment variables from secrets.
+  # See docs/MULTI-AZ-POSTGRESQL-DEPLOYMENT.md for the failover runbook.
+  #
+  # To run locally for prod-equivalent testing, uncomment the postgres service
+  # below and set DATABASE_URL in your environment.
+  #
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: bhukkad-postgres
+  #   environment:
+  #     POSTGRES_DB: core
+  #     POSTGRES_USER: app
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     # Heavy traffic settings (applied via ALTER SYSTEM in 01-postgres-config.sql)
+  #     # max_connections = 5000, shared_buffers = 2GB, effective_cache_size = 6GB
+  #   volumes:
+  #     - bhukkad-pgdata:/var/lib/postgresql/data
+  #     - ./initdb/00-create-databases.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+  #     - ./initdb/01-postgres-config.sql:/docker-entrypoint-initdb.d/01-postgres-config.sql:ro
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U app -d core"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 8G
+  #         reservations:
+  #           memory: 4G
 
   pgbouncer:
     image: pgbouncer/pgbouncer:1.22
     container_name: bhukkad-pgbouncer
     environment:
-      PG_BOUNCER_DB: core
-      PG_BOUNCER_USER: app
-      PG_BOUNCER_PASSWORD: ${POSTGRES_PASSWORD}
+      # Cloud-managed PostgreSQL Multi-AZ (AWS RDS / Azure Flexible / GCP Cloud SQL)
+      # Connection details injected via secrets. PgBouncer connects to the cloud
+      # DB endpoint which handles automatic failover across AZs.
+      PG_BOUNCER_DB: ${PG_BOUNCER_DB:-core}
+      PG_BOUNCER_USER: ${PG_BOUNCER_USER:-app}
+      PG_BOUNCER_PASSWORD: ${PG_BOUNCER_PASSWORD}
+      PG_BOUNCER_HOST: ${PG_BOUNCER_HOST:-bhukkad-postgres}
+      PG_BOUNCER_PORT: ${PG_BOUNCER_PORT:-5432}
       PG_BOUNCER_POOL_MODE: transaction
       PG_BOUNCER_MAX_CLIENT_CONN: 10000
       PG_BOUNCER_DEFAULT_POOL_SIZE: 500
@@ -128,11 +140,8 @@ services:
     volumes:
       - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "app", "-d", "core", "-h", "localhost", "-p", "6432"]
+      test: ["CMD", "pg_isready", "-U", "${PG_BOUNCER_USER:-app}", "-d", "${PG_BOUNCER_DB:-core}", "-h", "localhost", "-p", "6432"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -318,7 +327,7 @@ services:
       spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-10}
     deploy: *common-deploy
     depends_on: *prod-depends
-    image: ghcr.io/bhukkad/identity:${VERSION:-latest}
+    image: ghcr.io/itsvivekghosh/identity:${VERSION:-latest}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
       interval: 30s
@@ -342,7 +351,7 @@ services:
       spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-15}
     deploy: *common-deploy
     depends_on: *prod-depends
-    image: ghcr.io/bhukkad/commerce:${VERSION:-latest}
+    image: ghcr.io/itsvivekghosh/commerce:${VERSION:-latest}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
       interval: 30s
@@ -366,7 +375,7 @@ services:
       spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-10}
     deploy: *common-deploy
     depends_on: *prod-depends
-    image: ghcr.io/bhukkad/catalog:${VERSION:-latest}
+    image: ghcr.io/itsvivekghosh/catalog:${VERSION:-latest}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
       interval: 30s
@@ -390,7 +399,7 @@ services:
       spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-12}
     deploy: *common-deploy
     depends_on: *prod-depends
-    image: ghcr.io/bhukkad/engagement:${VERSION:-latest}
+    image: ghcr.io/itsvivekghosh/engagement:${VERSION:-latest}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
       interval: 30s
@@ -414,7 +423,7 @@ services:
       spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-8}
     deploy: *common-deploy
     depends_on: *prod-depends
-    image: ghcr.io/bhukkad/admin:${VERSION:-latest}
+    image: ghcr.io/itsvivekghosh/admin:${VERSION:-latest}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
       interval: 30s
@@ -439,7 +448,7 @@ services:
       spring.datasource.hikari.minimum-idle: ${DB_POOL_MIN:-5}
     deploy: *common-deploy
     depends_on: *prod-depends
-    image: ghcr.io/bhukkad/gateway:${VERSION:-latest}
+    image: ghcr.io/itsvivekghosh/gateway:${VERSION:-latest}
     ports:
       - 8095:8080
     healthcheck:

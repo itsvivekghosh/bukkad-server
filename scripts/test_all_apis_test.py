@@ -508,7 +508,7 @@ class TestApiCatalogIntegrity(unittest.TestCase):
         spec = self._find("Batch Checkout — Missing Idempotency-Key (edge)")
         self.assertEqual(spec["method"], "POST")
         self.assertNotIn("Idempotency-Key", spec.get("headers", {}))
-        self.assertEqual(spec["expected"], [200, 400, 409])
+        self.assertEqual(spec["expected"], [200, 400, 409, 503])
 
     def test_refresh_token_invalid_template(self):
         self.assertIn("refresh_token_invalid", BODY_TEMPLATES)

@@ -51,6 +51,16 @@ spec:
               mountPath: /etc/pgbouncer/pgbouncer.ini
               subPath: pgbouncer.ini
           env:
+            - name: PG_BOUNCER_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: PG_BOUNCER_HOST
+            - name: PG_BOUNCER_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: PG_BOUNCER_PORT
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -61,10 +71,13 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: DB_PASSWORD
-            - name: DB_HOST
-              value: bhukkad-postgresql
-            - name: DB_PORT
-              value: "5432"
+          volumeMounts:
+            - name: pgbouncer-config
+              mountPath: /etc/pgbouncer/pgbouncer.ini
+              subPath: pgbouncer.ini
+            - name: pgbouncer-tls
+              mountPath: /etc/pgbouncer/tls
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -86,3 +99,6 @@ spec:
         - name: pgbouncer-config
           configMap:
             name: pgbouncer-config
+        - name: pgbouncer-tls
+          secret:
+            secretName: pgbouncer-tls-cert

@@ -9,6 +9,8 @@ spring:
     password: app_pass
     hikari:
       maximum-pool-size: 10
+      validation-timeout: 3000
+      connection-test-query: SELECT 1
 
   data:
     redis:
