@@ -343,3 +343,47 @@ resilience4j:
       realtimeSse:
         timeout-duration: 30m
         cancel-running-future: true
+
+# AWS SDK v2 - Floci-compatible AWS service integration
+aws:
+  region: us-east-1
+  access-key: test
+  secret-key: test
+  endpoint: http://floci:4566
+
+spring:
+  cloud:
+    aws:
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test
+      s3:
+        bucket: bhukkad-gateway-assets
+      dynamodb:
+        table-name: bhukkad-gateway-events
+      sqs:
+        queue-name: bhukkad-gateway-events
+      sns:
+        topic-name: bhukkad-gateway-events
+      secretsmanager:
+        prefix: bhukkad/gateway/
+      kms:
+        key-alias: bhukkad-gateway-key
+
+# AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
+aws:
+  region: us-east-1
+  access-key: test
+  secret-key: test
+  endpoint: http://floci:4566
+
+spring:
+  cloud:
+    aws:
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test

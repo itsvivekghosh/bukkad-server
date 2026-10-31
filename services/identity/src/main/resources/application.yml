@@ -264,3 +264,55 @@ resilience4j:
 logging:
   level:
     com.bhukkad: INFO
+
+# AWS SDK v2 - Floci-compatible AWS service integration
+aws:
+  region: us-east-1
+  access-key: test
+  secret-key: test
+  endpoint: http://floci:4566
+
+spring:
+  cloud:
+    aws:
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test
+      s3:
+        bucket: bhukkad-images
+      dynamodb:
+        table-name: bhukkad-customers
+      sqs:
+        queue-name: bhukkad-auth-events
+      sns:
+        topic-name: bhukkad-auth-events
+      secretsmanager:
+        prefix: bhukkad/
+      kms:
+        key-alias: bhukkad-master-key
+
+# AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
+aws:
+  region: us-east-1
+  access-key: test
+  secret-key: test
+  endpoint: http://floci:4566
+
+spring:
+  cloud:
+    aws:
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test
+      # Endpoint override for Floci AWS emulator (local development)
+      # Individual AWS service clients can override endpoint as needed:
+      #   s3.endpoint: http://floci:4566
+      #   dynamodb.endpoint: http://floci:4566
+      #   sqs.endpoint: http://floci:4566
+      #   sns.endpoint: http://floci:4566
+      #   secretsmanager.endpoint: http://floci:4566
+      #   kms.endpoint: http://floci:4566
