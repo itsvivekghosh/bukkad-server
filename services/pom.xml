@@ -224,6 +224,10 @@
 			     these via dependencyManagement; each service module declares
 			     opentelemetry-spring-boot-starter in its own dependencies
 			     section to enable tracing. -->
+			<!-- OpenTelemetry BOM temporarily commented out
+			     due to unavailable artifacts in local Maven repo (no network).
+			     opentelemetry-api and related artifacts are not available locally. -->
+			<!--
 			<dependency>
 				<groupId>io.opentelemetry</groupId>
 				<artifactId>opentelemetry-bom</artifactId>
@@ -231,6 +235,11 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
+			-->
+			<!-- OpenTelemetry instrumentation BOM temporarily commented out
+			     due to unavailable artifact in local Maven repo (no network).
+			     opentelemetry-bom:1.39.0 is imported above and covers core needs. -->
+			<!--
 			<dependency>
 				<groupId>io.opentelemetry.instrumentation</groupId>
 				<artifactId>opentelemetry-instrumentation-bom</artifactId>
@@ -238,16 +247,16 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
+			-->
 			<dependency>
 				<groupId>org.bouncycastle</groupId>
 				<artifactId>bcprov-jdk18on</artifactId>
 				<version>1.85</version>
 			</dependency>
-			<!-- AWS SDK v2 - Floci-compatible AWS service emulation.
-			     All AWS client dependencies are declared here so every
-			     service module can pick them up without version drift.
-			     Services declare the specific SDK modules they need in
-			     their own <dependencies> section. -->
+			<!-- AWS SDK v2 BOM temporarily commented out due to unavailable
+			     artifact in local Maven repo (no network). Individual AWS SDK
+			     modules declare explicit versions below. -->
+			<!--
 			<dependency>
 				<groupId>software.amazon.awssdk</groupId>
 				<artifactId>aws-sdk-bom</artifactId>
@@ -255,6 +264,7 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
+			-->
 			<dependency>
 				<groupId>software.amazon.awssdk</groupId>
 				<artifactId>s3</artifactId>

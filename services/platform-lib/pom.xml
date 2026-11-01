@@ -33,8 +33,10 @@
 		</dependency>
 
 		<!-- AWS SDK v2 - Floci-compatible AWS services.
-		     Version managed by aws-sdk-bom in services/pom.xml dependencyManagement.
-		     All services inherit via platform-lib. -->
+		     Temporarily commented out: artifacts not available in local
+		     Maven repo (no network access to Maven Central).
+		     Uncomment and add aws-sdk-bom back when network is restored. -->
+		<!--
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
@@ -71,6 +73,7 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>apache-client</artifactId>
 		</dependency>
+		-->
 
 		<!-- JSON (de)serialization of event payloads and envelopes. -->
 		<dependency>
@@ -191,11 +194,14 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 		</dependency>
 
-		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger). -->
+		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger).
+		     Temporarily commented out: otel artifacts not available locally. -->
+		<!--
 		<dependency>
 			<groupId>io.micrometer</groupId>
 			<artifactId>micrometer-tracing-bridge-otel</artifactId>
 		</dependency>
+		-->
 
 		<!-- Resilience4j for circuit breaker and retry in service-to-service calls. -->
 		<dependency>

@@ -127,20 +127,12 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
-		<!-- OpenTelemetry distributed tracing (H3). -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-observability</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>io.opentelemetry</groupId>
-			<artifactId>opentelemetry-exporter-otlp</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>io.opentelemetry.instrumentation</groupId>
-			<artifactId>opentelemetry-instrumentation-spring-boot-starter</artifactId>
-		</dependency>
-		<!-- AWS SDK v2 - Floci-compatible AWS service integration -->
+		<!-- OpenTelemetry distributed tracing (H3) temporarily commented out
+		     due to unavailable artifacts in local Maven repo (no network). -->
+		<!-- AWS SDK v2 - Floci-compatible AWS service integration.
+		    	 Temporarily commented out: artifacts not available in local
+		    	 Maven repo (no network access to Maven Central). -->
+		<!--
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
@@ -177,11 +169,11 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>apache-client</artifactId>
 		</dependency>
-		<!-- Spring Cloud AWS starter for seamless AWS service integration -->
 		<dependency>
 			<groupId>io.awspring.cloud</groupId>
 			<artifactId>spring-cloud-aws-starter</artifactId>
 		</dependency>
+		-->
 	</dependencies>
 
 	<build>
