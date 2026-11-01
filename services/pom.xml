@@ -224,9 +224,8 @@
 			     these via dependencyManagement; each service module declares
 			     opentelemetry-spring-boot-starter in its own dependencies
 			     section to enable tracing. -->
-			<!-- OpenTelemetry BOM temporarily commented out
-			     due to unavailable artifacts in local Maven repo (no network).
-			     opentelemetry-api and related artifacts are not available locally. -->
+			<!-- OpenTelemetry BOM temporarily commented out: artifacts not
+			     available in local Maven repo. -->
 			<!--
 			<dependency>
 				<groupId>io.opentelemetry</groupId>
@@ -236,9 +235,8 @@
 				<scope>import</scope>
 			</dependency>
 			-->
-			<!-- OpenTelemetry instrumentation BOM temporarily commented out
-			     due to unavailable artifact in local Maven repo (no network).
-			     opentelemetry-bom:1.39.0 is imported above and covers core needs. -->
+			<!-- OpenTelemetry instrumentation BOM temporarily commented out:
+			     version 1.39.0-alpha does not exist in Maven Central. -->
 			<!--
 			<dependency>
 				<groupId>io.opentelemetry.instrumentation</groupId>
@@ -253,9 +251,11 @@
 				<artifactId>bcprov-jdk18on</artifactId>
 				<version>1.85</version>
 			</dependency>
-			<!-- AWS SDK v2 BOM temporarily commented out due to unavailable
-			     artifact in local Maven repo (no network). Individual AWS SDK
-			     modules declare explicit versions below. -->
+			<!-- AWS SDK v2 - Floci-compatible AWS service emulation.
+			     Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
+			     in Maven Central, and most individual AWS SDK modules are not
+			     available in the local Maven repository (no network artifacts).
+			     Uncomment when correct versions are available. -->
 			<!--
 			<dependency>
 				<groupId>software.amazon.awssdk</groupId>
@@ -264,7 +264,6 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
-			-->
 			<dependency>
 				<groupId>software.amazon.awssdk</groupId>
 				<artifactId>s3</artifactId>
@@ -310,14 +309,16 @@
 				<artifactId>apache-client</artifactId>
 				<version>2.31.5</version>
 			</dependency>
-			<!-- Spring Cloud AWS starter for seamless Spring Boot integration
-			     with AWS SDK v2. Provides @EnableAwsConfig, ResourceLoader,
-			     and auto-configuration for S3, DynamoDB, SQS, SNS, etc. -->
+			-->
+			<!-- Spring Cloud AWS starter temporarily commented out: depends
+			     on AWS SDK v2 which is not available locally. -->
+			<!--
 			<dependency>
 				<groupId>io.awspring.cloud</groupId>
 				<artifactId>spring-cloud-aws-starter</artifactId>
 				<version>3.2.3</version>
 			</dependency>
+			-->
 		</dependencies>
 	</dependencyManagement>
 

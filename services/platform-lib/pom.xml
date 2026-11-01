@@ -33,9 +33,9 @@
 		</dependency>
 
 		<!-- AWS SDK v2 - Floci-compatible AWS services.
-		     Temporarily commented out: artifacts not available in local
-		     Maven repo (no network access to Maven Central).
-		     Uncomment and add aws-sdk-bom back when network is restored. -->
+		     Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
+		     in Maven Central, and individual AWS SDK modules are not
+		     available locally. -->
 		<!--
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
@@ -194,8 +194,8 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 		</dependency>
 
-		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger).
-		     Temporarily commented out: otel artifacts not available locally. -->
+		<!-- Distributed tracing (OpenTelemetry bridge to Zipkin/Jaeger)
+		     temporarily commented out: artifacts not available locally. -->
 		<!--
 		<dependency>
 			<groupId>io.micrometer</groupId>

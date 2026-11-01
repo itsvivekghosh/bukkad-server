@@ -157,11 +157,26 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
-		<!-- OpenTelemetry distributed tracing (H3) temporarily commented out
-		     due to unavailable artifacts in local Maven repo (no network). -->
+		<!-- OpenTelemetry distributed tracing (H3) temporarily commented out:
+		    	 artifacts not available in local Maven repo. -->
+		<!--
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-observability</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-otlp</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-instrumentation-spring-boot-starter</artifactId>
+		</dependency>
+		-->
 		<!-- AWS SDK v2 - Floci-compatible AWS service integration.
-		    	 Temporarily commented out: artifacts not available in local
-		    	 Maven repo (no network access to Maven Central). -->
+		    	 Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
+		    	 in Maven Central, and individual AWS SDK modules are not
+		    	 available locally. -->
 		<!--
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
