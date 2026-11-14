@@ -1,5 +1,7 @@
 package com.bhukkad.commerce.order.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -16,7 +18,7 @@ public interface CartItemRepository extends JpaRepository<CartItem, Long> {
     Optional<CartItem> findByIdWithCart(@Param("id") Long id);
 
     @Query("SELECT ci FROM CartItem ci WHERE ci.cartId = :cartId")
-    List<CartItem> findByCartId(@Param("cartId") Long cartId);
+    Page<CartItem> findByCartId(@Param("cartId") Long cartId, Pageable pageable);
 
     /** Backs the UNIQUE (cart_id, menu_item_id) race-retry merge (V3 migration). */
     @Query("SELECT ci FROM CartItem ci WHERE ci.cartId = :cartId AND ci.menuItemId = :menuItemId")

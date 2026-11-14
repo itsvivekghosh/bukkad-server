@@ -27,10 +27,20 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+  # Startup optimizations
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+    allow-bean-definition-overriding: true
   task:
     scheduling:
       pool:
-        size: ${SCHEDULER_POOL_SIZE:12}
+        size: 8
+    execution:
+      pool:
+        core-size: 16
+        max-size: 64
+        queue-capacity: 2000
   datasource:
     url: ${IDENTITY_DB_URL:jdbc:postgresql://localhost:5432/identity}
     username: ${IDENTITY_DB_USERNAME:app}
@@ -38,21 +48,50 @@ spring:
     hikari:
       maximum-pool-size: ${IDENTITY_DB_POOL_SIZE:20}
       minimum-idle: 10
-      connection-timeout: 3000
-      validation-timeout: 3000
+      connection-timeout: 5000
+      validation-timeout: 2000
       connection-test-query: SELECT 1
       keepalive-time: 300000
-      max-lifetime: 900000
+      max-lifetime: 1800000
+      initialization-fail-timeout: 0
+      auto-commit: false
+      leak-detection-threshold: 5000
   jpa:
     hibernate:
       ddl-auto: none
+    # Deferred repository bootstrapping for faster startup
+    repositories:
+      enabled: true
+      bootstrap-mode: deferred
     properties:
       hibernate:
-        jdbc.batch_size: 50
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 50
+          fetch_size: 50
+          batch_versioned_data: true
+          time_zone: UTC
         order_inserts: true
         order_updates: true
-        jdbc.batch_versioned_data: true
         query_plan_cache_size: 200
+        query_plan_cache_parameter_metadata_max_size: 20
+        # Startup optimizations
+        temp:
+          use_jdbc_metadata_defaults: false
+        globally_quoted_identifiers: false
+        id:
+          new_generator_mappings: true
+        hbm2ddl:
+          auto: none
+        generate_statistics: false
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        connection:
+          provider_disables_autocommit: true
+        bytecode:
+          provider: bytebuddy
+          use_reflection_optimizer: true
     open-in-view: false
   flyway:
     enabled: true
@@ -70,20 +109,24 @@ spring:
       database: ${REDIS_DATABASE:0}
       timeout: 2000
       connect-timeout: 3000
+      # Deferred repository bootstrapping
+      repositories:
+        enabled: true
+        bootstrap-mode: deferred
       lettuce:
         pool:
           enabled: true
-          max-active: 256
-          min-idle: 8
-          max-idle: 32
-          max-wait: 5s
-      # Redis Sentinel / Cluster are intentionally NOT declared here.
-      # Spring Boot activates Sentinel auto-configuration from the mere
-      # PRESENCE of spring.data.redis.sentinel.master, so an env-var stub with
-      # an empty default switched Sentinel on permanently and every eager
-      # context build died with "Sentinel Master Id must not be null or empty"
-      # (the local profile masked it via spring.main.lazy-initialization).
-      # HA deployments must supply these in their own profile instead.
+          max-active: 30
+          min-idle: 5
+          max-idle: 15
+          max-wait: 2000
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      - org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration
+      - org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
+      - org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
 
 app:
   datasource:
@@ -93,7 +136,7 @@ app:
       username: ${DB_USERNAME:app}
       password: ${DB_PASSWORD:app_pass}
       hikari:
-        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:10}
         minimum-idle: 5
         connection-timeout: 3000
         validation-timeout: 3000
@@ -101,29 +144,17 @@ app:
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+        auto-commit: false
   services:
-    # Referral (codes + binding) was consolidated into the engagement
-    # service. Without this key the client fell back to the retired
-    # referral:8084 host, so signup-time code generation/apply silently
-    # failed and registration-with-referral-code degraded.
     referral:
       url: ${APP_SERVICES_REFERRAL_URL:${ENGAGEMENT_SERVICE_URL:http://localhost:8082}}
   auth:
     jwt:
-      # Per-service JWT validation (platform-lib PlatformJwtValidator). Empty
-      # secret = auth filter inactive in dev (protected endpoints then 401);
-      # set JWT_SECRET (shared HS256 secret) or JWKS_URL (RS256 via Keycloak)
-      # to enable. jwks-url defaults to identity's own well-known path so the
-      # RS256 cutover works with zero coordination (ADR-004).
       secret: ${JWT_SECRET:}
       jwks-url: ${JWKS_URL:http://localhost:8081/.well-known/jwks.json}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}
-      # ADR-004 dual-key grace: HS256 legacy tokens stay verifiable until this
-      # flag is flipped (default on during the cutover window).
       hmac-grace-enabled: ${JWT_HMAC_GRACE:true}
-    # Brute-force lockout on the public credential endpoints (feature #5):
-    # per-(email, IP) counters with an exponentially escalating lock window.
     lockout:
       threshold: ${AUTH_LOCKOUT_THRESHOLD:5}
       failure-window-seconds: ${AUTH_LOCKOUT_WINDOW:900}
@@ -131,42 +162,15 @@ app:
       max-lock-seconds: ${AUTH_LOCKOUT_MAX:3600}
       strikes-ttl-seconds: ${AUTH_LOCKOUT_STRIKES_TTL:86400}
     service:
-      # Service-to-service auth (ServiceJwtAuthFilter, platform-lib). Shared
-      # mesh secret; internal paths REQUIRE a valid service token when the
-      # secret is set. allowed-services is deny-by-default.
       jwt-secret: ${SERVICE_JWT_SECRET:bhukkad-local-service-secret-2024}
-      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,restaurant,order,payment,delivery,notification,search,admin,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
+      allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,catalog,commerce,engagement,admin,restaurant,order,payment,delivery,notification,search,admin-analytics,survey,referral,supportticket,realtime,personalization,growth}
       enforce-internal-paths: ${SERVICE_AUTH_ENFORCE_INTERNAL:true}
-  jwt:
-    # HMAC secret for the ADR-004 grace window (legacy HS256 verification).
-    # New tokens are RS256; production must set the RSA key envs below.
-    secret: ${JWT_SECRET:}
-    # RS256 signing key (ADR-004): env-provided PKCS#8 PEM first, then a PEM
-    # file path (k8s Secret volume), else auto-generated + persisted under
-    # key-dir (dev only — prod fails fast without env keys).
-    rsa:
-      private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
-      private-key-path: ${JWT_PRIVATE_KEY_PATH:}
-      key-dir: ${JWT_RSA_KEY_DIR:}
-      key-id: ${JWT_KEY_ID:}
-    # Issued claims: iss=bhukkad-identity (JwtService constant),
-    # aud defaults to bhukkad-api; override per deployment.
-    audience: ${JWT_AUDIENCE:bhukkad-api}
-    # Legacy token horizon — kept only for backward compatibility; the bearer
-    # path uses access-ttl-minutes below.
-    ttl-minutes: ${JWT_TTL_MINUTES:1440}
-    # Short-lived access tokens (HS256 JWT). Renewal happens through the
-    # rotating, revocable refresh-token store, never by extending this TTL.
-    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:60}
-    # Absolute refresh-token session horizon in days; rotation never extends
-    # a session past its issue-time + refresh-ttl-days.
-    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:30}
   events:
     external:
-      enabled: false
-      type: log
+      enabled: true
+      type: kafka
       kafka:
-        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
         consumer-group: ${KAFKA_CONSUMER_GROUP:identity-platform-consumer}
         platform-topic: identity.events.v1
         dlq-topic: identity.events.v1.dlt
@@ -174,17 +178,10 @@ app:
           acks: all
           retries: 10
           max-in-flight-requests-per-connection: 5
-          linger-ms: 5
+          linger-ms: 20
           batch-size: 16384
           compression-type: lz4
-        # NOTE: these bind DIRECTLY under app.events.external.kafka — the
-        # KafkaPlatformProperties.Kafka record has maxPollRecords /
-        # sessionTimeoutMs / heartbeatIntervalMs / maxPollIntervalMs /
-        # listenerConcurrency as flat fields. They used to sit under a
-        # `consumer:` sub-block, which Spring silently ignored, leaving the
-        # int fields at 0; Kafka then refused to start the listener registry
-        # with "Invalid value 0 for configuration max.poll.records".
-        max-poll-records: 1000
+        max-poll-records: 200
         session-timeout-ms: 30000
         heartbeat-interval-ms: 10000
         max-poll-interval-ms: 300000
@@ -193,6 +190,17 @@ app:
         dlq:
           enabled: true
           max-fetch-records: 100
+  jwt:
+    secret: ${JWT_SECRET:}
+    rsa:
+      private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
+      private-key-path: ${JWT_PRIVATE_KEY_PATH:}
+      key-dir: ${JWT_RSA_KEY_DIR:}
+      key-id: ${JWT_KEY_ID:}
+    audience: ${JWT_AUDIENCE:bhukkad-api}
+    ttl-minutes: ${JWT_TTL_MINUTES:1440}
+    access-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:60}
+    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:30}
 
   rate-limit:
     enabled: true
@@ -221,31 +229,41 @@ app:
       gold: 3.0
       platinum: 4.0
       free: 1.0
-management:
-  metrics:
-    enable:
-      lettuce: true
-      reactor.netty: true
 
-  tracing:
-    sampling:
-      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
-  zipkin:
-    tracing:
-      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info
+    jmx:
+      exposure:
+        exclude: "*"
   endpoint:
     health:
       probes:
         enabled: true
-      group:
-        liveness:
-          include: livenessState
-        readiness:
-          include: readinessState
+      show-details: never
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+    enable:
+      jvm: false
+      process: false
+      system: false
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    defaults:
+      enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
 
 resilience4j:
   circuitbreaker:
@@ -261,58 +279,224 @@ resilience4j:
           - org.springframework.data.redis.RedisConnectionFailureException
           - java.lang.RuntimeException
 
+# -----------------------------------------------------------------------------
+# PROFILE: LOCAL (development)
+# -----------------------------------------------------------------------------
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+  flyway:
+    validate-on-migrate: false
+    baseline-on-migrate: true
+    out-of-order: true
+  cache:
+    type: none
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 10
+      auto-commit: false
+  data:
+    redis:
+      ssl:
+        enabled: false
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,beans,configprops
+  endpoint:
+    health:
+      show-details: always
+
 logging:
   level:
+    root: INFO
+    com.bhukkad: DEBUG
+    org.springframework.web: DEBUG
+
+# =============================================================================
+# PROFILE: PROD (production)
+# =============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  main:
+    lazy-initialization: false
+    banner-mode: "off"
+  flyway:
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    out-of-order: false
+    clean-disabled: true
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 5000
+      validation-timeout: 5000
+      auto-commit: false
+    read-replica:
+      enabled: true
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_USERNAME:app}
+      password: ${DB_PASSWORD:app_pass}
+      hikari:
+        maximum-pool-size: 10
+        minimum-idle: 2
+        connection-timeout: 3000
+        validation-timeout: 2000
+        connection-test-query: SELECT 1
+        idle-timeout: 600000
+        max-lifetime: 1800000
+        read-only: true
+        auto-commit: false
+  data:
+    redis:
+      repositories:
+        enabled: true
+        bootstrap-mode: deferred
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 8
+          min-idle: 4
+          max-wait: 2000
+      ssl:
+        enabled: true
+  cache:
+    type: redis
+  server:
+    tomcat:
+      max-threads: 400
+      min-spare-threads: 10
+      accept-count: 100
+      accesslog:
+        enabled: true
+        directory: logs
+        pattern: common
+        prefix: access_log
+        suffix: .log
+  task:
+    execution:
+      pool:
+        core-size: 8
+        max-size: 16
+        queue-capacity: 1000
+    scheduling:
+      pool:
+        size: 4
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    enable:
+      hikaricp: true
+      lettuce: true
+      jvm: true
+      process: true
+      system: true
+
+logging:
+  level:
+    root: WARN
     com.bhukkad: INFO
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
-# AWS SDK v2 - Floci-compatible AWS service integration
-aws:
-  region: us-east-1
-  access-key: test
-  secret-key: test
-  endpoint: http://floci:4566
+app:
+  mtls:
+    enabled: true
+    keystore: /etc/tls/keystore.p12
+    keystore-password: ${MTLS_KEYSTORE_PASSWORD:}
+    truststore: /etc/tls/truststore.p12
+    truststore-password: ${MTLS_TRUSTSTORE_PASSWORD:}
 
+# =============================================================================
+# PROFILE: UAT (User Acceptance Testing)
+# =============================================================================
+---
 spring:
-  cloud:
-    aws:
-      region:
-        static: us-east-1
-      credentials:
-        access-key: test
-        secret-key: test
-      s3:
-        bucket: bhukkad-images
-      dynamodb:
-        table-name: bhukkad-customers
-      sqs:
-        queue-name: bhukkad-auth-events
-      sns:
-        topic-name: bhukkad-auth-events
-      secretsmanager:
-        prefix: bhukkad/
-      kms:
-        key-alias: bhukkad-master-key
+  config:
+    activate:
+      on-profile: uat
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+  flyway:
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    out-of-order: true
+    clean-disabled: true
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      auto-commit: false
+  data:
+    redis:
+      repositories:
+        enabled: true
+        bootstrap-mode: deferred
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 4
+          min-idle: 2
+  cache:
+    type: redis
+  server:
+    tomcat:
+      max-threads: 200
+      min-spare-threads: 5
+  task:
+    execution:
+      pool:
+        core-size: 16
+        max-size: 64
+        queue-capacity: 2000
+    scheduling:
+      pool:
+        size: 8
 
-# AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
-aws:
-  region: us-east-1
-  access-key: test
-  secret-key: test
-  endpoint: http://floci:4566
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,beans,configprops
+  endpoint:
+    health:
+      show-details: when_authorized
 
-spring:
-  cloud:
-    aws:
-      region:
-        static: us-east-1
-      credentials:
-        access-key: test
-        secret-key: test
-      # Endpoint override for Floci AWS emulator (local development)
-      # Individual AWS service clients can override endpoint as needed:
-      #   s3.endpoint: http://floci:4566
-      #   dynamodb.endpoint: http://floci:4566
-      #   sqs.endpoint: http://floci:4566
-      #   sns.endpoint: http://floci:4566
-      #   secretsmanager.endpoint: http://floci:4566
-      #   kms.endpoint: http://floci:4566
+logging:
+  level:
+    root: INFO
+    com.bhukkad: DEBUG

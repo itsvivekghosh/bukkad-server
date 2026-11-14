@@ -10,6 +10,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -34,6 +36,9 @@ class OrderSseStreamServiceImplTest {
     @Mock
     private OrderLiveReplayStore replayStore;
 
+    @Mock
+    private TaskScheduler taskScheduler;
+
     private LiveProperties liveProperties;
     private io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics;
     private OrderSseStreamServiceImpl service;
@@ -42,7 +47,7 @@ class OrderSseStreamServiceImplTest {
     void initService() {
         liveProperties = new LiveProperties();
         metrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        service = new OrderSseStreamServiceImpl(replayStore, liveProperties, metrics);
+        service = new OrderSseStreamServiceImpl(replayStore, liveProperties, metrics, taskScheduler);
     }
 
     private double rejectedCount(String reason) {

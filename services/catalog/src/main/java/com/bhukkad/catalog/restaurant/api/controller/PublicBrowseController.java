@@ -3,6 +3,7 @@ package com.bhukkad.catalog.restaurant.api.controller;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.scan.AllowFullScan;
+import com.bhukkad.common.util.CursorUtils;
 import com.bhukkad.catalog.restaurant.domain.entity.Cuisine;
 import com.bhukkad.catalog.restaurant.domain.repository.CuisineRepository;
 import com.bhukkad.catalog.restaurant.domain.entity.MenuCategory;
@@ -12,16 +13,19 @@ import com.bhukkad.catalog.restaurant.domain.repository.MenuItemRepository;
 import com.bhukkad.catalog.restaurant.domain.entity.Restaurant;
 import com.bhukkad.catalog.restaurant.domain.repository.RestaurantRepository;
 import com.bhukkad.catalog.restaurant.api.dto.response.RestaurantSummary;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -76,6 +80,7 @@ public class PublicBrowseController {
     @Transactional(readOnly = true)
     public Map<String, Object> listPublic(@RequestParam(required = false) String page,
                                           @RequestParam(required = false) String size,
+                                          @RequestParam(required = false) String cursor,
                                           @RequestParam(required = false) Long cuisineId,
                                           @RequestParam(required = false) Boolean isPureVeg,
                                           @RequestParam(required = false) String ids) {
@@ -92,9 +97,33 @@ public class PublicBrowseController {
             return envelope(restaurants.stream().map(this::toMap).toList(), 0,
                     restaurants.size(), restaurants.size());
         }
+
+        // MJ-02: Cursor-based (keyset) pagination — use cursor when provided,
+        // otherwise fall back to offset-based pagination.
+        if (cursor != null && !cursor.isBlank()) {
+            Optional<CursorUtils.OrderCursor> parsed = CursorUtils.decode(cursor);
+            if (parsed.isEmpty()) {
+                throw new BusinessException("Invalid cursor");
+            }
+            CursorUtils.OrderCursor orderCursor = parsed.get();
+            int safeSize = clamp(parseLong(size, 20), 1, MAX_PAGE_SIZE);
+            Pageable pageable = PageRequest.of(0, safeSize, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+            List<Restaurant> restaurants = restaurantRepository.findByIsActiveTrueCursor(
+                    orderCursor.createdAt(), orderCursor.id(), pageable);
+            String nextCursor = null;
+            if (restaurants.size() == safeSize) {
+                Restaurant last = restaurants.get(restaurants.size() - 1);
+                nextCursor = CursorUtils.encode(
+                        last.getCreatedAt() == null ? CursorUtils.END_OF_TIME : last.getCreatedAt(),
+                        last.getId());
+            }
+            List<?> content = restaurants.stream().map(this::toMap).toList();
+            return envelopeWithCursor(content, nextCursor);
+        }
+
         int safePage = clamp(parseLong(page, 0), 0, 100_000);
         int safeSize = clamp(parseLong(size, 20), 1, MAX_PAGE_SIZE);
-        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         var result = restaurantRepository.findByIsActive(true, pageable);
         List<?> content = result.getContent().stream().map(this::toMap).toList();
         return envelope(content, result.getNumber(), result.getTotalElements(), result.getTotalPages());
@@ -419,6 +448,15 @@ public class PublicBrowseController {
         body.put("page", page);
         body.put("totalElements", totalElements);
         body.put("totalPages", totalPages);
+        return body;
+    }
+
+    /** Cursor-based pagination envelope — returns nextCursor instead of page/totalPages. */
+    private Map<String, Object> envelopeWithCursor(List<?> content, String nextCursor) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("content", content);
+        body.put("nextCursor", nextCursor);
+        body.put("hasMore", nextCursor != null);
         return body;
     }
 

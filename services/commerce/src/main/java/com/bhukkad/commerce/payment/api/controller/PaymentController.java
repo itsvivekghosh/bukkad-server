@@ -40,12 +40,12 @@ public class PaymentController {
         // The payer is the authenticated subject — a body customerId could
         // otherwise push the payment (and any wallet movement) onto a victim.
         PrincipalGuard.requireAuthenticated(principal);
-        return Mono.fromCallable(() -> paymentService.processPayment(
+        return paymentService.processPayment(
                 request.getOrderId(),
                 principal.userId(),
                 request.getAmount(),
                 request.getPaymentMethod(),
-                idempotencyKey))
+                idempotencyKey)
                 .map(paymentMapper::toPaymentResponse);
     }
 

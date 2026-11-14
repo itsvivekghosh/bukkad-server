@@ -50,7 +50,7 @@ public class DisputeResolvedConsumer {
      * wrong topic. Every other listener in the codebase already pins its
      * topic this way.
      */
-    static final String TOPIC_PAYMENT_EVENTS = "payment.events.v1";
+    static final String TOPIC_PAYMENT_EVENTS = "order.events.v1";
 
 
     static final String TYPE_DISPUTE_RESOLVED = "dispute_resolved";

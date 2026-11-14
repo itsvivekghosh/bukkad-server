@@ -19,6 +19,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -64,8 +65,16 @@ class OutboxRelayClaimPostgresIntegrationTest extends AbstractPostgresIntegratio
 
     @BeforeEach
     void clean() {
-        jdbcTemplate.update("DELETE FROM outbox_events");
-        jdbcTemplate.update("DELETE FROM dead_letter_events");
+        // Run in an independent transaction (REQUIRES_NEW) so the DELETE commits
+        // instead of being rolled back with the @DataJpaTest @Transactional
+        // transaction after each test method.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        tx.execute(status -> {
+            jdbcTemplate.update("DELETE FROM outbox_events");
+            jdbcTemplate.update("DELETE FROM dead_letter_events");
+            return null;
+        });
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

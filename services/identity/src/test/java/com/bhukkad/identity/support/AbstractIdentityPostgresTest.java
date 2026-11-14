@@ -3,11 +3,14 @@ package com.bhukkad.identity.support;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import org.opentest4j.TestAbortedException;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.security.interfaces.RSAPrivateKey;
@@ -41,6 +44,7 @@ import java.security.interfaces.RSAPublicKey;
  * the PostgreSQL driver on the classpath that substitution fails outright with
  * "Failed to replace DataSource with an embedded database for tests".
  */
+@Testcontainers(disabledWithoutDocker = true)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 public abstract class AbstractIdentityPostgresTest {
 
@@ -79,6 +83,9 @@ public abstract class AbstractIdentityPostgresTest {
     private static final JwksTestServer JWKS_SERVER = JwksTestServer.start(TEST_RSA_KEY, TEST_KEY_ID);
 
     static {
+        if (!DockerClientFactory.instance().isDockerAvailable()) {
+            throw new TestAbortedException("Docker not available; skipping Testcontainers integration tests");
+        }
         POSTGRES.start();
         REDIS.start();
     }

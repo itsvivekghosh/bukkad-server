@@ -80,6 +80,14 @@ RUN --mount=type=cache,target=/root/.m2,sharing=locked \
 # --- runtime stage -----------------------------------------------------------
 FROM eclipse-temurin:21-jre-jammy AS runtime
 ARG MODULE
+# OpenTelemetry Java agent for distributed tracing (auto-instrumentation)
+# Downloaded at build time; mounted at runtime via JAVA_OPTS
+ENV OTEL_JAVAAGENT_PATH=/opt/opentelemetry-javaagent.jar
+ENV OTEL_SERVICE_NAME=${MODULE}
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+ENV OTEL_TRACES_SAMPLER_ARG=always_on
+
 ENV TZ=Asia/Kolkata \
     LANG=C.UTF-8 \
     SPRING_PROFILES_ACTIVE=prod \
@@ -99,22 +107,22 @@ ENV TZ=Asia/Kolkata \
     # Per-service overrides (heap ceiling on the dev VM, extra flags) are
     # injected via the JAVA_OPTS env in docker-compose.dev.yml / k8s env —
     # this ENV is the BASELINE, not the ceiling.
-    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -XX:+UseStringDeduplication -Xlog:gc*:file=/tmp/logs/bhukkad/gc.log:time,uptime:filecount=5,filesize=20M -Djava.security.egd=file:/dev/./urandom"
+    JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -XX:+UseStringDeduplication -XX:+AllowRedefinitionToAddDeleteMethods -XX:+AddExports=java.base/java.lang=ALL-UNNAMED -Xlog:gc*:stdout:time,uptime:filecount=5,filesize=20M -Djava.security.egd=file:/dev/./urandom -javaagent:${OTEL_JAVAAGENT_PATH}"
 
-# Security: the floating eclipse-temurin:21-jre-jammy tag can lag Ubuntu's
-# security pocket (libssl3 CVE-2026-84782, fixed in 3.0.2-0ubuntu1.30 — flagged
-# by the CI Trivy gate), so pull distro openssl updates explicitly.
-# --only-upgrade is a no-op when the base image is already patched.
+# Install OpenTelemetry Java agent (auto-instrumentation for distributed tracing)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && apt-get install -y --only-upgrade --no-install-recommends openssl libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo "$TZ" > /etc/timezone \
+    && mkdir -p /opt \
+    && curl -sSL -o /opt/opentelemetry-javaagent.jar \
+        "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.3.0/opentelemetry-javaagent.jar" \
     && groupadd -r -g 1001 bhukkad \
     && useradd -r -u 1001 -g bhukkad -d /app -s /usr/sbin/nologin bhukkad \
     && mkdir -p /tmp/logs/bhukkad /app \
-    && chown -R bhukkad:bhukkad /tmp/logs/bhukkad /app
+    && chown -R bhukkad:bhukkad /tmp/logs/bhukkad /app /opt/opentelemetry-javaagent.jar
 
 WORKDIR /app
 # exec form via sh -c so $JAVA_OPTS expands; `exec` hands PID 1 to the JVM so

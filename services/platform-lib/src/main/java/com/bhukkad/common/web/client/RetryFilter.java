@@ -50,12 +50,9 @@ public class RetryFilter implements ExchangeFilterFunction {
         HttpMethod method = request.method();
         return Mono.defer(() -> next.exchange(request))
                 .timeout(Duration.ofSeconds(5))
-                // Retry.backoff(maxAttempts, minBackoff) — the fluent factory.
-                // NOTE: `Retry.max(n).backoff(...)` compiles by calling the
-                // STATIC Retry.backoff(long, Duration) through the instance,
-                // silently discarding maxAttempts/filter and reinterpreting
-                // (toMillis(), backoff) as (maxAttempts=1000, minBackoff=1s)
-                // — i.e. ~17min of 1s-spaced retries instead of 3.
+                // PERF-1/B5: Use Retry.backoff(maxAttempts, backoff) static factory
+                // which correctly bounds retry attempts. maxAttempts retries are
+                // attempted with exponential backoff capped at 4× base backoff.
                 .retryWhen(reactor.util.retry.Retry.backoff(maxAttempts, backoff)
                         .maxBackoff(backoff.multipliedBy(4))
                         .filter(e -> isTransient(e) && isIdempotent(method)));

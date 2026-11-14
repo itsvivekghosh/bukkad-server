@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Identity service (P3). Owns {@code identity}: customers, addresses;
@@ -15,6 +16,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @EntityScan(basePackages = {"com.bhukkad.identity", "com.bhukkad.common", "com.bhukkad.identity.growth", "com.bhukkad.identity.notification", "com.bhukkad.identity.referral", "com.bhukkad.identity.support"})
 @EnableJpaRepositories(basePackages = {"com.bhukkad.identity", "com.bhukkad.common", "com.bhukkad.identity.growth", "com.bhukkad.identity.notification", "com.bhukkad.identity.referral", "com.bhukkad.identity.support"})
 @EnableJpaAuditing
+@EnableScheduling
 @ConfigurationPropertiesScan(basePackages = "com.bhukkad.identity")
 public class IdentityServiceApplication {
 

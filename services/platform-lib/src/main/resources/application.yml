@@ -1,0 +1,195 @@
+# Platform Library - Shared Configuration Defaults
+# This file provides baseline configuration inherited by all services.
+# Service-specific overrides should be placed in each service's application.yml
+
+spring:
+  datasource:
+    hikari:
+      # Production baseline pool sizing — overridden by service profiles
+      maximum-pool-size: 20
+      minimum-idle: 10
+      leak-detection-threshold: 5000  # Log stack trace after 5s of connection leak
+      connection-timeout: 5000
+      validation-timeout: 2000
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+      keepalive-time: 300000
+      auto-commit: false
+      initialization-fail-timeout: 0
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+          fetch_size: 50
+          batch_versioned_data: true
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
+        query_plan_cache_size: 200
+        query_plan_cache_parameter_metadata_max_size: 20
+        globally_quoted_identifiers: false
+        id:
+          new_generator_mappings: true
+        generate_statistics: false
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        connection:
+          provider_disables_autocommit: true
+        bytecode:
+          provider: bytebuddy
+          use_reflection_optimizer: true
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration-pg
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    out-of-order: true
+    clean-disabled: true
+
+  data:
+    redis:
+      timeout: 2000
+      connect-timeout: 3000
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 30
+          min-idle: 5
+          max-idle: 15
+          max-wait: 2000
+
+# Platform application properties
+app:
+  datasource:
+    read-replica:
+      enabled: false
+      url: ""
+      username: ""
+      password: ""
+      hikari:
+        maximum-pool-size: 10
+        minimum-idle: 5
+        connection-timeout: 3000
+        validation-timeout: 3000
+        connection-test-query: SELECT 1
+        idle-timeout: 600000
+        max-lifetime: 1800000
+        read-only: true
+        auto-commit: false
+
+  rate-limit:
+    enabled: true
+    fail-open-on-redis-error: false  # CR-09: Fail-closed by default
+    buckets:
+      order-track:
+        limit: 20
+        window-seconds: 60
+      kitchen-queue:
+        limit: 30
+        window-seconds: 60
+      search:
+        limit: 60
+        window-seconds: 60
+      cart-mutation:
+        limit: 30
+        window-seconds: 60
+      referral:
+        limit: 20
+        window-seconds: 60
+      webhook:
+        limit: 120
+        window-seconds: 60
+    tier-multipliers:
+      premium: 2.0
+      gold: 3.0
+      platinum: 4.0
+      free: 1.0
+
+  cache:
+    local:
+      max-size: 50000
+      ttl-seconds: 120
+    redis:
+      key-prefix: "bhukkad:"
+      default-ttl-seconds: 300
+    lock:
+      ttl-seconds: 30
+    max-in-flight-entries: 10000
+
+  outbox:
+    wake:
+      enabled: true
+    poll-interval: 1000
+    batch-size: 100
+    max-retries: 10
+    processing-timeout-minutes: 15
+    backoff-multiplier: 2
+
+  events:
+    external:
+      enabled: true
+      type: kafka
+      kafka:
+        producer:
+          acks: all
+          retries: 10
+          max-in-flight-requests-per-connection: 1
+          linger-ms: 20
+          batch-size: 65536
+          buffer-memory: 67108864
+          compression-type: lz4
+        consumer:
+          enable-auto-commit: false
+          max-poll-records: 100
+          max-poll-interval-ms: 300000
+          session-timeout-ms: 30000
+          heartbeat-interval-ms: 10000
+          isolation-level: read_committed
+
+  pagination:
+    max-page-size: 100
+    max-batch-ids: 100
+
+  auth:
+    jwt:
+      hmac-grace-enabled: false  # Disable HMAC fallback in prod
+    service:
+      jwt-secret: ""
+      allowed-services: gateway,identity,catalog,commerce,engagement,admin
+      enforce-internal-paths: true
+
+  mtls:
+    # mTLS for service-to-service calls. Enabled in prod when cert-manager
+    # + internal CA are deployed (k8s/components/tls-internal).
+    enabled: true
+    keystore: /etc/tls/keystore.p12
+    keystore-password: ""
+    keystore-type: PKCS12
+    truststore: /etc/tls/truststore.p12
+    truststore-password: ""
+    truststore-type: PKCS12
+
+  # Distributed tracing — OpenTelemetry → Tempo (prod) / Zipkin (dev/local)
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.1}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+  otel:
+    exporter:
+      otlp:
+        endpoint: http://tempo:4317
+        protocol: http/protobuf
+    service:
+      name: ${spring.application.name}
+    traces:
+      sampler: always_on

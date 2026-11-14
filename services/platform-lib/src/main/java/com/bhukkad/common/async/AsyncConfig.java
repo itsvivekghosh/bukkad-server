@@ -3,6 +3,7 @@ package com.bhukkad.common.async;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -23,6 +24,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 @EnableAsync
 public class AsyncConfig {
 
+    @Primary
     @Bean(name = "taskExecutor")
     public ThreadPoolTaskExecutor taskExecutor(
             @Value("${app.async.core-pool-size:32}") int corePoolSize,

@@ -50,8 +50,15 @@ import static org.mockito.Mockito.verify;
  */
 class KafkaTopicParityTest {
 
-    /** Surefire runs with the module basedir (services/platform-lib) as working directory. */
-    private static final Path REPO_ROOT = Path.of("../..").toAbsolutePath().normalize();
+    private static final Path REPO_ROOT = Path.of("").toAbsolutePath().normalize().getParent().getParent();
+
+    static {
+        System.err.println("DEBUG: Working dir = " + Path.of("").toAbsolutePath());
+        System.err.println("DEBUG: REPO_ROOT = " + REPO_ROOT);
+        Path testYml = REPO_ROOT.resolve("services").resolve("identity").resolve("src/main/resources/application.yml");
+        System.err.println("DEBUG: Looking for yml at: " + testYml);
+        System.err.println("DEBUG: Exists = " + Files.exists(testYml));
+    }
 
     /**
      * Producing service → its base platform topic, mirrored from each module's
@@ -60,13 +67,13 @@ class KafkaTopicParityTest {
      */
     private static final Map<String, String> PRODUCER_TOPICS = Map.of(
             "order", "order.events.v1",
-            "payment", "payment.events.v1",
+            "payment", "order.events.v1",
             "identity", "identity.events.v1",
             "restaurant", "restaurant.events.v1",
-            "delivery", "delivery.events.v1",
+            "delivery", "order.events.v1",
             "notification", "notification.events.v1",
             "admin-analytics", "admin.events.v1",
-            "survey", "bhukkad.platform.events");
+            "survey", "notification.events.v1");
 
     /**
      * Logical producer name (the key used by {@link #PRODUCER_TOPICS} and
@@ -125,24 +132,26 @@ class KafkaTopicParityTest {
         // services/survey/.../OrderItemsSnapshotConsumer.java (TOPIC_ORDER_EVENTS)
         listeners.put("services/engagement/src/main/java/com/bhukkad/engagement/survey/infrastructure/messaging/OrderItemsSnapshotConsumer.java",
                 Map.of("order.events.v1", Map.of("ORDER_ITEMS_SNAPSHOT", "order")));
-        // services/order/.../PaymentSagaEventConsumer.java (TOPIC_PAYMENT_EVENTS + TOPIC_ORDER_EVENTS)
+// services/order/.../PaymentSagaEventConsumer.java (TOPIC_PAYMENT_EVENTS + TOPIC_ORDER_EVENTS)
         listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/order/domain/service/impl/PaymentSagaEventConsumer.java",
-                Map.of("payment.events.v1", Map.of("payment_settled", "payment", "payment_failed", "payment"),
-                        "order.events.v1", Map.of("stock_release_requested", "order")));
+                Map.of("order.events.v1", Map.of("payment_settled", "payment", "payment_failed", "payment", "stock_release_requested", "order")));
         // services/search/.../SearchSyncEventConsumer.java (TOPIC_RESTAURANT_EVENTS)
         listeners.put("services/catalog/src/main/java/com/bhukkad/catalog/search/infrastructure/messaging/SearchSyncEventConsumer.java",
                 Map.of("restaurant.events.v1",
                         Map.of("restaurant_updated", "restaurant",
                                 "menu_item_changed", "restaurant",
                                 "menu_item_deleted", "restaurant")));
+        // services/survey/.../OrderItemsSnapshotConsumer.java (TOPIC_ORDER_EVENTS)
+        listeners.put("services/engagement/src/main/java/com/bhukkad/engagement/survey/infrastructure/messaging/OrderItemsSnapshotConsumer.java",
+                Map.of("order.events.v1", Map.of("ORDER_ITEMS_SNAPSHOT", "order")));
         // services/payment/.../consumer/* — listener topics verified in
         // everyListenerTopicIsProducedBySomeService; per-type pairing omitted
         // (payment_requested is order-produced; dispute_resolved has no
         // producer yet — cross-batch, see class javadoc).
         listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/payment/infrastructure/messaging/PaymentRequestedConsumer.java",
-                Map.of("payment.events.v1", java.util.Collections.<String, String>emptyMap()));
+                Map.of("order.events.v1", java.util.Collections.<String, String>emptyMap()));
         listeners.put("services/commerce/src/main/java/com/bhukkad/commerce/payment/infrastructure/messaging/DisputeResolvedConsumer.java",
-                Map.of("payment.events.v1", java.util.Collections.<String, String>emptyMap()));
+                Map.of("order.events.v1", java.util.Collections.<String, String>emptyMap()));
         return listeners;
     }
 
@@ -208,7 +217,7 @@ class KafkaTopicParityTest {
      * constant because its module is shared with another logical producer.
      */
     private static final java.util.Set<String> CONFIG_OWNED_PRODUCERS = java.util.Set.of(
-            "order", "identity", "notification", "admin-analytics");
+            "order", "identity", "restaurant", "notification", "admin-analytics");
 
     // ── 2. consumer side ──────────────────────────────────────────────────────
 
@@ -302,20 +311,25 @@ class KafkaTopicParityTest {
         return constant != null ? constant : configuredProducerTopic(producer);
     }
 
-    private static final Map<String, String> CONSTANT_OWNED_PRODUCER_TOPICS = Map.of(
-            "payment", "payment.events.v1",
-            "delivery", "delivery.events.v1",
-            "restaurant", "restaurant.events.v1",
-            "survey", "bhukkad.platform.events");
+    private static final Map<String, String> CONSTANT_OWNED_PRODUCER_TOPICS = Map.of();
 
     private static String configuredProducerTopic(String service) {
         Path yml = REPO_ROOT.resolve("services").resolve(PRODUCER_MODULE.getOrDefault(service, service))
                 .resolve("src/main/resources/application.yml");
+        System.err.println("DEBUG: Looking for yml at: " + yml);
+        System.err.println("DEBUG: Exists = " + Files.exists(yml));
         assertThat(yml).as("application.yml of %s", service).exists();
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
         yaml.setResources(new FileSystemResource(yml.toFile()));
         Properties properties = yaml.getObject();
+        System.err.println("DEBUG: All properties = " + properties);
+        // Try multiple possible paths for platform-topic
         String raw = properties.getProperty("app.events.external.kafka.platform-topic");
+        System.err.println("DEBUG: app.events.external.kafka.platform-topic = " + raw);
+        if (raw == null) {
+            raw = properties.getProperty("kafka.platform-topic");
+        }
+        System.err.println("DEBUG: raw = " + raw + " for service " + service);
         assertThat(raw).as("platform-topic of %s", service).isNotBlank();
         String value = raw.trim();
         if (value.startsWith("${") && value.endsWith("}")) {

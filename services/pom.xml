@@ -191,6 +191,14 @@
 				<artifactId>bcprov-jdk18on</artifactId>
 				<version>1.85</version>
 			</dependency>
+			<!-- BlockHound production agent (audit P3-02): copied into every
+			     service's target/ by the maven-dependency-plugin below, then
+			     loaded as a -javaagent at runtime via the Dockerfile. -->
+			<dependency>
+				<groupId>io.projectreactor.tools</groupId>
+				<artifactId>blockhound</artifactId>
+				<version>1.0.18.RELEASE</version>
+			</dependency>
 			<!-- Shared platform library consumed by every service module. -->
  		<dependency>
  			<groupId>com.bhukkad</groupId>
@@ -223,102 +231,22 @@
 			<!-- OpenTelemetry distributed tracing (H3). All services inherit
 			     these via dependencyManagement; each service module declares
 			     opentelemetry-spring-boot-starter in its own dependencies
-			     section to enable tracing. -->
-			<!-- OpenTelemetry BOM temporarily commented out: artifacts not
-			     available in local Maven repo. -->
-			<!--
+			     section to enable tracing. Spring Boot 3.5.x manages OTel versions. -->
+			<!-- OpenTelemetry BOM managed by Spring Boot 3.5.x -->
+			<!-- AWS SDK v2 - Floci-compatible AWS service emulation -->
 			<dependency>
-				<groupId>io.opentelemetry</groupId>
-				<artifactId>opentelemetry-bom</artifactId>
-				<version>1.39.0</version>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>2.46.7</version>
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
-			-->
-			<!-- OpenTelemetry instrumentation BOM temporarily commented out:
-			     version 1.39.0-alpha does not exist in Maven Central. -->
-			<!--
-			<dependency>
-				<groupId>io.opentelemetry.instrumentation</groupId>
-				<artifactId>opentelemetry-instrumentation-bom</artifactId>
-				<version>1.39.0-alpha</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-			-->
-			<dependency>
-				<groupId>org.bouncycastle</groupId>
-				<artifactId>bcprov-jdk18on</artifactId>
-				<version>1.85</version>
-			</dependency>
-			<!-- AWS SDK v2 - Floci-compatible AWS service emulation.
-			     Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
-			     in Maven Central, and most individual AWS SDK modules are not
-			     available in the local Maven repository (no network artifacts).
-			     Uncomment when correct versions are available. -->
-			<!--
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>aws-sdk-bom</artifactId>
-				<version>2.31.5</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>s3</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>dynamodb</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>sqs</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>sns</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>secretsmanager</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>kms</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>cloudwatch</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>iam</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>apache-client</artifactId>
-				<version>2.31.5</version>
-			</dependency>
-			-->
-			<!-- Spring Cloud AWS starter temporarily commented out: depends
-			     on AWS SDK v2 which is not available locally. -->
-			<!--
+			<!-- Spring Cloud AWS Starter -->
 			<dependency>
 				<groupId>io.awspring.cloud</groupId>
 				<artifactId>spring-cloud-aws-starter</artifactId>
-				<version>3.2.3</version>
+				<version>3.4.0</version>
 			</dependency>
-			-->
 		</dependencies>
 	</dependencyManagement>
 
@@ -469,6 +397,13 @@
 									<version>${byte-buddy.version}</version>
 									<type>jar</type>
 									<destFileName>byte-buddy-agent.jar</destFileName>
+								</artifactItem>
+								<artifactItem>
+									<groupId>io.projectreactor.tools</groupId>
+									<artifactId>blockhound</artifactId>
+									<version>1.0.18.RELEASE</version>
+									<type>jar</type>
+									<destFileName>blockhound.jar</destFileName>
 								</artifactItem>
 							</artifactItems>
 						</configuration>

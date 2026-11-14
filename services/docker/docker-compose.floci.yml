@@ -1,14 +1,11 @@
 # Floci AWS Emulator - Local AWS Services for Bhukkad
 # Usage: docker-compose -f services/docker/docker-compose.floci.yml up -d
-# Floci provides AWS-compatible APIs on port 4566:
-#   S3, DynamoDB, SQS, SNS, Secrets Manager, KMS, CloudWatch, IAM, etc.
-# Bhukkad services connect via AWS SDK with endpoint http://floci:4566
-#
+
 name: bhukkad-floci
 
 services:
   floci:
-    image: ghcr.io/floci/floci:latest
+    image: floci/floci:latest
     container_name: bhukkad-floci
     ports:
       - "4566:4566"

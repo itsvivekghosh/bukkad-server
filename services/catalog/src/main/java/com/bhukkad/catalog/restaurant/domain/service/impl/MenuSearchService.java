@@ -7,6 +7,8 @@ import com.bhukkad.catalog.restaurant.domain.repository.MenuItemRepository;
 import com.bhukkad.catalog.restaurant.domain.entity.Restaurant;
 import com.bhukkad.catalog.restaurant.domain.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,13 +29,27 @@ public class MenuSearchService {
 
     @Transactional(readOnly = true)
     public List<RestaurantSummary> searchRestaurants(String keyword) {
-        return restaurantRepository.fullTextSearchByName(keyword.trim(), DEFAULT_LIMIT)
+        return restaurantRepository.fullTextSearchByName(keyword.trim(),
+                org.springframework.data.domain.PageRequest.of(0, DEFAULT_LIMIT))
                 .stream().map(this::toSummary).toList();
     }
 
     @Transactional(readOnly = true)
+    public Page<RestaurantSummary> searchRestaurants(String keyword, Pageable pageable) {
+        return restaurantRepository.fullTextSearchByName(keyword.trim(), pageable)
+                .map(this::toSummary);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<MenuItemDto> searchMenuItems(String keyword, Pageable pageable) {
+        return menuItemRepository.fullTextSearch(keyword.trim(), pageable)
+                .map(this::toDto);
+    }
+
+    @Transactional(readOnly = true)
     public List<MenuItemDto> searchMenuItems(String keyword) {
-        return menuItemRepository.fullTextSearch(keyword.trim(), DEFAULT_LIMIT)
+        return menuItemRepository.fullTextSearch(keyword.trim(),
+                org.springframework.data.domain.PageRequest.of(0, DEFAULT_LIMIT))
                 .stream().map(this::toDto).toList();
     }
 

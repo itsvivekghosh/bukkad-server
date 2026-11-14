@@ -24,7 +24,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * owns a database) and {@code spring-security-oauth2-jose}, but the gateway is
  * a stateless edge router with no datasource and is auth-passthrough — so the
  * JPA/JDBC, transaction, and reactive-security auto-configurations are excluded.
- * Component scan is likewise limited to this package: platform-lib's servlet
+ * Component scan is limited to this package: platform-lib's servlet
  * {@code GlobalExceptionHandler} and servlet JWT filter are incompatible with
  * this WebFlux edge; reactive-safe primitives ({@code TraceContext},
  * {@code BusinessMetrics}) stay on the classpath for explicit import when

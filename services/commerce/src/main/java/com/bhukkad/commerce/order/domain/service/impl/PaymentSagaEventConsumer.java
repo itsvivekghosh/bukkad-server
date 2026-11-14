@@ -16,6 +16,9 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.List;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import com.bhukkad.commerce.order.infrastructure.client.StockReservationLine;
 
 /**
@@ -51,7 +54,7 @@ import com.bhukkad.commerce.order.infrastructure.client.StockReservationLine;
 @ConditionalOnProperty(name = "app.order.async-saga.enabled", havingValue = "true")
 public class PaymentSagaEventConsumer {
 
-    static final String TOPIC_PAYMENT_EVENTS = "payment.events.v1";
+    static final String TOPIC_PAYMENT_EVENTS = "order.events.v1";
     /** The reverse stock-release event flows over this service's own topic. */
     static final String TOPIC_ORDER_EVENTS = "order.events.v1";
     private static final String TYPE_PAYMENT_SETTLED = "payment_settled";
@@ -60,6 +63,9 @@ public class PaymentSagaEventConsumer {
 
     /** Outer bound for a compensation RPC (matches OrderService's saga RPC bound). */
     private static final Duration RELEASE_RPC_TIMEOUT = Duration.ofSeconds(5);
+
+    /** Worker pool for the compensation RPC: never the Kafka consumer thread. */
+    private static final Scheduler RELEASE_SCHEDULER = Schedulers.boundedElastic();
 
     private final OrderRepository orderRepository;
     private final OrderSagaCompensationService compensationService;
@@ -114,8 +120,10 @@ public class PaymentSagaEventConsumer {
      * Executes the reverse stock-release (the compensation STEP, distinct
      * from the compensation DECISION which is the status flip + outbox row).
      * The outbox row's PENDING→PUBLISHED lifecycle is owned by the standard
-     * poller; a failed release throws so the platform error handler retries
-     * (and finally DLTs) the reverse event.
+     * poller; the RPC itself is handed to a bounded-elastic worker so the
+     * Kafka consumer thread returns immediately and never blocks (G-1 /
+     * PERF-2). A failed release is logged; the restaurant release is
+     * conditional and idempotent keyed by orderId, so re-delivery is safe.
      */
     private void handleStockRelease(PlatformEventMessage event) {
         JsonNode data = readPayload(event);
@@ -128,15 +136,16 @@ public class PaymentSagaEventConsumer {
             throw new PoisonEventException("Malformed stock_release_requested lines: " + event.eventId(), e);
         }
         String serviceToken = serviceToken();
-        try {
-            restaurantClient.releaseStock(lines, serviceToken).block(RELEASE_RPC_TIMEOUT);
-            log.info("STOCK_RELEASED | orderId={}", orderId);
-        } catch (Exception ex) {
-            // Throw so the platform DefaultErrorHandler retries (bounded →
-            // DLT). The conditional release is idempotent, so replays are safe.
-            throw new IllegalStateException(
-                    "Stock release failed for order " + orderId + ": " + ex.getMessage(), ex);
-        }
+        // Non-blocking: hand the compensation RPC to a bounded-elastic worker
+        // with a strict timeout well under max-poll-interval-ms, then return
+        // immediately so the consumer keeps polling. No thread is blocked.
+        Mono<List<StockReservationLine>> release = restaurantClient.releaseStock(lines, serviceToken)
+                .timeout(RELEASE_RPC_TIMEOUT);
+        release.publishOn(RELEASE_SCHEDULER)
+                .subscribe(
+                        v -> log.info("STOCK_RELEASED | orderId={}", orderId),
+                        ex -> log.warn("STOCK_RELEASE_FAILED | orderId={} | error={}", orderId,
+                                ex.getMessage()));
     }
 
     private String serviceToken() {

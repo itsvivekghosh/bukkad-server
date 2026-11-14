@@ -3,6 +3,7 @@ package com.bhukkad.identity.integration.controller;
 import com.bhukkad.common.ratelimit.RateLimitExceededException;
 import com.bhukkad.identity.infrastructure.ratelimit.LoginLockoutService;
 import com.bhukkad.identity.support.AbstractIdentityPostgresTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,6 +17,7 @@ import org.springframework.web.client.RestClient;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -75,6 +77,23 @@ class LoginLockoutRedisIntegrationTest extends AbstractIdentityPostgresTest {
         return "http://127.0.0.1:" + port;
     }
 
+    @BeforeEach
+    void clearLockoutState() {
+        // Identity integration tests share one Redis container (static field in
+        // AbstractIdentityPostgresTest). Clear rate-limit buckets and lockout
+        // counters/locks so each test starts from a clean slate regardless of
+        // execution order. The auth-login bucket (limit 30/5min per IP) is
+        // exhausted by other tests hitting /auth/login from 127.0.0.1.
+        Set<String> keys = redisTemplate.keys("bhukkad:ratelimit:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+        keys = redisTemplate.keys("bhukkad:auth:lockout:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
+
     private void register(String email) {
         var response = client.post().uri(baseUrl() + "/api/v1/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -89,6 +108,9 @@ class LoginLockoutRedisIntegrationTest extends AbstractIdentityPostgresTest {
         String email = "lockout_http_" + System.nanoTime() + "@b.com";
         register(email);
         String lockKey = "bhukkad:auth:lockout:lock:" + email + "|127.0.0.1";
+        System.out.println("DEBUG after register: email=" + email + " lockKey=" + lockKey
+                + " lockTTL=" + redisTemplate.getExpire(lockKey, java.util.concurrent.TimeUnit.MILLISECONDS)
+                + " keys=" + redisTemplate.keys("bhukkad:auth:lockout:*"));
 
         // 5 failed logins (each 401) cross the threshold...
         for (int i = 0; i < 5; i++) {

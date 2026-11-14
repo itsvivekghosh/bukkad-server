@@ -1,5 +1,8 @@
 package com.bhukkad.common.outbox;
 
+import java.time.Duration;
+import java.time.Instant;
+
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -174,7 +177,7 @@ class OutboxPollPublisherTest {
 
     @Test
     void recoverStale_batchesIntoOneUpdateAndRunsInTx() {
-        when(repository.recoverStaleToPending(any(LocalDateTime.class), anyString()))
+        when(repository.recoverStaleToPending(any(Instant.class), anyString()))
                 .thenAnswer(inv -> {
                     assertThatTxActive();
                     return 3;
@@ -183,7 +186,7 @@ class OutboxPollPublisherTest {
         int recovered = relay.recoverStale();
 
         assertThat(recovered).isEqualTo(3);
-        verify(repository).recoverStaleToPending(any(LocalDateTime.class), anyString());
+        verify(repository).recoverStaleToPending(any(Instant.class), anyString());
         verify(repository, never()).save(any(OutboxEvent.class));
     }
 
@@ -257,7 +260,7 @@ class OutboxPollPublisherTest {
         assertThat(p.backoffFor(17)).isLessThanOrEqualTo(p.processingTimeout());
         // Unset (0/null) values normalise to defaults so a service without any
         // outbox yml block still relays (PERF-2 wake-the-wire fix).
-        OutboxProperties unset = new OutboxProperties(0, null, null, null, 0, 0, null, 0);
+        OutboxProperties unset = new OutboxProperties(0, null, null, null, 0, 0, null, 0, Duration.ofDays(7));
         assertThat(unset.batchSize()).isEqualTo(500);
         assertThat(unset.pollInterval().toSeconds()).isEqualTo(1);
         assertThat(unset.maxRetries()).isEqualTo(5);

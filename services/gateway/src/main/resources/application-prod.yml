@@ -4,9 +4,9 @@ spring:
       on-profile: prod
   data:
     redis:
-      sentinel:
-        master: bhukkad-master
-        nodes: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:redis-0.bhukkad:6379,redis-1.bhukkad:6379,redis-2.bhukkad:6379,redis-3.bhukkad:6379,redis-4.bhukkad:6379,redis-5.bhukkad:6379}
+        max-redirects: 3
       password: ${REDIS_PASSWORD}
       database: ${REDIS_DATABASE:0}
       timeout: 2000
@@ -14,10 +14,10 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 64
-          min-idle: 8
-          max-idle: 32
-          max-wait: 5s
+          max-active: 200
+          min-idle: 50
+          max-idle: 100
+          max-wait: 5000ms
 
 app:
   datasource:
@@ -36,6 +36,9 @@ app:
         max-lifetime: 1800000
         read-only: true
   environment: production
+
+  rate-limit:
+    fail-open-on-redis-error: false  # CR-09: Fail-closed in prod
 
   events:
     external:

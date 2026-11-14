@@ -10,9 +10,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * parent surefire run reuses one fork for the whole module, so every
  * BlockHound-based test class shares this guard instead of re-installing.
  *
- * <p>BlockHound 1.0.8.RELEASE supports up to JDK 21. On newer JDKs the
- * agent is not preloaded (see {@code platform-lib/pom.xml}) and this
- * method becomes a no-op so the BlockHound-specific tests can skip
+ * <p>BlockHound 1.0.18.RELEASE supports up to JDK 26+. On older unsupported
+ * JDKs the agent is not preloaded (see {@code platform-lib/pom.xml}) and
+ * this method becomes a no-op so the BlockHound-specific tests can skip
  * themselves gracefully.</p>
  */
 public final class BlockHoundSupport {
@@ -22,7 +22,8 @@ public final class BlockHoundSupport {
 
     static {
         int version = Runtime.version().feature();
-        SUPPORTED = version <= 21;
+        // BlockHound 1.0.18+ with ByteBuddy 1.18.14 supports JDK 17 through 26+
+        SUPPORTED = version >= 17 && version <= 26;
     }
 
     private BlockHoundSupport() {

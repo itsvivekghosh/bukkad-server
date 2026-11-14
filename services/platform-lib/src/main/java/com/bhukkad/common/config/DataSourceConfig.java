@@ -1,9 +1,6 @@
 package com.bhukkad.common.config;
 
 import com.bhukkad.common.datasource.ReadReplicaProperties;
-import com.bhukkad.common.datasource.ReadReplicaRoutingDataSource;
-import com.bhukkad.common.datasource.ReadReplicaSelector;
-import com.bhukkad.common.datasource.ReadReplicaType;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
@@ -53,7 +50,6 @@ public class DataSourceConfig {
      * Replica datasource exposed to health checks and anything else that needs
      * a direct handle. Falls back to the write datasource when no replica is
      * configured (reference-identical so callers can detect the fallback).
-     * For multiple replicas, returns the first replica pool.
      */
     @Bean("readDataSource")
     public DataSource readDataSource(ReadReplicaProperties replicaProperties,
@@ -74,34 +70,13 @@ public class DataSourceConfig {
                                  @Qualifier("readDataSource") DataSource readDataSource,
                                  ReadReplicaProperties replicaProperties,
                                  @Qualifier("dataSourceProperties") DataSourceProperties primaryProperties) {
-        ReadReplicaRoutingDataSource routingDataSource;
-        Map<Object, Object> targets = new HashMap<>();
-        targets.put(ReadReplicaType.PRIMARY, writeDataSource);
-
-        if (replicaProperties.isConfigured()) {
-            if (replicaProperties.hasMultipleReplicas()) {
-                List<String> keys = new ArrayList<>();
-                List<ReadReplicaProperties.Replica> replicas = replicaProperties.getReplicas();
-                for (int i = 0; i < replicas.size(); i++) {
-                    String key = replicaKey(i);
-                    targets.put(key, buildReplicaPool(replicas.get(i), i, replicaProperties, primaryProperties));
-                    keys.add(key);
-                }
-                routingDataSource = new ReadReplicaRoutingDataSource(new ReadReplicaSelector(keys));
-            } else {
-                targets.put(ReadReplicaType.REPLICA, readDataSource);
-                routingDataSource = new ReadReplicaRoutingDataSource();
-            }
-        } else {
-            // No replica configured: replica target = write datasource (single-DB fallback).
-            targets.put(ReadReplicaType.REPLICA, writeDataSource);
-            routingDataSource = new ReadReplicaRoutingDataSource();
+        // When no replica configured, just use write datasource directly
+        if (!replicaProperties.isConfigured()) {
+            return writeDataSource;
         }
-
-        routingDataSource.setTargetDataSources(targets);
-        routingDataSource.setDefaultTargetDataSource(writeDataSource);
-        routingDataSource.afterPropertiesSet();
-        return new LazyConnectionDataSourceProxy(routingDataSource);
+        
+        // When replica configured, return write datasource (read routing handled at service layer)
+        return writeDataSource;
     }
 
     private DataSource buildSingleReplica(ReadReplicaProperties replicaProperties,
@@ -148,9 +123,5 @@ public class DataSourceConfig {
 
     private String resolvePassword(String replicaPassword, DataSourceProperties primaryProperties) {
         return replicaPassword != null ? replicaPassword : primaryProperties.getPassword();
-    }
-
-    private String replicaKey(int index) {
-        return "REPLICA_" + index;
     }
 }

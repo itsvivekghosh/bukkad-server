@@ -518,7 +518,7 @@ def resolve(val, item_name):
     result = result.replace("{{base_url}}", "")
     for k, v in list(vars_map.items()):
         result = result.replace("{{" + k + "}}", str(v) if v is not None else "")
-        result = result.replace("{" + k + "}", str(v) if v is not None else "")
+        result = result.replace("{{" + k + "}}", str(v) if v is not None else "")
     # Drop any remaining unresolvable placeholders rather than sending garbage
     result = re.sub(r"\{\{?\w+\}?\}", "", result)
     return result
@@ -631,6 +631,10 @@ def _auth_headers_for_path(path):
 def run_request(item, group=""):
     """Execute one collection item; returns (ok, reason, status, method, path)."""
     req = item["request"]
+    method = req["method"]
+    # Generate a fresh UUID for register_customer/register_owner/register_agent
+    # so each run uses a unique email address
+    vars_map["uuid"] = str(uuid.uuid4())
     method = req["method"]
     raw_url = req["url"]["raw"] if isinstance(req["url"], dict) else req["url"]
     path = resolve(raw_url, item["name"])

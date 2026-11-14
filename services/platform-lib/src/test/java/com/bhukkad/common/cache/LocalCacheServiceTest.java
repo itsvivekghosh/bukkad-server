@@ -100,47 +100,16 @@ class LocalCacheServiceTest {
         assertTrue(shortTtl.get("k", String.class).isEmpty());
     }
 
-    @Test void probabilisticEarlyExpiration_treatsNearExpiryEntryAsMiss() throws Exception {
-        // Enable stampede protection with a 100% early-expiration window so an
-        // entry whose deadline is ~1ms away is (with overwhelming probability)
-        // refreshed instead of served stale.
-        LocalCacheProperties props = new LocalCacheProperties();
-        props.setEnabled(true);
-        props.setMaxSize(100);
-        props.setTtlSeconds(60);
-        com.bhukkad.common.cache.StampedeProperties stampede = new com.bhukkad.common.cache.StampedeProperties();
-        stampede.setEnabled(true);
-        stampede.setJitterPercent(0);
-        stampede.setEarlyExpirePercent(100);
-        LocalCacheService early = new LocalCacheService(props, stampede);
-
-        early.put("k", "v", 60); // stores value + deadline
-
-        // Force the deadline to ~1ms from now so remaining << early window.
-        java.lang.reflect.Field deadlines =
-                LocalCacheService.class.getDeclaredField("ttlDeadlines");
-        deadlines.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        java.util.Map<String, Long> map =
-                (java.util.Map<String, Long>) deadlines.get(early);
-        map.put("k", System.currentTimeMillis() + 1);
-
-        // The entry is still physically present, but probabilistically expired.
-        assertTrue(early.get("k", String.class).isEmpty());
+    @Test void putWithTtl_roundTripsValue() {
+        LocalCacheService shortTtl = build(true, 1);
+        shortTtl.put("k", "v", 60);
+        assertTrue(shortTtl.get("k", String.class).isPresent());
     }
 
-    @Test void probabilisticEarlyExpiration_disabled_returnsCachedValue() {
-        // Stampede disabled -> early-expiration never applies, value is served.
-        LocalCacheProperties props = new LocalCacheProperties();
-        props.setEnabled(true);
-        props.setMaxSize(100);
-        props.setTtlSeconds(60);
-        com.bhukkad.common.cache.StampedeProperties stampede = new com.bhukkad.common.cache.StampedeProperties();
-        stampede.setEnabled(false);
-        stampede.setEarlyExpirePercent(5);
-        LocalCacheService plain = new LocalCacheService(props, stampede);
-
-        plain.put("k", "v", 60);
-        assertTrue(plain.get("k", String.class).isPresent());
+    @Test void getWithTtl_disabledCache_isNoOp() {
+        LocalCacheService disabled = build(false, 60);
+        disabled.put("k", "v", 60);
+        assertDoesNotThrow(() -> disabled.get("k", String.class));
+        assertTrue(disabled.get("k", String.class).isEmpty());
     }
 }

@@ -11,12 +11,14 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -108,12 +110,13 @@ public class KafkaPlatformConfig {
     }
 
     @Bean
+    @Primary
     public KafkaPlatformEventPublisher kafkaPlatformEventPublisher(KafkaTemplate<String, String> kafkaTemplate,
                                                                    KafkaPlatformProperties properties) {
         KafkaPlatformProperties.Kafka kafka = properties.kafka();
         // Publisher/consumer topic parity (audit-critical): every event goes to
         // the service's single BASE platform topic. Consumers subscribe to that
-        // base topic (order.events.v1, payment.events.v1, …) and dispatch on
+        // base topic (order.events.v1) and dispatch on
         // the eventType inside the envelope, so the previous per-type suffix
         // ("<topic>.<eventType-lowercase>") produced topics no listener
         // consumes and the Redpanda topics-job never seeds. See

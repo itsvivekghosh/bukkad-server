@@ -100,11 +100,11 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
     void twoIdenticalRequests_exactlyOneWalletCreditAndOneSettledOutboxRow() {
         String key = "replay-topup-1";
         Payment first = paymentService.processPayment(0L, 42L, new BigDecimal("150.00"),
-                Payment.METHOD_WALLET, key);
+                Payment.METHOD_WALLET, key).block();
         // Second identical request (provider retry, user double-click): must
         // return the same payment and charge the PSP gateway exactly once.
         Payment second = paymentService.processPayment(0L, 42L, new BigDecimal("150.00"),
-                Payment.METHOD_WALLET, key);
+                Payment.METHOD_WALLET, key).block();
 
         assertThat(first.getId()).isEqualTo(second.getId());
         assertThat(first.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
@@ -128,7 +128,7 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
         // Settle WITHOUT the post-commit credit: simulate by flipping the
         // claim payload's walletMovement flag off after the first call.
         Payment first = paymentService.processPayment(0L, 43L, new BigDecimal("80.00"),
-                Payment.METHOD_WALLET, key);
+                Payment.METHOD_WALLET, key).block();
         assertThat(count("wallet_transactions", "type = 'CREDIT'")).isEqualTo(1);
         // Roll back the wallet credit rows only (the crash window), leaving
         // the settled payment + COMPLETED claim in place.
@@ -139,7 +139,7 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
                         + ",\"walletMovement\":false}' WHERE idempotency_key = ?", key);
 
         Payment replay = paymentService.processPayment(0L, 43L, new BigDecimal("80.00"),
-                Payment.METHOD_WALLET, key);
+                Payment.METHOD_WALLET, key).block();
 
         assertThat(replay.getId()).isEqualTo(first.getId());
         // The replay completed the missing credit exactly once — no doubling.
@@ -162,7 +162,7 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
         try {
             // First attempt: PSP declines (PENDING row created, then FAILED).
             try {
-                paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key);
+                paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key).block();
                 throw new AssertionError("expected PaymentGatewayException");
             } catch (PaymentGatewayException expected) {
                 // terminal outcome surfaced to the caller
@@ -174,7 +174,7 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
             // Second attempt re-runs the unit (claim released, no residue);
             // the PSP approves this time (transient decline, retry settles).
             stubGateway.next = PaymentGateway.GatewayResult.ok("SIM-PROV-RETRY");
-            Payment retry = paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key);
+            Payment retry = paymentService.processPayment(10L, 44L, new BigDecimal("60.00"), "UPI", key).block();
             assertThat(retry.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
             assertThat(countOutbox("payment_settled")).isEqualTo(1);
             assertThat(count("payments", "status = 'FAILED'")).isEqualTo(1);
@@ -195,7 +195,7 @@ class PaymentIdempotentReplayPostgresIntegrationTest extends AbstractPaymentPost
                 """);
 
         assertThatThrownBy(() -> paymentService.processPayment(11L, 45L, new BigDecimal("50.00"),
-                Payment.METHOD_WALLET, "replay-wallet-1"))
+                Payment.METHOD_WALLET, "replay-wallet-1").block())
                 .isInstanceOf(com.bhukkad.common.error.BusinessException.class)
                 .hasMessageContaining("Insufficient");
 

@@ -16,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,15 +46,15 @@ public class RestaurantQueryService {
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
-    public List<RestaurantSummary> browseByCuisine(Long cuisineId) {
-        return restaurantRepository.findByCuisineIdAndIsActiveTrue(cuisineId)
-                .stream().map(this::toSummary).toList();
+    public Page<RestaurantSummary> browseByCuisine(Long cuisineId, Pageable pageable) {
+        return restaurantRepository.findByCuisineIdAndIsActiveTrue(cuisineId, pageable)
+                .map(this::toSummary);
     }
 
     @Transactional(readOnly = true)
-    public List<RestaurantSummary> search(String name) {
-        return restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue(name)
-                .stream().map(this::toSummary).toList();
+    public Page<RestaurantSummary> search(String name, Pageable pageable) {
+        return restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue(name, pageable)
+                .map(this::toSummary);
     }
 
     @Transactional(readOnly = true)

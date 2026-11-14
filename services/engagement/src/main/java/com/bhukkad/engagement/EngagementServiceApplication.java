@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import com.bhukkad.engagement.fraud.config.FraudProperties;
 import com.bhukkad.engagement.growth.config.GrowthProperties;
 import com.bhukkad.engagement.notification.config.NotificationProperties;
 import com.bhukkad.engagement.realtime.config.LiveProperties;
@@ -28,7 +29,8 @@ import com.bhukkad.engagement.referral.config.ReferralServiceProperties;
         LiveProperties.class,
         NotificationProperties.class,
         ReferralAbuseProperties.class,
-        ReferralServiceProperties.class
+        ReferralServiceProperties.class,
+        FraudProperties.class
 })
 public class EngagementServiceApplication {
 

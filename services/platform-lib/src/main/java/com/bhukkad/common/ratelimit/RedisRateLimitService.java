@@ -136,7 +136,10 @@ public class RedisRateLimitService implements RateLimitService {
 
     @Override
     public RateLimitDecision check(String bucket, String identifier, long limit, int windowSeconds) {
-        String key = PREFIX + bucket + ":" + identifier;
+        int shardCount = Math.max(1, properties == null ? 4 : properties.getShardCount());
+        int shardIndex = consistentHash(identifier, shardCount);
+        String key = PREFIX + bucket + ":" + identifier + ":shard" + shardIndex;
+        long perShardLimit = Math.max(1, limit / shardCount);
         RateLimitDecision cached = localCache.getIfPresent(key);
         if (cached != null) {
             return cached;
@@ -146,40 +149,40 @@ public class RedisRateLimitService implements RateLimitService {
         Long result;
         try {
             result = circuitBreaker.executeCheckedSupplier(() -> (Long) redisTemplate.execute(SCRIPT, List.of(key),
-                    String.valueOf(now), String.valueOf(windowMillis), String.valueOf(limit)));
+                    String.valueOf(now), String.valueOf(windowMillis), String.valueOf(perShardLimit)));
         } catch (io.github.resilience4j.circuitbreaker.CallNotPermittedException ex) {
             // Circuit breaker is OPEN: Redis is consistently failing or slow.
             // Fall back to local cache or fail-closed.
             log.warn("RATE_LIMIT_CIRCUIT_OPEN bucket={} Redis unavailable, falling back", bucket);
-            return circuitOpenFallback(bucket, limit, windowSeconds);
+            return circuitOpenFallback(bucket, perShardLimit, windowSeconds);
         } catch (org.springframework.data.redis.RedisConnectionFailureException
                  | org.springframework.data.redis.RedisSystemException ex) {
             // RedisConnectionFailureException (per V-18) and the Lettuce-side
             // RedisSystemException wrapper of connection/command-transport
             // failures — the Redis-outage class of errors.
-            return bypassedByRedisError(bucket, limit, windowSeconds, ex);
+            return bypassedByRedisError(bucket, perShardLimit, windowSeconds, ex);
         } catch (Throwable ex) {
             // Any other exception from the script: fail-open, never deny on our own bug.
-            return bypassedByRedisError(bucket, limit, windowSeconds, ex);
+            return bypassedByRedisError(bucket, perShardLimit, windowSeconds, ex);
         }
         if (result == null) {
             // Script produced no reply (pipelined/transactional edge): fail-open, never deny on our own bug.
-            return bypassedByRedisError(bucket, limit, windowSeconds, null);
+            return bypassedByRedisError(bucket, perShardLimit, windowSeconds, null);
         }
         RateLimitDecision decision;
         if (result < 0) {
             long retryAfterMillis = -result;
             long retryAfterSeconds = Math.max(1, (retryAfterMillis + 999) / 1000);
-            decision = RateLimitDecision.denied(0, limit, (int) retryAfterSeconds);
+            decision = RateLimitDecision.denied(0, perShardLimit, (int) retryAfterSeconds);
         } else {
-            decision = RateLimitDecision.allowed(result, limit, windowSeconds);
+            decision = RateLimitDecision.allowed(result, perShardLimit, windowSeconds);
         }
         localCache.put(key, decision);
         return decision;
     }
 
     /** Fallback when the circuit breaker is open: use local cache or fail-closed. */
-    private RateLimitDecision circuitOpenFallback(String bucket, long limit, int windowSeconds) {
+    private RateLimitDecision circuitOpenFallback(String bucket, long perShardLimit, int windowSeconds) {
         if (meterRegistry != null) {
             meterRegistry.counter("ratelimit_circuit_open_fallback", "bucket", bucket).increment();
         }
@@ -187,25 +190,25 @@ public class RedisRateLimitService implements RateLimitService {
             // When fail-open, allow the request but try to enforce via local cache
             // Local cache may have stale data, but it's better than nothing
             log.debug("Rate-limit circuit open, failing open bucket={}", bucket);
-            return RateLimitDecision.allowed(0, limit, windowSeconds);
+            return RateLimitDecision.allowed(0, perShardLimit, windowSeconds);
         }
         log.warn("Rate-limit circuit open and fail-open disabled, denying bucket={}", bucket);
-        return RateLimitDecision.denied(0, limit, windowSeconds);
+        return RateLimitDecision.denied(0, perShardLimit, windowSeconds);
     }
 
     /** Fail-open (or fail-closed when configured) on a Redis outage — counted, logged once per burst. */
-    private RateLimitDecision bypassedByRedisError(String bucket, long limit, int windowSeconds, Throwable cause) {
+    private RateLimitDecision bypassedByRedisError(String bucket, long perShardLimit, int windowSeconds, Throwable cause) {
         if (meterRegistry != null) {
             meterRegistry.counter(METRIC_BYPASS_REDIS_ERROR, "bucket", bucket).increment();
         }
         if (properties == null || properties.isFailOpenOnRedisError()) {
             log.debug("Rate-limit Redis error, failing open bucket={}: {}",
                     bucket, cause == null ? "no reply" : cause.getMessage());
-            return RateLimitDecision.allowed(0, limit, windowSeconds);
+            return RateLimitDecision.allowed(0, perShardLimit, windowSeconds);
         }
         log.warn("Rate-limit Redis error and fail-open disabled, denying bucket={}: {}",
                 bucket, cause == null ? "no reply" : cause.getMessage());
-        return RateLimitDecision.denied(0, limit, windowSeconds);
+        return RateLimitDecision.denied(0, perShardLimit, windowSeconds);
     }
 
     private static final class EmptyProvider implements ObjectProvider<MeterRegistry> {
@@ -228,5 +231,19 @@ public class RedisRateLimitService implements RateLimitService {
         public MeterRegistry getIfUnique() {
             return null;
         }
+    }
+
+    /**
+     * Consistent hash using FNV-1a for even distribution of rate-limit shards.
+     * Better distribution than String.hashCode() which can cause hot shards
+     * with sequential identifiers.
+     */
+    private static int consistentHash(String identifier, int shardCount) {
+        long hash = 0x811c9dc5L;
+        for (int i = 0; i < identifier.length(); i++) {
+            hash ^= identifier.charAt(i);
+            hash *= 0x01000193L;
+        }
+        return Math.abs((int) hash) % shardCount;
     }
 }

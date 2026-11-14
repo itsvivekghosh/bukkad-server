@@ -36,7 +36,8 @@ x-common-env: &common-env
     -XX:MaxMetaspaceSize=256m
     -XX:ReservedCodeCacheSize=96m
     -XX:MaxDirectMemorySize=32m
-    -XX:+UseSerialGC
+    -XX:+UseG1GC
+    -XX:MaxGCPauseMillis=100
     -XX:TieredStopAtLevel=1
     -Xss512k
     -XX:MinHeapFreeRatio=10
@@ -48,9 +49,11 @@ x-common-env: &common-env
     -Djava.net.preferIPv4Stack=true
     -Dserver.address=0.0.0.0
     -Dspring.main.lazy-initialization=true
-    -Dspring.jmx.enabled=false
+    -Dspring.jmx.enabled=true
     -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration,org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration,org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration,org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
-  spring.datasource.hikari.maximum-pool-size: '4'
+  spring.datasource.hikari.maximum-pool-size: '8'
+  spring.datasource.hikari.minimum-idle: '4'
+  spring.datasource.hikari.register-mbeans: 'true'
   SERVER_ADDRESS: 0.0.0.0
 
   # AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
@@ -201,6 +204,7 @@ services:
   # Identity service - always running (core auth)
   identity:
     profiles: ["core", "full"]
+    env_file: .env
     restart: on-failure
     init: true
     environment:
@@ -226,6 +230,7 @@ services:
   # Commerce service - order + payment + delivery merged
   commerce:
     profiles: ["full"]
+    env_file: .env
     restart: on-failure
     init: true
     environment:
@@ -254,6 +259,7 @@ services:
   # Catalog service - restaurant + search + personalization merged
   catalog:
     profiles: ["full"]
+    env_file: .env
     restart: on-failure
     init: true
     environment:
@@ -285,6 +291,7 @@ services:
   # Engagement service - social + growth + referral + survey + notification + realtime
   engagement:
     profiles: ["full"]
+    env_file: .env
     restart: on-failure
     init: true
     environment:
@@ -313,6 +320,7 @@ services:
 # Admin service - admin-analytics + supportticket merged
   admin:
     profiles: ["full"]
+    env_file: .env
     restart: on-failure
     init: true
     environment:
@@ -342,6 +350,7 @@ services:
   # Gateway - always running (entry point)
   gateway:
     profiles: ["core", "full"]
+    env_file: .env
     restart: on-failure
     init: true
     environment:

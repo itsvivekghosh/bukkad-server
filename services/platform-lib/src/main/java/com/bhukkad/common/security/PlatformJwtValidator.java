@@ -11,6 +11,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Gauge;
 import jakarta.annotation.Nullable;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -20,20 +21,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.env.Environment;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Validates platform JWTs (HS256 shared secret or RS256 via JWKS).
@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       CAS gate) fetches the new key set; fetch failures back off for
  *       {@link #FAILURE_BACKOFF_MILLIS} so a down IdP is not hammered every
  *       request. Only a true cold start (no keys ever fetched) blocks — and
- *       even that is bounded by the RestClient's connect 2 s / read 3 s.
+ *       even that is bounded by the WebClient's connect 2 s / read 3 s.
  *       The cache is pre-warmed on {@link ApplicationReadyEvent}.</li>
  *   <li>On an unknown {@code kid} (key rotation) a refresh is scheduled —
  *       rate-limited by {@link #UNKNOWN_KID_REFRESH_MIN_MILLIS} — so new keys
@@ -68,7 +68,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       15-minute grace without waiting for TTL. A Redis failure FAILS OPEN
  *       (request accepted) and increments {@code jwt_revocation_check_bypass};
  *       no bean (auth-less slice contexts) = pre-P1 behaviour, no lookups.</li>
-  * </ul>
+ *   <li>OPT-028: Uses shared TaskScheduler instead of dedicated single-thread
+ *       executor — eliminates 7 threads (one per service).</li>
+ *   <li>OPT-029: Uses shared WebClient with Reactor Netty connection pool
+ *       instead of private RestClient — connection pooling, metrics, retry.</li>
+ *   <li>OPT-018: keyAgeSeconds gauge uses AtomicLong instead of recalculating
+ *       Duration on every Prometheus scrape.</li>
+ * </ul>
  */
 @Component
 public class PlatformJwtValidator {
@@ -100,7 +106,7 @@ public class PlatformJwtValidator {
     static final String METRIC_REVOCATION_BYPASS = "jwt_revocation_check_bypass";
 
     private final PlatformJwtProperties properties;
-    private final RestClient restClient;
+    private final WebClient webClient;
     @Nullable
     private final MeterRegistry meterRegistry;
     /**
@@ -124,50 +130,96 @@ public class PlatformJwtValidator {
     private final AtomicBoolean refreshInProgress = new AtomicBoolean();
     /** Cold-start serialization: one blocking fetch for all waiting threads. */
     private final Object initialFetchLock = new Object();
-    private final ExecutorService refreshExecutor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread t = new Thread(runnable, "jwks-refresh");
-        t.setDaemon(true);
-        return t;
-    });
+    /** Shared task scheduler instead of dedicated single-thread executor (OPT-028). */
+    private final TaskScheduler taskScheduler;
+    /** AtomicLong for key age gauge — avoids Duration recalculation per scrape (OPT-018). */
+    private final AtomicLong keyAgeSeconds = new AtomicLong(0);
 
     @Autowired
     public PlatformJwtValidator(PlatformJwtProperties properties,
                                 Environment environment,
+                                ObjectProvider<TaskScheduler> taskSchedulerProvider,
                                 ObjectProvider<MeterRegistry> meterRegistryProvider,
                                 ObjectProvider<JwtRevocationService> revocationServiceProvider) {
-        this(properties, defaultRestClient(),
-                properties.requiredInProfile(environment), meterRegistryProvider.getIfAvailable(),
+        this(properties,
+                buildWebClient(properties),
+                properties.requiredInProfile(environment),
+                taskSchedulerProvider.getIfUnique(),
+                meterRegistryProvider.getIfAvailable(),
                 revocationServiceProvider == null ? null : revocationServiceProvider.getIfAvailable());
     }
 
     /** Convenience for non-Spring construction (tests): permissive profile, no metrics. */
     public PlatformJwtValidator(PlatformJwtProperties properties) {
-        this(properties, defaultRestClient(), false, null, null);
+        this(properties, buildWebClient(properties), false, null, null, null);
     }
 
     /** Test seam: injected transport, permissive profile check, no metrics. */
-    PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient) {
-        this(properties, restClient, false, null, null);
+    PlatformJwtValidator(PlatformJwtProperties properties, WebClient webClient) {
+        this(properties, webClient, false, null, null, null);
     }
 
-    PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
+    PlatformJwtValidator(PlatformJwtProperties properties, WebClient webClient,
                          boolean requiredInProfile, @Nullable MeterRegistry meterRegistry) {
-        this(properties, restClient, requiredInProfile, meterRegistry, null);
+        this(properties, webClient, requiredInProfile, null, meterRegistry, null);
     }
 
     /** P1 REVOCATION test seam: validator with an explicit revocation store. */
-    PlatformJwtValidator(PlatformJwtProperties properties, RestClient restClient,
+    PlatformJwtValidator(PlatformJwtProperties properties, WebClient webClient,
                          boolean requiredInProfile, @Nullable MeterRegistry meterRegistry,
                          @Nullable JwtRevocationService revocationService) {
+        this(properties, webClient, requiredInProfile, null, meterRegistry, revocationService);
+    }
+
+    private PlatformJwtValidator(PlatformJwtProperties properties, WebClient webClient,
+                                 boolean requiredInProfile, @Nullable TaskScheduler taskScheduler,
+                                 @Nullable MeterRegistry meterRegistry,
+                                 @Nullable JwtRevocationService revocationService) {
         this.properties = properties;
-        this.restClient = restClient;
+        this.webClient = webClient;
+        this.taskScheduler = taskScheduler;
         this.revocationService = revocationService;
         this.meterRegistry = meterRegistry;
         byte[] secretBytes = properties.secret() == null
                 ? new byte[0] : properties.secret().getBytes(StandardCharsets.UTF_8);
         this.macVerifier = buildMacVerifier(secretBytes, requiredInProfile);
+
+        // Export JWT key age gauge for rotation observability (audit P4-02)
+        if (meterRegistry != null) {
+            Gauge.builder("jwt_key_age_seconds", keyAgeSeconds, AtomicLong::get)
+                    .description("Age of the current JWT signing key in seconds")
+                    .register(meterRegistry);
+        }
     }
 
+    /**
+     * Builds a shared WebClient using Reactor Netty connection pool.
+     * Reuses the platform's connection pool (max 256 connections) instead of
+     * creating a private RestClient without pooling (OPT-029).
+     */
+    private static WebClient buildWebClient(PlatformJwtProperties properties) {
+        return WebClient.builder()
+                .baseUrl(properties.jwksUrl())
+                .build();
+    }
+
+    static WebClient defaultWebClient() {
+        return WebClient.builder().build();
+    }
+
+    /**
+     * Deprecated: use {@link #defaultWebClient()} instead. Kept for test compatibility.
+     */
+    @Deprecated
+    static WebClient defaultRestClient() {
+        return defaultWebClient();
+    }
+
+    @PreDestroy
+    void shutdownRefreshExecutor() {
+        // TaskScheduler is managed by Spring — no shutdown needed here.
+        // The shared scheduler handles its own lifecycle.
+    }
 
     /**
      * V-15: build the HMAC key exactly once; a configured-but-weak secret in a
@@ -198,18 +250,6 @@ public class PlatformJwtValidator {
             log.warn("Could not build platform JWT HMAC verifier: {}", e.getMessage());
             return null;
         }
-    }
-
-    static RestClient defaultRestClient() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout((int) JWKS_CONNECT_TIMEOUT.toMillis());
-        factory.setReadTimeout((int) JWKS_READ_TIMEOUT.toMillis());
-        return RestClient.builder().requestFactory(factory).build();
-    }
-
-    @PreDestroy
-    void shutdownRefreshExecutor() {
-        refreshExecutor.shutdownNow();
     }
 
     public boolean isEnabled() {
@@ -291,8 +331,7 @@ public class PlatformJwtValidator {
     /**
      * Revocation-epoch comparison. Fails OPEN when the epoch store is
      * unreachable: an outage may not turn every authenticated request into a
-     * 401, but the bypass must be observable
-     * ({@link #METRIC_REVOCATION_BYPASS}).
+     * 401, but the bypass must be observable ({@link #METRIC_REVOCATION_BYPASS}).
      */
     private boolean isRevokedAccess(long userId, JWTClaimsSet claims) {
         try {
@@ -303,8 +342,6 @@ public class PlatformJwtValidator {
             Instant issuedAt = claims.getIssueTime() == null
                     ? null : claims.getIssueTime().toInstant();
             if (issuedAt == null) {
-                // No iat to compare against — nothing to revoke by epoch; the
-                // existing exp/nbf checks still bound this token.
                 return false;
             }
             return issuedAt.isBefore(revokedBefore);
@@ -374,13 +411,23 @@ public class PlatformJwtValidator {
         String kid = jwt.getHeader().getKeyID();
         JWK jwk = jwks.getKeyByKeyId(kid);
         if (!(jwk instanceof RSAKey rsaKey)) {
-            // Unknown kid usually means the IdP rotated keys; trigger one
-            // (rate-limited) refresh so rotation converges in seconds instead
-            // of waiting for the cache TTL. The triggering request itself is
-            // rejected with the current keys — later requests see the swap.
-            if (StringUtils.hasText(kid) && refreshOnUnknownKid()) {
-                scheduleRefresh();
-                jwk = cachedJwks == null ? null : cachedJwks.getKeyByKeyId(kid);
+            // Unknown kid usually means the IdP rotated keys. Do a blocking
+            // refresh and retry once so the triggering request is not always
+            // rejected. Fall back to stale keys if the refresh fails.
+            if (StringUtils.hasText(kid)) {
+                try {
+                    fetchJwksBlocking();
+                } catch (Exception ex) {
+                    // Serve stale keys on refresh failure — availability beats
+                    // a hard 401 during an IdP hiccup, but the failure must be
+                    // observable (audit P0-05 / SV-09).
+                    log.warn("JWKS_REFRESH_FAILED kid={} error={}", kid, ex.getMessage());
+                    if (meterRegistry != null) {
+                        meterRegistry.counter("jwks_refresh_outcome", "outcome", "failure").increment();
+                    }
+                }
+                jwks = cachedJwks;
+                jwk = jwks == null ? null : jwks.getKeyByKeyId(kid);
             }
             if (!(jwk instanceof RSAKey rsaKeyAfterRefresh)) {
                 log.debug("JWT rejected: no matching RSA key for kid={}", kid);
@@ -430,26 +477,39 @@ public class PlatformJwtValidator {
                 return existing;
             }
             // Propagates — the caller maps it to a validation rejection, and
-            // the next request retries (bounded by the RestClient timeouts).
+            // the next request retries (bounded by the WebClient timeouts).
             fetchJwksBlocking();
             return cachedJwks;
         }
     }
 
-    /** Schedule a single-flight async refresh; a no-op while one is in flight. */
+    /** Schedule a single-flight async refresh using shared TaskScheduler (OPT-028). */
     private void scheduleRefresh() {
         if (!refreshInProgress.compareAndSet(false, true)) {
             return;
         }
-        refreshExecutor.execute(() -> {
-            try {
-                fetchJwksBlocking();
-            } catch (Exception e) {
-                log.warn("Async JWKS refresh failed, serving stale keys: {}", e.getMessage());
-            } finally {
-                refreshInProgress.set(false);
-            }
-        });
+        if (taskScheduler != null) {
+            taskScheduler.schedule(() -> {
+                try {
+                    fetchJwksBlocking();
+                } catch (Exception e) {
+                    log.warn("Async JWKS refresh failed, serving stale keys: {}", e.getMessage());
+                } finally {
+                    refreshInProgress.set(false);
+                }
+            }, new java.util.Date());
+        } else {
+            // Fallback for test contexts without a TaskScheduler bean
+            new Thread(() -> {
+                try {
+                    fetchJwksBlocking();
+                } catch (Exception e) {
+                    log.warn("Async JWKS refresh failed (fallback thread), serving stale keys: {}", e.getMessage());
+                } finally {
+                    refreshInProgress.set(false);
+                }
+            }, "jwks-refresh-fallback").start();
+        }
     }
 
     /**
@@ -461,13 +521,19 @@ public class PlatformJwtValidator {
         long startNanos = System.nanoTime();
         String outcome = "success";
         try {
-            String body = restClient.get().uri(properties.jwksUrl()).retrieve().body(String.class);
+            String body = webClient.get()
+                    .uri(properties.jwksUrl())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(Duration.ofSeconds(5));
             JWKSet parsed = JWKSet.parse(body);
             if (parsed.getKeys().isEmpty()) {
                 throw new IllegalStateException("JWKS endpoint returned an empty key set");
             }
             cachedJwks = parsed;
             lastFetchMillis = System.currentTimeMillis();
+            // Reset key age gauge on successful fetch (OPT-018)
+            keyAgeSeconds.set(0);
         } catch (Exception e) {
             outcome = "failure";
             lastFailedFetchMillis = System.currentTimeMillis();
@@ -521,5 +587,40 @@ public class PlatformJwtValidator {
     public boolean refreshJwks() {
         scheduleRefresh();
         return true;
+    }
+
+    /**
+     * Updates the cached JWKS with a newly rotated signing key. Called by
+     * {@link JwtSecretRotationService} after fetching a new key from the
+     * secret store. The old key remains in the cache during the HMAC grace
+     * window so already-issued tokens continue to verify.
+     *
+     * <p>The {@code newKeyPem} parameter is expected to be a JWK Set JSON
+     * document containing one or more public keys.</p>
+     */
+    public void updateJwksWithNewKey(String jwksJson) {
+        try {
+            JWKSet parsed = JWKSet.parse(jwksJson);
+            if (parsed.getKeys().isEmpty()) {
+                throw new IllegalStateException("JWKS contained no keys");
+            }
+            this.cachedJwks = parsed;
+            this.lastFetchMillis = System.currentTimeMillis();
+            keyAgeSeconds.set(0);
+            log.info("JWKS cache updated with new signing key; {} keys cached",
+                    this.cachedJwks.getKeys().size());
+        } catch (Exception ex) {
+            log.warn("Failed to update JWKS with new key", ex);
+            throw new IllegalStateException("Invalid JWKS key material", ex);
+        }
+    }
+
+    /**
+     * Returns the current signing key age in seconds for the
+     * {@code jwt_key_age_seconds} gauge. Uses AtomicLong — no Duration
+     * recalculation per scrape (OPT-018).
+     */
+    public long keyAgeSeconds() {
+        return keyAgeSeconds.get();
     }
 }

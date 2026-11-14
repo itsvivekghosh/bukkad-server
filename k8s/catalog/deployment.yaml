@@ -48,6 +48,37 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+      initContainers:
+        - name: flyway-migration
+          image: flyway/flyway:9.20.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: CATALOG_DB_URL
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: CATALOG_DB_USERNAME
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: CATALOG_DB_PASSWORD
+            - name: FLYWAY_LOCATIONS
+              value: classpath:db/migration-pg
+            - name: FLYWAY_BASELINE_ON_MIGRATE
+              value: "true"
+            - name: FLYWAY_VALIDATE_ON_MIGRATE
+              value: "true"
+            - name: FLYWAY_OUT_OF_ORDER
+              value: "true"
+            - name: FLYWAY_CLEAN_DISABLED
+              value: "true"
+          command: ["flyway", "migrate"]
       containers:
         - name: bhukkad-catalog
           image: ghcr.io/itsvivekghosh/catalog:latest
@@ -80,6 +111,10 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: CATALOG_DB_PASSWORD
+            - name: DB_REPLICA_ENABLED
+              value: "true"
+            - name: DB_REPLICA_URL
+              value: jdbc:postgresql://bhukkad-postgresql-read:5432/catalog
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -112,7 +147,6 @@ spec:
               cpu: 500m
               memory: 1024Mi
             limits:
-              cpu: 1500m
               memory: 1024Mi
           readinessProbe:
             httpGet:

@@ -70,7 +70,8 @@ public class KafkaPlatformEventPublisher {
         try {
             CompletableFuture<SendResult<String, String>> future =
                     kafkaTemplate.send(topic, message.aggregateId(), message.toJson());
-            future.whenComplete((result, ex) -> {
+            if (future != null) {
+                future.whenComplete((result, ex) -> {
                 if (ex == null) {
                     log.info("KAFKA_PUBLISHED | topic={} | eventId={} | eventType={} | offset={} | partition={}",
                             topic, message.eventId(), message.eventType(),
@@ -79,7 +80,8 @@ public class KafkaPlatformEventPublisher {
                     log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
                             topic, message.eventId(), message.eventType(), ex);
                 }
-            });
+                });
+            }
         } catch (Exception e) {
             log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
                     topic, message.eventId(), message.eventType(), e);

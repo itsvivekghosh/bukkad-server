@@ -28,8 +28,41 @@ public class AwsProperties {
     /** S3 bucket name */
     private String s3Bucket = "bhukkad-assets";
 
+    /** S3 Express One Zone bucket name (for ultra-low latency) */
+    private String s3ExpressBucket = "bhukkad-assets-express";
+
+    /** S3 Express One Zone availability zone ID */
+    private String s3ExpressAvailabilityZone = "";
+
+    public String getS3ExpressBucket() {
+        return s3ExpressBucket;
+    }
+
+    public void setS3ExpressBucket(String s3ExpressBucket) {
+        this.s3ExpressBucket = s3ExpressBucket;
+    }
+
+    public String getS3ExpressAvailabilityZone() {
+        return s3ExpressAvailabilityZone;
+    }
+
+    public void setS3ExpressAvailabilityZone(String s3ExpressAvailabilityZone) {
+        this.s3ExpressAvailabilityZone = s3ExpressAvailabilityZone;
+    }
+
     /** DynamoDB table name prefix */
     private String dynamodbTablePrefix = "bhukkad-";
+
+    /** DynamoDB billing mode (PROVISIONED or PAY_PER_REQUEST for On-Demand) */
+    private String dynamodbBillingMode = "PAY_PER_REQUEST";
+
+    public String getDynamodbBillingMode() {
+        return dynamodbBillingMode;
+    }
+
+    public void setDynamodbBillingMode(String dynamodbBillingMode) {
+        this.dynamodbBillingMode = dynamodbBillingMode;
+    }
 
     /** SQS queue name prefix */
     private String sqsQueuePrefix = "bhukkad-";
@@ -37,11 +70,55 @@ public class AwsProperties {
     /** SNS topic name prefix */
     private String snsTopicPrefix = "bhukkad-";
 
+    /** Kinesis stream name prefix */
+    private String kinesisStreamPrefix = "bhukkad-";
+
+    public String getKinesisStreamPrefix() {
+        return kinesisStreamPrefix;
+    }
+
+    public void setKinesisStreamPrefix(String kinesisStreamPrefix) {
+        this.kinesisStreamPrefix = kinesisStreamPrefix;
+    }
+
     /** Secrets Manager secret name prefix */
     private String secretsManagerPrefix = "bhukkad/";
 
     /** KMS key alias */
     private String kmsKeyAlias = "bhukkad-master-key";
+
+    /** DAX cluster endpoint (for production) */
+    private String daxEndpoint = "";
+
+    /** AWS Account ID (for ARN construction) */
+    private String accountId = "123456789012";
+
+    /** Environment name (dev, staging, prod) */
+    private String environment = "dev";
+
+    public String getEnvironment() {
+        return environment;
+    }
+
+    public void setEnvironment(String environment) {
+        this.environment = environment;
+    }
+
+    public String getAccountId() {
+        return accountId;
+    }
+
+    public void setAccountId(String accountId) {
+        this.accountId = accountId;
+    }
+
+    public String getDaxEndpoint() {
+        return daxEndpoint;
+    }
+
+    public void setDaxEndpoint(String daxEndpoint) {
+        this.daxEndpoint = daxEndpoint;
+    }
 
     public String getS3Bucket() {
         return s3Bucket;

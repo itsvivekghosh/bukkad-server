@@ -175,4 +175,68 @@ public class RestaurantClient {
         log.warn("Circuit breaker open for restaurant service (getRestaurant), using fallback. Cause: {}", throwable.toString());
         return Map.of(); // Return empty map as fallback (restaurant not found)
     }
+
+    /**
+     * Get multiple restaurants by IDs in a single batch call.
+     * Returns a map keyed by restaurant ID.
+     *
+     * @param restaurantIds the restaurant IDs
+     * @return map of restaurant ID to restaurant details
+     * @throws UpstreamUnavailableException if the restaurant service is unavailable
+     */
+    @SuppressWarnings("unchecked")
+    @CircuitBreaker(name = "restaurantService", fallbackMethod = "fallbackGetRestaurantsBatch")
+    @Retry(name = "restaurantService")
+    public Map<Long, Map<String, Object>> getRestaurantsBatch(List<Long> restaurantIds) {
+        if (restaurantIds == null || restaurantIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            String joined = restaurantIds.stream().map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(","));
+            Map<String, Object> response = restClient.get()
+                    .uri("/api/v1/restaurants/public/batch?ids={ids}", joined)
+                    .headers(h -> h.set("X-Service-Token", authTokenProvider.serviceToken()))
+                    .retrieve()
+                    .toEntity(Map.class)
+                    .getBody();
+            
+            if (response == null) {
+                return Map.of();
+            }
+            
+            Object restaurantsObj = response.get("restaurants");
+            if (restaurantsObj instanceof List<?> list) {
+                Map<Long, Map<String, Object>> result = new java.util.HashMap<>();
+                for (Object obj : list) {
+                    if (obj instanceof Map<?, ?> map) {
+                        Object idObj = map.get("id");
+                        if (idObj != null) {
+                            Long id = Long.valueOf(idObj.toString());
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> restaurantMap = (Map<String, Object>) map;
+                            result.put(id, restaurantMap);
+                        }
+                    }
+                }
+                return result;
+            }
+            return Map.of();
+        } catch (RestClientException e) {
+            log.error("Failed to get restaurants batch: {}", e.getMessage());
+            throw new UpstreamUnavailableException("restaurant", e);
+        }
+    }
+
+    /**
+     * Fallback method for batch restaurant service calls when circuit breaker is open.
+     *
+     * @param restaurantIds the restaurant IDs
+     * @param throwable the exception that caused the fallback
+     * @return empty map as fallback
+     */
+    public Map<Long, Map<String, Object>> fallbackGetRestaurantsBatch(List<Long> restaurantIds, Throwable throwable) {
+        log.warn("Circuit breaker open for restaurant service (getRestaurantsBatch), using fallback. Cause: {}", throwable.toString());
+        return Map.of(); // Return empty map as fallback
+    }
 }

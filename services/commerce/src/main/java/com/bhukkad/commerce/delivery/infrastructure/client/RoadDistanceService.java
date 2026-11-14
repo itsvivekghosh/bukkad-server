@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -52,9 +53,10 @@ public class RoadDistanceService {
     public RoadRoute route(double fromLat, double fromLon, double toLat, double toLon) {
         if (properties.isEnabled() && !properties.getOsrmUrl().isBlank()) {
             try {
-                Optional<RoadRoute> osrm = osrmClient.fetchRoute(fromLat, fromLon, toLat, toLon);
-                if (osrm.isPresent()) {
-                    return osrm.get();
+                RoadRoute osrm = osrmClient.fetchRoute(fromLat, fromLon, toLat, toLon)
+                        .block(Duration.ofSeconds(3));
+                if (osrm != null) {
+                    return osrm;
                 }
             } catch (Exception ex) {
                 log.warn("OSRM error, using haversine fallback | error={}", ex.getMessage());

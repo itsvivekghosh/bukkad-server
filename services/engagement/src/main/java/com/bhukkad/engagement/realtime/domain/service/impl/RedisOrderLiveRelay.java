@@ -16,10 +16,11 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
 @Slf4j
@@ -37,7 +38,7 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
     private final RedisMessageListenerContainer listenerContainer;
     private final OrderLiveReplayStore replayStore;
 
-    private final ConcurrentHashMap<String, CopyOnWriteArrayList<Consumer<OrderLiveUpdate>>> localConsumers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentLinkedQueue<Consumer<OrderLiveUpdate>>> localConsumers = new ConcurrentHashMap<>();
 
     /**
      * One Redis listener per subscribed topic (the old per-call
@@ -104,25 +105,41 @@ public class RedisOrderLiveRelay implements OrderLiveRelay {
 
     @Override
     public void subscribe(String topic, Consumer<OrderLiveUpdate> consumer) {
-        localConsumers.computeIfAbsent(topic, k -> {
-            MessageListener listener = (message, pattern) -> {
-                try {
-                    OrderLiveUpdate update = objectMapper.readValue(new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8), OrderLiveUpdate.class);
-                    for (Consumer<OrderLiveUpdate> c : localConsumers.getOrDefault(k, new CopyOnWriteArrayList<>())) {
-                        try {
-                            c.accept(update);
-                        } catch (Exception ex) {
-                            log.warn("Consumer error for topic {}: {}", k, ex.getMessage());
-                        }
+        if (topic == null || consumer == null) {
+            return;
+        }
+        localConsumers.compute(topic, (k, consumers) -> {
+            if (consumers == null) {
+                // Double-checked locking to prevent duplicate listener registration
+                synchronized (this) {
+                    if (!topicListeners.containsKey(k)) {
+                        MessageListener listener = (message, pattern) -> {
+                            try {
+                                OrderLiveUpdate update = objectMapper.readValue(
+                                    new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8), OrderLiveUpdate.class);
+                                Collection<Consumer<OrderLiveUpdate>> topicConsumers = localConsumers.get(k);
+                                if (topicConsumers != null) {
+                                    for (Consumer<OrderLiveUpdate> c : topicConsumers) {
+                                        try {
+                                            c.accept(update);
+                                        } catch (Exception ex) {
+                                            log.warn("Consumer error for topic {}: {}", k, ex.getMessage());
+                                        }
+                                    }
+                                }
+                            } catch (Exception ex) {
+                                log.warn("Failed to deserialize live update: {}", ex.getMessage());
+                            }
+                        };
+                        topicListeners.put(k, listener);
+                        listenerContainer.addMessageListener(listener, new ChannelTopic(CHANNEL_PREFIX + k));
                     }
-                } catch (Exception ex) {
-                    log.warn("Failed to deserialize live update: {}", ex.getMessage());
                 }
-            };
-            topicListeners.put(k, listener);
-            listenerContainer.addMessageListener(listener, new ChannelTopic(CHANNEL_PREFIX + k));
-            return new CopyOnWriteArrayList<>();
-        }).add(consumer);
+                consumers = new ConcurrentLinkedQueue<>();
+            }
+            consumers.add(consumer);
+            return consumers;
+        });
     }
 
     @Override

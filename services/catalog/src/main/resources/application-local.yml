@@ -10,10 +10,7 @@ spring:
 app:
   events:
     external:
-      enabled: true
-      type: kafka
-      kafka:
-        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+      enabled: false
   search:
     elasticsearch:
       enabled: true

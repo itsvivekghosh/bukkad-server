@@ -131,7 +131,7 @@ public class GatewayConfig {
                 .route("notification", r -> r.path(
                         "/api/v1/notifications",
                         "/api/v1/notifications/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("notification")))
+                        .filters(f -> f)
                         .uri(notificationUri))
                 // Survey service (P2): survey submission, survey ratings and
                 // trending dishes. Declared FIRST: /api/v1/reviews/survey and
@@ -142,7 +142,7 @@ public class GatewayConfig {
                         "/api/v1/reviews/survey",
                         "/api/v1/restaurants/public/*/survey-ratings",
                         "/api/v1/home/trending")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("survey")))
+                        .filters(f -> f)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.survey.enabled")
                         .uri(surveyUri))
                 // Customer sub-resource carve-outs — narrower than the generic
@@ -199,9 +199,7 @@ public class GatewayConfig {
                 .route("cart-legacy", r -> r.path(
                         "/api/v1/cart",
                         "/api/v1/cart/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("order")
-                                .setFallbackUri(URI.create("forward:/fallback/order"))))
-                        .uri(orderUri))
+                .uri(orderUri))
                 // Home/mobile BFF surfaces (monolith parity): composite feed is
                 // served by the restaurant service; campaigns and membership
                 // plans are narrow rewrites onto the owning services.
@@ -246,7 +244,7 @@ public class GatewayConfig {
                 .route("search", r -> r.path(
                         "/api/v1/search",
                         "/api/v1/search/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("search")))
+                        .filters(f -> f)
                         .uri(searchUri))
                 // Referral service (P2): referral codes + affiliate program.
                 // Declared before the restaurant slice.
@@ -254,14 +252,14 @@ public class GatewayConfig {
                         "/api/v1/referrals",
                         "/api/v1/referrals/**",
                         "/api/v1/admin/affiliates/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("referral")))
+                        .filters(f -> f)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.referral.enabled")
                         .uri(referralUri))
                 // Support ticket service (P2): ticket lifecycle.
                 .route("support", r -> r.path(
                         "/api/v1/support",
                         "/api/v1/support/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("support")))
+                        .filters(f -> f)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.support.enabled")
                         .uri(supportUri))
                 // Live order stream (P2): SSE kitchen/rider/customer streams
@@ -289,14 +287,14 @@ public class GatewayConfig {
                         "/api/v1/live/kitchen/**",
                         "/api/v1/live/rider/**",
                         "/api/v1/live/order/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("realtimeSse")))
+                        .filters(f -> f)
                         .metadata(SSE_RESPONSE_TIMEOUT_METADATA, SSE_RESPONSE_TIMEOUT_MS)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.live.enabled")
                         .uri(realtimeUri))
                 .route("live-realtime", r -> r.path(
                         "/api/v1/live",
                         "/api/v1/live/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("realtime")))
+                        .filters(f -> f)
                         .metadata(SSE_RESPONSE_TIMEOUT_METADATA, SSE_RESPONSE_TIMEOUT_MS)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.live.enabled")
                         .uri(realtimeUri))
@@ -313,7 +311,7 @@ public class GatewayConfig {
                         "/api/v1/referral/apply",
                         "/api/v1/customers/*/loyalty/**",
                         "/api/v1/customers/*/referral/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("growth")))
+                        .filters(f -> f)
                         .uri(growthUri))
                 // Inventory alerts (P2): restaurant inventory alert endpoints.
                 // Narrower than /api/v1/restaurants/** so declared before it.
@@ -324,7 +322,7 @@ public class GatewayConfig {
                 .route("social", r -> r.path(
                         "/api/v1/social",
                         "/api/v1/social/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("social")))
+                        .filters(f -> f)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.social.enabled")
                         .uri(socialUri))
                 // Strangler slice: restaurant read surface (owned by the
@@ -340,7 +338,7 @@ public class GatewayConfig {
                         "/api/v1/reviews/**",
                         "/api/v1/feed",
                         "/api/v1/feed/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("restaurant")))
+                        .filters(f -> f)
                         .uri(restaurantUri))
                 // Identity cut-over (P3): auth endpoints served by the identity
                 // service. Declared before the broad slices so /api/v1/auth/**
@@ -355,6 +353,8 @@ public class GatewayConfig {
                         "/.well-known/jwks.json",
                         "/api/v1/auth",
                         "/api/v1/auth/**",
+                        "/api/v1/identity/login",
+                        "/api/v1/identity/register",
                         "/api/v1/customers",
                         "/api/v1/customers/**",
                         "/api/v1/tenants",
@@ -374,7 +374,7 @@ public class GatewayConfig {
                         "/api/v1/recommendations",
                         "/api/v1/recommendations/**",
                         "/api/v1/feed/ranked/**")
-                        .filters(f -> f.circuitBreaker(c -> c.setName("personalization")))
+                        .filters(f -> f)
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.personalization.enabled")
                         .uri(personalizationUri))
                 // Order-service strangler slice (P5): order/cart endpoints.
@@ -392,10 +392,7 @@ public class GatewayConfig {
                         "/api/v1/coupons/**",
                         "/api/v1/gift-cards",
                         "/api/v1/gift-cards/**")
-                        .filters(f -> f.circuitBreaker(
-                                c -> c.setName("order")
-                                        .setFallbackUri(URI.create("forward:/fallback/order"))))
-                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
+                .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.order.enabled")
                         .uri(orderUri))
                 // Payment service (P6): payment endpoints.
                 .route("payment", r -> r.path(
@@ -403,10 +400,6 @@ public class GatewayConfig {
                         "/api/v1/payments/**",
                         "/api/v1/wallet",
                         "/api/v1/wallet/**")
-                        .filters(f -> f.circuitBreaker(
-                                c -> c.setName("payment")
-                                        .setFallbackUri(URI.create("forward:/fallback/payment"))))
-                        .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.payment.enabled")
                         .uri(paymentUri))
                 // Delivery service (P7): delivery endpoints.
                 .route("delivery", r -> r.path(
@@ -418,9 +411,6 @@ public class GatewayConfig {
                         "/api/v1/zones/**",
                         "/api/v1/serviceability",
                         "/api/v1/serviceability/**")
-                        .filters(f -> f.circuitBreaker(
-                                c -> c.setName("delivery")
-                                        .setFallbackUri(URI.create("forward:/fallback/delivery"))))
                         .metadata(EdgeKillSwitchFilter.ROUTE_FLAG_METADATA, "edge.delivery.enabled")
                         .uri(deliveryUri))
                 // Restaurant administration (platform-admin actions on the
@@ -492,6 +482,16 @@ public class GatewayConfig {
                 // Dynamic pricing (restaurant domain).
                 .route("pricing", r -> r.path(
                         "/api/v1/pricing/**").uri(restaurantUri))
+                // Chat support (engagement service): real-time messaging for order/delivery/support.
+                .route("chat", r -> r.path(
+                        "/api/v1/chat",
+                        "/api/v1/chat/**")
+                        .uri(growthUri))
+                // Anti-fraud engine (engagement service): fraud detection, case management.
+                .route("fraud", r -> r.path(
+                        "/api/v1/fraud",
+                        "/api/v1/fraud/**")
+                        .uri(growthUri))
                 // Admin-analytics service (P3): platform admin, fraud, feature
                 // flags, tenants, compliance, analytics exports.
                 // /api/v1/admin/affiliates/** is already captured by the referral

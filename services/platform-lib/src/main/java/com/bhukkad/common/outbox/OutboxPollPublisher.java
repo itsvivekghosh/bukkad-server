@@ -10,8 +10,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -286,8 +286,7 @@ public class OutboxPollPublisher {
      * reachable from tests, so every broker blip stranded rows forever).
      */
     public int recoverStale() {
-        LocalDateTime staleBefore = LocalDateTime.ofInstant(
-                Instant.now().minus(properties.processingTimeout()), ZoneId.systemDefault());
+        Instant staleBefore = Instant.now().minus(properties.processingTimeout());
         Integer recovered = transactionTemplate.execute(status -> repository.recoverStaleToPending(
                 staleBefore,
                 truncate("recovered from stalled PROCESSING", properties.maxErrorLength())));
@@ -306,19 +305,21 @@ public class OutboxPollPublisher {
 
     /** Mutable routing accumulator for a batch; entity refs kept for dead-letter copies. */
     private static final class Outcome {
-        final List<Long> published = new ArrayList<>();
-        final Map<RetryKey, List<Long>> retries = new LinkedHashMap<>();
-        final Map<String, List<Long>> deadByError = new LinkedHashMap<>();
-        final Map<String, List<OutboxEvent>> deadRowsByError = new LinkedHashMap<>();
+        // PERF-3: Pre-size collections based on batch size to avoid rehashing.
+        // Use HashMap instead of LinkedHashMap where insertion order is not needed.
+        final List<Long> published = new ArrayList<>(64);
+        final Map<RetryKey, List<Long>> retries = new HashMap<>(16);
+        final Map<String, List<Long>> deadByError = new HashMap<>(8);
+        final Map<String, List<OutboxEvent>> deadRowsByError = new HashMap<>(8);
 
         void retry(OutboxEvent event, String error, LocalDateTime nextAttemptAt) {
-            retries.computeIfAbsent(new RetryKey(nextAttemptAt, error), k -> new ArrayList<>())
-                    .add(event.getId());
+            retries.computeIfAbsent(new RetryKey(nextAttemptAt, error),
+                    k -> new ArrayList<>(4)).add(event.getId());
         }
 
         void dead(OutboxEvent event, String error) {
-            deadByError.computeIfAbsent(error, k -> new ArrayList<>()).add(event.getId());
-            deadRowsByError.computeIfAbsent(error, k -> new ArrayList<>()).add(event);
+            deadByError.computeIfAbsent(error, k -> new ArrayList<>(4)).add(event.getId());
+            deadRowsByError.computeIfAbsent(error, k -> new ArrayList<>(4)).add(event);
         }
     }
 

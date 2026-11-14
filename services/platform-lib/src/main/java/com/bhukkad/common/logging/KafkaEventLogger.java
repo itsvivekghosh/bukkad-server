@@ -29,14 +29,11 @@ public class KafkaEventLogger {
      */
     @KafkaListener(id = "kafka-event-logger",
             topics = {
-        "social.events.v1",
         "order.events.v1",
-        "payment.events.v1",
-        "delivery.events.v1",
         "restaurant.events.v1",
+        "identity.events.v1",
         "notification.events.v1",
-        "survey.events.v1",
-        "referral.events.v1"
+        "admin.events.v1"
     },
             groupId = "kafka-event-logger")
     public void logConsumedEvent(@Payload String event,

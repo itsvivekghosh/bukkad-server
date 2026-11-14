@@ -5,13 +5,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.QueryHint;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import com.bhukkad.common.datasource.Shard;
+import com.bhukkad.common.util.CursorUtils;
 import com.bhukkad.commerce.order.domain.entity.Order;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
@@ -21,9 +24,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Shard(key = "customerId")
     @Query("SELECT o FROM Order o WHERE o.customerId = :customerId ORDER BY o.id DESC")
+    @QueryHints(value = @QueryHint(name = "javax.persistence.query.fetch-size", value = "500"))
     List<Order> findByCustomerId(@Param("customerId") Long customerId);
 
     @Shard(key = "customerId")
+    @QueryHints(value = @QueryHint(name = "javax.persistence.query.fetch-size", value = "500"))
     List<Order> findByCustomerIdAndStatus(Long customerId, String status);
 
     Page<Order> findByRestaurantId(Long restaurantId, Pageable pageable);
@@ -34,8 +39,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findByDeliveryAgentId(Long deliveryAgentId, Pageable pageable);
 
+    @QueryHints(value = @QueryHint(name = "javax.persistence.query.fetch-size", value = "500"))
     List<Order> findByDeliveryAgentId(Long deliveryAgentId);
 
+    @QueryHints(value = @QueryHint(name = "javax.persistence.query.fetch-size", value = "500"))
     List<Order> findByStatus(String status);
 
     List<Order> findByStatusAndScheduledAtLessThanEqual(String status, LocalDateTime scheduledAt, Pageable pageable);
@@ -87,4 +94,64 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Order o SET o.updatedAt = :updatedAt WHERE o.id = :id")
     void updateUpdatedAt(@Param("id") Long id, @Param("updatedAt") LocalDateTime updatedAt);
+
+    /**
+     * Keyset (cursor) pagination for a customer's orders. Replaces offset-based
+     * {@code Pageable} so deep pages don't degrade to O(N) scans
+     * (audit P2-02 / SV-15). The cursor is an opaque base64 token produced by
+     * {@link CursorUtils#encode}; pass {@code null} for the first page.
+     *
+     * @param customerId the customer whose orders to list
+     * @param cursor     opaque cursor token, or {@code null} for page one
+     * @param pageSize   max rows to return (capped at {@code PageSizeInterceptor#MAX_PAGE_SIZE})
+     * @return the next page of orders, newest first
+     */
+    @Query(value = """
+            SELECT o FROM Order o
+            WHERE o.customerId = :customerId
+              AND (
+                :cursorCreatedAt IS NULL
+                OR o.createdAt < :cursorCreatedAt
+                OR (o.createdAt = :cursorCreatedAt AND o.id < :cursorId)
+              )
+            ORDER BY o.createdAt DESC, o.id DESC
+            """, countQuery = "SELECT COUNT(o) FROM Order o WHERE o.customerId = :customerId")
+    List<Order> findByCustomerIdCursor(
+            @Param("customerId") Long customerId,
+            @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
+            @Param("cursorId") Long cursorId);
+
+    /**
+     * Keyset (cursor) pagination for restaurant orders.
+     * Orders sorted by id ASC (oldest first) for kitchen queue display.
+     */
+    @Query(value = """
+            SELECT o FROM Order o
+            WHERE o.restaurantId = :restaurantId
+              AND (
+                :cursor IS NULL OR o.id > :cursor
+              )
+            ORDER BY o.id ASC
+            """)
+    List<Order> findByRestaurantIdCursor(
+            @Param("restaurantId") Long restaurantId,
+            @Param("cursor") Long cursor,
+            Pageable pageable);
+
+    /**
+     * Keyset (cursor) pagination for delivery agent orders.
+     * Orders sorted by id ASC (oldest first).
+     */
+    @Query(value = """
+            SELECT o FROM Order o
+            WHERE o.deliveryAgentId = :agentId
+              AND (
+                :cursor IS NULL OR o.id > :cursor
+              )
+            ORDER BY o.id ASC
+            """)
+    List<Order> findByDeliveryAgentIdCursor(
+            @Param("agentId") Long agentId,
+            @Param("cursor") Long cursor,
+            Pageable pageable);
 }

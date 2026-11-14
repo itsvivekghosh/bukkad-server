@@ -1,5 +1,7 @@
 package com.bhukkad.commerce.payment.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -10,6 +12,12 @@ import java.math.BigDecimal;
 import java.util.List;
 
 public interface RestaurantSettlementRepository extends JpaRepository<RestaurantSettlement, Long> {
+    Page<RestaurantSettlement> findByRestaurantId(Long restaurantId, Pageable pageable);
+
+    /**
+     * @deprecated Use {@link #findByRestaurantId(Long, Pageable)} instead for bounded results.
+     */
+    @Deprecated
     List<RestaurantSettlement> findByRestaurantId(Long restaurantId);
 
     /** Distinct restaurants holding settlement rows in the given status (automation scan). */

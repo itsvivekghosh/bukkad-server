@@ -18,6 +18,7 @@ server:
     include-message: never
     include-stacktrace: never
     include-binding-errors: never
+
 spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
@@ -27,32 +28,70 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+  # Startup optimizations
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+    allow-bean-definition-overriding: true
   task:
     scheduling:
       pool:
-        size: ${SCHEDULER_POOL_SIZE:4}
+        size: 8
+    execution:
+      pool:
+        core-size: 16
+        max-size: 64
+        queue-capacity: 2000
   datasource:
     url: ${CATALOG_DB_URL:jdbc:postgresql://localhost:5432/catalog}
     username: ${CATALOG_DB_USERNAME:app}
     password: ${CATALOG_DB_PASSWORD:app_pass}
     hikari:
-      maximum-pool-size: ${CATALOG_DB_POOL_SIZE:20}
-      minimum-idle: 8
-      connection-timeout: 3000
-      validation-timeout: 3000
+      maximum-pool-size: 200
+      minimum-idle: 50
+      leak-detection-threshold: 5000
+      connection-timeout: 5000
+      validation-timeout: 2000
       connection-test-query: SELECT 1
       keepalive-time: 300000
-      max-lifetime: 900000
+      max-lifetime: 1800000
+      initialization-fail-timeout: 0
+      auto-commit: false
+      pool-name: catalog-db
   jpa:
     hibernate:
       ddl-auto: none
+    repositories:
+      enabled: true
+      bootstrap-mode: deferred
     properties:
       hibernate:
-        jdbc.batch_size: 50
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 50
+          fetch_size: 50
+          time_zone: UTC
+          batch_versioned_data: true
         order_inserts: true
         order_updates: true
-        jdbc.batch_versioned_data: true
         query_plan_cache_size: 200
+        query_plan_cache_parameter_metadata_max_size: 20
+        temp:
+          use_jdbc_metadata_defaults: false
+        globally_quoted_identifiers: false
+        id:
+          new_generator_mappings: true
+        hbm2ddl:
+          auto: none
+        generate_statistics: false
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        connection:
+          provider_disables_autocommit: true
+        bytecode:
+          provider: bytebuddy
+          use_reflection_optimizer: true
     open-in-view: false
   flyway:
     enabled: true
@@ -70,64 +109,62 @@ spring:
       database: ${REDIS_DATABASE:0}
       timeout: 2000
       connect-timeout: 3000
+      repositories:
+        enabled: true
+        bootstrap-mode: deferred
       lettuce:
         pool:
           enabled: true
-          max-active: 64
-          min-idle: 8
-          max-idle: 32
-          max-wait: 5s
-      # Redis Sentinel / Cluster are intentionally NOT declared here.
-      # Spring Boot activates Sentinel auto-configuration from the mere
-      # PRESENCE of spring.data.redis.sentinel.master, so an env-var stub with
-      # an empty default switched Sentinel on permanently and every eager
-      # context build died with "Sentinel Master Id must not be null or empty"
-      # (the local profile masked it via spring.main.lazy-initialization).
-      # HA deployments must supply these in their own profile instead.
+          max-active: 200
+          min-idle: 50
+          max-idle: 100
+          max-wait: 5000ms
   autoconfigure:
     exclude:
-    - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
-    - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
-    - org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration
-    - org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
-    - org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+      - org.springframework.boot.autoconfigure.jms.JmsAutoConfiguration
+      - org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
+      - org.springframework.boot.autoconfigure.webservices.WebServicesAutoConfiguration
   banner:
     location: classpath:banner.txt
     charset: UTF-8
+
 management:
-  metrics:
-    enable:
-      jdbc: false
-      hibernate: false
-      lettuce: false
-      reactor.netty: false
-  tracing:
-    sampling:
-      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
-  zipkin:
-    tracing:
-      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info
+    jmx:
+      exposure:
+        exclude: "*"
   endpoint:
     health:
-      show-details: always
       probes:
         enabled: true
+      show-details: never
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+    enable:
+      jvm: false
+      process: false
+      system: false
   health:
-    # Elasticsearch is an ACCELERATOR here, not the source of truth: search
-    # falls back to the Postgres menu_item_search / restaurant_search tables
-    # (V1__baseline). Spring Boot auto-configures an ES health contributor from
-    # the elasticsearch-java client on the classpath and probes
-    # localhost:9200, so with no cluster running the whole catalog service
-    # reported DOWN and a readiness probe would pull it out of rotation —
-    # taking the restaurant/menu APIs offline over a degraded search index.
-    # Gate the contributor with the feature flag instead: turn it back on only
-    # where a real cluster is deployed and is meant to be a hard dependency.
-    elasticsearch:
-      enabled: false
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    defaults:
+      enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+
 resilience4j:
   circuitbreaker:
     configs:
@@ -137,13 +174,11 @@ resilience4j:
         sliding-window-size: 100
         permitted-number-of-calls-in-half-open-state: 5
         record-exceptions:
-        - java.io.IOException
-        - java.util.concurrent.TimeoutException
-        - org.springframework.data.redis.RedisConnectionFailureException
-        - java.lang.RuntimeException
-logging:
-  level:
-    com.bhukkad: INFO
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.data.redis.RedisConnectionFailureException
+          - java.lang.RuntimeException
+
 app:
   datasource:
     read-replica:
@@ -152,22 +187,17 @@ app:
       username: ${DB_USERNAME:app}
       password: ${DB_PASSWORD:app_pass}
       hikari:
-        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
-        minimum-idle: 2
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:10}
+        minimum-idle: 5
         connection-timeout: 3000
         validation-timeout: 3000
         connection-test-query: SELECT 1
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+        auto-commit: false
   environment: production
-  # NOTE the singular "service" key: SearchSourceClient injects
-  # ${app.service.restaurant-url}. It was nested under "services:" by mistake,
-  # so the placeholder never resolved and startup aborted with
-  # "Could not resolve placeholder 'app.service.restaurant-url'".
   service:
-    # Intra-catalog address used by SearchSourceClient. After the
-    # restaurant+search+personalization merge this is the same application.
     restaurant-url: ${APP_SERVICE_RESTAURANT_URL:http://localhost:8081}
     commerce:
       url: ${COMMERCE_SERVICE_URL:http://localhost:8080}
@@ -178,10 +208,10 @@ app:
   auth:
     jwt:
       secret: ${JWT_SECRET:}
-      jwks-url: ${JWKS_URL:http://identity:8081/.well-known/jwks.json}
+      jwks-url: ${JWKS_URL:http://identity:8080/.well-known/jwks.json}
       issuer: ${JWT_ISSUER:}
       audience: ${JWT_AUDIENCE:}
-      hmac-grace-enabled: false
+      hmac-grace-enabled: ${HMAC_GRACE_ENABLED:true}
     service:
       jwt-secret: ${SERVICE_JWT_SECRET:}
       allowed-services: ${SERVICE_ALLOWED_SERVICES:gateway,identity,catalog,commerce,engagement,admin}
@@ -191,7 +221,7 @@ app:
       enabled: true
       type: kafka
       kafka:
-        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+        bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
         consumer-group: ${KAFKA_CONSUMER_GROUP:catalog-platform-consumer}
         platform-topic: restaurant.events.v1
         dlq-topic: restaurant.events.v1.dlt
@@ -199,17 +229,10 @@ app:
           acks: all
           retries: 10
           max-in-flight-requests-per-connection: 5
-          linger-ms: 5
+          linger-ms: 20
           batch-size: 16384
           compression-type: lz4
-        # NOTE: these bind DIRECTLY under app.events.external.kafka — the
-        # KafkaPlatformProperties.Kafka record has maxPollRecords /
-        # sessionTimeoutMs / heartbeatIntervalMs / maxPollIntervalMs /
-        # listenerConcurrency as flat fields. They used to sit under a
-        # `consumer:` sub-block, which Spring silently ignored, leaving the
-        # int fields at 0; Kafka then refused to start the listener registry
-        # with "Invalid value 0 for configuration max.poll.records".
-        max-poll-records: 1000
+        max-poll-records: 200
         session-timeout-ms: 30000
         heartbeat-interval-ms: 10000
         max-poll-interval-ms: 300000
@@ -220,7 +243,7 @@ app:
           max-fetch-records: 100
   rate-limit:
     enabled: true
-    fail-open-on-redis-error: true
+    fail-open-on-redis-error: false  # CR-09: Fail-closed by default
     buckets:
       search:
         limit: 60
@@ -236,59 +259,228 @@ app:
       gold: 3.0
       platinum: 4.0
       free: 1.0
-main:
-  lazy-initialization: true
-  banner-mode: 'off'
-jpa:
-  open-in-view: false
-  properties:
-    hibernate.jdbc.batch_size: 20
-    hibernate.order_inserts: true
-    hibernate.order_updates: true
-    hibernate.jdbc.fetch_size: 50
-flyway:
-  baseline-on-migrate: true
 
-# AWS SDK v2 - Floci-compatible AWS service integration
-aws:
-  region: us-east-1
-  access-key: test
-  secret-key: test
-  endpoint: http://floci:4566
-
+# -----------------------------------------------------------------------------
+# PROFILE: LOCAL (development)
+# -----------------------------------------------------------------------------
+---
 spring:
-  cloud:
-    aws:
-      region:
-        static: us-east-1
-      credentials:
-        access-key: test
-        secret-key: test
-      s3:
-        bucket: bhukkad-menu-images
-      dynamodb:
-        table-name: bhukkad-catalog-items
-      sqs:
-        queue-name: bhukkad-catalog-events
-      sns:
-        topic-name: bhukkad-catalog-events
-      secretsmanager:
-        prefix: bhukkad/catalog/
-      kms:
-        key-alias: bhukkad-catalog-key
+  config:
+    activate:
+      on-profile: local
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+  flyway:
+    validate-on-migrate: false
+    baseline-on-migrate: true
+    out-of-order: true
+  cache:
+    type: none
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 10
+      auto-commit: false
+  data:
+    redis:
+      ssl:
+        enabled: false
 
-# AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
-aws:
-  region: us-east-1
-  access-key: test
-  secret-key: test
-  endpoint: http://floci:4566
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,beans,configprops
+  endpoint:
+    health:
+      show-details: always
 
+logging:
+  level:
+    root: INFO
+    com.bhukkad: DEBUG
+    org.springframework.web: DEBUG
+
+# =============================================================================
+# PROFILE: PROD (production)
+# =============================================================================
+---
 spring:
-  cloud:
-    aws:
-      region:
-        static: us-east-1
-      credentials:
-        access-key: test
-        secret-key: test
+  config:
+    activate:
+      on-profile: prod
+  main:
+    lazy-initialization: false
+    banner-mode: "off"
+  flyway:
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    out-of-order: false
+    clean-disabled: true
+  datasource:
+    hikari:
+      maximum-pool-size: 200
+      minimum-idle: 50
+      leak-detection-threshold: 5000
+      connection-timeout: 5000
+      validation-timeout: 2000
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+      keepalive-time: 300000
+      auto-commit: false
+      pool-name: catalog-db
+    read-replica:
+      enabled: true
+      url: ${DB_REPLICA_URL:}
+      username: ${DB_USERNAME:app}
+      password: ${DB_PASSWORD:app_pass}
+      hikari:
+        maximum-pool-size: 100
+        minimum-idle: 20
+        connection-timeout: 5000
+        validation-timeout: 2000
+        connection-test-query: SELECT 1
+        idle-timeout: 600000
+        max-lifetime: 1800000
+        read-only: true
+        auto-commit: false
+        pool-name: catalog-read-replica
+  data:
+    redis:
+      repositories:
+        enabled: true
+        bootstrap-mode: deferred
+      lettuce:
+        pool:
+          max-active: 200
+          min-idle: 50
+          max-idle: 100
+          max-wait: 5000ms
+        shutdown-timeout: 100ms
+        timeout: 5000ms
+      ssl:
+        enabled: true
+  cache:
+    type: redis
+  server:
+    tomcat:
+      max-threads: 400
+      min-spare-threads: 10
+      accept-count: 100
+      accesslog:
+        enabled: true
+        directory: logs
+        pattern: common
+        prefix: access_log
+        suffix: .log
+  task:
+    execution:
+      pool:
+        core-size: 8
+        max-size: 16
+        queue-capacity: 1000
+    scheduling:
+      pool:
+        size: 4
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    enable:
+      hikaricp: true
+      lettuce: true
+      jvm: true
+      process: true
+      system: true
+
+logging:
+  level:
+    root: WARN
+    com.bhukkad: INFO
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+
+app:
+  mtls:
+    enabled: true
+    keystore: /etc/tls/keystore.p12
+    keystore-password: ${MTLS_KEYSTORE_PASSWORD:}
+    truststore: /etc/tls/truststore.p12
+    truststore-password: ${MTLS_TRUSTSTORE_PASSWORD:}
+
+# =============================================================================
+# PROFILE: UAT (User Acceptance Testing)
+# =============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: uat
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+  flyway:
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    out-of-order: true
+    clean-disabled: true
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      auto-commit: false
+  data:
+    redis:
+      repositories:
+        enabled: true
+        bootstrap-mode: deferred
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 4
+          min-idle: 2
+  cache:
+    type: redis
+  server:
+    tomcat:
+      max-threads: 200
+      min-spare-threads: 5
+  task:
+    execution:
+      pool:
+        core-size: 16
+        max-size: 64
+        queue-capacity: 2000
+    scheduling:
+      pool:
+        size: 8
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,beans,configprops
+  endpoint:
+    health:
+      show-details: when_authorized
+
+logging:
+  level:
+    root: INFO
+    com.bhukkad: DEBUG

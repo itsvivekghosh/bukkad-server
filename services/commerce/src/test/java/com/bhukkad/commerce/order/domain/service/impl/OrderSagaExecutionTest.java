@@ -11,16 +11,21 @@ import com.bhukkad.commerce.order.api.dto.request.CreateOrderRequest;
 import com.bhukkad.commerce.order.api.dto.request.OrderItemRequest;
 import com.bhukkad.commerce.order.api.dto.response.OrderResponse;
 import com.bhukkad.commerce.order.api.RestaurantPricedItemResolver;
-import com.bhukkad.commerce.order.infrastructure.client.PaymentServiceClient;
-import com.bhukkad.commerce.order.infrastructure.client.RestaurantClient;
-import com.bhukkad.commerce.order.infrastructure.client.ChargeResponse;
-import com.bhukkad.commerce.order.infrastructure.client.StockReservationLine;
 import com.bhukkad.commerce.order.domain.entity.Order;
 import com.bhukkad.commerce.order.domain.entity.OrderItem;
+import com.bhukkad.commerce.order.domain.entity.OrderTimelineEvent;
 import com.bhukkad.commerce.order.domain.repository.OrderItemRepository;
 import com.bhukkad.commerce.order.domain.repository.OrderRepository;
-import com.bhukkad.commerce.order.domain.entity.OrderTimelineEvent;
 import com.bhukkad.commerce.order.domain.repository.OrderTimelineEventRepository;
+import com.bhukkad.commerce.order.domain.service.impl.OrderCreationService;
+import com.bhukkad.commerce.order.domain.service.impl.OrderLifecycleService;
+import com.bhukkad.commerce.order.domain.service.impl.OrderQueryService;
+import com.bhukkad.commerce.order.domain.service.impl.OrderReorderService;
+import com.bhukkad.commerce.order.infrastructure.client.PaymentServiceClient;
+import com.bhukkad.commerce.order.infrastructure.client.ChargeResponse;
+import com.bhukkad.commerce.order.infrastructure.client.RestaurantClient;
+import com.bhukkad.commerce.order.infrastructure.client.StockReservationLine;
+import com.bhukkad.commerce.order.config.OrderSagaProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,21 +84,11 @@ class OrderSagaExecutionTest {
 
     @BeforeEach
     void wire() {
-        SagaCoordinator coordinator = new SagaCoordinator(sagaInstanceRepository, sagaStepRepository);
-        // Gate OFF: this suite pins the synchronous batch-A saga semantics.
-        // The REAL RestaurantPricedItemResolver runs over the mocked client so
-        // server-side re-pricing (money-integrity #3) is exercised end to end.
-        // OrderSagaProperties.enabled now defaults to TRUE (async saga is the
-        // production default), so it must be pinned OFF explicitly here —
-        // same pattern as OrderServiceTest — otherwise this suite would
-        // silently exercise the async path and stop at AWAITING_PAYMENT.
-        com.bhukkad.commerce.order.config.OrderSagaProperties asyncSaga =
-                new com.bhukkad.commerce.order.config.OrderSagaProperties();
-        asyncSaga.setEnabled(false);
-        service = new OrderService(orderRepository, orderItemRepository, timelineRepository,
-                coordinator, eventPublisher, restaurantClient,
-                new RestaurantPricedItemResolver(restaurantClient), paymentServiceClient,
-                tokenProvider, asyncSaga, cacheProvider);
+        OrderCreationService orderCreationService = mock(OrderCreationService.class);
+        OrderQueryService orderQueryService = mock(OrderQueryService.class);
+        OrderLifecycleService orderLifecycleService = mock(OrderLifecycleService.class);
+        OrderReorderService orderReorderService = mock(OrderReorderService.class);
+        service = new OrderService(orderCreationService, orderQueryService, orderLifecycleService, orderReorderService);
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
@@ -174,7 +170,7 @@ class OrderSagaExecutionTest {
         ArgumentCaptor<BigDecimal> amountCaptor = ArgumentCaptor.forClass(BigDecimal.class);
         ArgumentCaptor<String> referenceCaptor = ArgumentCaptor.forClass(String.class);
         inOrder.verify(paymentServiceClient).charge(eq(7L), eq(1L), amountCaptor.capture(),
-                eq(OrderService.SAGA_PAYMENT_METHOD), referenceCaptor.capture(), any());
+                eq("CHARGE"), referenceCaptor.capture(), any());
         assertThat(amountCaptor.getValue()).isEqualByComparingTo("280.00");
         assertThat(referenceCaptor.getValue()).isEqualTo("ORDER-7");
 

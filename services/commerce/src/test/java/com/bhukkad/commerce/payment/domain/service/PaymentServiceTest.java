@@ -3,6 +3,7 @@ package com.bhukkad.commerce.payment.domain.service;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.DuplicateRequestException;
 import com.bhukkad.common.error.PaymentGatewayException;
+import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.idempotency.IdempotencyRecord;
 import com.bhukkad.common.idempotency.IdempotencyRecordRepository;
 import com.bhukkad.common.outbox.OutboxClient;
@@ -11,12 +12,15 @@ import com.bhukkad.commerce.payment.domain.repository.PaymentRepository;
 import com.bhukkad.commerce.payment.infrastructure.client.PaymentGateway;
 import com.bhukkad.commerce.payment.infrastructure.persistence.PaymentScopeIdempotencyRepository;
 import io.micrometer.core.instrument.MeterRegistry;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -43,6 +47,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,14 +59,13 @@ import static org.mockito.Mockito.when;
  * for top-up AFTER the settled commit; METHOD_WALLET order debit inside the
  * settle tx), and replay returning the stored payload without re-charging.
  */
+@Slf4j
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class PaymentServiceTest {
 
     @Mock private PaymentRepository paymentRepository;
     @Mock private WalletService walletService;
-    @Mock private IdempotencyRecordRepository idempotencyRepository;
-    @Mock private PaymentScopeIdempotencyRepository paymentScopeIdempotencyRepository;
     @Mock private OutboxClient outboxClient;
     @Mock private PaymentGateway paymentGateway;
     @Mock private PaymentService.PaymentPropertiesGateway currencyResolver;
@@ -70,23 +74,39 @@ class PaymentServiceTest {
     @Mock private ObjectProvider<MeterRegistry> meterRegistryProvider;
 
     private PaymentService service;
+    private IdempotencyRecordRepository idempotencyRepository;
+    private PaymentScopeIdempotencyRepository paymentScopeIdempotencyRepository;
 
-    private static final String KEY = "key-1";
+    private static int keyCounter = 0;
+
+    private String nextKey() {
+        return "key-" + (++keyCounter);
+    }
+
+    private String KEY;
 
     @BeforeEach
     void setUp() {
+        KEY = nextKey();
         lenient().when(currencyResolver.currency()).thenReturn("INR");
         lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class)))
                 .thenReturn(new SimpleTransactionStatus());
         lenient().when(meterRegistryProvider.getIfAvailable()).thenReturn(null);
+        lenient().when(orderAmountResolver.authoritativeTotal(anyLong()))
+                .thenReturn(Optional.of(new BigDecimal("100.00")));
         service = new PaymentService(paymentRepository, walletService, idempotencyRepository,
                 paymentScopeIdempotencyRepository, outboxClient, paymentGateway,
                 currencyResolver, orderAmountResolver, transactionManager, meterRegistryProvider);
     }
 
+    @AfterEach
+    void tearDown() {
+        Mockito.reset(idempotencyRepository, paymentScopeIdempotencyRepository);
+    }
+
     private void freshClaim() {
         lenient().when(idempotencyRepository.insertIfAbsent(
-                        eq(KEY), eq(PaymentService.SCOPE_PAYMENT_CHARGE), eq(1L), anyString(),
+                        eq(PaymentService.SCOPE_PAYMENT_CHARGE), eq(KEY), anyLong(), anyString(),
                         isNull(), any())).thenReturn(1);
         lenient().when(paymentScopeIdempotencyRepository.findStatus(
                         PaymentService.SCOPE_PAYMENT_CHARGE, KEY)).thenReturn(Optional.empty());
@@ -120,7 +140,7 @@ class PaymentServiceTest {
 
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("100.00")));
-        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY);
+        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY).block();
 
         assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
         assertThat(payment.getProviderRef()).isEqualTo("pay_1");
@@ -143,7 +163,7 @@ class PaymentServiceTest {
         when(paymentGateway.authorize(1L, 1L, new BigDecimal("100.00"), "INR"))
                 .thenReturn(Mono.just(PaymentGateway.GatewayResult.ok("pay_1", "order_1")));
 
-        service.processPayment(0L, 1L, new BigDecimal("100.00"), "UPI", KEY);
+        service.processPayment(0L, 1L, new BigDecimal("100.00"), "UPI", KEY).block();
 
         InOrder order = inOrder(outboxClient, walletService);
         // The payment_settled outbox enqueue (inside the settle tx) precedes
@@ -161,7 +181,7 @@ class PaymentServiceTest {
 
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("40.00")));
-        service.processPayment(10L, 1L, new BigDecimal("40.00"), Payment.METHOD_WALLET, KEY);
+        service.processPayment(10L, 1L, new BigDecimal("40.00"), Payment.METHOD_WALLET, KEY).block();
 
         verify(walletService).debit(1L, new BigDecimal("40.00"), "PAYMENT-1");
         verify(walletService, never()).credit(anyLong(), any(), anyString());
@@ -183,7 +203,7 @@ class PaymentServiceTest {
 
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("100.00")));
-        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY);
+        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY).block();
 
         assertThat(payment.getId()).isEqualTo(5L);
         verify(paymentGateway, never()).authorize(anyLong(), anyLong(), any(), anyString());
@@ -204,7 +224,7 @@ class PaymentServiceTest {
 
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("100.00")));
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY).block())
                 .isInstanceOf(DuplicateRequestException.class);
         verify(paymentGateway, never()).authorize(anyLong(), anyLong(), any(), anyString());
     }
@@ -221,7 +241,7 @@ class PaymentServiceTest {
 
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("100.00")));
-        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY);
+        Payment payment = service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY).block();
 
         assertThat(payment.getId()).isEqualTo(7L);
         verify(paymentGateway, never()).authorize(anyLong(), anyLong(), any(), anyString());
@@ -235,7 +255,7 @@ class PaymentServiceTest {
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("398.00")));
 
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("1.00"), "UPI", KEY))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("1.00"), "UPI", KEY).block())
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("does not match the order total");
 
@@ -250,7 +270,7 @@ class PaymentServiceTest {
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("398.00")));
 
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("9999.00"), "UPI", KEY))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("9999.00"), "UPI", KEY).block())
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("does not match the order total");
 
@@ -263,7 +283,7 @@ class PaymentServiceTest {
         persistAssignsIds();
         lenient().when(orderAmountResolver.authoritativeTotal(10L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY).block())
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("order not found");
 
@@ -278,7 +298,7 @@ class PaymentServiceTest {
                 .thenReturn(Mono.just(PaymentGateway.GatewayResult.ok("SIM-REF", "upi")));
 
         // orderId 0 => wallet top-up; there is no order total to reconcile.
-        Payment payment = service.processPayment(0L, 1L, new BigDecimal("100.00"), "UPI", KEY);
+        Payment payment = service.processPayment(0L, 1L, new BigDecimal("100.00"), "UPI", KEY).block();
 
         assertThat(payment.getStatus()).isEqualTo(Payment.STATUS_SETTLED);
         verify(orderAmountResolver, never()).authoritativeTotal(anyLong());
@@ -286,7 +306,7 @@ class PaymentServiceTest {
 
     private IdempotencyRecord completedLegacy() {
         IdempotencyRecord record = new IdempotencyRecord();
-        record.setIdempotencyKey(KEY);
+        record.setIdempotencyKey("key-1");
         record.setScope(IdempotencyRecord.IdempotencyScope.PAYMENT_PROCESS);
         record.setStatus(IdempotencyRecord.IdempotencyStatus.COMPLETED);
         record.setResponsePayload("{\"paymentId\":7}");
@@ -302,7 +322,7 @@ class PaymentServiceTest {
 
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("100.00")));
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("100.00"), "UPI", KEY).block())
                 .isInstanceOf(PaymentGatewayException.class)
                 .hasMessageContaining("declined");
 
@@ -324,7 +344,7 @@ class PaymentServiceTest {
                 .thenReturn(Optional.of(new BigDecimal("200.00")));
 
         assertThatThrownBy(() -> service.processPaymentRequested(10L, 1L,
-                new BigDecimal("200.00"), "INR", KEY))
+                new BigDecimal("200.00"), "INR", KEY).block())
                 .isInstanceOf(PaymentGatewayException.class);
 
         ArgumentCaptor<com.bhukkad.common.event.PlatformEventMessage> event =
@@ -338,7 +358,7 @@ class PaymentServiceTest {
     @Test
     void processPaymentRequested_unsupportedCurrency_failsWithoutCharging() {
         assertThatThrownBy(() -> service.processPaymentRequested(10L, 1L,
-                new BigDecimal("100.00"), "USD", KEY))
+                new BigDecimal("100.00"), "USD", KEY).block())
                 .isInstanceOf(PaymentGatewayException.class)
                 .hasMessageContaining("Unsupported currency");
 
@@ -349,7 +369,7 @@ class PaymentServiceTest {
     void processPayment_negativeAmount_throws() {
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("-40.00")));
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("-40.00"), "UPI", KEY))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("-40.00"), "UPI", KEY).block())
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("positive");
         verify(paymentGateway, never()).authorize(anyLong(), anyLong(), any(), anyString());
@@ -359,7 +379,7 @@ class PaymentServiceTest {
     void processPayment_blankIdempotencyKey_throws() {
         lenient().when(orderAmountResolver.authoritativeTotal(10L))
                 .thenReturn(Optional.of(new BigDecimal("40.00")));
-        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("40.00"), "UPI", " "))
+        assertThatThrownBy(() -> service.processPayment(10L, 1L, new BigDecimal("40.00"), "UPI", " ").block())
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Idempotency key");
     }

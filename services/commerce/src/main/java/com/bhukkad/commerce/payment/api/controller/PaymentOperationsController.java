@@ -1,4 +1,4 @@
-package com.bhukkad.commerce.payment.api;
+package com.bhukkad.commerce.payment.api.controller;
 
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.commerce.payment.domain.entity.CommissionTier;

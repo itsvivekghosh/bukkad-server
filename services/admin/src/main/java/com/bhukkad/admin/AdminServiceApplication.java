@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import com.bhukkad.admin.analytics.config.ComplianceProperties;
 import com.bhukkad.admin.analytics.config.ExperimentProperties;
 import com.bhukkad.admin.analytics.config.FeatureFlagProperties;
@@ -26,6 +27,7 @@ import com.bhukkad.common.security.ServiceAuthProperties;
     exclude = {KafkaAutoConfiguration.class}
 )
 @ComponentScan(basePackages = {"com.bhukkad.admin", "com.bhukkad.common"})
+@EnableScheduling
 // Scoped to the platform-lib slices admin actually persists. Listing all of
 // "com.bhukkad.common" here also registered every platform-lib component into
 // @DataJpaTest slices, which provide no MeterRegistry/RestClient and then

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 
 import com.bhukkad.commerce.payment.api.dto.request.PaymentRequest;
 import com.bhukkad.commerce.payment.api.dto.response.PaymentResponse;
@@ -15,6 +16,7 @@ import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,12 +39,13 @@ class PaymentControllerTest {
         payment.setCustomerId(2L);
         payment.setAmount(new BigDecimal("100.00"));
         payment.setStatus(Payment.STATUS_SETTLED);
-        when(paymentService.processPayment(10L, 2L, new BigDecimal("100.00"), "UPI", "idem-1"))
-                .thenReturn(payment);
+        doReturn(Mono.just(payment))
+                .when(paymentService)
+                .processPayment(10L, 2L, new BigDecimal("100.00"), "UPI", "idem-1");
         PaymentResponse response = PaymentResponse.builder()
                 .id(1L).orderId(10L).customerId(2L)
                 .amount(new BigDecimal("100.00")).status(Payment.STATUS_SETTLED).build();
-        when(paymentMapper.toPaymentResponse(payment)).thenReturn(response);
+        doReturn(response).when(paymentMapper).toPaymentResponse(payment);
 
         PaymentRequest request = new PaymentRequest();
         request.setOrderId(10L);
@@ -51,7 +54,6 @@ class PaymentControllerTest {
         request.setCurrency("INR");
         request.setPaymentMethod("UPI");
 
-        // The body customerId is IGNORED; payer = JWT subject (IDOR guard).
         PaymentResponse result = controller.pay(principal(2L), request, "idem-1").block();
 
         assertThat(result.getId()).isEqualTo(1L);
@@ -77,7 +79,7 @@ class PaymentControllerTest {
         payment.setCustomerId(2L);
         when(paymentService.getPayment(5L)).thenReturn(payment);
         PaymentResponse response = PaymentResponse.builder().id(5L).build();
-        when(paymentMapper.toPaymentResponse(payment)).thenReturn(response);
+        doReturn(response).when(paymentMapper).toPaymentResponse(payment);
 
         assertThat(controller.get(principal(2L), 5L).getId()).isEqualTo(5L);
     }

@@ -1,0 +1,178 @@
+# Chaos Mesh experiments for the Bhukkad backend platform.
+#
+# This file combines all scheduled chaos experiments into a single manifest,
+# separated by YAML document markers ("---"). Each experiment targets the
+# bhukkad namespace and runs on a fixed cron schedule.
+#
+# Experiments included:
+#   1. redis-outage          - PodChaos    - kills one Redis pod for 30s        (every 2 hours)
+#   2. db-failover           - PodChaos    - kills the PostgreSQL pod for 30s   (every 3 hours)
+#   3. kafka-partition-loss  - NetworkChaos - partitions Kafka brokers for 60s   (every 4 hours)
+#   4. upstream-latency      - NetworkChaos - adds 200ms latency to engagement  (every 1 hour)
+#
+# Apply all experiments at once:
+#   kubectl apply -f k8s/chaos/chaos-experiments.yaml
+#
+# Apply a single experiment from this file:
+#   kubectl apply -f k8s/chaos/redis-outage.yaml
+#
+# Note: Chaos Mesh must be installed in the cluster before these resources are
+# created. The scheduler runs each experiment according to its cron expression;
+# set `deadline` to limit how long Chaos Mesh keeps retrying a missed run.
+
+# =============================================================================
+# Experiment 1: redis-outage
+# Scenario: Simulate a Redis cache outage to validate cache fallback,
+#           circuit-breaker behavior, and graceful degradation.
+# Target:   bhukkad-redis StatefulSet (component: redis)
+# Action:   pod-kill (mode: one)
+# Duration: 30 seconds
+# Schedule: every 2 hours  -> cron "0 */2 * * *"
+# Severity: medium
+# =============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: redis-outage
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: redis-outage
+  annotations:
+    bhukkad.scenario: "redis-outage"
+    bhukkad.description: "Simulates a Redis cache outage by killing one Redis pod for 30 seconds. Validates cache fallback to the database, circuit-breaker behavior, and graceful degradation of read paths that depend on the cache."
+    bhukkad.severity: "medium"
+    bhukkad.target: "bhukkad-redis StatefulSet (component: redis)"
+    bhukkad.recovery: "The killed pod is recreated by the StatefulSet controller; clients should fall back to the DB or serve stale cache until the pod is back."
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: redis
+  duration: "30s"
+  schedule: "0 */2 * * *"
+  deadline: 1h
+---
+# =============================================================================
+# Experiment 2: db-failover
+# Scenario: Simulate a PostgreSQL primary outage to validate failover to the
+#           read replica, PgBouncer reconnection, and application retry logic.
+# Target:   bhukkad-postgresql Deployment (component: postgres)
+# Action:   pod-kill (mode: one)
+# Duration: 30 seconds
+# Schedule: every 3 hours  -> cron "0 */3 * * *"
+# Severity: high
+# =============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: db-failover
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: db-failover
+  annotations:
+    bhukkad.scenario: "db-failover"
+    bhukkad.description: "Simulates a PostgreSQL primary outage by killing the PostgreSQL pod for 30 seconds. Validates failover to the read replica, PgBouncer reconnection, and application retry/backoff logic when the database is temporarily unavailable."
+    bhukkad.severity: "high"
+    bhukkad.target: "bhukkad-postgresql Deployment (component: postgres)"
+    bhukkad.recovery: "Kubernetes restarts the pod; PgBouncer and the application should reconnect and fail over to the healthy replica."
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: postgres
+  duration: "30s"
+  schedule: "0 */3 * * *"
+  deadline: 2h
+---
+# =============================================================================
+# Experiment 3: kafka-partition-loss
+# Scenario: Partition the Kafka (Redpanda) broker network from engagement
+#           clients to validate reconnect logic, leader re-election, and
+#           message replay once the partition heals.
+# Target:   redpanda brokers (component: redpanda) <-> engagement clients
+#           (component: engagement)
+# Action:   partition (mode: all, direction: both)
+# Duration: 60 seconds
+# Schedule: every 4 hours  -> cron "0 */4 * * *"
+# Severity: high
+# =============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: kafka-partition-loss
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: kafka-partition-loss
+  annotations:
+    bhukkad.scenario: "kafka-partition-loss"
+    bhukkad.description: "Partitions the Kafka (Redpanda) broker network from engagement clients for 60 seconds. Validates producer/consumer reconnect logic, leader re-election across brokers, and message replay once the partition heals."
+    bhukkad.severity: "high"
+    bhukkad.target: "redpanda brokers (component: redpanda) <-> engagement clients (component: engagement)"
+    bhukkad.recovery: "The network partition is lifted after 60s; brokers re-elect leaders and clients re-establish their connections."
+spec:
+  action: partition
+  mode: all
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: redpanda
+  partition:
+    target:
+      labelSelectors:
+        app: bhukkad
+        component: engagement
+    direction: both
+  duration: "60s"
+  schedule: "0 */4 * * *"
+  deadline: 2h
+---
+# =============================================================================
+# Experiment 4: upstream-latency
+# Scenario: Inject network latency into engagement service pods to validate
+#           upstream timeout handling, retry with backoff, and fallback
+#           behavior when a downstream dependency responds slowly.
+# Target:   bhukkad-engagement pods (component: engagement)
+# Action:   delay (mode: all)
+# Latency:  200ms (correlation 100)
+# Duration: 2 minutes
+# Schedule: every 1 hour   -> cron "0 * * * *"
+# Severity: medium
+# =============================================================================
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: upstream-latency
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: upstream-latency
+  annotations:
+    bhukkad.scenario: "upstream-latency"
+    bhukkad.description: "Injects 200ms of network latency into engagement service pods. Validates upstream timeout handling, retry with backoff, and fallback behavior when a downstream dependency responds slowly."
+    bhukkad.severity: "medium"
+    bhukkad.target: "bhukkad-engagement pods (component: engagement)"
+    bhukkad.recovery: "Injected latency is removed after the duration; traffic returns to normal latency."
+spec:
+  action: delay
+  mode: all
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: engagement
+  delay:
+    latency: "200ms"
+    correlation: 100
+  duration: "2m"
+  schedule: "0 * * * *"
+  deadline: 1h

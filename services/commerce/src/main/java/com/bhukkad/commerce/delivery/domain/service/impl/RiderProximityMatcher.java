@@ -78,6 +78,9 @@ public class RiderProximityMatcher {
         int cap = properties.getMaxActiveAssignments();
         Long bestAgentId = null;
         double bestKm = Double.MAX_VALUE;
+        // OPT-047: Early exit optimization - when a very close rider is found
+        // (< 0.5 km), stop searching further as it's unlikely a closer rider exists
+        final double EARLY_EXIT_KM = 0.5;
         for (Long agentId : agentIds) {
             if (loads.getOrDefault(agentId, 0L) >= cap) {
                 continue; // at capacity — never starve others into over-load
@@ -88,6 +91,12 @@ public class RiderProximityMatcher {
             if (km < bestKm) {
                 bestKm = km;
                 bestAgentId = agentId;
+                // Early exit: if very close rider found, stop scanning
+                if (bestKm <= EARLY_EXIT_KM) {
+                    log.debug("GEO_MATCH_EARLY_EXIT | agentId={} | km={}",
+                            bestAgentId, bestKm);
+                    break;
+                }
             }
         }
         if (bestAgentId == null) {

@@ -26,13 +26,16 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.redpanda.RedpandaContainer;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -90,8 +93,17 @@ class OutboxPollPublisherIntegrationTest extends AbstractPostgresIntegrationTest
 
     @BeforeEach
     void clean() {
-        jdbcTemplate.update("DELETE FROM outbox_events");
-        jdbcTemplate.update("DELETE FROM dead_letter_events");
+        // Run in an independent transaction (REQUIRES_NEW) so the DELETE commits
+        // instead of being rolled back with the @DataJpaTest @Transactional
+        // transaction after each test method. Otherwise rows from prior
+        // integration-test classes leak into this one.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        tx.execute(status -> {
+            jdbcTemplate.update("DELETE FROM outbox_events");
+            jdbcTemplate.update("DELETE FROM dead_letter_events");
+            return null;
+        });
     }
 
     @Test

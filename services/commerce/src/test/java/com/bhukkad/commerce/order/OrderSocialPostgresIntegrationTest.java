@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 
@@ -82,6 +83,6 @@ class OrderSocialPostgresIntegrationTest extends AbstractOrderPostgresTest {
         sub.setStatus(Subscription.STATUS_ACTIVE);
         subscriptionRepository.saveAndFlush(sub);
 
-        assertThat(subscriptionRepository.findByCustomerIdAndStatus(1L, Subscription.STATUS_ACTIVE)).hasSize(1);
+        assertThat(subscriptionRepository.findByCustomerIdAndStatus(1L, Subscription.STATUS_ACTIVE, PageRequest.of(0, 10))).hasSize(1);
     }
 }

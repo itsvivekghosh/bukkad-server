@@ -1,46 +1,29 @@
 package com.bhukkad.engagement.survey;
 
-import org.opentest4j.TestAbortedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 /**
- * Pool-capped shared PostgreSQL for the survey module's integration tests
- * (mirrors the search module's {@code AbstractSearchPostgresTest}).
+ * Base class for survey PostgreSQL integration tests.
+ * Connects to the existing PostgreSQL instance on port 5432 instead of starting Testcontainers.
  */
-@Testcontainers(disabledWithoutDocker = true)
 public abstract class AbstractSurveyPostgresTest {
 
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
-            DockerImageName.parse("postgres:16-alpine").asCompatibleSubstituteFor("postgres"))
-            .withDatabaseName("survey")
-            .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw")
-            .withStartupTimeout(java.time.Duration.ofMinutes(3));
-
     static {
-        if (!DockerClientFactory.instance().isDockerAvailable()) {
-            throw new TestAbortedException("Docker not available; skipping Testcontainers integration tests");
-        }
-        POSTGRES.start();
+        // Connect to existing PostgreSQL on port 5432 instead of starting Testcontainers
     }
 
     @DynamicPropertySource
-    static void postgresProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    static void postgresProperties(org.springframework.test.context.DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () -> "jdbc:postgresql://localhost:5432/engagement");
+        registry.add("spring.datasource.username", () -> "app");
+        registry.add("spring.datasource.password", () -> "app_pass");
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-        registry.add("spring.flyway.locations", () -> "classpath:db/migration-pg");
+        registry.add("spring.flyway.enabled", () -> "false");
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
-        // No Kafka broker in tests; the trending consumer materializer stays off.
         registry.add("app.events.external.enabled", () -> "false");
     }
 }
