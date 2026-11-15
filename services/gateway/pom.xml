@@ -248,7 +248,7 @@
 				<configuration>
 					<!-- Parent argLine (jacoco @{argLine} + byte-buddy agent)
 					     plus the preloaded BlockHound agent. -->
-					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration -javaagent:${project.build.directory}/blockhound.jar</argLine>
+					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration -javaagent:${project.build.directory}/blockhound.jar -Duser.timezone=UTC</argLine>
 				</configuration>
 			</plugin>
 		</plugins>

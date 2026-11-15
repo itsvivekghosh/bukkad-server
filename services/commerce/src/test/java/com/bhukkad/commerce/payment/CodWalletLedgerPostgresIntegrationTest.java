@@ -43,23 +43,29 @@ class CodWalletLedgerPostgresIntegrationTest extends AbstractPaymentPostgresTest
 
     @Autowired private CodWalletService codWalletService;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void clean() {
-        jdbcTemplate.update("DELETE FROM cod_wallet_ledger");
-        jdbcTemplate.update("DELETE FROM rider_earnings");
-        jdbcTemplate.update("DELETE FROM agent_cod_wallets");
-        // agent_cod_wallets.agent_id and rider_earnings.agent_id both carry a
-        // FK to delivery_agents(id) (V1 baseline), so the parent rider row must
-        // exist before CodWalletService writes. delivery_agents.id is
-        // GENERATED ALWAYS AS IDENTITY, hence OVERRIDING SYSTEM VALUE to pin
-        // the sentinel id. ON CONFLICT keeps it idempotent on the shared
-        // Testcontainers database.
-        jdbcTemplate.update(
-                "INSERT INTO delivery_agents (id, name, is_active, created_at, updated_at) "
-                        + "OVERRIDING SYSTEM VALUE VALUES (?, ?, true, now(), now()) "
-                        + "ON CONFLICT (id) DO NOTHING",
-                AGENT, "test-rider-" + AGENT);
+        // Run cleanup in a separate transaction with NOT_SUPPORTED so it sees
+        // committed data from previous NOT_SUPPORTED test methods.
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbcTemplate.update("DELETE FROM cod_wallet_ledger");
+                    jdbcTemplate.update("DELETE FROM rider_earnings");
+                    jdbcTemplate.update("DELETE FROM agent_cod_wallets");
+                    // agent_cod_wallets.agent_id and rider_earnings.agent_id both carry a
+                    // FK to delivery_agents(id) (V1 baseline), so the parent rider row must
+                    // exist before CodWalletService writes. delivery_agents.id is
+                    // GENERATED ALWAYS AS IDENTITY, hence OVERRIDING SYSTEM VALUE to pin
+                    // the sentinel id. ON CONFLICT keeps it idempotent on the shared
+                    // Testcontainers database.
+                    jdbcTemplate.update(
+                            "INSERT INTO delivery_agents (id, name, is_active, created_at, updated_at) "
+                                    + "OVERRIDING SYSTEM VALUE VALUES (?, ?, true, now(), now()) "
+                                    + "ON CONFLICT (id) DO NOTHING",
+                            AGENT, "test-rider-" + AGENT);
+                });
     }
 
     private BigDecimal walletBalance() {
