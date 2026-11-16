@@ -462,8 +462,25 @@ spring:
   cloud:
     gateway:
       httpclient:
+        # Section 4.3 — HTTP/2 for upstream multiplexing (one connection,
+        # many concurrent streams) reduces TLS handshake + fd pressure under
+        # fan-out/retry load.
+        http2:
+          enabled: true
+        # Per-route ConnectionProvider for upstream calls: fixed 500
+        # connections/pod bounds in-flight work; saturation surfaces as fast,
+        # counted acquire timeouts (503) instead of a silently melting node.
+        # pendingAcquireMaxCount 1000 + pendingAcquireTimeout 5s bound queue
+        # depth so blocked acquires fail fast rather than pinning threads.
+        # metrics:true activates reactor-netty Micrometer gauges
+        # (reactor.netty.connection.provider.active.connections,
+        #  reactor.netty.connection.provider.pending.connections).
         pool:
           type: fixed
+          max-connections: 500
+          pending-acquire-max-count: 1000
+          pending-acquire-timeout: 5s
+          metrics: true
 
 management:
   endpoints:
