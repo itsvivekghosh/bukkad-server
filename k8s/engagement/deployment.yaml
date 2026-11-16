@@ -48,6 +48,16 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+      volumes:
+        # AWS Secrets Manager CSI mount (architecture audit §2.3). Updated by
+        # the Secrets Store CSI Driver on secret rotation — see the rotation
+        # notes in SecretRotationRefresher.
+        - name: bhukkad-csi-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bhukkad-secrets
       initContainers:
         - name: flyway-migration
           image: flyway/flyway:9.20.3
@@ -171,6 +181,11 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
+          volumeMounts:
+            # CSI-mounted Secrets Manager files (k8s/secrets/secret-provider-class.yaml).
+            - name: bhukkad-csi-secrets
+              mountPath: /secrets
+              readOnly: true
 ---
 apiVersion: v1
 kind: Service

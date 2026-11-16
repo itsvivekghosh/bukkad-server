@@ -345,6 +345,9 @@ spring:
     out-of-order: false
     clean-disabled: true
   datasource:
+    # AWS Secrets Manager via the CSI driver (k8s/secrets/): the mounted file
+    # wins; the per-service env var is the fallback for clusters without CSI.
+    password: ${file:/secrets/db-password:${COMMERCE_DB_PASSWORD:}}
     hikari:
       maximum-pool-size: 200
       minimum-idle: 50
@@ -446,6 +449,17 @@ app:
     keystore-password: ${MTLS_KEYSTORE_PASSWORD:}
     truststore: /etc/tls/truststore.p12
     truststore-password: ${MTLS_TRUSTSTORE_PASSWORD:}
+  datasource:
+    read-replica:
+      password: ${file:/secrets/db-password:${DB_PASSWORD:}}
+  auth:
+    jwt:
+      secret: ${file:/secrets/jwt-secret:${JWT_SECRET:}}
+    service:
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+  secrets:
+    rotation:
+      enabled: true
 
 # =============================================================================
 # PROFILE: UAT (User Acceptance Testing)

@@ -20,6 +20,9 @@ spring:
           max-wait: 5000ms
 
   datasource:
+    # AWS Secrets Manager via the CSI driver (k8s/secrets/): the mounted file
+    # wins; the per-service env var is the fallback for clusters without CSI.
+    password: ${file:/secrets/db-password:${IDENTITY_DB_PASSWORD:}}
     hikari:
       maximum-pool-size: 200
       minimum-idle: 50
@@ -39,7 +42,7 @@ app:
       enabled: ${DB_REPLICA_ENABLED:true}
       url: ${DB_REPLICA_URL:}
       username: ${DB_USERNAME:app}
-      password: ${DB_PASSWORD:app_pass}
+      password: ${file:/secrets/db-password:${DB_PASSWORD:}}
       hikari:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:100}
         minimum-idle: 20
@@ -50,6 +53,14 @@ app:
         max-lifetime: 1800000
         read-only: true
         auto-commit: false
+  auth:
+    jwt:
+      secret: ${file:/secrets/jwt-secret:${JWT_SECRET:}}
+    service:
+      jwt-secret: ${SERVICE_JWT_SECRET:}
+  secrets:
+    rotation:
+      enabled: true
   environment: production
   events:
     external:

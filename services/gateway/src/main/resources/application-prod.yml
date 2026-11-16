@@ -25,7 +25,7 @@ app:
       enabled: ${DB_REPLICA_ENABLED:false}
       url: ${DB_REPLICA_URL:}
       username: ${DB_USERNAME:app}
-      password: ${DB_PASSWORD:app_pass}
+      password: ${file:/secrets/db-password:${DB_PASSWORD:}}
       hikari:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
         minimum-idle: 5
@@ -35,6 +35,9 @@ app:
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+  secrets:
+    rotation:
+      enabled: true
   environment: production
 
   rate-limit:
@@ -49,6 +52,12 @@ app:
   outbox:
     wake:
       enabled: true
+aws:
+  # IRSA supplies AWS credentials in production. The static "test" values in
+  # the base config are for local/floci only — they are never prod credentials.
+  access-key: ${AWS_ACCESS_KEY_ID:}
+  secret-key: ${AWS_SECRET_ACCESS_KEY:}
+
 management:
   tracing:
     sampling:
