@@ -67,6 +67,7 @@ class CommonArchTest {
         ArchRule rule = classes()
                 .that().areAnnotatedWith(jakarta.persistence.Entity.class)
                 .should().resideInAnyPackage(
+                        "com.bhukkad.common.audit..",
                         "com.bhukkad.common.outbox..",
                         "com.bhukkad.common.idempotency..",
                         "com.bhukkad.common.saga..");
@@ -80,6 +81,7 @@ class CommonArchTest {
                 .and().haveSimpleNameEndingWith("Repository")
                 .should().beInterfaces()
                 .andShould().resideInAnyPackage(
+                        "com.bhukkad.common.audit..",
                         "com.bhukkad.common.outbox..",
                         "com.bhukkad.common.idempotency..",
                         "com.bhukkad.common.saga..");
