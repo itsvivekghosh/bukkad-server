@@ -1,0 +1,51 @@
+# Chaos Mesh experiment: db-connection-exhaustion
+#
+# Scenario: Stall responses from the PostgreSQL primary so application
+#           connections pile up and saturate the HikariCP pool, validating
+#           connection-pool exhaustion handling, retry/backoff, and fail-over
+#           to the read replica. Differs from db-failover (pod kill): here the
+#           database is reachable but slow, so connections leak rather than die.
+# Target:   bhukkad-postgresql Deployment (app: bhukkad, component: postgres)
+# Action:   NetworkChaos delay (mode: all)
+# Latency:  5s (enough to exhaust a bounded connection pool)
+# Duration: 3 minutes
+# Blast radius: single database primary -> bhukkad.blast-radius=single-db-primary
+# Max duration: 10m (Chaos Mesh auto-recovers after `duration`; `deadline` bounds
+#                   how long it retries a missed run)
+#
+# NOTE: Chaos Mesh must be installed in the bhukkad namespace. Apply only to
+#       staging (never production).
+#
+#   kubectl apply -f k8s/chaos/db-connection-exhaustion.yaml
+#   kubectl delete -f k8s/chaos/db-connection-exhaustion.yaml   # rollback / cleanup
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: db-connection-exhaustion
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: db-connection-exhaustion
+    bhukkad.blast-radius: "single-db-primary"
+  annotations:
+    bhukkad.scenario: "db-connection-exhaustion"
+    bhukkad.description: "Stalls PostgreSQL responses (5s delay) for 3 minutes so application connections pile up and saturate the HikariCP pool. Validates connection-pool exhaustion handling, retry/backoff, and fail-over to the read replica."
+    bhukkad.severity: "high"
+    bhukkad.target: "bhukkad-postgresql Deployment (app: bhukkad, component: postgres)"
+    bhukkad.recovery: "Injected latency is removed after the duration; the HikariCP pool drains and connections to the primary/read replica are re-established."
+    bhukkad.max-duration: "10m"
+    bhukkad.max-duration-seconds: "600"
+spec:
+  action: delay
+  mode: all
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: postgres
+  delay:
+    latency: "5s"
+    correlation: 100
+  duration: "3m"
+  schedule: "0 * * * *"
+  deadline: 10m
