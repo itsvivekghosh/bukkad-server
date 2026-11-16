@@ -153,6 +153,12 @@ app:
           session-timeout-ms: 30000
           heartbeat-interval-ms: 10000
           isolation-level: read_committed
+          # Wait up to 500ms for broker data before returning a poll so the
+          # consumer thread can stay under max-poll-interval-ms under burst.
+          fetch-max-wait-ms: 500
+          # Allow up to 50MB per partition fetch so large messages/events are
+          # not fragmented into many small pulls (PERF-2 consumer tuning).
+          max-partition-fetch-bytes: 52428800
 
   pagination:
     max-page-size: 100

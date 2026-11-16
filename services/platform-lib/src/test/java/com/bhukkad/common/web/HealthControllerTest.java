@@ -61,7 +61,7 @@ class HealthControllerTest {
 
     private static final KafkaPlatformProperties KAFKA =
             new KafkaPlatformProperties(true, "kafka",
-                    new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlq", 3, 500, 300000, 30000, 10000, false, java.util.Collections.<String, Integer>emptyMap()), false, 3, DlqProperties.defaults());
+                    new KafkaPlatformProperties.Kafka("localhost:9092", "g", "t", "dlq", 3, 500, 300000, 30000, 10000, false, 500, 52428800, java.util.Collections.<String, Integer>emptyMap()), false, 3, DlqProperties.defaults());
 
     @Test
     void ping_and_health_and_env_envelopes() {

@@ -70,6 +70,7 @@ public class OutboxPollPublisher {
     private final OutboxProperties properties;
     private final TransactionTemplate transactionTemplate;
     private final DeadLetterEventService deadLetterEvents;
+    private final OutboxMetrics outboxMetrics;
     private final io.micrometer.core.instrument.Counter dlqCounter;
     private final DistributionSummary publishLag;
 
@@ -79,11 +80,23 @@ public class OutboxPollPublisher {
                                TransactionTemplate transactionTemplate,
                                DeadLetterEventService deadLetterEvents,
                                MeterRegistry meterRegistry) {
+        this(repository, publisher, properties, transactionTemplate, deadLetterEvents, meterRegistry,
+                new OutboxMetrics(repository, deadLetterEvents, meterRegistry));
+    }
+
+    public OutboxPollPublisher(OutboxEventRepository repository,
+                               KafkaPlatformEventPublisher publisher,
+                               OutboxProperties properties,
+                               TransactionTemplate transactionTemplate,
+                               DeadLetterEventService deadLetterEvents,
+                               MeterRegistry meterRegistry,
+                               OutboxMetrics outboxMetrics) {
         this.repository = repository;
         this.publisher = publisher;
         this.properties = properties;
         this.transactionTemplate = transactionTemplate;
         this.deadLetterEvents = deadLetterEvents;
+        this.outboxMetrics = outboxMetrics;
         // Prometheus surfaces this as outbox_dlq_total (PERF-2 alert metric).
         this.dlqCounter = meterRegistry.counter("outbox.dlq");
         // P-06: ms histogram of now - createdAt at successful publish; with the
@@ -251,22 +264,49 @@ public class OutboxPollPublisher {
                 dlqCounter.increment();
             }
         }
-        return count == null ? 0 : count;
+        int published = count == null ? 0 : count;
+        int failed = outcome.retries.values().stream().mapToInt(List::size).sum()
+                + outcome.deadRowsByError.values().stream().mapToInt(List::size).sum();
+        recordPublished(published);
+        recordFailed(failed);
+        return published;
+    }
+
+    private void recordPublished(int count) {
+        if (outboxMetrics != null && count > 0) {
+            outboxMetrics.published(count);
+        }
+    }
+
+    private void recordFailed(int count) {
+        if (outboxMetrics != null && count > 0) {
+            outboxMetrics.failed(count);
+        }
+    }
+
+    private void recordPollDuration(long durationMillis) {
+        if (outboxMetrics != null) {
+            outboxMetrics.recordPollDuration(durationMillis);
+        }
     }
 
     // ── Scheduled entry points (wired by OutboxRelayBootstrap) ───────────────
 
     /** One poll cycle. A batch failure must never kill the relay loop. */
     public void poll() {
+        long started = System.nanoTime();
         try {
             drainBatch();
         } catch (Exception e) {
             log.error("OUTBOX_POLL_FAILED | error={}", e.getMessage(), e);
+        } finally {
+            recordPollDuration((System.nanoTime() - started) / 1_000_000L);
         }
     }
 
     /** Partition-scoped poll for parallel relay threads (PERF-2). */
     public void poll(int partitionId) {
+        long started = System.nanoTime();
         try {
             List<OutboxEvent> claimed = claimBatchByPartition(partitionId);
             if (claimed.isEmpty()) {
@@ -276,6 +316,8 @@ public class OutboxPollPublisher {
             persistOutcome(outcome);
         } catch (Exception e) {
             log.error("OUTBOX_POLL_PARTITION_FAILED | partition={} | error={}", partitionId, e.getMessage(), e);
+        } finally {
+            recordPollDuration((System.nanoTime() - started) / 1_000_000L);
         }
     }
 

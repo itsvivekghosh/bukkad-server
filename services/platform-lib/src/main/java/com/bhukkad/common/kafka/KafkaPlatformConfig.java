@@ -148,6 +148,10 @@ public class KafkaPlatformConfig {
         config.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, properties.kafka().maxPollIntervalMs());
         config.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, properties.kafka().sessionTimeoutMs());
         config.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, properties.kafka().heartbeatIntervalMs());
+        // Throttle fetch wait so long polls don't edge toward max-poll-interval-ms,
+        // and allow large messages to be pulled in fewer, bigger fetches.
+        config.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, properties.kafka().fetchMaxWaitMs());
+        config.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, properties.kafka().maxPartitionFetchBytes());
         return new DefaultKafkaConsumerFactory<>(config);
     }
 
