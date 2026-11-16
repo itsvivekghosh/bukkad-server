@@ -2,6 +2,7 @@ package com.bhukkad.common.outbox;
 
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
+import com.bhukkad.common.metrics.BusinessMetrics;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -72,18 +73,21 @@ public class OutboxPollPublisher {
     private final DeadLetterEventService deadLetterEvents;
     private final io.micrometer.core.instrument.Counter dlqCounter;
     private final DistributionSummary publishLag;
+    private final BusinessMetrics businessMetrics;
 
     public OutboxPollPublisher(OutboxEventRepository repository,
                                KafkaPlatformEventPublisher publisher,
                                OutboxProperties properties,
                                TransactionTemplate transactionTemplate,
                                DeadLetterEventService deadLetterEvents,
-                               MeterRegistry meterRegistry) {
+                               MeterRegistry meterRegistry,
+                               BusinessMetrics businessMetrics) {
         this.repository = repository;
         this.publisher = publisher;
         this.properties = properties;
         this.transactionTemplate = transactionTemplate;
         this.deadLetterEvents = deadLetterEvents;
+        this.businessMetrics = businessMetrics;
         // Prometheus surfaces this as outbox_dlq_total (PERF-2 alert metric).
         this.dlqCounter = meterRegistry.counter("outbox.dlq");
         // P-06: ms histogram of now - createdAt at successful publish; with the
@@ -192,6 +196,7 @@ public class OutboxPollPublisher {
             if (acked) {
                 outcome.published.add(event.getId());
                 recordPublishLag(event);
+                recordBusinessEvent(message.eventType());
                 log.debug("OUTBOX_PUBLISHED | id={} | eventId={} | type={}",
                         event.getId(), message.eventId(), message.eventType());
                 continue;
@@ -219,6 +224,22 @@ public class OutboxPollPublisher {
         long lagMs = Duration.between(event.getCreatedAt(), LocalDateTime.now()).toMillis();
         if (lagMs >= 0) {
             publishLag.record(lagMs);
+        }
+    }
+
+    /**
+     * Records a business-event counter for each acked outbox publish whose
+     * envelope type maps to a real-time analytics metric. Unknown event types
+     * are ignored so a new event type never breaks the relay.
+     */
+    private void recordBusinessEvent(String eventType) {
+        switch (eventType) {
+            case "OrderCreated" -> businessMetrics.recordOrderCreated();
+            case "PaymentCompleted" -> businessMetrics.recordPaymentCompleted();
+            case "DeliveryAssigned" -> businessMetrics.recordDeliveryAssigned();
+            case "FraudBlocked" -> businessMetrics.recordFraudBlocked();
+            default -> {
+            }
         }
     }
 

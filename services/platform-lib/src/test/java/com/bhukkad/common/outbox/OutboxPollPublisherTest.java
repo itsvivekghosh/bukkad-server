@@ -58,11 +58,13 @@ class OutboxPollPublisherTest {
     private DeadLetterEventService deadLetterEvents;
 
     private SimpleMeterRegistry meterRegistry;
+    private BusinessMetrics businessMetrics;
     private OutboxPollPublisher relay;
 
     @BeforeEach
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
+        businessMetrics = new BusinessMetrics(meterRegistry);
         relay = newRelay(OutboxProperties.defaults());
     }
 
