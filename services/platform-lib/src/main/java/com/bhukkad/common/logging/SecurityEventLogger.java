@@ -17,6 +17,11 @@ public class SecurityEventLogger {
     private static final Logger securityLogger = LoggerFactory.getLogger(LoggingConstants.SECURITY_LOGGER);
     private static final Logger log = LoggerFactory.getLogger(SecurityEventLogger.class);
 
+    // mTLS Event Constants
+    public static final String EVENT_MTLS_HANDSHAKE_SUCCESS = "MTLS_HANDSHAKE_SUCCESS";
+    public static final String EVENT_MTLS_HANDSHAKE_FAILURE = "MTLS_HANDSHAKE_FAILURE";
+    public static final String EVENT_MTLS_AUTH_REQUIRED = "MTLS_AUTH_REQUIRED";
+
     public void logLoginSuccess(Long userId, String email, String role) {
         securityLogger.info(
                 "[{}] [SUCCESS] [{}] UserId: {} | Email: {} | Role: {} | IP: {} | TraceId: {}",
@@ -140,6 +145,40 @@ public class SecurityEventLogger {
                 userId,
                 maskIp(ipAddress),
                 failedAttempts,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logMTLSHandshakeSuccess(String serviceId, String ipAddress) {
+        securityLogger.info(
+                "[{}] [SUCCESS] [{}] ServiceId: {} | IP: {} | TraceId: {}",
+                Instant.now(),
+                EVENT_MTLS_HANDSHAKE_SUCCESS,
+                serviceId,
+                maskIp(ipAddress),
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logMTLSHandshakeFailure(String serviceId, String ipAddress, String reason) {
+        securityLogger.warn(
+                "[{}] [FAILED] [{}] ServiceId: {} | Reason: {} | ServiceId: {} | TraceId: {}",
+                Instant.now(),
+                EVENT_MTLS_HANDSHAKE_FAILURE,
+                reason,
+                serviceId,
+                serviceId,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logMTLSAuthRequired(String serviceId, String ipAddress, String requiredAuth) {
+        securityLogger.warn(
+                "[{}] [WARNING] [{}] ServiceId: {} | RequiredAuth: {} | TraceId: {}",
+                Instant.now(),
+                EVENT_MTLS_AUTH_REQUIRED,
+                serviceId,
+                requiredAuth,
                 TraceContext.currentTraceId()
         );
     }
