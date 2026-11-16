@@ -83,6 +83,14 @@ app:
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+  # Resource-level authorization at the edge. Disabled until an edge policy
+  # exists; the local platform-lib engine can later be replaced by an OPA
+  # sidecar without changing request handling.
+  authz:
+    enabled: ${AUTHZ_ENABLED:false}
+    policy-id: ${AUTHZ_POLICY_ID:gateway-default}
+    resource-type: ${AUTHZ_RESOURCE_TYPE:http}
+
   # ---------------------------------------------------------------------------
   # Routes after the 16 -> 5 consolidation.
   #

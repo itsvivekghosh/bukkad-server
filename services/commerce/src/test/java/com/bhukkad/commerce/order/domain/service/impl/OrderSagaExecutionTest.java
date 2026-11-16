@@ -7,6 +7,7 @@ import com.bhukkad.common.saga.SagaInstanceRepository;
 import com.bhukkad.common.saga.SagaStep;
 import com.bhukkad.common.saga.SagaStepRepository;
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
+import com.bhukkad.common.security.authz.AuthorizationService;
 import com.bhukkad.commerce.order.api.dto.request.CreateOrderRequest;
 import com.bhukkad.commerce.order.api.dto.request.OrderItemRequest;
 import com.bhukkad.commerce.order.api.dto.response.OrderResponse;
@@ -79,6 +80,7 @@ class OrderSagaExecutionTest {
     @Mock private PaymentServiceClient paymentServiceClient;
     @Mock private ObjectProvider<ServiceJwtAuthTokenProvider> tokenProvider;
     @Mock private ObjectProvider<RedisCacheService> cacheProvider;
+    @Mock private AuthorizationService authorizationService;
 
     private OrderService service;
 
@@ -88,7 +90,7 @@ class OrderSagaExecutionTest {
         OrderQueryService orderQueryService = mock(OrderQueryService.class);
         OrderLifecycleService orderLifecycleService = mock(OrderLifecycleService.class);
         OrderReorderService orderReorderService = mock(OrderReorderService.class);
-        service = new OrderService(orderCreationService, orderQueryService, orderLifecycleService, orderReorderService);
+        service = new OrderService(orderCreationService, orderQueryService, orderLifecycleService, orderReorderService, authorizationService);
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
