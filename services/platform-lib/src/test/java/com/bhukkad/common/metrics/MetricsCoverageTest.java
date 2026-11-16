@@ -17,20 +17,23 @@ class MetricsCoverageTest {
         SloProperties slo = new SloProperties();
         assertThat(slo.isEnabled()).isFalse();
         assertThat(slo.getLatencyTargetMs()).isEqualTo(500);
-        assertThat(slo.getAvailabilityTargetPercent()).isEqualTo(99.5);
+        assertThat(slo.getLatencyTargetPercent()).isEqualTo(99.5);
+        assertThat(slo.getAvailabilityTargetPercent()).isEqualTo(99.9);
         assertThat(slo.getBurnRateWarning()).isEqualTo(1.0);
         assertThat(slo.getBurnRateCritical()).isEqualTo(2.0);
         assertThat(slo.getWindowMinutes()).isEqualTo(60);
 
         slo.setEnabled(true);
         slo.setLatencyTargetMs(300);
-        slo.setAvailabilityTargetPercent(99.9);
+        slo.setLatencyTargetPercent(99.9);
+        slo.setAvailabilityTargetPercent(99.99);
         slo.setBurnRateWarning(1.5);
         slo.setBurnRateCritical(3.0);
         slo.setWindowMinutes(120);
         assertThat(slo.isEnabled()).isTrue();
         assertThat(slo.getLatencyTargetMs()).isEqualTo(300);
-        assertThat(slo.getAvailabilityTargetPercent()).isEqualTo(99.9);
+        assertThat(slo.getLatencyTargetPercent()).isEqualTo(99.9);
+        assertThat(slo.getAvailabilityTargetPercent()).isEqualTo(99.99);
         assertThat(slo.getBurnRateWarning()).isEqualTo(1.5);
         assertThat(slo.getBurnRateCritical()).isEqualTo(3.0);
         assertThat(slo.getWindowMinutes()).isEqualTo(120);

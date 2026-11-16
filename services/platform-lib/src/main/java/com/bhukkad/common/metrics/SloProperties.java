@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app.slo")
 public class SloProperties {
 
-    private boolean enabled = true;
+    private boolean enabled = false;
     private long latencyTargetMs = 500;
     private double latencyTargetPercent = 99.5;
     private double availabilityTargetPercent = 99.9;

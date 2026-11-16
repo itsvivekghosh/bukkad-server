@@ -18,6 +18,9 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -37,7 +40,7 @@ import com.bhukkad.common.tenant.TenantContext;
         @Index(name = "idx_customer_phone", columnList = "phoneNumber"),
         @Index(name = "idx_customer_tenant", columnList = "tenant_id")
 })
-@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = "uuid"))
+@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = UUID.class))
 @Filter(name = "tenant", condition = "tenant_id = :tenantId")
 @EntityListeners(AuditingEntityListener.class)
 @Getter
@@ -97,7 +100,10 @@ public class Customer {
     @PrePersist
     private void prePersist() {
         if (tenantId == null) {
-            tenantId = TenantContext.getTenantId();
+            String tenantIdStr = TenantContext.getTenantId();
+            if (tenantIdStr != null) {
+                tenantId = UUID.fromString(tenantIdStr);
+            }
         }
     }
 }

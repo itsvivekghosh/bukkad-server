@@ -1,5 +1,6 @@
 package com.bhukkad.common.outbox;
 
+import com.bhukkad.common.metrics.BusinessMetrics;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -76,7 +77,8 @@ class OutboxPollPublisherTest {
 
     private OutboxPollPublisher newRelay(OutboxProperties properties) {
         return new OutboxPollPublisher(repository, publisher, properties,
-                new TransactionTemplate(new NoOpTxManager()), deadLetterEvents, meterRegistry);
+                new TransactionTemplate(new NoOpTxManager()), deadLetterEvents, meterRegistry,
+                new OutboxMetrics(repository, deadLetterEvents, meterRegistry), businessMetrics);
     }
 
     @Test

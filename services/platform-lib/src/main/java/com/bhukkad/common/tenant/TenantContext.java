@@ -2,6 +2,7 @@ package com.bhukkad.common.tenant;
 
 import org.hibernate.context.spi.CurrentTenantIdentifierResolver;
 import org.hibernate.engine.spi.SessionImplementor;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -87,7 +88,7 @@ public class TenantContext implements CurrentTenantIdentifierResolver<String> {
      * preserved.
      */
     @Bean
-    public org.springframework.boot.orm.jpa.HibernatePropertiesCustomizer tenantIdentifierResolver() {
+    public HibernatePropertiesCustomizer tenantIdentifierResolver() {
         return properties -> properties.putIfAbsent(
                 "hibernate.tenant_identifier_resolver", this);
     }

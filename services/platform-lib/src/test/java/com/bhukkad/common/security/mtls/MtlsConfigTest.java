@@ -1,25 +1,17 @@
 package com.bhukkad.common.security.mtls;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.core.env.Environment;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@ExtendWith(SpringExtension.class)
-@SpringBootTest(classes = MtlsConfig.class)
-@EnableConfigurationProperties({MtlsProperties.class})
 class MtlsConfigTest {
 
     @Test
     void defaultValues_areSensible() {
-        MtlsConfig config = new MtlsConfig(new MtlsProperties(), null);
-        assertThat(config.isClientAuth()).isFalse();
-        assertThat(config.getKeyStoreType()).isEqualTo("PKCS12");
-        assertThat(config.getTrustStoreType()).isEqualTo("PKCS12");
+        MtlsProperties properties = new MtlsProperties();
+        assertThat(properties.isEnabled()).isFalse();
+        assertThat(properties.getKeyStoreType()).isEqualTo("PKCS12");
+        assertThat(properties.getTrustStoreType()).isEqualTo("PKCS12");
     }
 
     @Test

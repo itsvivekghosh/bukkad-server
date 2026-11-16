@@ -4,7 +4,7 @@ import com.bhukkad.identity.domain.entity.Customer;
 import com.bhukkad.identity.domain.repository.CustomerRepository;
 import com.bhukkad.identity.support.AbstractIdentityPostgresTest;
 import jakarta.persistence.EntityManager;
-import jakarta.sql.DataSource;
+import javax.sql.DataSource;
 import org.hibernate.Session;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -37,7 +37,7 @@ import com.bhukkad.common.tenant.TenantContext;
         @Index(name = "idx_address_customer", columnList = "customerId"),
         @Index(name = "idx_address_tenant", columnList = "tenant_id")
 })
-@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = "uuid"))
+@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = UUID.class))
 @Filter(name = "tenant", condition = "tenant_id = :tenantId")
 @EntityListeners(AuditingEntityListener.class)
 @Getter
@@ -99,7 +99,10 @@ public class Address {
     @PrePersist
     private void prePersist() {
         if (tenantId == null) {
-            tenantId = TenantContext.getTenantId();
+            String tenantIdStr = TenantContext.getTenantId();
+            if (tenantIdStr != null) {
+                tenantId = UUID.fromString(tenantIdStr);
+            }
         }
     }
 
