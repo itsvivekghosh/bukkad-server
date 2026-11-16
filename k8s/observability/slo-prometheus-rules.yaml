@@ -1,0 +1,157 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bhukkad-slo-burn-rate-alerts
+  namespace: bhukkad
+  labels:
+    release: bhukkad-prometheus
+spec:
+  groups:
+    # Latency SLO: 99.5% of requests under 500ms
+    # Error budget ratio = 0.005 (1 - 0.995)
+    - name: bhukkad.slo.latency
+      rules:
+        # 1h window at 14.4x burn rate = page (critical)
+        - alert: SLOLatencyBurnRate1hCritical
+          expr: |
+            (
+              1 - sum(rate(bhukkad_http_requests_seconds_bucket{le="0.5"}[1h])) by (service, method, uri)
+              / sum(rate(bhukkad_http_requests_seconds_count[1h])) by (service, method, uri)
+            ) > 0.072
+          for: 5m
+          labels:
+            severity: critical
+            slo: latency
+            window: 1h
+          annotations:
+            summary: "Latency SLO burn rate > 14.4x (1h window)"
+            description: "Error budget for latency SLO (99.5% < 500ms) is being consumed at 14.4x the sustainable rate over the last hour. Current error ratio: {{ printf \"%.4f\" $value }}"
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+        # 6h window at 6x burn rate = page (critical)
+        - alert: SLOLatencyBurnRate6hCritical
+          expr: |
+            (
+              1 - sum(rate(bhukkad_http_requests_seconds_bucket{le="0.5"}[6h])) by (service, method, uri)
+              / sum(rate(bhukkad_http_requests_seconds_count[6h])) by (service, method, uri)
+            ) > 0.03
+          for: 15m
+          labels:
+            severity: critical
+            slo: latency
+            window: 6h
+          annotations:
+            summary: "Latency SLO burn rate > 6x (6h window)"
+            description: "Error budget for latency SLO (99.5% < 500ms) is being consumed at 6x the sustainable rate over the last 6 hours. Current error ratio: {{ printf \"%.4f\" $value }}"
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+        # 24h window at 3x burn rate = ticket (warning)
+        - alert: SLOLatencyBurnRate24hWarning
+          expr: |
+            (
+              1 - sum(rate(bhukkad_http_requests_seconds_bucket{le="0.5"}[24h])) by (service, method, uri)
+              / sum(rate(bhukkad_http_requests_seconds_count[24h])) by (service, method, uri)
+            ) > 0.015
+          for: 1h
+          labels:
+            severity: warning
+            slo: latency
+            window: 24h
+          annotations:
+            summary: "Latency SLO burn rate > 3x (24h window)"
+            description: "Error budget for latency SLO (99.5% < 500ms) is being consumed at 3x the sustainable rate over the last 24 hours. Current error ratio: {{ printf \"%.4f\" $value }}"
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+        # 1h at 6x + 6h at 3x = ticket (warning)
+        - alert: SLOLatencyMultiWindowBurnRateWarning
+          expr: |
+            (
+              1 - sum(rate(bhukkad_http_requests_seconds_bucket{le="0.5"}[1h])) by (service, method, uri)
+              / sum(rate(bhukkad_http_requests_seconds_count[1h])) by (service, method, uri)
+            ) > 0.03
+            and
+            (
+              1 - sum(rate(bhukkad_http_requests_seconds_bucket{le="0.5"}[6h])) by (service, method, uri)
+              / sum(rate(bhukkad_http_requests_seconds_count[6h])) by (service, method, uri)
+            ) > 0.015
+          for: 15m
+          labels:
+            severity: warning
+            slo: latency
+            window: multi
+          annotations:
+            summary: "Latency SLO multi-window burn rate exceeded (1h > 6x AND 6h > 3x)"
+            description: "Latency SLO (99.5% < 500ms) burn rate exceeded 6x over 1h AND 3x over 6h. Sustained budget consumption detected."
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+    # Availability SLO: 99.9% success rate
+    # Error budget ratio = 0.001 (1 - 0.999)
+    - name: bhukkad.slo.availability
+      rules:
+        # 1h window at 14.4x burn rate = page (critical)
+        - alert: SLOAvailabilityBurnRate1hCritical
+          expr: |
+            sum(rate(bhukkad_http_errors_total[1h])) by (service, method, uri)
+            / sum(rate(bhukkad_http_requests_seconds_count[1h])) by (service, method, uri)
+            > 0.0144
+          for: 5m
+          labels:
+            severity: critical
+            slo: availability
+            window: 1h
+          annotations:
+            summary: "Availability SLO burn rate > 14.4x (1h window)"
+            description: "Error budget for availability SLO (99.9% success) is being consumed at 14.4x the sustainable rate over the last hour. Current error ratio: {{ printf \"%.4f\" $value }}"
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+        # 6h window at 6x burn rate = page (critical)
+        - alert: SLOAvailabilityBurnRate6hCritical
+          expr: |
+            sum(rate(bhukkad_http_errors_total[6h])) by (service, method, uri)
+            / sum(rate(bhukkad_http_requests_seconds_count[6h])) by (service, method, uri)
+            > 0.006
+          for: 15m
+          labels:
+            severity: critical
+            slo: availability
+            window: 6h
+          annotations:
+            summary: "Availability SLO burn rate > 6x (6h window)"
+            description: "Error budget for availability SLO (99.9% success) is being consumed at 6x the sustainable rate over the last 6 hours. Current error ratio: {{ printf \"%.4f\" $value }}"
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+        # 24h window at 3x burn rate = ticket (warning)
+        - alert: SLOAvailabilityBurnRate24hWarning
+          expr: |
+            sum(rate(bhukkad_http_errors_total[24h])) by (service, method, uri)
+            / sum(rate(bhukkad_http_requests_seconds_count[24h])) by (service, method, uri)
+            > 0.003
+          for: 1h
+          labels:
+            severity: warning
+            slo: availability
+            window: 24h
+          annotations:
+            summary: "Availability SLO burn rate > 3x (24h window)"
+            description: "Error budget for availability SLO (99.9% success) is being consumed at 3x the sustainable rate over the last 24 hours. Current error ratio: {{ printf \"%.4f\" $value }}"
+            runbook_url: "docs/runbooks/slo-burn-rate.md"
+
+        # 1h at 6x + 6h at 3x = ticket (warning)
+        - alert: SLOAvailabilityMultiWindowBurnRateWarning
+          expr: |
+            sum(rate(bhukkad_http_errors_total[1h])) by (service, method, uri)
+            / sum(rate(bhukkad_http_requests_seconds_count[1h])) by (service, method, uri)
+            > 0.006
+            and
+            sum(rate(bhukkad_http_errors_total[6h])) by (service, method, uri)
+            / sum(rate(bhukkad_http_requests_seconds_count[6h])) by (service, method, uri)
+            > 0.003
+          for: 15m
+          labels:
+            severity: warning
+            slo: availability
+            window: multi
+          annotations:
+            summary: "Availability SLO multi-window burn rate exceeded (1h > 6x AND 6h > 3x)"
+            description: "Availability SLO (99.9% success) burn rate exceeded 6x over 1h AND 3x over 6h. Sustained budget consumption detected."
+            runbook_url: "docs/runbooks/slo-burn-rate.md"

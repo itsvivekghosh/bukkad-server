@@ -1,0 +1,56 @@
+apiVersion: monitoring.coreos.com/v1
+kind: AlertmanagerConfig
+metadata:
+  name: bhukkad-slo-alertmanager-config
+  namespace: monitoring
+spec:
+  route:
+    group_by: ['alertname', 'service', 'slo', 'window']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    receiver: 'default'
+    routes:
+      # Critical severity alerts (page) -> PagerDuty
+      - matchers:
+          - name: severity
+            value: critical
+        receiver: 'pagerduty'
+        continue: true
+      # Warning severity alerts (ticket) -> Slack
+      - matchers:
+          - name: severity
+            value: warning
+        receiver: 'slack'
+        continue: false
+  receivers:
+    - name: 'default'
+      emailConfigs:
+        - to: 'oncall@bhukkad.com'
+          sendResolved: true
+    - name: 'pagerduty'
+      pagerdutyConfigs:
+        - routingKey: '{{ .Env.PAGERDUTY_ROUTING_KEY }}'
+          severity: '{{ .Labels.severity }}'
+          details:
+            firing: '{{ .CommonAnnotations.summary }}'
+            description: '{{ .CommonAnnotations.description }}'
+            runbook: '{{ .CommonAnnotations.runbook_url }}'
+            service: '{{ .Labels.service }}'
+            slo: '{{ .Labels.slo }}'
+            window: '{{ .Labels.window }}'
+    - name: 'slack'
+      slackConfigs:
+        - apiURL: '{{ .Env.SLACK_WEBHOOK_URL }}'
+          channel: '{{ .Env.SLO_ALERT_SLACK_CHANNEL }}'
+          sendResolved: true
+          title: '{{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'
+          text: |
+            *Alert:* {{ .CommonLabels.alertname }}
+            *Severity:* {{ .CommonLabels.severity }}
+            *Service:* {{ .Labels.service }}
+            *SLO:* {{ .Labels.slo }}
+            *Window:* {{ .Labels.window }}
+            *Summary:* {{ .CommonAnnotations.summary }}
+            *Description:* {{ .CommonAnnotations.description }}
+            *Runbook:* {{ .CommonAnnotations.runbook_url }}
