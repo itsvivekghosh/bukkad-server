@@ -72,6 +72,8 @@ resources:
   - monitoring/grafana-dashboards-config.yaml
   - monitoring/grafana-datasources.yaml
   - monitoring/grafana-dashboards.yaml
+  # OpenTelemetry Collector tail-sampling pipeline (errors / slow / normal).
+  - observability/otel-collector-config.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml

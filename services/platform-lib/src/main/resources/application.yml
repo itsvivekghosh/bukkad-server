@@ -177,6 +177,7 @@ app:
     truststore-password: ""
     truststore-type: PKCS12
 
+management:
   # Distributed tracing — OpenTelemetry → Tempo (prod) / Zipkin (dev/local)
   tracing:
     sampling:
@@ -188,8 +189,14 @@ app:
     exporter:
       otlp:
         endpoint: http://tempo:4317
-        protocol: http/protobuf
+        protocol: grpc
     service:
       name: ${spring.application.name}
     traces:
       sampler: always_on
+  # Micrometer OTLP metrics registry (gateway enables it): HTTP/protobuf
+  # endpoint, kept separate from the trace gRPC endpoint above.
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:http://tempo:4318/v1/metrics}

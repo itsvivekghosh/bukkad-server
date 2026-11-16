@@ -199,7 +199,6 @@
 		<dependency>
 			<groupId>io.opentelemetry</groupId>
 			<artifactId>opentelemetry-api</artifactId>
-			<version>1.35.0</version>
 		</dependency>
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
@@ -261,11 +260,6 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>cloudwatchlogs</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>io.opentelemetry</groupId>
-			<artifactId>opentelemetry-api</artifactId>
-			<version>1.35.0</version>
-		</dependency>
 
 		<!-- JSON (de)serialization of event payloads and envelopes. -->
 		<dependency>
@@ -309,11 +303,13 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Non-optional: logback-bhukkad.xml ships the prod CONSOLE_JSON
+             appender for every consumer, so the encoder must be present at
+             runtime rather than only in platform-lib's own test classpath. -->
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
             <version>7.4</version>
-            <optional>true</optional>
         </dependency>
 
         <!-- Security infrastructure shared by every service that opts in:
