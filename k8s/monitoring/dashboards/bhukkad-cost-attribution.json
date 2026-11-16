@@ -1,0 +1,225 @@
+{
+  "id": null,
+  "uid": "bhukkad-cost-attribution",
+  "title": "Bhukkad Cost Attribution & Capacity",
+  "description": "Cost attribution and capacity planning metrics (architecture-audit.md §3.4). All metrics namespaced under cost_usd{tenant,service,endpoint}.",
+  "tags": ["bhukkad", "cost", "capacity"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(cost_usd, tenant)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(cost_usd, service)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Spend Rate (USD/min, all tenants)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(cost_usd{service=~\"$service\"}[5m])) * 60"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Requests / min (all tenants)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(cost_cpu_ms{service=~\"$service\"}[5m]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 2 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Blended Cost per Request (USD)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(cost_usd{service=~\"$service\"}[5m])) / clamp_min(sum(rate(cost_cpu_ms{service=~\"$service\"}[5m])), 1)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 6 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Cost Trend per Tenant (USD/min)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (tenant) (rate(cost_usd{tenant=~\"$tenant\",service=~\"$service\"}[5m])) * 60",
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Cost per Tenant over 1h (USD)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (tenant) (increase(cost_usd{tenant=~\"$tenant\",service=~\"$service\"}[1h]))",
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Cost per Endpoint (USD/min)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (endpoint) (rate(cost_usd{tenant=~\"$tenant\",service=~\"$service\"}[5m])) * 60",
+          "legendFormat": "{{endpoint}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Top 10 Expensive Tenants (USD in selected range)",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (tenant) (increase(cost_usd{tenant=~\"$tenant\",service=~\"$service\"}[$__range])))",
+          "instant": true,
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Value", "desc": true }]
+      }
+    },
+    {
+      "id": 8,
+      "title": "Top 10 Expensive Endpoints (USD in selected range)",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (endpoint) (increase(cost_usd{tenant=~\"$tenant\",service=~\"$service\"}[$__range])))",
+          "instant": true,
+          "legendFormat": "{{endpoint}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4 },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Value", "desc": true }]
+      }
+    },
+    {
+      "id": 9,
+      "title": "Resource Breakdown per Tenant (rate, 5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "refId": "cpu",
+          "expr": "sum by (tenant) (rate(cost_cpu_ms{tenant=~\"$tenant\",service=~\"$service\"}[5m]))",
+          "legendFormat": "CPU ms/s — {{tenant}}"
+        },
+        {
+          "refId": "mem",
+          "expr": "sum by (tenant) (rate(cost_mem_mb{tenant=~\"$tenant\",service=~\"$service\"}[5m]))",
+          "legendFormat": "Mem MB/s — {{tenant}}"
+        },
+        {
+          "refId": "net",
+          "expr": "sum by (tenant) (rate(cost_net_bytes{tenant=~\"$tenant\",service=~\"$service\"}[5m])) / 1024 / 1024",
+          "legendFormat": "Net MB/s — {{tenant}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 3 },
+        "overrides": []
+      }
+    }
+  ]
+}

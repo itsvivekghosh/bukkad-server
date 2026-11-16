@@ -251,3 +251,30 @@ spec:
             severity: page
           annotations:
             summary: "Availability < 99% for {{ $labels.service }}"
+
+    # Cost attribution & capacity planning (architecture-audit.md §3.4).
+    # All cost metrics are namespaced under cost_usd{tenant,service,endpoint}
+    # and emitted by CostAggregationService (platform-lib).
+    - name: bhukkad.cost
+      rules:
+        # Per-tenant spend per rolling 24h window. Recording rule so the
+        # anomaly alert below stays readable and can reuse it.
+        - record: cost_usd_per_tenant_day
+          expr: sum by (tenant) (increase(cost_usd{namespace="bhukkad"}[1d]))
+
+        - alert: CostUsdPerTenantDayAnomaly
+          expr: cost_usd_per_tenant_day > 2 * avg_over_time(cost_usd_per_tenant_day[7d])
+          for: 15m
+          labels:
+            severity: warn
+          annotations:
+            summary: "Tenant {{ $labels.tenant }} daily cost {{ $value }} USD exceeds 2x its 7d average (cost_usd_per_tenant_day)"
+            description: "Rolling 24h cost for tenant {{ $labels.tenant }} is more than twice its 7-day average — possible runaway workload or misattribution. See the 'Bhukkad Cost Attribution & Capacity' Grafana dashboard."
+
+        - alert: TenantCostSpike
+          expr: sum by (tenant) (increase(cost_usd{namespace="bhukkad"}[1h])) > 10
+          for: 10m
+          labels:
+            severity: warn
+          annotations:
+            summary: "Tenant {{ $labels.tenant }} spent more than 10 USD in the last hour ({{ $value }} USD)"

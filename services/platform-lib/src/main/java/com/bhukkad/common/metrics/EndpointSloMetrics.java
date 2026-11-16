@@ -73,9 +73,11 @@ public class EndpointSloMetrics {
 
     /**
      * Collapses dynamic path segments (numeric ids) to a stable placeholder
-     * so metrics cardinality stays bounded.
+     * so metrics cardinality stays bounded. Shared with the cost-attribution
+     * filters ({@code CostMetricsFilter}) so endpoint tags are normalized
+     * consistently across SLO and cost metrics.
      */
-    static String normalizeUri(String uri) {
+    public static String normalizeUri(String uri) {
         if (uri == null || uri.isBlank()) {
             return "/";
         }
