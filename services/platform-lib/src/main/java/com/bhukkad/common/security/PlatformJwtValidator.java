@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -116,10 +117,12 @@ public class PlatformJwtValidator {
      */
     @Nullable
     private final JwtRevocationService revocationService;
-    /** Pre-built HS256 verifier — NEVER per-request; null = secret absent/too short in a non-strict profile. */
+    /** HS256 verifier — rebuilt when the configured secret changes (audit §2.3 rotation). Null = secret absent/too short in a non-strict profile. */
     @Nullable
-    private final MACVerifier macVerifier;
+    private volatile MACVerifier macVerifier;
 
+    /** Secret material {@link #macVerifier} was built from, so rotation is detectable without re-reading every time. */
+    private volatile String macVerifierSecret;
 
     private volatile JWKSet cachedJwks;
     private volatile long lastFetchMillis;
@@ -134,6 +137,8 @@ public class PlatformJwtValidator {
     private final TaskScheduler taskScheduler;
     /** AtomicLong for key age gauge — avoids Duration recalculation per scrape (OPT-018). */
     private final AtomicLong keyAgeSeconds = new AtomicLong(0);
+    /** Whether the running profile treats JWT configuration mistakes as boot failures. */
+    private final boolean requiredInProfile;
 
     @Autowired
     public PlatformJwtValidator(PlatformJwtProperties properties,
@@ -180,8 +185,10 @@ public class PlatformJwtValidator {
         this.taskScheduler = taskScheduler;
         this.revocationService = revocationService;
         this.meterRegistry = meterRegistry;
+        this.requiredInProfile = requiredInProfile;
         byte[] secretBytes = properties.secret() == null
                 ? new byte[0] : properties.secret().getBytes(StandardCharsets.UTF_8);
+        this.macVerifierSecret = properties.secret();
         this.macVerifier = buildMacVerifier(secretBytes, requiredInProfile);
 
         // Export JWT key age gauge for rotation observability (audit P4-02)
@@ -250,6 +257,36 @@ public class PlatformJwtValidator {
             log.warn("Could not build platform JWT HMAC verifier: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Rebuilds the HS256 verifier when the configured secret changed since
+     * construction (audit §2.3: the CSI driver rewrites the mounted file and
+     * the rotation refresher re-binds {@link PlatformJwtProperties}). Cheap — a
+     * string comparison per verification, no rebuild unless the secret moved.
+     * If the rotated secret is unusable the previous verifier is kept so a bad
+     * rotation never breaks verification of tokens signed with the old secret.
+     */
+    @Nullable
+    private MACVerifier currentMacVerifier() {
+        String secret = properties.secret();
+        if (Objects.equals(secret, macVerifierSecret)) {
+            return macVerifier;
+        }
+        byte[] secretBytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
+        MACVerifier rebuilt;
+        try {
+            rebuilt = buildMacVerifier(secretBytes, requiredInProfile);
+        } catch (IllegalStateException e) {
+            // A malformed rotated secret must not break verification of tokens
+            // signed with the previous secret; keep the old verifier.
+            log.error("Rotated JWT HMAC secret is unusable, keeping the previous verifier: {}",
+                    e.getMessage());
+            rebuilt = macVerifier;
+        }
+        macVerifierSecret = secret;
+        macVerifier = rebuilt;
+        return rebuilt;
     }
 
     public boolean isEnabled() {
@@ -396,8 +433,9 @@ public class PlatformJwtValidator {
                 log.debug("JWT rejected: HS256 token after the HMAC grace window was closed");
                 return false;
             }
-            if (macVerifier != null) {
-                return jwt.verify(macVerifier);
+            MACVerifier verifier = currentMacVerifier();
+            if (verifier != null) {
+                return jwt.verify(verifier);
             }
             log.debug("JWT rejected: HS256 token without a shared secret (downgrade guard)");
             return false;

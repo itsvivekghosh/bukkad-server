@@ -20,6 +20,7 @@ resources:
   # ---------------------------------------------------------------------------
   - secret-store.yaml
   - external-secret.yaml
+  - secrets/secret-provider-class.yaml
   - common/priority-class.yaml
   - postgres/pvc.yaml
   # WAL archiving spool for the wal-g sidecar (PITR, k8s/docs/RUNBOOK-PITR.md).

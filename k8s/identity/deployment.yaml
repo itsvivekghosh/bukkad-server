@@ -160,6 +160,11 @@ spec:
             - name: jwt-private-key
               mountPath: /etc/bhukkad/jwt
               readOnly: true
+            # CSI-mounted Secrets Manager files (k8s/secrets/secret-provider-class.yaml).
+            # readOnly so the app can never mutate the mounted secret files.
+            - name: bhukkad-csi-secrets
+              mountPath: /secrets
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
@@ -195,3 +200,12 @@ spec:
               - key: JWT_PRIVATE_KEY_PEM
                 path: private-key.pem
             defaultMode: 0440
+        # AWS Secrets Manager CSI mount (architecture audit §2.3). Updated by
+        # the Secrets Store CSI Driver on secret rotation — see the rotation
+        # notes in SecretRotationRefresher.
+        - name: bhukkad-csi-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bhukkad-secrets
