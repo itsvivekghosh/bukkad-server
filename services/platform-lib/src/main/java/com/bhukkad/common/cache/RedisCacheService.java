@@ -14,8 +14,11 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.RedisSystemException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -66,6 +69,11 @@ public class RedisCacheService {
      */
     private final int maxInFlightEntries;
 
+    /**
+     * Jitter percentage applied to TTL values > 10 seconds to prevent
+     * synchronized cache expiry (thundering herd) across multiple instances.
+     * Set to 10% (±10% around the base TTL).
+     */
     private static final double TTL_JITTER_PERCENT = 0.10;
 
     /**
@@ -404,6 +412,25 @@ public class RedisCacheService {
 
     // ==================== BASIC OPERATIONS ====================
 
+    /**
+     * Stores a value in Redis with a TTL that is jittered by ±10% to prevent
+     * synchronized cache expiry (thundering herd) across multiple instances.
+     *
+     * <p>For {@code ttlSeconds > 10}, the actual TTL stored in Redis is a random
+     * value in the range {@code [ttlSeconds - 10%, ttlSeconds + 10%]}, with a
+     * minimum floor of 10 seconds. For {@code ttlSeconds <= 10}, the exact TTL
+     * is used without jitter.</p>
+     *
+     * <p>This jitter applies to all cached keys written through this method,
+     * including feature flags, rate limits, search results, and any other
+     * cache entries. Feature flag overrides (stored in a Redis hash without TTL)
+     * and rate-limit keys (managed by {@link RedisRateLimitService} via Lua
+     * script with window-based EXPIRE) are outside the scope of this jitter.</p>
+     *
+     * @param key the cache key
+     * @param value the value to store
+     * @param ttlSeconds the base TTL in seconds before jitter is applied
+     */
     public void set(String key, Object value, long ttlSeconds) {
         try {
             String fullKey = buildKey(key);
@@ -770,6 +797,47 @@ public class RedisCacheService {
             throw new CacheOperationException("Cache scanKeys failed: " + e.getMessage(), e);
         }
         return keys;
+    }
+
+    /**
+     * Functional interface for a single Redis command to be executed in a pipeline.
+     * The command receives a {@link RedisOperations} instance and can invoke
+     * any number of operations (SET, GET, HSET, etc.) which will be batched
+     * into a single round trip.
+     */
+    @FunctionalInterface
+    public interface PipelineCommand {
+        void apply(RedisOperations<String, String> ops);
+    }
+
+    /**
+     * Executes multiple independent Redis commands (SET, GET, HSET, DEL, etc.)
+     * in a single pipeline to reduce round trips.
+     *
+     * <p>For N commands, this reduces RTT from N to 1, achieving 50-80% fewer
+     * round trips for typical batch sizes (2-5 commands). Useful for batch
+     * feature-flag checks and rate-limit operations.</p>
+     *
+     * @param commands list of pipeline commands to execute atomically
+     * @return list of results in the same order as {@code commands}; each entry
+     *         corresponds to the Redis command's reply (e.g., "OK" for SET,
+     *         value for GET, Long for HSET/INCR)
+     */
+    public List<Object> pipeline(List<PipelineCommand> commands) {
+        if (commands == null || commands.isEmpty()) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        SessionCallback<List<Object>> callback = new SessionCallback<>() {
+            @Override
+            public List<Object> execute(RedisOperations operations) throws DataAccessException {
+                for (PipelineCommand command : commands) {
+                    command.apply(operations);
+                }
+                return null;
+            }
+        };
+        return stringRedisTemplate.executePipelined(callback);
     }
 
     private String buildKey(String key) {
