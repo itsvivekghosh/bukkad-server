@@ -9,13 +9,20 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
+
+import com.bhukkad.common.tenant.TenantContext;
 
 /**
  * Customer support ticket.
@@ -23,6 +30,12 @@ import java.time.LocalDateTime;
  * <p>Denormalized: {@code customerId} and {@code orderId} are plain columns —
  * the customer/order rows live in other services. Order ownership is verified
  * by the caller (monolith) before creation.</p>
+ *
+ * <p>Multi-tenancy: rows are scoped to a tenant via {@code tenant_id}; queries
+ * on this entity are filtered by the Hibernate {@code tenant} filter when it
+ * is enabled on the session (bind {@code :tenantId} to
+ * {@link TenantContext#getTenantId()}). New rows inherit the current tenant id
+ * in {@link #prePersist()}.</p>
  */
 @Entity
 @Table(name = "support_tickets", uniqueConstraints = @UniqueConstraint(
@@ -30,8 +43,11 @@ import java.time.LocalDateTime;
         indexes = {
                 @Index(name = "idx_ticket_customer", columnList = "customer_id"),
                 @Index(name = "idx_ticket_order", columnList = "order_id"),
-                @Index(name = "idx_ticket_status", columnList = "status")
+                @Index(name = "idx_ticket_status", columnList = "status"),
+                @Index(name = "idx_ticket_tenant", columnList = "tenant_id")
         })
+@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = "uuid"))
+@Filter(name = "tenant", condition = "tenant_id = :tenantId")
 @EntityListeners(AuditingEntityListener.class)
 public class SupportTicket {
 
@@ -79,6 +95,16 @@ public class SupportTicket {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "tenant_id")
+    private UUID tenantId;
+
+    @PrePersist
+    private void prePersist() {
+        if (tenantId == null) {
+            tenantId = TenantContext.getTenantId();
+        }
+    }
 
     public Long getId() {
         return id;
