@@ -7,21 +7,38 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
+import com.bhukkad.common.tenant.TenantContext;
+
+/**
+ * Customer entity. Multi-tenancy: rows are scoped to a tenant via
+ * {@code tenant_id}; queries on this entity are filtered by the Hibernate
+ * {@code tenant} filter when it is enabled on the session (bind
+ * {@code :tenantId} to {@link TenantContext#getTenantId()}). New rows inherit
+ * the current tenant id in {@link #prePersist()}.
+ */
 @Entity
 @Table(name = "customers", indexes = {
         @Index(name = "uk_customer_email", columnList = "email", unique = true),
-        @Index(name = "idx_customer_phone", columnList = "phoneNumber")
+        @Index(name = "idx_customer_phone", columnList = "phoneNumber"),
+        @Index(name = "idx_customer_tenant", columnList = "tenant_id")
 })
+@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = "uuid"))
+@Filter(name = "tenant", condition = "tenant_id = :tenantId")
 @EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
@@ -73,4 +90,14 @@ public class Customer {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal walletBalance = BigDecimal.ZERO;
+
+    @Column(name = "tenant_id")
+    private UUID tenantId;
+
+    @PrePersist
+    private void prePersist() {
+        if (tenantId == null) {
+            tenantId = TenantContext.getTenantId();
+        }
+    }
 }

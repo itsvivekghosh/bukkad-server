@@ -12,13 +12,21 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
+import com.bhukkad.common.tenant.TenantContext;
 
 @Entity
-@Table(name="disputes", indexes={@Index(name="idx_dispute_order", columnList="order_id"), @Index(name="idx_dispute_status", columnList="status"), @Index(name="idx_dispute_created", columnList="createdAt"), @Index(name="idx_dispute_customer", columnList="customer_id")})
+@Table(name="disputes", indexes={@Index(name="idx_dispute_order", columnList="order_id"), @Index(name="idx_dispute_status", columnList="status"), @Index(name="idx_dispute_created", columnList="createdAt"), @Index(name="idx_dispute_customer", columnList="customer_id"), @Index(name="idx_dispute_tenant", columnList="tenant_id")})
+@FilterDef(name = "tenant", parameters = @ParamDef(name = "tenantId", type = "uuid"))
+@Filter(name = "tenant", condition = "tenant_id = :tenantId")
 @EntityListeners(value={AuditingEntityListener.class})
 public class Dispute {
     @Id
@@ -52,6 +60,16 @@ public class Dispute {
     @CreatedDate
     @Column(name="created_at", nullable=false, updatable=false)
     private LocalDateTime createdAt;
+
+    @Column(name = "tenant_id")
+    private UUID tenantId;
+
+    @PrePersist
+    private void prePersist() {
+        if (tenantId == null) {
+            tenantId = TenantContext.getTenantId();
+        }
+    }
 
     public Dispute() {
     }
