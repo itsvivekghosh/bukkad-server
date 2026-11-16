@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
@@ -51,11 +52,15 @@ class ReferralIntegrityPostgresTest extends AbstractReferralPostgresTest {
     private ReferralRewardLedgerRepository rewardLedgerRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private StringRedisTemplate redisTemplate;
 
     @BeforeEach
     void clean() {
         jdbcTemplate.update("DELETE FROM referral_rewards_ledger");
         jdbcTemplate.update("DELETE FROM user_referral_codes");
+        // Clear Redis collision cache
+        redisTemplate.keys("referral:code:*").forEach(key -> redisTemplate.delete(key));
     }
 
     @Test

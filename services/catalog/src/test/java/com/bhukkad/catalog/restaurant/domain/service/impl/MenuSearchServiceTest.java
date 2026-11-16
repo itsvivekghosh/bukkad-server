@@ -12,10 +12,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+
 import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,15 +46,16 @@ class MenuSearchServiceTest {
         r.setPhone("9999999999");
         r.setIsActive(true);
         r.setAvgRating(4.5);
-        when(restaurantRepository.fullTextSearchByName("biryani", 20))
-                .thenReturn(List.of(r));
+        Page<Restaurant> page = new org.springframework.data.domain.PageImpl<>(List.of(r), PageRequest.of(0, 20), 1);
+        when(restaurantRepository.fullTextSearchByName("biryani", PageRequest.of(0, 20)))
+                .thenReturn(page);
 
-        List<RestaurantSummary> results = service.searchRestaurants("  biryani  ");
+        Page<RestaurantSummary> results = service.searchRestaurants("  biryani  ", PageRequest.of(0, 20));
 
         assertThat(results).hasSize(1);
-        assertThat(results.get(0).name()).isEqualTo("Biryani House");
-        assertThat(results.get(0).avgRating()).isEqualTo(4.5);
-        verify(restaurantRepository).fullTextSearchByName("biryani", 20);
+        assertThat(results.getContent().get(0).name()).isEqualTo("Biryani House");
+        assertThat(results.getContent().get(0).avgRating()).isEqualTo(4.5);
+        verify(restaurantRepository).fullTextSearchByName("biryani", PageRequest.of(0, 20));
     }
 
     @Test
@@ -59,14 +66,15 @@ class MenuSearchServiceTest {
         m.setDescription("creamy");
         m.setPrice(new BigDecimal("320.00"));
         m.setIsAvailable(true);
-        when(menuItemRepository.fullTextSearch("butter", 20)).thenReturn(List.of(m));
+        Page<MenuItem> page = new org.springframework.data.domain.PageImpl<>(List.of(m), PageRequest.of(0, 20), 1);
+        when(menuItemRepository.fullTextSearch(anyString(), any(Pageable.class))).thenReturn(page);
 
-        List<MenuItemDto> results = service.searchMenuItems("butter");
+        Page<MenuItemDto> results = service.searchMenuItems("butter", PageRequest.of(0, 10));
 
         assertThat(results).hasSize(1);
-        assertThat(results.get(0).name()).isEqualTo("Butter Chicken");
-        assertThat(results.get(0).available()).isTrue();
-        verify(menuItemRepository).fullTextSearch("butter", 20);
+        assertThat(results.getContent().get(0).name()).isEqualTo("Butter Chicken");
+        assertThat(results.getContent().get(0).available()).isTrue();
+        verify(menuItemRepository).fullTextSearch(anyString(), any(Pageable.class));
     }
 
     @Test
@@ -77,8 +85,9 @@ class MenuSearchServiceTest {
         m.setDescription("hot");
         m.setPrice(new BigDecimal("120.00"));
         m.setIsAvailable(false);
-        when(menuItemRepository.fullTextSearch("soup", 20)).thenReturn(List.of(m));
+        Page<MenuItem> page = new org.springframework.data.domain.PageImpl<>(List.of(m), PageRequest.of(0, 20), 1);
+        when(menuItemRepository.fullTextSearch(anyString(), any(Pageable.class))).thenReturn(page);
 
-        assertThat(service.searchMenuItems("soup").get(0).available()).isFalse();
+        assertThat(service.searchMenuItems("soup", PageRequest.of(0, 10)).getContent().get(0).available()).isFalse();
     }
 }

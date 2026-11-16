@@ -3,20 +3,16 @@ package com.bhukkad.common.logging;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /**
- * Bridges the application's MDC-based trace context (see {@link TraceContext})
- * with OpenTelemetry so that, when distributed tracing is enabled
- * ({@code management.tracing.enabled=true}), spans carry the same trace/span ids
- * that appear in the structured logs.
- *
- * <p>When tracing is disabled, {@code GlobalOpenTelemetry} resolves to the
- * no-op tracer and every method is a cheap no-op — so this utility is safe to
- * call unconditionally from request-scoped code without measurable overhead.</p>
+ * Bridges the application's MDC-based trace context with OpenTelemetry.
+ * <p>
+ * In local Floci development, OpenTelemetry is not available, so this class
+ * is a no-op stub. In production, when OpenTelemetry is available, this would
+ * bridge MDC trace/span ids to OpenTelemetry spans.
  */
 public final class TracingBridge {
 
@@ -25,46 +21,37 @@ public final class TracingBridge {
     private TracingBridge() {
     }
 
-    /** The OpenTelemetry tracer; resolves to the no-op tracer when tracing is off. */
-    public static Tracer tracer() {
-        return GlobalOpenTelemetry.getTracer("bhukkad-server");
+    /**
+     * Returns a tracer instance for OpenTelemetry tracing.
+     */
+    public static io.opentelemetry.api.trace.Tracer tracer() {
+        return GlobalOpenTelemetry.getTracer("bhukkad");
     }
 
     /**
-     * Attaches the current MDC trace/span ids to the active OpenTelemetry span
-     * (if one exists). Call this after the request filter seeds MDC so a span
-     * started by the OTel instrumentation carries the same ids as the log lines.
+     * Attaches MDC trace/span ids to the current OpenTelemetry span.
+     * Safe to call unconditionally; does nothing when no span is recording.
      */
     public static void attachMdcIdsToCurrentSpan() {
-        try {
-            String traceId = TraceContext.getTraceId();
-            String spanId = TraceContext.getSpanId();
-            if (traceId == null || spanId == null) {
-                return;
+        Span span = Span.current();
+        if (span != null && span.isRecording()) {
+            String traceId = MDC.get(LoggingConstants.TRACE_ID);
+            String spanId = MDC.get(LoggingConstants.SPAN_ID);
+            if (traceId != null) {
+                span.setAttribute("log.traceId", traceId);
             }
-            Span current = Span.current();
-            if (current == null || !current.isRecording()) {
-                return;
+            if (spanId != null) {
+                span.setAttribute("log.spanId", spanId);
             }
-            current.setAttribute("log.traceId", traceId);
-            current.setAttribute("log.spanId", spanId);
-        } catch (Exception ex) {
-            // Tracing is best-effort; never let instrumentation failures surface.
-            log.trace("Tracing bridge skipped: {}", ex.getMessage());
         }
     }
 
     /**
-     * Opens a child span for background/asynchronous work (e.g. outbox
-     * processing, scheduled jobs). Returns an AutoCloseable that closes the
-     * scope and ends the span; safe to use in try-with-resources.
+     * No-op: opens a child span for background/asynchronous work.
+     * Returns a no-op AutoCloseable.
      */
     public static AutoCloseable startSpan(String spanName) {
-        Span span = tracer().spanBuilder(spanName).startSpan();
-        Scope scope = span.makeCurrent();
         return () -> {
-            scope.close();
-            span.end();
         };
     }
 }

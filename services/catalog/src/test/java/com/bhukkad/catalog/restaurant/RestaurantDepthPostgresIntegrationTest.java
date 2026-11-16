@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -95,7 +96,7 @@ class RestaurantDepthPostgresIntegrationTest extends AbstractRestaurantPostgresT
         r.setIsActive(true);
         restaurantRepository.saveAndFlush(r);
 
-        var results = restaurantRepository.fullTextSearchByName("spice", 10);
+        var results = restaurantRepository.fullTextSearchByName("spice", PageRequest.of(0, 10));
         assertThat(results).extracting(Restaurant::getName).contains("Spice Garden");
     }
 
@@ -106,7 +107,7 @@ class RestaurantDepthPostgresIntegrationTest extends AbstractRestaurantPostgresT
         restaurantRepository.saveAll(List.of(r1, r2));
 
         // "Pizza Palace" has pizza in both name and description, should rank higher.
-        var results = restaurantRepository.fullTextSearchByName("pizza", 10);
+        var results = restaurantRepository.fullTextSearchByName("pizza", PageRequest.of(0, 10));
         assertThat(results).hasSize(2);
     }
 

@@ -7,20 +7,23 @@ import com.bhukkad.commerce.payment.domain.entity.WalletTransaction;
 import com.bhukkad.commerce.payment.domain.repository.WalletBalanceRepository;
 import com.bhukkad.commerce.payment.domain.repository.WalletTransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
-/**
- * Wallet management (port of monolith {@code WalletService}): credit/debit
- * balance, transaction history, and top-up. The wallet is the authoritative
- * customer balance (single-writer money path).
- */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class WalletService {
+
+    private static final int MAX_OPTIMISTIC_RETRIES = 3;
 
     private final WalletBalanceRepository balanceRepository;
     private final WalletTransactionRepository transactionRepository;
@@ -28,43 +31,49 @@ public class WalletService {
     @Transactional
     public WalletBalance credit(Long customerId, BigDecimal amount, String reference) {
         if (amount.signum() <= 0) throw new BusinessException("Credit amount must be positive");
-        WalletBalance wb = balanceRepository.findByCustomerIdForUpdate(customerId)
-                .orElseGet(() -> {
-                    WalletBalance b = new WalletBalance();
-                    b.setCustomerId(customerId);
-                    b.setBalance(BigDecimal.ZERO);
-                    b.setUpdatedAt(LocalDateTime.now());
-                    return balanceRepository.save(b);
-                });
-        wb.setBalance(wb.getBalance().add(amount));
-        wb.setUpdatedAt(LocalDateTime.now());
-        // M-1: the ledger must record the balance AS PERSISTED by the atomic
-        // update — the save() result is authoritative, never a recomputed
-        // in-memory "balance + amount" of a possibly stale read.
-        WalletBalance saved = balanceRepository.save(wb);
-
-        recordTx(customerId, "CREDIT", amount, saved.getBalance(), reference);
-        return saved;
+        return applyDelta(customerId, amount, BigDecimal::add, "CREDIT", reference, true);
     }
 
     @Transactional
     public WalletBalance debit(Long customerId, BigDecimal amount, String reference) {
         if (amount.signum() <= 0) throw new BusinessException("Debit amount must be positive");
-        // Row-level lock closes the check-then-act gap: concurrent debits can
-        // no longer both read the same balance and overdraw.
-        WalletBalance wb = balanceRepository.findByCustomerIdForUpdate(customerId)
-                .orElseThrow(() -> new ResourceNotFoundException("No wallet for customer " + customerId));
-        if (wb.getBalance().compareTo(amount) < 0) {
-            throw new BusinessException("Insufficient wallet balance");
-        }
-        wb.setBalance(wb.getBalance().subtract(amount));
-        wb.setUpdatedAt(LocalDateTime.now());
-        // M-1: balance_after is taken from the post-debit persisted entity
-        // (read AFTER the locked update), not recomputed from a pre-lock read.
-        WalletBalance saved = balanceRepository.save(wb);
+        return applyDelta(customerId, amount, BigDecimal::subtract, "DEBIT", reference, false);
+    }
 
-        recordTx(customerId, "DEBIT", amount, saved.getBalance(), reference);
-        return saved;
+    private WalletBalance applyDelta(Long customerId, BigDecimal delta,
+                                     java.util.function.BinaryOperator<BigDecimal> combiner,
+                                     String type, String reference, boolean createIfMissing) {
+        int attempt = 0;
+        while (true) {
+            try {
+                WalletBalance wb = balanceRepository.findByCustomerIdForUpdate(customerId)
+                        .orElseGet(() -> {
+                            if (!createIfMissing) {
+                                throw new ResourceNotFoundException(
+                                        "Wallet not found for customer " + customerId);
+                            }
+                            WalletBalance b = new WalletBalance();
+                            b.setCustomerId(customerId);
+                            b.setBalance(BigDecimal.ZERO);
+                            b.setUpdatedAt(LocalDateTime.now());
+                            return balanceRepository.save(b);
+                        });
+                if ("DEBIT".equals(type) && wb.getBalance().compareTo(delta) < 0) {
+                    throw new BusinessException("Insufficient wallet balance");
+                }
+                wb.setBalance(combiner.apply(wb.getBalance(), delta));
+                wb.setUpdatedAt(LocalDateTime.now());
+                WalletBalance saved = balanceRepository.save(wb);
+                recordTx(customerId, type, delta.signum() < 0 ? delta.negate() : delta,
+                        saved.getBalance(), reference);
+                return saved;
+            } catch (ObjectOptimisticLockingFailureException ex) {
+                if (++attempt >= MAX_OPTIMISTIC_RETRIES) {
+                    throw new BusinessException("Wallet update failed due to concurrent modification", ex);
+                }
+                // Retry with fresh read
+            }
+        }
     }
 
     @Transactional(readOnly = true)
@@ -73,8 +82,11 @@ public class WalletService {
     }
 
     @Transactional(readOnly = true)
-    public java.util.List<WalletTransaction> transactions(Long customerId) {
-        return transactionRepository.findByCustomerId(customerId);
+    public List<WalletTransaction> transactions(Long customerId, int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE);
+        return transactionRepository.findByCustomerId(customerId,
+                org.springframework.data.domain.PageRequest.of(safePage, safeSize)).getContent();
     }
 
     private void recordTx(Long customerId, String type, BigDecimal amount, BigDecimal balanceAfter, String reference) {
@@ -87,20 +99,14 @@ public class WalletService {
         transactionRepository.save(tx);
     }
 
-    /**
-     * Offset-paginated transactions, newest first (small histories).
-     */
     @Transactional(readOnly = true)
-    public java.util.List<WalletTransaction> transactionsPage(Long customerId, int page, int size) {
+    public List<WalletTransaction> transactionsPage(Long customerId, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE);
-        return transactionRepository.pageNewestFirst(customerId,
-                org.springframework.data.domain.PageRequest.of(safePage, safeSize));
+        return transactionRepository.findByCustomerId(customerId,
+                org.springframework.data.domain.PageRequest.of(safePage, safeSize)).getContent();
     }
 
-    /**
-     * Cursor page of transactions, newest first (unbounded histories).
-     */
     @Transactional(readOnly = true)
     public CursorPage transactionsByCursor(Long customerId, String cursor, int size) {
         com.bhukkad.common.util.CursorUtils.OrderCursor c =
@@ -108,11 +114,11 @@ public class WalletService {
         LocalDateTime cursorCreatedAt = c != null ? c.createdAt() : com.bhukkad.common.util.CursorUtils.END_OF_TIME;
         Long cursorId = c != null ? c.id() : com.bhukkad.common.util.CursorUtils.END_OF_ID;
         int safeSize = Math.min(Math.max(size, 1), com.bhukkad.common.util.PaginationUtils.MAX_PAGE_SIZE);
-        java.util.List<WalletTransaction> batch = transactionRepository.afterCursor(
+        Page<WalletTransaction> batch = transactionRepository.afterCursor(
                 customerId, cursorCreatedAt, cursorId,
                 org.springframework.data.domain.PageRequest.of(0, safeSize + 1));
-        boolean hasNext = batch.size() > safeSize;
-        java.util.List<WalletTransaction> pageItems = hasNext ? batch.subList(0, safeSize) : batch;
+        boolean hasNext = batch.getTotalElements() > safeSize;
+        List<WalletTransaction> pageItems = hasNext ? batch.getContent().subList(0, safeSize) : batch.getContent();
         String nextCursor = null;
         if (hasNext && !pageItems.isEmpty()) {
             WalletTransaction last = pageItems.get(pageItems.size() - 1);
@@ -121,7 +127,6 @@ public class WalletService {
         return new CursorPage(pageItems, nextCursor, hasNext);
     }
 
-    /** One cursor page of wallet transactions. */
-    public record CursorPage(java.util.List<WalletTransaction> items, String nextCursor, boolean hasNext) {
+    public record CursorPage(List<WalletTransaction> items, String nextCursor, boolean hasNext) {
     }
 }

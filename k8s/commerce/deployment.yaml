@@ -49,6 +49,47 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+      volumes:
+        # AWS Secrets Manager CSI mount (architecture audit §2.3). Updated by
+        # the Secrets Store CSI Driver on secret rotation — see the rotation
+        # notes in SecretRotationRefresher.
+        - name: bhukkad-csi-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bhukkad-secrets
+      initContainers:
+        - name: flyway-migration
+          image: flyway/flyway:9.20.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: COMMERCE_DB_URL
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: COMMERCE_DB_USERNAME
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bhukkad-secrets
+                  key: COMMERCE_DB_PASSWORD
+            - name: FLYWAY_LOCATIONS
+              value: classpath:db/migration-pg
+            - name: FLYWAY_BASELINE_ON_MIGRATE
+              value: "true"
+            - name: FLYWAY_VALIDATE_ON_MIGRATE
+              value: "true"
+            - name: FLYWAY_OUT_OF_ORDER
+              value: "true"
+            - name: FLYWAY_CLEAN_DISABLED
+              value: "true"
+          command: ["flyway", "migrate"]
       containers:
         - name: bhukkad-commerce
           image: ghcr.io/itsvivekghosh/commerce:latest
@@ -81,6 +122,10 @@ spec:
                 secretKeyRef:
                   name: bhukkad-secrets
                   key: COMMERCE_DB_PASSWORD
+            - name: DB_REPLICA_ENABLED
+              value: "true"
+            - name: DB_REPLICA_URL
+              value: jdbc:postgresql://bhukkad-postgresql-read:5432/commerce
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -113,7 +158,6 @@ spec:
               cpu: 1000m
               memory: 1536Mi
             limits:
-              cpu: 2000m
               memory: 1536Mi
           readinessProbe:
             httpGet:
@@ -138,6 +182,11 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
+          volumeMounts:
+            # CSI-mounted Secrets Manager files (k8s/secrets/secret-provider-class.yaml).
+            - name: bhukkad-csi-secrets
+              mountPath: /secrets
+              readOnly: true
 ---
 apiVersion: v1
 kind: Service

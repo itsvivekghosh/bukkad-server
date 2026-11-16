@@ -43,11 +43,17 @@ class WalletConcurrencyPostgresIntegrationTest extends AbstractPaymentPostgresTe
     @Autowired private WalletService walletService;
     @Autowired private com.bhukkad.commerce.payment.domain.repository.WalletBalanceRepository balanceRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void clean() {
-        jdbcTemplate.update("DELETE FROM wallet_transactions");
-        jdbcTemplate.update("DELETE FROM wallet_balances");
+        // Run cleanup in a separate transaction with NOT_SUPPORTED so it sees
+        // committed data from previous NOT_SUPPORTED test methods.
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbcTemplate.update("DELETE FROM wallet_transactions");
+                    jdbcTemplate.update("DELETE FROM wallet_balances");
+                });
     }
 
     private BigDecimal balance() {

@@ -108,13 +108,13 @@ public class OrderOpsController {
                                                       @RequestParam(required = false) Long cursor,
                                                       @RequestParam(defaultValue = "10") int size) {
         requireRestaurantOwnerOrAdmin(principal, restaurantId);
-        List<Order> orders = orderRepository.findByRestaurantId(restaurantId).stream()
-                .filter(o -> cursor == null || o.getId() > cursor)
-                .limit(safeSize(size))
-                .toList();
+        Pageable pageable = PageRequest.of(0, safeSize(size));
+        List<Order> orders = orderRepository.findByRestaurantIdCursor(restaurantId, cursor, pageable);
         Long next = orders.size() == safeSize(size) ? orders.get(orders.size() - 1).getId() : null;
+        // Use batch loading to avoid N+1
+        List<OrderResponse> items = orderService.toResponseCompatBatch(orders);
         return Map.of(
-                "items", orders.stream().map(orderService::toResponseCompat).toList(),
+                "items", items,
                 "nextCursor", next == null ? "" : String.valueOf(next),
                 "hasNext", next != null);
     }
@@ -173,13 +173,13 @@ public class OrderOpsController {
                                                   @RequestParam(required = false) Long cursor,
                                                   @RequestParam(defaultValue = "10") int size) {
         Long agentId = requireAgent(principal);
-        List<Order> orders = orderRepository.findByDeliveryAgentId(agentId).stream()
-                .filter(o -> cursor == null || o.getId() > cursor)
-                .limit(safeSize(size))
-                .toList();
+        Pageable pageable = PageRequest.of(0, safeSize(size));
+        List<Order> orders = orderRepository.findByDeliveryAgentIdCursor(agentId, cursor, pageable);
         Long next = orders.size() == safeSize(size) ? orders.get(orders.size() - 1).getId() : null;
+        // Use batch loading to avoid N+1
+        List<OrderResponse> items = orderService.toResponseCompatBatch(orders);
         return Map.of(
-                "items", orders.stream().map(orderService::toResponseCompat).toList(),
+                "items", items,
                 "nextCursor", next == null ? "" : String.valueOf(next),
                 "hasNext", next != null);
     }
@@ -218,9 +218,8 @@ public class OrderOpsController {
     }
 
     private Map<String, Object> paginate(Page<Order> page, int requestedPage, int size) {
-        List<OrderResponse> items = page.getContent().stream()
-                .map(orderService::toResponseCompat)
-                .toList();
+        // Use batch loading to avoid N+1
+        List<OrderResponse> items = orderService.toResponseCompatBatch(page.getContent());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("items", items);
         body.put("page", page.getNumber());

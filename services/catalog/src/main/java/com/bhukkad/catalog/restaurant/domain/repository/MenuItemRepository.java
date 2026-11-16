@@ -1,5 +1,7 @@
 package com.bhukkad.catalog.restaurant.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -11,19 +13,26 @@ import com.bhukkad.catalog.restaurant.domain.entity.MenuItem;
 
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
+    Page<MenuItem> findByRestaurantIdAndIsAvailableTrue(Long restaurantId, Pageable pageable);
     List<MenuItem> findByRestaurantIdAndIsAvailableTrue(Long restaurantId);
+
+    Page<MenuItem> findByRestaurantId(Long restaurantId, Pageable pageable);
     List<MenuItem> findByRestaurantId(Long restaurantId);
+
+    Page<MenuItem> findByCategoryId(Long categoryId, Pageable pageable);
     List<MenuItem> findByCategoryId(Long categoryId);
     int countByCategoryId(Long categoryId);
 
     Optional<MenuItem> findByIdAndRestaurantId(Long id, Long restaurantId);
 
+    Page<MenuItem> findByCategoryIdAndIsAvailableTrue(Long categoryId, Pageable pageable);
     List<MenuItem> findByCategoryIdAndIsAvailableTrue(Long categoryId);
 
     @Query("SELECT m FROM MenuItem m WHERE m.categoryId = :categoryId AND m.isAvailable = true AND m.bestseller = true")
     List<MenuItem> findBestsellersByRestaurant(@Param("categoryId") Long categoryId);
 
     @Query("SELECT m FROM MenuItem m WHERE m.isAvailable = true AND LOWER(m.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
+    Page<MenuItem> searchByName(@Param("keyword") String keyword, Pageable pageable);
     List<MenuItem> searchByName(@Param("keyword") String keyword);
 
     /** PG port of the MySQL FULLTEXT search: tsvector + plainto_tsquery. */
@@ -31,10 +40,11 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
             SELECT * FROM menu_items
             WHERE search_vector @@ plainto_tsquery('english', :keyword)
             ORDER BY ts_rank(search_vector, plainto_tsquery('english', :keyword)) DESC
-            LIMIT :limit
             """, nativeQuery = true)
-    List<MenuItem> fullTextSearch(@Param("keyword") String keyword, @Param("limit") int limit);
+    Page<MenuItem> fullTextSearch(@Param("keyword") String keyword, Pageable pageable);
 
+    @Query("SELECT m FROM MenuItem m WHERE m.restaurantId = :restaurantId AND m.isAvailable = true AND m.stockQuantity IS NOT NULL AND m.stockQuantity <= :threshold ORDER BY m.stockQuantity ASC, m.name")
+    Page<MenuItem> findLowStockByRestaurant(@Param("restaurantId") Long restaurantId, @Param("threshold") int threshold, Pageable pageable);
     @Query("SELECT m FROM MenuItem m WHERE m.restaurantId = :restaurantId AND m.isAvailable = true AND m.stockQuantity IS NOT NULL AND m.stockQuantity <= :threshold ORDER BY m.stockQuantity ASC, m.name")
     List<MenuItem> findLowStockByRestaurant(@Param("restaurantId") Long restaurantId, @Param("threshold") int threshold);
 
@@ -57,5 +67,9 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     int restoreStockAtomic(@Param("id") Long id, @Param("quantity") int quantity);
 
     @Query("SELECT m.id, m.name FROM MenuItem m WHERE m.isAvailable = true")
+    Page<Object[]> findAvailableMenuItemNames(Pageable pageable);
+    @Query("SELECT m.id, m.name FROM MenuItem m WHERE m.isAvailable = true")
     List<Object[]> findAvailableMenuItemNames();
+
+    List<MenuItem> findByRestaurantIdInAndIsAvailableTrue(List<Long> restaurantIds);
 }

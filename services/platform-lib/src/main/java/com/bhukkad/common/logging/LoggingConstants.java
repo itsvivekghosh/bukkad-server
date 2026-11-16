@@ -6,6 +6,9 @@ public final class LoggingConstants {
     public static final String TRACE_ID = "traceId";
     public static final String SPAN_ID = "spanId";
     public static final String USER_ID = "userId";
+    public static final String TENANT_ID = "tenantId";
+    public static final String ORDER_ID = "orderId";
+    public static final String RESTAURANT_ID = "restaurantId";
     public static final String USER_EMAIL = "userEmail";
     public static final String USER_ROLE = "userRole";
     public static final String REQUEST_ID = "requestId";
@@ -49,6 +52,7 @@ public final class LoggingConstants {
     public static final String EVENT_COUPON_APPLIED = "COUPON_APPLIED";
     public static final String EVENT_UNAUTHORIZED_ACCESS = "UNAUTHORIZED_ACCESS";
     public static final String EVENT_INVALID_TOKEN = "INVALID_TOKEN";
+    public static final String EVENT_AUTHORIZATION_DENIED = "AUTHORIZATION_DENIED";
 
     private LoggingConstants() {}
 }

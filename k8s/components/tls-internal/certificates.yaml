@@ -101,3 +101,147 @@ spec:
   issuerRef:
     name: bhukkad-internal-ca-issuer
     kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-identity-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: identity
+spec:
+  secretName: bhukkad-identity-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-identity
+    - bhukkad-identity.bhukkad
+    - bhukkad-identity.bhukkad.svc
+    - bhukkad-identity.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-catalog-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: catalog
+spec:
+  secretName: bhukkad-catalog-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-catalog
+    - bhukkad-catalog.bhukkad
+    - bhukkad-catalog.bhukkad.svc
+    - bhukkad-catalog.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-commerce-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: commerce
+spec:
+  secretName: bhukkad-commerce-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-commerce
+    - bhukkad-commerce.bhukkad
+    - bhukkad-commerce.bhukkad.svc
+    - bhukkad-commerce.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-engagement-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: engagement
+spec:
+  secretName: bhukkad-engagement-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-engagement
+    - bhukkad-engagement.bhukkad
+    - bhukkad-engagement.bhukkad.svc
+    - bhukkad-engagement.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-admin-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: admin
+spec:
+  secretName: bhukkad-admin-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-admin
+    - bhukkad-admin.bhukkad
+    - bhukkad-admin.bhukkad.svc
+    - bhukkad-admin.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bhukkad-gateway-tls
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: gateway
+spec:
+  secretName: bhukkad-gateway-tls
+  duration: 2160h
+  renewBefore: 360h
+  revisionHistoryLimit: 3
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    - bhukkad-gateway
+    - bhukkad-gateway.bhukkad
+    - bhukkad-gateway.bhukkad.svc
+    - bhukkad-gateway.bhukkad.svc.cluster.local
+  issuerRef:
+    name: bhukkad-internal-ca-issuer
+    kind: Issuer

@@ -11,7 +11,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -42,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * </ol>
  */
 @SpringBootTest
+@Transactional
 class LoyaltyLedgerConcurrencyPostgresTest extends AbstractGrowthPostgresTest {
 
     private static final int MIN_REDEMPTION = 100;
@@ -59,6 +62,8 @@ class LoyaltyLedgerConcurrencyPostgresTest extends AbstractGrowthPostgresTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
     @Autowired
+    private StringRedisTemplate redisTemplate;
+    @Autowired
     private io.micrometer.core.instrument.MeterRegistry meterRegistry;
 
     @BeforeEach
@@ -66,6 +71,9 @@ class LoyaltyLedgerConcurrencyPostgresTest extends AbstractGrowthPostgresTest {
         jdbcTemplate.update("DELETE FROM loyalty_points_ledger");
         jdbcTemplate.update("DELETE FROM loyalty_point_balances");
         jdbcTemplate.update("DELETE FROM idempotency_records");
+        // Clear Redis rate limit cache
+        redisTemplate.keys("rate-limit:*").forEach(key -> redisTemplate.delete(key));
+        redisTemplate.keys("referral:*").forEach(key -> redisTemplate.delete(key));
     }
 
     @Test

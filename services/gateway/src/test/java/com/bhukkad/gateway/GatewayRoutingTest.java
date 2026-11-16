@@ -12,6 +12,7 @@ import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWeb
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.io.IOException;
@@ -263,6 +264,7 @@ class GatewayRoutingTest {
         // /api/v1/auth/** must hit the identity service, not the monolith
         // fallback (which is refused) and not the restaurant backend.
         client.post().uri("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{}")
                 .exchange()
                 .expectStatus().isOk()

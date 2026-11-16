@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -73,7 +74,7 @@ class OrderDepthPostgresIntegrationTest extends AbstractOrderPostgresTest {
         item.setQuantity(2);
         cartItemRepository.saveAndFlush(item);
 
-        assertThat(cartItemRepository.findByCartId(saved.getId())).hasSize(1);
+        assertThat(cartItemRepository.findByCartId(saved.getId(), PageRequest.of(0, 10))).hasSize(1);
         assertThat(cartRepository.findByCustomerIdAndStatus(1L, "ACTIVE")).isPresent();
     }
 

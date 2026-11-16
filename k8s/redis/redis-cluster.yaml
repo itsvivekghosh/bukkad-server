@@ -1,0 +1,37 @@
+apiVersion: redis.redis.opstreelabs.in/v1beta1
+kind: RedisCluster
+metadata:
+  name: bhukkad-redis-cluster
+  namespace: bhukkad
+spec:
+  socketsEnabled: true
+  clusterSize: 6
+  replicasPerMaster: 1
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+  redis:
+    version: "7.2.6"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "8Gi"
+      requests:
+        cpu: "1"
+        memory: "4Gi"
+    persistentVolumeClaim:
+      storageClassName: gp3
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 50Gi
+  proxy:
+    resources:
+      limits:
+        cpu: "0.5"
+        memory: "512Mi"
+      requests:
+        cpu: "200m"
+        memory: "256Mi"

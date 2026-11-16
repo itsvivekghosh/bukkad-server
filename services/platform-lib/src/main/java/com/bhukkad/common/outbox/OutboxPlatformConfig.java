@@ -74,9 +74,11 @@ public class OutboxPlatformConfig {
                                                    OutboxProperties properties,
                                                    TransactionTemplate outboxRelayTransactionTemplate,
                                                    DeadLetterEventService deadLetterEvents,
-                                                   io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+                                                   io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                                                   ObjectProvider<OutboxMetrics> outboxMetricsProvider) {
+        OutboxMetrics outboxMetrics = outboxMetricsProvider.getIfAvailable();
         return new OutboxPollPublisher(repository, publisher, properties,
-                outboxRelayTransactionTemplate, deadLetterEvents, meterRegistry);
+                outboxRelayTransactionTemplate, deadLetterEvents, meterRegistry, outboxMetrics);
     }
 
     /**

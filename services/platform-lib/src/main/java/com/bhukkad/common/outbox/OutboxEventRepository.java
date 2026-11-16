@@ -19,7 +19,7 @@ import java.util.List;
  * {@code UPDATE … WHERE id IN (:ids)} statements (PERF-2 / implementation
  * guide §6 PERF-3.5): one round-trip per batch instead of one save per row.</p>
  */
-public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> {
+public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long>, OutboxEventRepositoryCustom {
 
     @Query(value = """
             SELECT * FROM outbox_events
@@ -101,19 +101,22 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
     int markFailed(@Param("ids") List<Long> ids, @Param("error") String error);
 
     /**
-     * Crash recovery: rows left PROCESSING by a dead replica are re-queued
-     * immediately (no retry-count penalty — the publish may have succeeded or
-     * never started; the at-least-once consumer contract tolerates the dup).
-     * Bounded by {@code processing_started_at < :staleBefore} so in-flight
-     * claims on healthy replicas are never touched, and re-checked with
-     * {@code AND status='PROCESSING'} to never clobber a concurrent flip.
+     * Retention sweep: hard-delete PUBLISHED or FAILED rows older than the TTL
+     * so the outbox table does not grow unbounded under extreme event traffic.
+     * Bounded by {@code limit} so a single sweep never holds a long write lock.
+     * Callers loop until zero rows are deleted (scheduled with fixed delay).
+     * Uses a subquery because PostgreSQL does not support LIMIT directly in DELETE.
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
-            UPDATE outbox_events SET status = 'PENDING', processing_started_at = NULL,
-                   next_attempt_at = NULL, last_error = :note
-            WHERE status = 'PROCESSING' AND processing_started_at < :staleBefore
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE status IN ('PUBLISHED', 'FAILED')
+                  AND created_at < :olderThan
+                LIMIT :limit
+            )
             """, nativeQuery = true)
-    int recoverStaleToPending(@Param("staleBefore") LocalDateTime staleBefore,
-                              @Param("note") String note);
+    int deleteOldTerminal(@Param("olderThan") LocalDateTime olderThan,
+                          @Param("limit") int limit);
 }

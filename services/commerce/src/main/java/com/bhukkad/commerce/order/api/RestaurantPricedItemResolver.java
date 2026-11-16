@@ -63,13 +63,23 @@ public class RestaurantPricedItemResolver {
      * <p>Error semantics match {@link #resolve(Long)}: restaurant outage →
      * {@link UpstreamUnavailableException} (never a fake "missing item"); an
      * id the restaurant does not return → {@link BusinessException}.</p>
+     *
+     * PERF-3: Pre-size all collections based on input size to avoid
+     * repeated rehashing and allocation churn at high throughput.
      */
     public Map<Long, PricedItem> resolveAll(Collection<Long> menuItemIds) {
-        List<Long> requested = new ArrayList<>(
-                new java.util.LinkedHashSet<>(menuItemIds == null ? List.<Long>of() : menuItemIds));
-        requested.remove(null);
-        Map<Long, PricedItem> result = new LinkedHashMap<>();
-        List<Long> cold = new ArrayList<>();
+        int expected = menuItemIds == null ? 0 : menuItemIds.size();
+        // Single pass: deduplicate and collect non-null IDs with pre-sized collections
+        List<Long> requested = new ArrayList<>(expected);
+        java.util.Set<Long> seen = new java.util.LinkedHashSet<>(expected);
+        for (Long id : menuItemIds) {
+            if (id != null && seen.add(id)) {
+                requested.add(id);
+            }
+        }
+        // Pre-size result map and cold list (cold <= requested size)
+        Map<Long, PricedItem> result = new LinkedHashMap<>(expected);
+        List<Long> cold = new ArrayList<>(expected);
         for (Long id : requested) {
             PricedItem hit = cache.getIfPresent(id);
             if (hit != null) {
@@ -81,6 +91,7 @@ public class RestaurantPricedItemResolver {
         if (cold.isEmpty()) {
             return result;
         }
+        // Pre-size fetchBatch maps based on cold list size
         for (Map.Entry<Long, PricedItem> entry : fetchBatch(cold).entrySet()) {
             cache.put(entry.getKey(), entry.getValue());
             result.put(entry.getKey(), entry.getValue());
@@ -99,7 +110,8 @@ public class RestaurantPricedItemResolver {
             // 503 so callers can retry (matches GlobalExceptionHandler).
             throw new UpstreamUnavailableException("restaurant", meshFailure);
         }
-        Map<Long, Map<String, Object>> byId = new LinkedHashMap<>();
+        // Pre-size byId based on expected response size
+        Map<Long, Map<String, Object>> byId = new LinkedHashMap<>(ids.size());
         if (remote != null) {
             for (Map<String, Object> item : remote) {
                 Long id = parseId(item.get("id"));
@@ -108,7 +120,8 @@ public class RestaurantPricedItemResolver {
                 }
             }
         }
-        Map<Long, PricedItem> priced = new LinkedHashMap<>();
+        // Pre-size priced map
+        Map<Long, PricedItem> priced = new LinkedHashMap<>(ids.size());
         for (Long id : ids) {
             Map<String, Object> item = byId.get(id);
             if (item == null || item.isEmpty()) {

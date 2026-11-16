@@ -1,6 +1,8 @@
 package com.bhukkad.commerce.delivery;
 
 import com.bhukkad.common.error.BusinessException;
+import com.bhukkad.commerce.delivery.domain.entity.DeliveryAgent;
+import com.bhukkad.commerce.delivery.domain.repository.DeliveryAgentRepository;
 import com.bhukkad.commerce.delivery.domain.service.impl.DeliveryEventPublisher;
 import com.bhukkad.commerce.delivery.domain.service.impl.DeliveryService;
 import com.bhukkad.commerce.delivery.domain.service.impl.RiderProximityMatcher;
@@ -13,8 +15,10 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -44,7 +48,9 @@ import static org.mockito.Mockito.doAnswer;
 class DeliveryLoadCapPostgresIntegrationTest extends AbstractDeliveryPostgresTest {
 
     @Autowired private DeliveryService deliveryService;
+    @Autowired private DeliveryAgentRepository agentRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @MockBean private DeliveryEventPublisher eventPublisher;
 
@@ -52,8 +58,14 @@ class DeliveryLoadCapPostgresIntegrationTest extends AbstractDeliveryPostgresTes
 
     @BeforeEach
     void clean() {
-        jdbcTemplate.update("DELETE FROM delivery_assignments");
-        jdbcTemplate.update("DELETE FROM delivery_agents");
+        // Run cleanup in a separate transaction that commits immediately (REQUIRES_NEW)
+        // so the test method running with NOT_SUPPORTED sees a clean database.
+        var txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+        txTemplate.executeWithoutResult(status -> {
+            jdbcTemplate.update("DELETE FROM delivery_assignments");
+            jdbcTemplate.update("DELETE FROM delivery_agents");
+        });
         assignedEvents.set(0);
         doAnswer(inv -> {
             assignedEvents.incrementAndGet();
@@ -62,11 +74,12 @@ class DeliveryLoadCapPostgresIntegrationTest extends AbstractDeliveryPostgresTes
     }
 
     private long seedAgent(String name) {
-        jdbcTemplate.update(
-                "INSERT INTO delivery_agents (name, is_active, active_load, created_at, updated_at) "
-                        + "VALUES (?, true, 0, now(), now())", name);
-        return jdbcTemplate.queryForObject(
-                "SELECT id FROM delivery_agents WHERE name = ?", Long.class, name);
+        DeliveryAgent agent = new DeliveryAgent();
+        agent.setName(name);
+        agent.setIsActive(true);
+        agent.setActiveLoad(0);
+        agent = agentRepository.saveAndFlush(agent);
+        return agent.getId();
     }
 
     private int activeLoad(long agentId) {

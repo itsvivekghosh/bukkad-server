@@ -1,0 +1,104 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: elasticsearch-catalog-sink
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: cdc
+    target: elasticsearch
+spec:
+  class: org.apache.kafka.connect.elasticsearch.ElasticsearchSinkConnector
+  tasksMax: 2
+  config:
+    connector.class: org.apache.kafka.connect.elasticsearch.ElasticsearchSinkConnector
+    topics: bhukkad.catalog.events.v1
+    connection.url: http://bhukkad-opensearch:9200
+    type.name: _doc
+    key.ignore: "true"
+    schema.ignore: "true"
+    behavior: upsert
+    key.ignore: "true"
+    transformers: route
+    transformers.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transformers.route.regex: "bhukkad\\.catalog\\.(.+)"
+    transformers.route.replacement: "catalog_v1"
+    transformers.route.key.regex: "bhukkad\\.catalog\\.(.+)"
+    transformers.route.key.replacement: "catalog_v1"
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable: "false"
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    batch.size: 100
+    max.batch.size: 1000
+    max.buffered.records: 5000
+    linger.ms: 100
+    retries: 3
+    retry.backoff.ms: 1000
+    status.storage.topic: bhukkad.connect.status
+    config.storage.topic: bhukkad.connect.configs
+    offset.storage.topic: bhukkad.connect.offsets
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elasticsearch-credentials
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: elasticsearch
+type: Opaque
+stringData:
+  ELASTICSEARCH_USERNAME: elastic
+  ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-search-sync
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: search-sync
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bhukkad
+      component: search-sync
+  template:
+    metadata:
+      labels:
+        app: bhukkad
+        component: search-sync
+    spec:
+      containers:
+        - name: catalog-search-sync
+          image: bhukkad/catalog-search-sync:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: bhukkad-kafka:9092
+            - name: ELASTICSEARCH_URL
+              value: http://bhukkad-opensearch:9200
+            - name: ELASTICSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: ELASTICSEARCH_USERNAME
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: ELASTICSEARCH_PASSWORD
+            - name: TOPICS
+              value: bhukkad.catalog.events.v1,bhukkad.identity.events.v1
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi

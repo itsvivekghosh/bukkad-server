@@ -1,33 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   This service logs exclusively through the shared platform configuration in
-  platform-lib's classpath resource logback-bhukkad.xml — console layout with
-  the PII redactor (%pii) and trace-id correlation. Per-profile levels are set
-  with logging.level.* in application(.yml|<profile>) as usual.
+  platform-lib's classpath resource logback-bhukkad.xml. The shared CONSOLE_JSON
+  appender is defined there so traceId/spanId and trace_id/span_id stay
+  consistent across the fleet; this file only activates it for prod.
 -->
 <configuration>
     <include resource="logback-bhukkad.xml"/>
     <springProfile name="prod">
-        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
-            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-                <fieldNames>
-                    <timestamp>timestamp</timestamp>
-                    <level>level</level>
-                    <thread>thread</thread>
-                    <logger>logger</logger>
-                    <message>message</message>
-                    <context>context</context>
-                </fieldNames>
-                <includeContext>false</includeContext>
-                <includeMdcKeyName>traceId</includeMdcKeyName>
-                <includeMdcKeyName>spanId</includeMdcKeyName>
-                <includeMdcKeyName>correlationId</includeMdcKeyName>
-                <includeMdcKeyName>service</includeMdcKeyName>
-                <includeMdcKeyName>environment</includeMdcKeyName>
-                <includeMdcKeyName>version</includeMdcKeyName>
-                <includeMdcKeyName>region</includeMdcKeyName>
-            </encoder>
-        </appender>
         <root level="INFO">
             <appender-ref ref="CONSOLE_JSON"/>
         </root>

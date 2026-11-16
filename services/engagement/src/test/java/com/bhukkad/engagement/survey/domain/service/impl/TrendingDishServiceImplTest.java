@@ -42,30 +42,30 @@ class TrendingDishServiceImplTest {
         return list;
     }
 
-    private void cacheReturns(List<TrendingDishResponse> value) {
-        when(localCacheService.getOrCompute(eq("trending-dishes"), eq(List.class), eq(60L), any()))
+    private void cacheReturns(int limit, List<TrendingDishResponse> value) {
+        when(localCacheService.getOrCompute(eq("trending-dishes:" + limit), eq(List.class), eq(60L), any()))
                 .thenReturn(value);
     }
 
     @Test
     void nonPositiveLimit_fallsBackToDefaultTen() {
-        cacheReturns(dishes(3));
+        cacheReturns(10, dishes(3));
 
         assertThat(service.trending(0)).hasSize(3);
 
-        verify(localCacheService).getOrCompute(eq("trending-dishes"), eq(List.class), eq(60L), any());
+        verify(localCacheService).getOrCompute(eq("trending-dishes:10"), eq(List.class), eq(60L), any());
     }
 
     @Test
     void cachedSmallerThanRequested_returnedWhole() {
-        cacheReturns(dishes(5));
+        cacheReturns(25, dishes(5));
 
         assertThat(service.trending(25)).hasSize(5);
     }
 
     @Test
     void cachedLargerThanRequested_truncatedToLimit() {
-        cacheReturns(dishes(60));
+        cacheReturns(50, dishes(60));
 
         List<TrendingDishResponse> top50 = service.trending(50);
 
@@ -76,7 +76,7 @@ class TrendingDishServiceImplTest {
 
     @Test
     void oversizedLimit_clampedToMax50() {
-        cacheReturns(dishes(60));
+        cacheReturns(50, dishes(60));
 
         // 60 cached, request 999 → capped to 50 → truncated to ids 1..50
         assertThat(service.trending(999)).hasSize(50);
@@ -100,13 +100,13 @@ class TrendingDishServiceImplTest {
         second.setMenuItemId(22L);
         second.setDishName("Biryani");
         second.setQuantitySold(80L);
-        when(trendingDishRepository.findTopByQuantitySoldDesc(PageRequest.of(0, 50)))
+        when(trendingDishRepository.findTopByQuantitySoldDesc(PageRequest.of(0, 10)))
                 .thenReturn(List.of(first, second));
 
         ArgumentCaptor<Supplier> loader = ArgumentCaptor.forClass(Supplier.class);
-        cacheReturns(List.of());
+        cacheReturns(10, List.of());
         service.trending(10);
-        verify(localCacheService).getOrCompute(eq("trending-dishes"), eq(List.class), eq(60L), loader.capture());
+        verify(localCacheService).getOrCompute(eq("trending-dishes:10"), eq(List.class), eq(60L), loader.capture());
 
         List<TrendingDishResponse> loaded = (List<TrendingDishResponse>) loader.getValue().get();
         assertThat(loaded).containsExactly(
@@ -119,6 +119,6 @@ class TrendingDishServiceImplTest {
         when(trendingDishRepository.findTopByQuantitySoldDesc(any(Pageable.class)))
                 .thenReturn(List.of());
 
-        assertThat(service.queryTrending()).isEmpty();
+        assertThat(service.queryTrending(10)).isEmpty();
     }
 }

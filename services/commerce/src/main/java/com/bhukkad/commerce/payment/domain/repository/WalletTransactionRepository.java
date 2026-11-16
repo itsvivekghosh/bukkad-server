@@ -1,33 +1,38 @@
 package com.bhukkad.commerce.payment.domain.repository;
 
+import com.bhukkad.commerce.payment.domain.entity.WalletTransaction;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
-import com.bhukkad.commerce.payment.domain.entity.WalletTransaction;
 import java.util.List;
 
 public interface WalletTransactionRepository extends JpaRepository<WalletTransaction, Long> {
 
-    List<WalletTransaction> findByCustomerId(Long customerId);
-
-    /** Newest-first page (offset pagination). */
-    @Query("SELECT t FROM WalletTransaction t WHERE t.customerId = :customerId " +
-            "ORDER BY t.createdAt DESC, t.id DESC")
-    List<WalletTransaction> pageNewestFirst(@Param("customerId") Long customerId, Pageable pageable);
+    Page<WalletTransaction> findByCustomerId(Long customerId, Pageable pageable);
 
     /**
-     * Keyset-ordered newest-first page for cursor pagination — the keyset
-     * predicate keeps query cost constant regardless of scroll depth.
+     * @deprecated Use {@link #findByCustomerId(Long, Pageable)} instead for bounded results.
      */
-    @Query("SELECT t FROM WalletTransaction t WHERE t.customerId = :customerId " +
-            "AND (t.createdAt < :cursorCreatedAt " +
-            "OR (t.createdAt = :cursorCreatedAt AND t.id < :cursorId)) " +
-            "ORDER BY t.createdAt DESC, t.id DESC")
-    List<WalletTransaction> afterCursor(@Param("customerId") Long customerId,
-                                        @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
-                                        @Param("cursorId") Long cursorId,
-                                        Pageable pageable);
+    @Deprecated
+    List<WalletTransaction> findByCustomerId(Long customerId);
+
+    /**
+     * @deprecated Use {@link #findByCustomerId(Long, Pageable)} instead.
+     */
+    @Deprecated
+    @Query("SELECT wt FROM WalletTransaction wt WHERE wt.customerId = :customerId ORDER BY wt.createdAt DESC")
+    Page<WalletTransaction> pageNewestFirst(Long customerId, Pageable pageable);
+
+    @Query("SELECT wt FROM WalletTransaction wt WHERE wt.customerId = :customerId ORDER BY wt.createdAt DESC")
+    Page<WalletTransaction> findByCustomerIdOrderByCreatedAtDesc(Long customerId, Pageable pageable);
+
+    @Query("SELECT wt FROM WalletTransaction wt WHERE wt.customerId = :customerId AND wt.createdAt < :before ORDER BY wt.createdAt DESC")
+    Page<WalletTransaction> findByCustomerIdAndCreatedAtBefore(Long customerId, LocalDateTime before, Pageable pageable);
+
+    @Query("SELECT wt FROM WalletTransaction wt WHERE wt.customerId = :customerId AND (wt.createdAt < :createdAt OR (wt.createdAt = :createdAt AND wt.id < :id)) ORDER BY wt.createdAt DESC, wt.id DESC")
+    Page<WalletTransaction> afterCursor(Long customerId, LocalDateTime createdAt, Long id, Pageable pageable);
 }

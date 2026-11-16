@@ -16,11 +16,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Read-side service for restaurant browse and menu snapshot. Serves the public
@@ -44,15 +50,15 @@ public class RestaurantQueryService {
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
-    public List<RestaurantSummary> browseByCuisine(Long cuisineId) {
-        return restaurantRepository.findByCuisineIdAndIsActiveTrue(cuisineId)
-                .stream().map(this::toSummary).toList();
+    public Page<RestaurantSummary> browseByCuisine(Long cuisineId, Pageable pageable) {
+        return restaurantRepository.findByCuisineIdAndIsActiveTrue(cuisineId, pageable)
+                .map(this::toSummary);
     }
 
     @Transactional(readOnly = true)
-    public List<RestaurantSummary> search(String name) {
-        return restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue(name)
-                .stream().map(this::toSummary).toList();
+    public Page<RestaurantSummary> search(String name, Pageable pageable) {
+        return restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue(name, pageable)
+                .map(this::toSummary);
     }
 
     @Transactional(readOnly = true)
@@ -113,18 +119,40 @@ public class RestaurantQueryService {
             return;
         }
         log.info("PREWARM_MENU_CACHE_START");
-        restaurantRepository.findByIsActiveTrue().forEach(r -> {
+        
+        // Batch load: fetch all active restaurants first
+        List<Restaurant> restaurants = restaurantRepository.findByIsActiveTrue();
+        if (restaurants.isEmpty()) {
+            log.info("PREWARM_MENU_CACHE_COMPLETE (no active restaurants)");
+            return;
+        }
+        
+        // Batch load menu items for all restaurants in a single query
+        List<Long> restaurantIds = restaurants.stream().map(Restaurant::getId).toList();
+        List<MenuItem> allMenuItems = menuItemRepository.findByRestaurantIdInAndIsAvailableTrue(restaurantIds);
+        
+        // Group menu items by restaurant ID
+        Map<Long, List<MenuItemDto>> itemsByRestaurant = allMenuItems.stream()
+                .collect(Collectors.groupingBy(
+                        MenuItem::getRestaurantId,
+                        Collectors.mapping(this::toDto, Collectors.toList())
+                ));
+        
+        // Warm cache for each restaurant using pre-loaded items
+        for (Restaurant r : restaurants) {
             try {
+                List<MenuItemDto> items = itemsByRestaurant.getOrDefault(r.getId(), new ArrayList<>());
+                MenuSnapshot snapshot = new MenuSnapshot(r.getId(), r.getName(), items);
                 cache.getOrCompute(
                         RestaurantCacheKeys.menuSnapshot(r.getId()),
                         String.class,
                         RestaurantCacheKeys.MENU_SNAPSHOT_TTL_SECONDS,
-                        () -> writeSnapshot(loadMenuSnapshot(r.getId()))
+                        () -> writeSnapshot(snapshot)
                 );
             } catch (Exception ex) {
                 log.warn("PREWARM_MENU_CACHE_FAILED restaurantId={} error={}", r.getId(), ex.getMessage());
             }
-        });
+        }
         log.info("PREWARM_MENU_CACHE_COMPLETE");
     }
 

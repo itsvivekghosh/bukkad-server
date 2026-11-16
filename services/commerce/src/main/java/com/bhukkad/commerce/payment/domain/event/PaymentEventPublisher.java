@@ -10,14 +10,14 @@ import java.math.BigDecimal;
 
 /**
  * Publishes payment domain events via the transactional outbox (plan §6.2,
- * {@code payment.events.v1}): {@code PaymentSettled}, {@code WalletCredited}.
+ * {@code order.events.v1}): {@code PaymentSettled}, {@code WalletCredited}.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentEventPublisher {
 
-    public static final String TOPIC = "payment.events.v1";
+    public static final String TOPIC = "order.events.v1";
     public static final String TYPE_PAYMENT_SETTLED = "PaymentSettled";
     public static final String TYPE_WALLET_CREDITED = "WalletCredited";
     public static final String TYPE_SETTLEMENT_RUN_COMPLETED = "PaymentSettlementRunCompleted";

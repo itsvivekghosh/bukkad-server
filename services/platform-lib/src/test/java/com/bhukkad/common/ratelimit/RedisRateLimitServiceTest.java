@@ -93,9 +93,14 @@ class RedisRateLimitServiceTest {
         verify(template, never()).opsForValue();
         verify(template, never()).expire(any(String.class), anyLong(), any());
         ArgumentCaptor<List<String>> keys = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<String> limitCap = ArgumentCaptor.forClass(String.class);
         verify(template).execute(any(RedisScript.class), keys.capture(),
-                anyString(), eq("60000"), eq("10"));
-        assertThat(keys.getValue()).containsExactly("bhukkad:ratelimit:search:user:1");
+                anyString(), anyString(), limitCap.capture());
+        List<String> capturedKeys = keys.getValue();
+        assertThat(capturedKeys).hasSize(1);
+        assertThat(capturedKeys.get(0)).startsWith("bhukkad:ratelimit:search:user:1:shard");
+        // Limit is per-shard: max(1, 10 / shardCount=4) = 2
+        assertThat(limitCap.getValue()).isEqualTo("2");
     }
 
     @Test

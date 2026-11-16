@@ -68,14 +68,14 @@ public class CircuitBreakerFilter implements ExchangeFilterFunction {
     }
 
 
-    /** Upper bound for a single upstream call; a breach is recorded as a failure. */
-    private static final Duration CALL_TIMEOUT = Duration.ofSeconds(5);
-
+    /** Upper bound for a single upstream call; a breach is recorded as a failure. Configurable via constructor. */
+    private final Duration callTimeout;
     private final CircuitBreaker circuitBreaker;
 
     public CircuitBreakerFilter(String name, CircuitBreakerConfig config,
                                 MeterRegistry meterRegistry, CircuitBreakerRegistry breakerRegistry) {
         this.circuitBreaker = breakerRegistry.circuitBreaker(name, config);
+        this.callTimeout = Duration.ofSeconds(5);
         if (meterRegistry != null) {
             CircuitBreaker breaker = this.circuitBreaker;
             Gauge.builder("circuit_breaker_open", breaker,
@@ -112,7 +112,7 @@ public class CircuitBreakerFilter implements ExchangeFilterFunction {
     @Override
     public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
         return Mono.defer(() -> next.exchange(request))
-                .timeout(CALL_TIMEOUT)
+                .timeout(callTimeout)
                 .flatMap(response -> {
                     if (response.statusCode().is5xxServerError()) {
                         return Mono.error(WebClientResponseException.create(

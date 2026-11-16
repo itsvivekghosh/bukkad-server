@@ -42,6 +42,19 @@ public class SocialAsyncConfig implements AsyncConfigurer {
         return executor;
     }
 
+    @Bean("notificationExecutor")
+    public ThreadPoolTaskExecutor notificationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(25);
+        executor.setMaxPoolSize(100);
+        executor.setQueueCapacity(2_000);
+        executor.setThreadNamePrefix("notification-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
     @Override
     public Executor getAsyncExecutor() {
         return feedExecutor();

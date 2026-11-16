@@ -88,3 +88,27 @@ spec:
             domain: events
           annotations:
             summary: "Consumer group {{ $labels.consumergroup }} lagging {{ $value }} on {{ $labels.topic }} — event backbone falling behind"
+
+
+        # KafkaConsumerLagHigh: two-tier consumer-lag tripwire over the
+        # kafka-exporter kafka_consumergroup_lag metric, tagged by
+        # {consumergroup, topic}.
+        - alert: KafkaConsumerLagHigh
+          expr: kafka_consumergroup_lag > 10000
+          for: 5m
+          labels:
+            severity: warning
+            domain: events
+          annotations:
+            summary: "Consumer group {{ $labels.consumergroup }} lag > 10k on {{ $labels.topic }} ({{ $value }})"
+            description: "Consumer group {{ $labels.consumergroup }} has been lagging more than 10,000 records on {{ $labels.topic }} for 5m."
+
+        - alert: KafkaConsumerLagCritical
+          expr: kafka_consumergroup_lag > 100000
+          for: 5m
+          labels:
+            severity: critical
+            domain: events
+          annotations:
+            summary: "Consumer group {{ $labels.consumergroup }} lag > 100k on {{ $labels.topic }} ({{ $value }})"
+            description: "Consumer group {{ $labels.consumergroup }} has been lagging more than 100,000 records on {{ $labels.topic }} for 5m — event backbone falling behind."

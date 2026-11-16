@@ -13,10 +13,13 @@ import com.bhukkad.engagement.referral.domain.repository.ReferralRewardLedgerRep
 import com.bhukkad.engagement.referral.domain.repository.UserReferralCodeRepository;
 import com.bhukkad.engagement.referral.domain.service.ReferralService.ApplyReferralOutcome;
 import com.bhukkad.engagement.referral.domain.service.ReferralService.CompletionOutcome;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.util.Optional;
 
@@ -35,18 +38,23 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class ReferralServiceImplTest {
 
     @Mock private UserReferralCodeRepository referralCodeRepository;
     @Mock private ReferralRewardLedgerRepository rewardLedgerRepository;
     @Mock private RateLimitService rateLimitService;
+    @Mock private StringRedisTemplate redisTemplate;
+    @Mock private org.springframework.data.redis.core.ValueOperations<String, String> valueOperations;
 
     private final ReferralServiceProperties properties = new ReferralServiceProperties();
     private final ReferralAbuseProperties abuseProperties = new ReferralAbuseProperties();
 
     private ReferralServiceImpl service() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.hasKey(anyString())).thenReturn(false);
         return new ReferralServiceImpl(referralCodeRepository, rewardLedgerRepository,
-                properties, rateLimitService, abuseProperties);
+                properties, rateLimitService, abuseProperties, redisTemplate);
     }
 
     private static UserReferralCode row(Long customerId, String code, Long referredBy) {

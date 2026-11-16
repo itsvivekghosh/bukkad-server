@@ -2,6 +2,7 @@ package com.bhukkad.common.outbox;
 
 import com.bhukkad.common.event.PlatformEventMessage;
 import com.bhukkad.common.kafka.KafkaPlatformEventPublisher;
+import com.bhukkad.common.metrics.BusinessMetrics;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -10,8 +11,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,8 @@ public class OutboxPollPublisher {
     private final OutboxProperties properties;
     private final TransactionTemplate transactionTemplate;
     private final DeadLetterEventService deadLetterEvents;
+    private final OutboxMetrics outboxMetrics;
+    private final BusinessMetrics businessMetrics;
     private final io.micrometer.core.instrument.Counter dlqCounter;
     private final DistributionSummary publishLag;
 
@@ -79,11 +82,48 @@ public class OutboxPollPublisher {
                                TransactionTemplate transactionTemplate,
                                DeadLetterEventService deadLetterEvents,
                                MeterRegistry meterRegistry) {
+        this(repository, publisher, properties, transactionTemplate, deadLetterEvents, meterRegistry,
+                new OutboxMetrics(repository, deadLetterEvents, meterRegistry),
+                null);
+    }
+
+    public OutboxPollPublisher(OutboxEventRepository repository,
+                               KafkaPlatformEventPublisher publisher,
+                               OutboxProperties properties,
+                               TransactionTemplate transactionTemplate,
+                               DeadLetterEventService deadLetterEvents,
+                               MeterRegistry meterRegistry,
+                               OutboxMetrics outboxMetrics) {
+        this(repository, publisher, properties, transactionTemplate, deadLetterEvents, meterRegistry,
+                outboxMetrics, null);
+    }
+
+    public OutboxPollPublisher(OutboxEventRepository repository,
+                               KafkaPlatformEventPublisher publisher,
+                               OutboxProperties properties,
+                               TransactionTemplate transactionTemplate,
+                               DeadLetterEventService deadLetterEvents,
+                               MeterRegistry meterRegistry,
+                               BusinessMetrics businessMetrics) {
+        this(repository, publisher, properties, transactionTemplate, deadLetterEvents, meterRegistry,
+                null, businessMetrics);
+    }
+
+    public OutboxPollPublisher(OutboxEventRepository repository,
+                               KafkaPlatformEventPublisher publisher,
+                               OutboxProperties properties,
+                               TransactionTemplate transactionTemplate,
+                               DeadLetterEventService deadLetterEvents,
+                               MeterRegistry meterRegistry,
+                               OutboxMetrics outboxMetrics,
+                               BusinessMetrics businessMetrics) {
         this.repository = repository;
         this.publisher = publisher;
         this.properties = properties;
         this.transactionTemplate = transactionTemplate;
         this.deadLetterEvents = deadLetterEvents;
+        this.outboxMetrics = outboxMetrics;
+        this.businessMetrics = businessMetrics;
         // Prometheus surfaces this as outbox_dlq_total (PERF-2 alert metric).
         this.dlqCounter = meterRegistry.counter("outbox.dlq");
         // P-06: ms histogram of now - createdAt at successful publish; with the
@@ -184,7 +224,13 @@ public class OutboxPollPublisher {
             boolean acked;
             String error = "publish timed out";
             try {
-                acked = publisher.publishForResult(message);
+                if (com.bhukkad.common.audit.AuditEventService.AUDIT_EVENT_TYPE.equals(message.eventType())) {
+                    // Audit outbox rows ship to the dedicated audit.events topic.
+                    acked = publisher.publishForResult(message,
+                            com.bhukkad.common.audit.AuditEventService.AUDIT_EVENTS_TOPIC);
+                } else {
+                    acked = publisher.publishForResult(message);
+                }
             } catch (Exception e) {
                 acked = false;
                 error = e.getMessage();
@@ -192,6 +238,7 @@ public class OutboxPollPublisher {
             if (acked) {
                 outcome.published.add(event.getId());
                 recordPublishLag(event);
+                recordBusinessEvent(message.eventType());
                 log.debug("OUTBOX_PUBLISHED | id={} | eventId={} | type={}",
                         event.getId(), message.eventId(), message.eventType());
                 continue;
@@ -219,6 +266,25 @@ public class OutboxPollPublisher {
         long lagMs = Duration.between(event.getCreatedAt(), LocalDateTime.now()).toMillis();
         if (lagMs >= 0) {
             publishLag.record(lagMs);
+        }
+    }
+
+    /**
+     * Records a business-event counter for each acked outbox publish whose
+     * envelope type maps to a real-time analytics metric. Unknown event types
+     * are ignored so a new event type never breaks the relay.
+     */
+    private void recordBusinessEvent(String eventType) {
+        if (businessMetrics == null) {
+            return;
+        }
+        switch (eventType) {
+            case "OrderCreated" -> businessMetrics.recordOrderCreated();
+            case "PaymentCompleted" -> businessMetrics.recordPaymentCompleted();
+            case "DeliveryAssigned" -> businessMetrics.recordDeliveryAssigned();
+            case "FraudBlocked" -> businessMetrics.recordFraudBlocked();
+            default -> {
+            }
         }
     }
 
@@ -251,22 +317,49 @@ public class OutboxPollPublisher {
                 dlqCounter.increment();
             }
         }
-        return count == null ? 0 : count;
+        int published = count == null ? 0 : count;
+        int failed = outcome.retries.values().stream().mapToInt(List::size).sum()
+                + outcome.deadRowsByError.values().stream().mapToInt(List::size).sum();
+        recordPublished(published);
+        recordFailed(failed);
+        return published;
+    }
+
+    private void recordPublished(int count) {
+        if (outboxMetrics != null && count > 0) {
+            outboxMetrics.published(count);
+        }
+    }
+
+    private void recordFailed(int count) {
+        if (outboxMetrics != null && count > 0) {
+            outboxMetrics.failed(count);
+        }
+    }
+
+    private void recordPollDuration(long durationMillis) {
+        if (outboxMetrics != null) {
+            outboxMetrics.recordPollDuration(durationMillis);
+        }
     }
 
     // ── Scheduled entry points (wired by OutboxRelayBootstrap) ───────────────
 
     /** One poll cycle. A batch failure must never kill the relay loop. */
     public void poll() {
+        long started = System.nanoTime();
         try {
             drainBatch();
         } catch (Exception e) {
             log.error("OUTBOX_POLL_FAILED | error={}", e.getMessage(), e);
+        } finally {
+            recordPollDuration((System.nanoTime() - started) / 1_000_000L);
         }
     }
 
     /** Partition-scoped poll for parallel relay threads (PERF-2). */
     public void poll(int partitionId) {
+        long started = System.nanoTime();
         try {
             List<OutboxEvent> claimed = claimBatchByPartition(partitionId);
             if (claimed.isEmpty()) {
@@ -276,6 +369,8 @@ public class OutboxPollPublisher {
             persistOutcome(outcome);
         } catch (Exception e) {
             log.error("OUTBOX_POLL_PARTITION_FAILED | partition={} | error={}", partitionId, e.getMessage(), e);
+        } finally {
+            recordPollDuration((System.nanoTime() - started) / 1_000_000L);
         }
     }
 
@@ -286,8 +381,7 @@ public class OutboxPollPublisher {
      * reachable from tests, so every broker blip stranded rows forever).
      */
     public int recoverStale() {
-        LocalDateTime staleBefore = LocalDateTime.ofInstant(
-                Instant.now().minus(properties.processingTimeout()), ZoneId.systemDefault());
+        Instant staleBefore = Instant.now().minus(properties.processingTimeout());
         Integer recovered = transactionTemplate.execute(status -> repository.recoverStaleToPending(
                 staleBefore,
                 truncate("recovered from stalled PROCESSING", properties.maxErrorLength())));
@@ -306,19 +400,21 @@ public class OutboxPollPublisher {
 
     /** Mutable routing accumulator for a batch; entity refs kept for dead-letter copies. */
     private static final class Outcome {
-        final List<Long> published = new ArrayList<>();
-        final Map<RetryKey, List<Long>> retries = new LinkedHashMap<>();
-        final Map<String, List<Long>> deadByError = new LinkedHashMap<>();
-        final Map<String, List<OutboxEvent>> deadRowsByError = new LinkedHashMap<>();
+        // PERF-3: Pre-size collections based on batch size to avoid rehashing.
+        // Use HashMap instead of LinkedHashMap where insertion order is not needed.
+        final List<Long> published = new ArrayList<>(64);
+        final Map<RetryKey, List<Long>> retries = new HashMap<>(16);
+        final Map<String, List<Long>> deadByError = new HashMap<>(8);
+        final Map<String, List<OutboxEvent>> deadRowsByError = new HashMap<>(8);
 
         void retry(OutboxEvent event, String error, LocalDateTime nextAttemptAt) {
-            retries.computeIfAbsent(new RetryKey(nextAttemptAt, error), k -> new ArrayList<>())
-                    .add(event.getId());
+            retries.computeIfAbsent(new RetryKey(nextAttemptAt, error),
+                    k -> new ArrayList<>(4)).add(event.getId());
         }
 
         void dead(OutboxEvent event, String error) {
-            deadByError.computeIfAbsent(error, k -> new ArrayList<>()).add(event.getId());
-            deadRowsByError.computeIfAbsent(error, k -> new ArrayList<>()).add(event);
+            deadByError.computeIfAbsent(error, k -> new ArrayList<>(4)).add(event.getId());
+            deadRowsByError.computeIfAbsent(error, k -> new ArrayList<>(4)).add(event);
         }
     }
 

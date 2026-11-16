@@ -14,9 +14,14 @@ import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Aspect
 @Component
 public class AuditedAspect {
+
+    private static final Logger log = LoggerFactory.getLogger(AuditedAspect.class);
 
     private final AuditService auditService;
 
@@ -41,6 +46,8 @@ public class AuditedAspect {
                     evaluate(audited.oldState(), context),
                     evaluate(audited.newState(), context));
         } catch (Exception ex) {
+            log.warn("AUDIT_RECORD_FAILED action={} resourceType={} error={}",
+                    audited.action(), audited.resourceType(), ex.getMessage());
         }
 
         return result;

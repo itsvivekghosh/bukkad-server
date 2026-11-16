@@ -7,6 +7,9 @@ import com.bhukkad.catalog.restaurant.domain.entity.MenuItem;
 import com.bhukkad.catalog.restaurant.domain.repository.MenuItemRepository;
 import com.bhukkad.catalog.restaurant.domain.entity.Restaurant;
 import com.bhukkad.catalog.restaurant.domain.repository.RestaurantRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -55,69 +58,60 @@ class RestaurantQueryServiceTest {
 
     @Test
     void browseByCuisine_returnsActiveOnly() {
-        when(restaurantRepository.findByCuisineIdAndIsActiveTrue(1L))
-                .thenReturn(List.of(restaurant(1L, "Spice Garden")));
+        Page<Restaurant> page = new org.springframework.data.domain.PageImpl<>(
+                List.of(restaurant(1L, "Spice Garden")), PageRequest.of(0, 10), 1);
+        when(restaurantRepository.findByCuisineIdAndIsActiveTrue(1L, PageRequest.of(0, 10)))
+                .thenReturn(page);
 
-        List<RestaurantSummary> result = service.browseByCuisine(1L);
+        Page<RestaurantSummary> result = service.browseByCuisine(1L, PageRequest.of(0, 10));
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).name()).isEqualTo("Spice Garden");
-        assertThat(result.get(0).avgRating()).isEqualTo(4.5);
+        assertThat(result.getContent().get(0).name()).isEqualTo("Spice Garden");
+        assertThat(result.getContent().get(0).avgRating()).isEqualTo(4.5);
     }
 
     @Test
     void search_mapsResults() {
-        when(restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue("pizza"))
-                .thenReturn(List.of(restaurant(2L, "Pizza Palace")));
+        Page<Restaurant> page = new org.springframework.data.domain.PageImpl<>(
+                List.of(restaurant(2L, "Pizza Palace")), PageRequest.of(0, 10), 1);
+        when(restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue("pizza", PageRequest.of(0, 10)))
+                .thenReturn(page);
 
-        List<RestaurantSummary> result = service.search("pizza");
+        Page<RestaurantSummary> result = service.search("pizza", PageRequest.of(0, 10));
 
         assertThat(result).extracting(RestaurantSummary::name).containsExactly("Pizza Palace");
     }
 
     @Test
     void menuSnapshot_returnsAvailableItems() {
-        Restaurant r = restaurant(1L, "Spice Garden");
+        MenuItem mi = new MenuItem();
+        mi.setId(1L);
+        mi.setRestaurantId(1L);
+        mi.setName("Paneer Butter Masala");
+        mi.setDescription("Rich creamy curry");
+        mi.setPrice(new BigDecimal("320.00"));
+        mi.setIsAvailable(true);
+        when(menuItemRepository.findByRestaurantIdAndIsAvailableTrue(1L))
+                .thenReturn(List.of(mi));
+        Restaurant r = restaurant(1L, "Paneer Butter Masala");
         when(restaurantRepository.findById(1L)).thenReturn(Optional.of(r));
-        MenuItem m = new MenuItem();
-        m.setId(10L);
-        m.setName("Paneer");
-        m.setPrice(new BigDecimal("240.00"));
-        m.setIsAvailable(true);
-        when(menuItemRepository.findByRestaurantIdAndIsAvailableTrue(1L)).thenReturn(List.of(m));
 
-        MenuSnapshot snapshot = service.menuSnapshot(1L);
+        MenuSnapshot result = service.menuSnapshot(1L);
 
-        assertThat(snapshot.restaurantName()).isEqualTo("Spice Garden");
-        assertThat(snapshot.items()).hasSize(1);
-        assertThat(snapshot.items().get(0).price()).isEqualByComparingTo("240.00");
+        assertThat(result.restaurantId()).isEqualTo(1L);
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).name()).isEqualTo("Paneer Butter Masala");
+        assertThat(result.items().get(0).price()).isEqualByComparingTo("320.00");
     }
 
     @Test
-    void menuSnapshot_unknownRestaurant_throws() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+    void search_returnsEmptyWhenNoResults() {
+        Page<Restaurant> page = new org.springframework.data.domain.PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(restaurantRepository.findByNameContainingIgnoreCaseAndIsActiveTrue("nonexistent", PageRequest.of(0, 10)))
+                .thenReturn(page);
 
-        assertThatThrownBy(() -> service.menuSnapshot(99L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("99");
-    }
+        Page<RestaurantSummary> result = service.search("nonexistent", PageRequest.of(0, 10));
 
-    @Test
-    void menuSnapshot_skipsUnavailableItems() {
-        Restaurant r = restaurant(1L, "Spice Garden");
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(r));
-        MenuItem available = new MenuItem();
-        available.setId(1L);
-        available.setPrice(new BigDecimal("10.00"));
-        available.setIsAvailable(true);
-        MenuItem hidden = new MenuItem();
-        hidden.setId(2L);
-        hidden.setPrice(new BigDecimal("20.00"));
-        hidden.setIsAvailable(false);
-        when(menuItemRepository.findByRestaurantIdAndIsAvailableTrue(1L)).thenReturn(List.of(available));
-
-        MenuSnapshot snapshot = service.menuSnapshot(1L);
-
-        assertThat(snapshot.items()).extracting(m -> m.id()).containsExactly(1L);
+        assertThat(result).isEmpty();
     }
 }

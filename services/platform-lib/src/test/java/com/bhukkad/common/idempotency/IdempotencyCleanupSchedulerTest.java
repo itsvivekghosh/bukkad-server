@@ -24,7 +24,7 @@ class IdempotencyCleanupSchedulerTest {
         when(repository.deleteBatch(any(), eq(5000))).thenReturn(5000, 3);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         IdempotencyCleanupScheduler scheduler =
-                new IdempotencyCleanupScheduler(repository, new NoOpTxManager(), registry, "test-svc");
+                new IdempotencyCleanupScheduler(repository, new NoOpTxManager(), registry, "test-svc", 5000);
 
         scheduler.purgeExpiredRecords();
 
@@ -39,7 +39,7 @@ class IdempotencyCleanupSchedulerTest {
         when(repository.deleteBatch(any(), anyInt())).thenReturn(0);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         IdempotencyCleanupScheduler scheduler =
-                new IdempotencyCleanupScheduler(repository, new NoOpTxManager(), registry, "test-svc");
+                new IdempotencyCleanupScheduler(repository, new NoOpTxManager(), registry, "test-svc", 5000);
 
         scheduler.purgeExpiredRecords();
 

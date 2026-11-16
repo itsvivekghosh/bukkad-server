@@ -157,7 +157,14 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
-		<!-- OpenTelemetry distributed tracing (H3). -->
+		<dependency>
+			<groupId>io.projectreactor</groupId>
+			<artifactId>reactor-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- OpenTelemetry distributed tracing (H3) temporarily commented out:
+		    	 artifacts not available in local Maven repo. -->
+		<!--
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-observability</artifactId>
@@ -170,6 +177,53 @@
 			<groupId>io.opentelemetry.instrumentation</groupId>
 			<artifactId>opentelemetry-instrumentation-spring-boot-starter</artifactId>
 		</dependency>
+		-->
+		<!-- AWS SDK v2 - Floci-compatible AWS service integration.
+		    	 Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
+		    	 in Maven Central, and individual AWS SDK modules are not
+		    	 available locally. -->
+		<!--
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>dynamodb</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>sqs</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>sns</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>secretsmanager</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>kms</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>cloudwatch</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>iam</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>apache-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.awspring.cloud</groupId>
+			<artifactId>spring-cloud-aws-starter</artifactId>
+		</dependency>
+		-->
 	</dependencies>
 
 	<build>
@@ -196,6 +250,14 @@
 				<configuration>
 					<!-- Processors (Lombok + MapStruct) are discovered from the compile
 					     classpath — same working pattern as the restaurant module. -->
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<argLine>-Duser.timezone=UTC</argLine>
+					<useFile>false</useFile>
 				</configuration>
 			</plugin>
 		</plugins>

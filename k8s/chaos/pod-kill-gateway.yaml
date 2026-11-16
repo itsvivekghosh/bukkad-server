@@ -1,0 +1,46 @@
+# Chaos Mesh experiment: pod-kill-gateway
+#
+# Scenario: Kill one bhukkad-gateway pod to validate circuit-breaker fail-over,
+#           request hedging, and edge resilience during a gateway instance loss.
+# Target:   bhukkad-gateway Deployment (app: bhukkad, component: gateway)
+# Action:   pod-kill (mode: one)
+# Duration: 30s
+# Blast radius: single gateway pod -> bhukkad.blast-radius=single-pod
+# Max duration: 5m (Chaos Mesh auto-recovers after `duration`; `deadline` bounds
+#                 how long it retries a missed run)
+#
+# NOTE: Chaos Mesh must be installed in the bhukkad namespace. Apply only to
+#       staging (never production). The CI pre-deploy gate applies this on
+#       demand; the experiment's `duration` + `deadline` provide automatic
+#       rollback/recovery.
+#
+#   kubectl apply -f k8s/chaos/pod-kill-gateway.yaml
+#   kubectl delete -f k8s/chaos/pod-kill-gateway.yaml   # rollback / cleanup
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-gateway
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: pod-kill-gateway
+    bhukkad.blast-radius: "single-pod"
+  annotations:
+    bhukkad.scenario: "pod-kill-gateway"
+    bhukkad.description: "Kills one bhukkad-gateway pod for 30 seconds. Validates circuit-breaker fail-over, request hedging, and edge resilience when a gateway instance is lost."
+    bhukkad.severity: "high"
+    bhukkad.target: "bhukkad-gateway Deployment (app: bhukkad, component: gateway)"
+    bhukkad.recovery: "Kubernetes reschedules the pod; remaining gateway pods absorb traffic; circuit breakers close once the pod is Ready."
+    bhukkad.max-duration: "5m"
+    bhukkad.max-duration-seconds: "300"
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: gateway
+  duration: "30s"
+  schedule: "0 * * * *"
+  deadline: 10m

@@ -7,7 +7,8 @@ public class SloProperties {
 
     private boolean enabled = false;
     private long latencyTargetMs = 500;
-    private double availabilityTargetPercent = 99.5;
+    private double latencyTargetPercent = 99.5;
+    private double availabilityTargetPercent = 99.9;
     private double burnRateWarning = 1.0;
     private double burnRateCritical = 2.0;
     private int windowMinutes = 60;
@@ -26,6 +27,14 @@ public class SloProperties {
 
     public void setLatencyTargetMs(long latencyTargetMs) {
         this.latencyTargetMs = latencyTargetMs;
+    }
+
+    public double getLatencyTargetPercent() {
+        return latencyTargetPercent;
+    }
+
+    public void setLatencyTargetPercent(double latencyTargetPercent) {
+        this.latencyTargetPercent = latencyTargetPercent;
     }
 
     public double getAvailabilityTargetPercent() {

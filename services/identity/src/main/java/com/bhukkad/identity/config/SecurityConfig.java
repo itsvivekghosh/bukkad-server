@@ -60,6 +60,7 @@ public class SecurityConfig {
                                 "/v3/api-docs/**", "/api-docs/**").permitAll()
                         // identity issues the tokens: register/login are public.
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/identity/**").permitAll()
                         // Public platform endpoints (serve by identity)
                         .requestMatchers("/api/v1/platform/**").permitAll()
                         .requestMatchers("/api/v1/membership/**").permitAll()

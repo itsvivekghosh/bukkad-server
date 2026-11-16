@@ -88,7 +88,7 @@ public class PaymentServiceClient {
                 // 3 attempts with 1s backoffs (~17s worst case). A 5s outer
                 // timeout killed legitimate retries mid-flight under load
                 // (TimeoutException in 'filter' — seen in parallel builds).
-                .timeout(Duration.ofSeconds(20));
+                .timeout(Duration.ofSeconds(10));
     }
 
     /**
@@ -107,7 +107,7 @@ public class PaymentServiceClient {
                 .retrieve()
                 .bodyToMono(RefundResponse.class)
                 .filter(response -> REFUND_STATUS.equals(response.status()))
-                .timeout(Duration.ofSeconds(20));
+                .timeout(Duration.ofSeconds(10));
     }
 
     private static void applyServiceToken(org.springframework.http.HttpHeaders headers, String serviceToken) {

@@ -1,0 +1,25 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: db-failover
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: db-failover
+  annotations:
+    bhukkad.scenario: "db-failover"
+    bhukkad.description: "Simulates a PostgreSQL primary outage by killing the PostgreSQL pod for 30 seconds. Validates failover to the read replica, PgBouncer reconnection, and application retry/backoff logic when the database is temporarily unavailable."
+    bhukkad.severity: "high"
+    bhukkad.target: "bhukkad-postgresql Deployment (component: postgres)"
+    bhukkad.recovery: "Kubernetes restarts the pod; PgBouncer and the application should reconnect and fail over to the healthy replica."
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: postgres
+  duration: "30s"
+  schedule: "0 */3 * * *"
+  deadline: 2h

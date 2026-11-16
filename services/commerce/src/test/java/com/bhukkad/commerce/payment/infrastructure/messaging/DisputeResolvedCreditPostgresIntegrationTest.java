@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * listener sees the SERIALIZED envelope (String) exactly as Kafka delivers it.
  */
 @SpringBootTest
+@Transactional
 class DisputeResolvedCreditPostgresIntegrationTest extends AbstractPaymentPostgresTest {
 
     private static final String PAYLOAD =
@@ -40,9 +41,12 @@ class DisputeResolvedCreditPostgresIntegrationTest extends AbstractPaymentPostgr
     @BeforeEach
     void cleanSlate() {
         tx = new TransactionTemplate(transactionManager);
-        jdbcTemplate.update("DELETE FROM wallet_transactions");
-        jdbcTemplate.update("DELETE FROM wallet_balances");
-        jdbcTemplate.update("DELETE FROM idempotency_records");
+        tx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+        tx.executeWithoutResult(status -> {
+            jdbcTemplate.update("DELETE FROM wallet_transactions");
+            jdbcTemplate.update("DELETE FROM wallet_balances");
+            jdbcTemplate.update("DELETE FROM idempotency_records");
+        });
     }
 
     private static String envelope(String payload) {

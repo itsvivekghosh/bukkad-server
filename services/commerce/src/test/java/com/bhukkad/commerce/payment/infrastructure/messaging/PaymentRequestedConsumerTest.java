@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 
@@ -50,7 +51,7 @@ class PaymentRequestedConsumerTest {
     @Test
     void happyPath_chargesThroughService() throws Exception {
         when(paymentService.processPaymentRequested(10L, 20L, new BigDecimal("250.50"), "INR", "key-1"))
-                .thenReturn(settledPayment());
+                .thenReturn(Mono.just(settledPayment()));
 
         assertThatCode(() -> consumer.onPaymentRequested(
                 envelope("payment_requested", goodPayload()))).doesNotThrowAnyException();

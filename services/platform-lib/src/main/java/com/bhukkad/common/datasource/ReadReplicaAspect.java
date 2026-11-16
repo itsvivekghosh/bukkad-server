@@ -34,7 +34,8 @@ public class ReadReplicaAspect {
         try {
             return joinPoint.proceed();
         } finally {
-            ReadReplicaContext.set(previous);
+            // Restore previous context, or PRIMARY if none was set
+            ReadReplicaContext.set(previous != null ? previous : ReadReplicaType.PRIMARY);
         }
     }
 
