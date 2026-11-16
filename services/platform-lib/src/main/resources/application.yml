@@ -63,10 +63,14 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 30
-          min-idle: 5
-          max-idle: 15
-          max-wait: 2000
+          # Commerce/engagement (high throughput): tuned per docs/architecture-audit.md
+          # Section 4.2 to prevent pool exhaustion under concurrent cache +
+          # rate-limit traffic. Gateway keeps its own split pool (shared + SSE
+          # relay) and is intentionally not changed here.
+          max-active: 64
+          min-idle: 8
+          max-idle: 24
+          max-wait: 2000  # 2s
 
 # Platform application properties
 app:
