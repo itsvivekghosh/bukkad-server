@@ -1,5 +1,7 @@
 package com.bhukkad.catalog.search.infrastructure.client;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -127,9 +129,12 @@ public class SearchSourceClient {
     }
 
     public record SourceMenu(Long restaurantId, String restaurantName, List<SourceMenuItem> items) {
-
-        public SourceMenu {
-            items = items == null ? new ArrayList<>() : items;
+        @JsonCreator
+        public static SourceMenu of(
+                @JsonProperty("restaurantId") Long restaurantId,
+                @JsonProperty("restaurantName") String restaurantName,
+                @JsonProperty("items") List<SourceMenuItem> items) {
+            return new SourceMenu(restaurantId, restaurantName, items == null ? new ArrayList<>() : items);
         }
     }
 

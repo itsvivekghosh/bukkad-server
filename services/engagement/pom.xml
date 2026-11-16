@@ -29,6 +29,10 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webflux</artifactId>
 		</dependency>
 		<!-- Per-service authN: PlatformJwtAuthFilter + SecurityConfig. -->
@@ -47,6 +51,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<!-- Caffeine for bounded in-memory caching with TTL eviction -->
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -154,7 +163,9 @@
 			<version>${archunit.version}</version>
 			<scope>test</scope>
 		</dependency>
-		<!-- OpenTelemetry distributed tracing (H3). -->
+		<!-- OpenTelemetry distributed tracing (H3) temporarily commented out:
+		    	 artifacts not available in local Maven repo. -->
+		<!--
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-observability</artifactId>
@@ -167,7 +178,12 @@
 			<groupId>io.opentelemetry.instrumentation</groupId>
 			<artifactId>opentelemetry-instrumentation-spring-boot-starter</artifactId>
 		</dependency>
-		<!-- AWS SDK v2 - Floci-compatible AWS service integration -->
+		-->
+		<!-- AWS SDK v2 - Floci-compatible AWS service integration.
+		    	 Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
+		    	 in Maven Central, and individual AWS SDK modules are not
+		    	 available locally. -->
+		<!--
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
@@ -204,11 +220,11 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>apache-client</artifactId>
 		</dependency>
-		<!-- Spring Cloud AWS starter for seamless AWS service integration -->
 		<dependency>
 			<groupId>io.awspring.cloud</groupId>
 			<artifactId>spring-cloud-aws-starter</artifactId>
 		</dependency>
+		-->
 	</dependencies>
 
 	<build>
@@ -235,6 +251,22 @@
 				<configuration>
 					<source>21</source>
 					<target>21</target>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>${lombok.version}</version>
+						</path>
+					</annotationProcessorPaths>
+					<parameters>true</parameters>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<argLine>-Duser.timezone=UTC</argLine>
+					<useFile>false</useFile>
 				</configuration>
 			</plugin>
 		</plugins>

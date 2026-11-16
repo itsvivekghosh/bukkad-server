@@ -14,6 +14,10 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Async saga consumer (roadmap feature #3 pairing): consumes
@@ -23,6 +27,10 @@ import java.math.BigDecimal;
  * emits {@code payment_settled} | {@code payment_failed} (payload:
  * orderId, paymentId, providerRef?, reason?) via the transactional outbox.
  *
+ * <p><strong>Non-blocking:</strong> {@code processPaymentRequested()} is
+ * handed to a bounded-elastic worker so the Kafka consumer thread returns
+ * immediately and never blocks (audit CR-03). A 5s outer bound matches
+ * max-poll-interval-ms headroom.</p>
  * <p>Contract (binding, W1): payload JSON fields {@code orderId},
  * {@code customerId}, {@code amount}, {@code currency},
  * {@code idempotencyKey}. The {@code idempotencyKey} is the charge claim key
@@ -47,10 +55,16 @@ public class PaymentRequestedConsumer {
      * wrong topic. Every other listener in the codebase already pins its
      * topic this way.
      */
-    static final String TOPIC_PAYMENT_EVENTS = "payment.events.v1";
+    static final String TOPIC_PAYMENT_EVENTS = "order.events.v1";
 
 
     static final String TYPE_PAYMENT_REQUESTED = "payment_requested";
+
+    /** Worker pool for the payment charge RPC: never the Kafka consumer thread. */
+    private static final Scheduler PAYMENT_SCHEDULER = Schedulers.boundedElastic();
+
+    /** Outer bound for the charge RPC — well under max-poll-interval-ms. */
+    private static final Duration CHARGE_RPC_TIMEOUT = Duration.ofSeconds(5);
 
     private final PaymentService paymentService;
     private final ObjectMapper objectMapper;
@@ -75,23 +89,32 @@ public class PaymentRequestedConsumer {
                     "payment_requested without an idempotencyKey: eventId=" + event.eventId());
         }
 
-        try {
-            Payment settled = paymentService.processPaymentRequested(
-                    orderId, customerId, amount, currency, idempotencyKey);
-            log.info("PAYMENT_REQUESTED_SETTLED | orderId={} | paymentId={} | providerRef={} | eventId={}",
-                    orderId, settled.getId(), settled.getProviderRef(), event.eventId());
-        } catch (PaymentGatewayException declined) {
-            // Terminal, expected outcome: payment_failed was already emitted by
-            // the service in the failure transaction. Nothing to rethrow — a
-            // redelivery would hit the FAILED claim and no-op.
-            log.warn("PAYMENT_REQUESTED_DECLINED | orderId={} | eventId={} | reason={}",
-                    orderId, event.eventId(), declined.getMessage());
-        } catch (DataIntegrityViolationException dup) {
-            // Lost a concurrent claim race for the same idempotencyKey; the
-            // winner charged and emitted. Benign at-least-once duplication.
-            log.info("PAYMENT_REQUESTED_CONCURRENT_DUPLICATE | orderId={} | eventId={}",
-                    orderId, event.eventId());
-        }
+        // Non-blocking: offload the charge RPC to bounded-elastic, subscribe
+        // asynchronously so the consumer thread returns immediately.
+        Mono<Payment> charge = paymentService.processPaymentRequested(
+                orderId, customerId, amount, currency, idempotencyKey)
+                .timeout(CHARGE_RPC_TIMEOUT);
+        charge.publishOn(PAYMENT_SCHEDULER)
+                .subscribe(
+                        settled -> log.info("PAYMENT_REQUESTED_SETTLED | orderId={} | paymentId={} | providerRef={} | eventId={}",
+                                orderId, settled.getId(), settled.getProviderRef(), event.eventId()),
+                        ex -> {
+                            if (ex instanceof PaymentGatewayException declined) {
+                                // Terminal, expected outcome: payment_failed was already emitted by
+                                // the service in the failure transaction. Nothing to rethrow — a
+                                // redelivery would hit the FAILED claim and no-op.
+                                log.warn("PAYMENT_REQUESTED_DECLINED | orderId={} | eventId={} | reason={}",
+                                        orderId, event.eventId(), declined.getMessage());
+                            } else if (ex instanceof DataIntegrityViolationException dup) {
+                                // Lost a concurrent claim race for the same idempotencyKey; the
+                                // winner charged and emitted. Benign at-least-once duplication.
+                                log.info("PAYMENT_REQUESTED_CONCURRENT_DUPLICATE | orderId={} | eventId={}",
+                                        orderId, event.eventId());
+                            } else {
+                                log.error("PAYMENT_REQUESTED_ERROR | orderId={} | eventId={} | error={}",
+                                        orderId, event.eventId(), ex.getMessage(), ex);
+                            }
+                        });
     }
 
     private Long nonNegative(long value, String field, PlatformEventMessage event) {

@@ -70,7 +70,8 @@ public class KafkaPlatformEventPublisher {
         try {
             CompletableFuture<SendResult<String, String>> future =
                     kafkaTemplate.send(topic, message.aggregateId(), message.toJson());
-            future.whenComplete((result, ex) -> {
+            if (future != null) {
+                future.whenComplete((result, ex) -> {
                 if (ex == null) {
                     log.info("KAFKA_PUBLISHED | topic={} | eventId={} | eventType={} | offset={} | partition={}",
                             topic, message.eventId(), message.eventType(),
@@ -79,7 +80,8 @@ public class KafkaPlatformEventPublisher {
                     log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
                             topic, message.eventId(), message.eventType(), ex);
                 }
-            });
+                });
+            }
         } catch (Exception e) {
             log.error("KAFKA_PUBLISH_FAILED | topic={} | eventId={} | eventType={}",
                     topic, message.eventId(), message.eventType(), e);
@@ -101,13 +103,24 @@ public class KafkaPlatformEventPublisher {
      *         send, so a disabled publisher keeps rows re-queueable.</p>
      */
     public boolean publishForResult(PlatformEventMessage message) {
+        return publishForResult(message, properties.topic());
+    }
+
+    /**
+     * Synchronous, acknowledged publish to an explicit {@code topic} (used to
+     * route audit outbox rows to the dedicated {@code audit.events} topic while
+     * other events stay on the base platform topic).
+     *
+     * @param message the envelope to publish
+     * @param topic the Kafka topic to send to
+     * @return {@code true} only when the record was acknowledged by the broker
+     *         within {@link #getSendTimeout()}.
+     */
+    public boolean publishForResult(PlatformEventMessage message, String topic) {
         if (!properties.enabled()) {
-            log.debug("KAFKA_DISABLED | eventType={} | eventId={}", message.eventType(), message.eventId());
+            log.debug("KAFKA_DISABLED | eventType={} | eventId={} | topic={}", message.eventType(), message.eventId(), topic);
             return false;
         }
-        // Base platform topic only (see publish) — must match the topics the
-        // @KafkaListener consumers subscribe to.
-        String topic = properties.topic();
         try {
             // Transactional producer requires send to be within a transaction.
             // executeInTransaction starts a transaction, executes the callback,

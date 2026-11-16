@@ -4,6 +4,8 @@ import com.bhukkad.commerce.delivery.domain.entity.DeliveryAgent;
 import com.bhukkad.commerce.delivery.domain.repository.DeliveryAgentRepository;
 import com.bhukkad.commerce.delivery.domain.entity.DeliveryAssignment;
 import com.bhukkad.commerce.delivery.domain.repository.DeliveryAssignmentRepository;
+import com.bhukkad.commerce.delivery.domain.entity.RiderLocationUpdate;
+import com.bhukkad.commerce.delivery.domain.repository.RiderLocationUpdateRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,11 +25,13 @@ class DeliveryRepositoryPostgresIntegrationTest extends AbstractDeliveryPostgres
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private DeliveryAgentRepository agentRepository;
     @Autowired private DeliveryAssignmentRepository assignmentRepository;
+    @Autowired private RiderLocationUpdateRepository locationRepository;
 
     @BeforeEach
     void clean() {
         jdbcTemplate.update("DELETE FROM delivery_assignments");
         jdbcTemplate.update("DELETE FROM delivery_agents");
+        jdbcTemplate.update("DELETE FROM rider_location_updates");
     }
 
     @Test
@@ -99,19 +103,38 @@ class DeliveryRepositoryPostgresIntegrationTest extends AbstractDeliveryPostgres
     @Test
     void positionedCandidates_stalePositionOutsideFreshnessWindowExcluded() {
         LocalDateTime now = LocalDateTime.now();
+        System.out.println("DEBUG: now = " + now);
+        System.out.println("DEBUG: now.minusMinutes(30) = " + now.minusMinutes(30));
         DeliveryAgent a = new DeliveryAgent(); a.setName("Stale"); a.setIsActive(true);
         DeliveryAgent saved = agentRepository.saveAndFlush(a);
-        locationUpdate(saved.getId(), 19.0760, 72.8777, now.minusMinutes(30));
+        
+        // Use database time for the insert to avoid timezone issues
+        jdbcTemplate.update(
+                "INSERT INTO rider_location_updates (agent_id, latitude, longitude, recorded_at, created_at) "
+                        + "VALUES (?, ?, ?, now() - interval '30 minutes', now())",
+                saved.getId(), 19.0760, 72.8777);
+
+        // Debug: check what's in the table
+        String recordedAt = jdbcTemplate.queryForObject(
+                "SELECT recorded_at FROM rider_location_updates WHERE agent_id = ?", String.class, saved.getId());
+        System.out.println("DEBUG: recorded_at in table = " + recordedAt);
+
+        // Use database time for cutoff too
+        LocalDateTime cutoff = jdbcTemplate.queryForObject(
+                "SELECT now() - interval '15 minutes'", LocalDateTime.class);
+        System.out.println("DEBUG: cutoff = " + cutoff);
 
         assertThat(agentRepository.findPositionedCandidates(null, null,
-                now.minusMinutes(15), 20)).isEmpty();
+                cutoff, 20)).isEmpty();
     }
 
     private void locationUpdate(Long agentId, double lat, double lng, LocalDateTime recordedAt) {
-        jdbcTemplate.update(
-                "INSERT INTO rider_location_updates (agent_id, latitude, longitude, recorded_at, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?)",
-                agentId, lat, lng, recordedAt, LocalDateTime.now());
+        RiderLocationUpdate loc = new RiderLocationUpdate();
+        loc.setAgentId(agentId);
+        loc.setLatitude(lat);
+        loc.setLongitude(lng);
+        loc.setRecordedAt(recordedAt);
+        locationRepository.saveAndFlush(loc);
     }
 
     @Test

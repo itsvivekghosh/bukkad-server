@@ -121,8 +121,10 @@ class OrderEndpointSecurityTest {
 
         @Test
         void get_otherCustomersOrder_throws() {
-            when(orderService.getOrder(9L)).thenReturn(
-                    order(9L, 77L));
+            when(orderService.getOrder(org.mockito.ArgumentMatchers.eq(9L),
+                    any(TokenPrincipal.class)))
+                    .thenThrow(new org.springframework.security.access.AccessDeniedException(
+                            "Cannot read another customer's order"));
 
             assertThatThrownBy(() -> controller.get(principal(1L, "CUSTOMER"), 9L))
                     .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);

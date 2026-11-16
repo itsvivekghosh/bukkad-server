@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import reactor.core.publisher.Mono;
 
 /**
  * Payment charge + webhook transition core (audit feature #1, roadmap §1).
@@ -118,9 +119,13 @@ public class PaymentService {
     /**
      * Charges {@code amount} for an order (or a wallet top-up when
      * {@code orderId} is {@code 0}/null) exactly once per idempotency key.
+     *
+     * <p>Returns a {@link Mono} so the caller (typically a servlet controller)
+     * decides where to block. The PSP {@code authorize()} call is non-blocking;
+     * only the controller edge blocks with a short timeout.</p>
      */
-    public Payment processPayment(Long orderId, Long customerId, BigDecimal amount,
-                                  String paymentMethod, String idempotencyKey) {
+    public Mono<Payment> processPayment(Long orderId, Long customerId, BigDecimal amount,
+                                        String paymentMethod, String idempotencyKey) {
         return charge(orderId, customerId, amount, paymentMethod, idempotencyKey, false);
     }
 
@@ -130,20 +135,22 @@ public class PaymentService {
      * SAME transaction that marks the payment + claim FAILED, so the order saga
      * always receives a terminal signal.
      *
-     * @return the settled payment
-     * @throws PaymentGatewayException when the PSP declined the charge
+     * @return a {@link Mono} emitting the settled payment; errors propagate so
+     *         the caller can mark the saga FAILED.
      */
-    public Payment processPaymentRequested(Long orderId, Long customerId, BigDecimal amount,
-                                           String currency, String idempotencyKey) {
+    public Mono<Payment> processPaymentRequested(Long orderId, Long customerId, BigDecimal amount,
+                                                 String currency, String idempotencyKey) {
         String configured = currencyResolver.currency();
         if (currency == null || currency.isBlank()) {
-            throw new IllegalArgumentException("payment_requested without a currency");
+            return Mono.error(new IllegalArgumentException("payment_requested without a currency"));
         }
         if (!configured.equalsIgnoreCase(currency)) {
             PaymentGatewayException e = new PaymentGatewayException(
                     "Unsupported currency " + currency + " (configured: " + configured + ")");
-            failCharge(buildFailedRecord(orderId, customerId, amount, e.getMessage()), idempotencyKey, true);
-            throw e;
+            return Mono.defer(() -> {
+                failCharge(buildFailedRecord(orderId, customerId, amount, e.getMessage()), idempotencyKey, true);
+                return Mono.error(e);
+            });
         }
         return charge(orderId, customerId, amount, Payment.METHOD_UPI, idempotencyKey, true);
     }
@@ -168,15 +175,15 @@ public class PaymentService {
         }
     }
 
-    private Payment charge(Long orderId, Long customerId, BigDecimal amount,
+    private Mono<Payment> charge(Long orderId, Long customerId, BigDecimal amount,
                            String paymentMethod, String idempotencyKey, boolean emitFailedEvent) {
         if (amount == null || amount.signum() <= 0) {
             // Rejects zero/negative "payments" that previously drained or
             // fabricated wallet balances via the credit path below.
-            throw new BusinessException("Payment amount must be positive");
+            return Mono.error(new BusinessException("Payment amount must be positive"));
         }
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new BusinessException("Idempotency key is required");
+            return Mono.error(new BusinessException("Idempotency key is required"));
         }
         paymentAuthorizeCounter().increment();
         boolean topUp = orderId == null || orderId == 0L;
@@ -184,63 +191,60 @@ public class PaymentService {
             verifyAmountMatchesOrder(orderId, amount);
         }
 
-        // 1. Claim FIRST (committed before any external call so concurrent
-        //    duplicates observe the claim); a duplicate returns the stored payload.
-        String stored = claimCharge(idempotencyKey, customerId);
-        if (stored != null) {
-            Payment replayed = restoreFromPayload(stored, orderId);
-            if (topUp && !walletMovementDone(stored)) {
-                // Crash between settle-commit and credit: the replay completes
-                // the credit exactly once (flag flip is in the credit's tx).
-                completeTopUpCredit(customerId, amount, replayed, idempotencyKey);
+        return Mono.defer(() -> {
+            // 1. Claim FIRST (committed before any external call so concurrent
+            //    duplicates observe the claim); a duplicate returns the stored payload.
+            String stored = claimCharge(idempotencyKey, customerId);
+            if (stored != null) {
+                Payment replayed = restoreFromPayload(stored, orderId);
+                if (topUp && !walletMovementDone(stored)) {
+                    // Crash between settle-commit and credit: the replay completes
+                    // the credit exactly once (flag flip is in the credit's tx).
+                    completeTopUpCredit(customerId, amount, replayed, idempotencyKey);
+                }
+                return Mono.just(replayed);
             }
-            return replayed;
-        }
 
-        // 2. Persist the PENDING row so the PSP charge carries a payment id,
-        //    then charge OUTSIDE any transaction (no DB connection held across
-        //    the slow external call).
-        Payment pending = new Payment();
-        pending.setOrderId(topUp ? 0L : orderId);
-        pending.setCustomerId(customerId);
-        pending.setPurpose(topUp ? Payment.PURPOSE_WALLET_TOP_UP : Payment.PURPOSE_ORDER);
-        pending.setPaymentMethod(paymentMethod);
-        pending.setAmount(amount);
-        pending.setStatus(Payment.STATUS_PENDING);
-        pending.setIdempotencyKey(idempotencyKey);
-        pending = paymentRepository.saveAndFlush(pending);
-        final Payment pendingRef = pending;
+            // 2. Persist the PENDING row so the PSP charge carries a payment id,
+            //    then charge OUTSIDE any transaction (no DB connection held across
+            //    the slow external call).
+            Payment pending = new Payment();
+            pending.setOrderId(topUp ? 0L : orderId);
+            pending.setCustomerId(customerId);
+            pending.setPurpose(topUp ? Payment.PURPOSE_WALLET_TOP_UP : Payment.PURPOSE_ORDER);
+            pending.setPaymentMethod(paymentMethod);
+            pending.setAmount(amount);
+            pending.setStatus(Payment.STATUS_PENDING);
+            pending.setIdempotencyKey(idempotencyKey);
+            pending = paymentRepository.saveAndFlush(pending);
+            final Payment pendingRef = pending;
 
-        // 3. PSP charge (breaker/retry filters on the adapter's WebClient).
-        // The gateway adapter is fully non-blocking; we block here at the
-        // service boundary because this method is called from a Servlet
-        // controller thread (InternalPaymentController).
-        PaymentGateway.GatewayResult attempt;
-        try {
-            attempt = paymentGateway.authorize(pending.getId(), customerId, amount, currencyResolver.currency())
-                    .block(Duration.ofSeconds(7));
-        } catch (RuntimeException e) {
-            log.error("PAYMENT_CHARGE_ERROR | paymentId={} | key={}", pending.getId(), idempotencyKey, e);
-            attempt = PaymentGateway.GatewayResult.failed("Gateway error: " + e.getMessage());
-        }
-        final PaymentGateway.GatewayResult result = attempt;
-        if (!result.success()) {
-            failCharge(pending, idempotencyKey, emitFailedEvent);
-            throw new PaymentGatewayException(result.message());
-        }
+            // 3. PSP charge — non-blocking via the gateway adapter's WebClient.
+            // No .block() here: the caller blocks at the controller edge with a
+            // short timeout, so a slow PSP never pins a servlet/DBCP connection.
+            return paymentGateway.authorize(pending.getId(), customerId, amount, currencyResolver.currency())
+                    .flatMap(result -> {
+                        if (!result.success()) {
+                            return Mono.defer(() -> {
+                                failCharge(pendingRef, idempotencyKey, emitFailedEvent);
+                                return Mono.error(new PaymentGatewayException(result.message()));
+                            });
+                        }
 
-        // 4. ONE transaction: SETTLED + providerRef + outbox payment_settled
-        //    (+ wallet debit for METHOD_WALLET order payments — all-or-nothing).
-        Payment settled = transactionTemplate.execute(status ->
-                settleCharge(pendingRef, amount, paymentMethod, idempotencyKey, result, topUp));
+                        // 4. ONE transaction: SETTLED + providerRef + outbox payment_settled
+                        //    (+ wallet debit for METHOD_WALLET order payments — all-or-nothing).
+                        Payment settled = transactionTemplate.execute(status ->
+                                settleCharge(pendingRef, amount, paymentMethod, idempotencyKey, result, topUp));
 
-        // 5. AFTER the settled row + outbox commit: the wallet top-up credit.
-        if (topUp) {
-            completeTopUpCredit(customerId, amount, settled, idempotencyKey);
-        }
-        log.info("PAYMENT_SETTLED | paymentId={} | orderId={} | providerRef={} | topUp={}",
-                settled.getId(), settled.getOrderId(), settled.getProviderRef(), topUp);
-        return settled;
+                        // 5. AFTER the settled row + outbox commit: the wallet top-up credit.
+                        if (topUp) {
+                            completeTopUpCredit(customerId, amount, settled, idempotencyKey);
+                        }
+                        log.info("PAYMENT_SETTLED | paymentId={} | orderId={} | providerRef={} | topUp={}",
+                                settled.getId(), settled.getOrderId(), settled.getProviderRef(), topUp);
+                        return Mono.just(settled);
+                    });
+        });
     }
 
     /** Runs inside the settle transaction (G-1: outbox enqueue needs the ambient tx). */

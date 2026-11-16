@@ -1,0 +1,70 @@
+# Kyverno supply-chain policy (SLSA L3, docs/architecture-audit.md §2.2):
+# every application workload must declare the cosign certificate that signed
+# its container image BEFORE it can be admitted.
+#
+# Enforced form: the annotation `cosign.sigstore.dev/certificate` must be
+# present on the pod template of every Deployment / StatefulSet / DaemonSet /
+# Pod. Image-level signatures live in the registry (cosign sign, keyless via
+# OIDC in .github/workflows/supply-chain.yml); this gate pins the deploy-time
+# half: the manifest must name the certificate the image was signed with, so
+# an unsigned/unpinned image cannot be rolled out.
+#
+# Apply with:
+#   kubectl apply -f k8s/policies/require-cosign-certificate.yaml
+#
+# NOTE: k8s/ manifests currently ship without the annotation (dev/minikube
+# :latest fallbacks). Enable enforcement per cluster with:
+#   kubectl patch clusterpolicy require-cosign-certificate-annotation \
+#     --type=merge -p '{"spec":{"validationFailureAction":"Enforce"}}'
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-cosign-certificate-annotation
+  annotations:
+    policies.kyverno.io/title: Require cosign certificate annotation
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod, Deployment, StatefulSet, DaemonSet
+    policies.kyverno.io/minversion: 1.6.0
+    policies.kyverno.io/description: >-
+      Requires the cosign.sigstore.dev/certificate annotation on the pod
+      template of every workload before deployment, declaring the Sigstore
+      certificate that signed the container image (cosign keyless, SLSA L3).
+spec:
+  validationFailureAction: Audit
+  background: false
+  rules:
+    - name: require-cosign-certificate-annotation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+      validate:
+        message: >-
+          Workload must carry the cosign.sigstore.dev/certificate annotation
+          on its pod template before deployment: the image must be signed with
+          cosign (keyless/OIDC) and the signing certificate declared here.
+        pattern:
+          spec:
+            template:
+              metadata:
+                annotations:
+                  cosign.sigstore.dev/certificate: "?*"
+    - name: require-cosign-certificate-annotation-pod
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: >-
+          Pod must carry the cosign.sigstore.dev/certificate annotation
+          before deployment: the image must be signed with cosign
+          (keyless/OIDC) and the signing certificate declared here.
+        pattern:
+          metadata:
+            annotations:
+              cosign.sigstore.dev/certificate: "?*"

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -14,6 +15,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -35,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Transactional
 class PaymentWebhookLiveIntegrationTest extends AbstractPaymentPostgresTest {
 
     private static final String WEBHOOK_SECRET = "test-only-webhook-secret";
@@ -48,27 +52,37 @@ class PaymentWebhookLiveIntegrationTest extends AbstractPaymentPostgresTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     private RestTemplate restTemplate;
     private String webhookBaseUrl;
+    private TransactionTemplate tx;
 
     @BeforeEach
     void setUp() {
+        tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
         restTemplate = new RestTemplate();
         webhookBaseUrl = "http://localhost:" + port + "/api/v1/payments/webhooks/razorpay";
 
-        // Clean slate
-        jdbcTemplate.update("DELETE FROM outbox_events");
-        jdbcTemplate.update("DELETE FROM idempotency_records");
-        jdbcTemplate.update("DELETE FROM payments");
+        // Clean slate - use REQUIRES_NEW to commit so webhook handler can see it
+        tx.executeWithoutResult(status -> {
+            jdbcTemplate.update("DELETE FROM outbox_events");
+            jdbcTemplate.update("DELETE FROM idempotency_records");
+            jdbcTemplate.update("DELETE FROM payments");
+        });
     }
 
     private void seedPendingPayment() {
-        jdbcTemplate.update(
-                "INSERT INTO payments (order_id, customer_id, amount, currency, status, "
-                        + "provider, provider_ref, gateway_order_id, gateway_payment_id, "
-                        + "created_at, updated_at) "
-                        + "VALUES (100, 200, 49.00, 'INR', 'PENDING', 'RAZORPAY', 'PAY-LIVE-1', "
-                        + "'ORDER-LIVE-1', 'PAY-LIVE-1', localtimestamp, localtimestamp)");
+        tx.executeWithoutResult(status -> {
+            jdbcTemplate.update(
+                    "INSERT INTO payments (order_id, customer_id, amount, currency, status, "
+                            + "provider, provider_ref, gateway_order_id, gateway_payment_id, "
+                            + "created_at, updated_at) "
+                            + "VALUES (100, 200, 49.00, 'INR', 'PENDING', 'RAZORPAY', 'PAY-LIVE-1', "
+                            + "'ORDER-LIVE-1', 'PAY-LIVE-1', localtimestamp, localtimestamp)");
+        });
     }
 
     @Test

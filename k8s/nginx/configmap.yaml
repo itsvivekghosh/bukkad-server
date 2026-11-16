@@ -278,6 +278,23 @@ data:
         add_header Content-Type application/json;
     }
 
+    # ==================== WAF: Block known bad user agents ====================
+    # Block common attack scanners and tools at the edge (P4-03).
+    if ($http_user_agent ~* (nikto|sqlmap|dirbuster|masscan|nessus|acunetix|burpsuite|hydra|metasploit|nmap|wpscan|gobuster|wfuzz|whatweb|skipfish|vega|wapiti|arachni)) {
+        return 444;
+    }
+
+    # ==================== WAF: Block empty/missing User-Agent on non-health paths ====================
+    if ($http_user_agent = "") {
+        return 444;
+    }
+
+    # ==================== WAF: Block common path traversal and injection patterns ====================
+    if ($request_uri ~* (\.\./|%2e%2e|%252e%252e|union.*select|insert.*into|drop.*table|<script|javascript:|eval\(|base64_decode|exec\(|system\(|passthru|/etc/passwd|/proc/self|cmd=|/bin/sh|/bin/bash)) {
+        return 403 '{"success":false,"message":"Forbidden"}';
+        add_header Content-Type application/json;
+    }
+
     # ==================== Root ====================
     location / {
         return 200 '{"status":"UP","service":"Bhukkad API","version":"1.0.0"}';

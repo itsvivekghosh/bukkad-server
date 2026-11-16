@@ -1,21 +1,36 @@
 # Simple Dockerfile for admin service - copies pre-built jar
 FROM eclipse-temurin:21-jre-jammy
 
+# OpenTelemetry Java agent (auto-instrumentation). Exact release pin; the
+# download fails the image build on any HTTP error.
+ARG OTEL_JAVA_AGENT_VERSION=2.15.0
+ENV OTEL_JAVAAGENT_PATH=/otel/opentelemetry-javaagent.jar
+ENV JAVA_TOOL_OPTIONS=-javaagent:${OTEL_JAVAAGENT_PATH}
+ENV OTEL_SERVICE_NAME=admin
+ENV OTEL_RESOURCE_ATTRIBUTES=service.namespace=bhukkad,deployment.environment=local
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+
 ENV TZ=Asia/Kolkata \
     LANG=C.UTF-8 \
     SPRING_PROFILES_ACTIVE=local \
     SERVER_PORT=8080 \
     JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError -XX:+UseStringDeduplication -Xlog:gc*:file=/tmp/logs/bhukkad/gc.log:time,uptime:filecount=5,filesize=20M -Djava.security.egd=file:/dev/./urandom"
 
-RUN apt-get update \
+RUN set -eux; \
+    apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo "$TZ" > /etc/timezone \
+    && mkdir -p /otel \
+    && curl -fSL --retry 3 --retry-delay 2 -o /otel/opentelemetry-javaagent.jar \
+        "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar" \
+    && test -s /otel/opentelemetry-javaagent.jar \
     && groupadd -r -g 1001 bhukkad \
     && useradd -r -u 1001 -g bhukkad -d /app -s /usr/sbin/nologin bhukkad \
     && mkdir -p /tmp/logs/bhukkad /app \
-    && chown -R bhukkad:bhukkad /tmp/logs/bhukkad /app
+    && chown -R bhukkad:bhukkad /tmp/logs/bhukkad /app /otel
 
 WORKDIR /app
 COPY --chown=bhukkad:bhukkad admin-1.0.0.jar /app/app.jar

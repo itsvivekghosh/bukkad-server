@@ -114,6 +114,6 @@ class CartRepositoryPostgresIntegrationTest extends AbstractOrderPostgresTest {
         assertThat(cartRepository.findIdsByStatusAndUpdatedAtBefore(
                 CartService.STATUS_ACTIVE, LocalDateTime.now(), PageRequest.of(0, 500)))
                 .isEmpty();
-        assertThat(cartItemRepository.findByCartId(a.getId())).isEmpty();
+        assertThat(cartItemRepository.findByCartId(a.getId(), PageRequest.of(0, 10))).isEmpty();
     }
 }

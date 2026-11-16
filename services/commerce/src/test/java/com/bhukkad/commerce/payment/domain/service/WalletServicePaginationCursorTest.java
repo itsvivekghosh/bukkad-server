@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageImpl;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -52,13 +53,13 @@ class WalletServicePaginationCursorTest {
 
     @Test
     void transactionsPage_clampsNegativePageAndOversizedRequest() {
-        when(transactionRepository.pageNewestFirst(eq(1L), any(Pageable.class)))
-                .thenReturn(List.of());
+        when(transactionRepository.findByCustomerId(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
 
         service.transactionsPage(1L, -5, 10_000);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(transactionRepository).pageNewestFirst(eq(1L), captor.capture());
+        verify(transactionRepository).findByCustomerId(eq(1L), captor.capture());
         assertThat(captor.getValue().getPageNumber()).isZero();
         assertThat(captor.getValue().getPageSize())
                 .isEqualTo(PaginationUtils.MAX_PAGE_SIZE);
@@ -66,13 +67,13 @@ class WalletServicePaginationCursorTest {
 
     @Test
     void transactionsPage_clampsSizeBelowOne() {
-        when(transactionRepository.pageNewestFirst(eq(1L), any(Pageable.class)))
-                .thenReturn(List.of());
+        when(transactionRepository.findByCustomerId(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
 
         service.transactionsPage(1L, 2, 0);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(transactionRepository).pageNewestFirst(eq(1L), captor.capture());
+        verify(transactionRepository).findByCustomerId(eq(1L), captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(1);
         assertThat(captor.getValue().getPageNumber()).isEqualTo(2);
     }
@@ -80,7 +81,7 @@ class WalletServicePaginationCursorTest {
     @Test
     void transactionsByCursor_withoutCursor_usesEndSentinels() {
         when(transactionRepository.afterCursor(eq(1L), any(LocalDateTime.class), anyLong(), any(Pageable.class)))
-                .thenReturn(List.of());
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
 
         WalletService.CursorPage page = service.transactionsByCursor(1L, null, 5);
 
@@ -99,7 +100,7 @@ class WalletServicePaginationCursorTest {
                 tx(2L, first.plusDays(2)),
                 tx(1L, first.plusDays(1)));
         when(transactionRepository.afterCursor(eq(1L), any(), any(), any(Pageable.class)))
-                .thenReturn(batch);
+                .thenReturn(new PageImpl<>(batch, PageRequest.of(0, 3), batch.size()));
 
         WalletService.CursorPage page = service.transactionsByCursor(1L, " ", 2);
 
@@ -114,7 +115,7 @@ class WalletServicePaginationCursorTest {
         LocalDateTime createdAt = LocalDateTime.of(2026, 4, 4, 9, 30);
         String cursor = CursorUtils.encode(createdAt, 42L);
         when(transactionRepository.afterCursor(eq(1L), eq(createdAt), eq(42L), any(Pageable.class)))
-                .thenReturn(List.of(tx(42L, createdAt)));
+                .thenReturn(new PageImpl<>(List.of(tx(42L, createdAt)), PageRequest.of(0, 10), 1));
 
         WalletService.CursorPage page = service.transactionsByCursor(1L, cursor, 10);
 
@@ -126,7 +127,7 @@ class WalletServicePaginationCursorTest {
     void transactionsByCursor_exactPageBoundary_hasNoNext() {
         LocalDateTime now = LocalDateTime.now().withNano(0);
         when(transactionRepository.afterCursor(eq(1L), any(), any(), any(Pageable.class)))
-                .thenReturn(List.of(tx(1L, now), tx(2L, now)));
+                .thenReturn(new PageImpl<>(List.of(tx(1L, now), tx(2L, now)), PageRequest.of(0, 2), 2));
 
         WalletService.CursorPage page = service.transactionsByCursor(1L, null, 2);
 
@@ -137,9 +138,10 @@ class WalletServicePaginationCursorTest {
     @Test
     void transactions_returnsLedgerRows() {
         WalletTransaction t = tx(1L, LocalDateTime.now());
-        when(transactionRepository.findByCustomerId(1L)).thenReturn(List.of(t));
+        when(transactionRepository.findByCustomerId(1L, PageRequest.of(0, 10)))
+                .thenReturn(new PageImpl<>(List.of(t), PageRequest.of(0, 10), 1));
 
-        assertThat(service.transactions(1L)).containsExactly(t);
+        assertThat(service.transactions(1L, 0, 10)).containsExactly(t);
     }
 
     @Test

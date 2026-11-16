@@ -1,5 +1,8 @@
 package com.bhukkad.common.logging;
 
+import com.bhukkad.common.security.authz.AuthorizationDecision;
+import com.bhukkad.common.security.authz.AuthorizationDenialListener;
+import com.bhukkad.common.security.authz.AuthorizationRequest;
 import com.bhukkad.common.tracing.TraceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -12,10 +15,15 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.Instant;
 
 @Component
-public class SecurityEventLogger {
+public class SecurityEventLogger implements AuthorizationDenialListener {
 
     private static final Logger securityLogger = LoggerFactory.getLogger(LoggingConstants.SECURITY_LOGGER);
     private static final Logger log = LoggerFactory.getLogger(SecurityEventLogger.class);
+
+    // mTLS Event Constants
+    public static final String EVENT_MTLS_HANDSHAKE_SUCCESS = "MTLS_HANDSHAKE_SUCCESS";
+    public static final String EVENT_MTLS_HANDSHAKE_FAILURE = "MTLS_HANDSHAKE_FAILURE";
+    public static final String EVENT_MTLS_AUTH_REQUIRED = "MTLS_AUTH_REQUIRED";
 
     public void logLoginSuccess(Long userId, String email, String role) {
         securityLogger.info(
@@ -133,6 +141,32 @@ public class SecurityEventLogger {
         );
     }
 
+    /**
+     * Records a resource-level authorization denial in the dedicated security
+     * event stream. The policy id and server-derived resource identifiers make
+     * the decision auditable without including the resource attribute map.
+     */
+    @Override
+    public void onAuthorizationDenied(AuthorizationDecision decision, AuthorizationRequest request) {
+        Long userId = request == null ? null : request.subject();
+        String action = request == null ? null : request.action();
+        String resourceType = request == null ? null : request.resourceType();
+        String resourceId = request == null ? null : request.resourceId();
+        securityLogger.warn(
+                "[{}] [{}] [AUTHORIZATION_DENIED] UserId: {} | Action: {} | ResourceType: {} | ResourceId: {} | Policy: {} | Reason: {} | IP: {} | TraceId: {}",
+                Instant.now(),
+                LoggingConstants.EVENT_AUTHORIZATION_DENIED,
+                userId,
+                action,
+                resourceType,
+                resourceId,
+                decision == null ? null : decision.policyId(),
+                decision == null ? null : decision.reason(),
+                getClientIp(),
+                TraceContext.currentTraceId()
+        );
+    }
+
     public void logAccountLockout(String userId, String ipAddress, int failedAttempts) {
         securityLogger.warn(
                 "[{}] [WARNING] [ACCOUNT_LOCKOUT] UserId: {} | IP: {} | FailedAttempts: {} | TraceId: {}",
@@ -140,6 +174,40 @@ public class SecurityEventLogger {
                 userId,
                 maskIp(ipAddress),
                 failedAttempts,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logMTLSHandshakeSuccess(String serviceId, String ipAddress) {
+        securityLogger.info(
+                "[{}] [SUCCESS] [{}] ServiceId: {} | IP: {} | TraceId: {}",
+                Instant.now(),
+                EVENT_MTLS_HANDSHAKE_SUCCESS,
+                serviceId,
+                maskIp(ipAddress),
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logMTLSHandshakeFailure(String serviceId, String ipAddress, String reason) {
+        securityLogger.warn(
+                "[{}] [FAILED] [{}] ServiceId: {} | Reason: {} | ServiceId: {} | TraceId: {}",
+                Instant.now(),
+                EVENT_MTLS_HANDSHAKE_FAILURE,
+                reason,
+                serviceId,
+                serviceId,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    public void logMTLSAuthRequired(String serviceId, String ipAddress, String requiredAuth) {
+        securityLogger.warn(
+                "[{}] [WARNING] [{}] ServiceId: {} | RequiredAuth: {} | TraceId: {}",
+                Instant.now(),
+                EVENT_MTLS_AUTH_REQUIRED,
+                serviceId,
+                requiredAuth,
                 TraceContext.currentTraceId()
         );
     }

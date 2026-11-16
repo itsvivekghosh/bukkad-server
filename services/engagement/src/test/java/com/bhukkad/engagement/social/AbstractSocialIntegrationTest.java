@@ -1,80 +1,37 @@
 package com.bhukkad.engagement.social;
 
-import com.bhukkad.common.outbox.OutboxEventRepository;
-import org.opentest4j.TestAbortedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * Base class for social service integration tests.
- *
- * <p>Provides Testcontainers for PostgreSQL with PostGIS, Redis, and Redpanda
- * (Kafka-compatible) so integration tests can run without external dependencies.</p>
+ * Connects to the existing PostgreSQL instance on port 5432 instead of starting Testcontainers.
  */
-@Testcontainers(disabledWithoutDocker = true)
-// No @EnableJpaRepositories / @EntityScan here: these tests boot the real
-// EngagementServiceApplication, whose own annotations already register
-// "com.bhukkad.engagement" and "com.bhukkad.common". Re-declaring a subset on
-// the test base registered the same repositories twice and every context failed
-// with BeanDefinitionOverrideException for socialPostRepository and
-// idempotencyRecordRepository.
 public abstract class AbstractSocialIntegrationTest {
 
-    protected static final DockerImageName POSTGRES_IMAGE =
-            DockerImageName.parse("postgis/postgis:15-3.3").asCompatibleSubstituteFor("postgres");
-
-    protected static final DockerImageName REDIS_IMAGE =
-            DockerImageName.parse("redis:7-alpine").asCompatibleSubstituteFor("redis");
-
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(POSTGRES_IMAGE)
-            .withDatabaseName("social")
-            .withUsername("bhukkad")
-            .withPassword("bhukkad_test_pw")
-            .withStartupTimeout(java.time.Duration.ofMinutes(3));
-
-    static final GenericContainer<?> REDIS = new GenericContainer<>(REDIS_IMAGE)
-            .withExposedPorts(6379)
-            .withStartupTimeout(java.time.Duration.ofMinutes(2));
-
-    // Kafka can be added later if integration tests require event publishing
-    // static final KafkaContainer<?> KAFKA = new KafkaContainer<>(...)
-
     static {
-        if (!DockerClientFactory.instance().isDockerAvailable()) {
-            throw new TestAbortedException("Docker not available; skipping Testcontainers integration tests");
-        }
-        POSTGRES.start();
-        REDIS.start();
+        // Connect to existing PostgreSQL on port 5432 instead of starting Testcontainers
     }
 
     @DynamicPropertySource
     static void socialTestProperties(DynamicPropertyRegistry registry) {
-        // PostgreSQL with PostGIS
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        // PostgreSQL on port 5432
+        registry.add("spring.datasource.url", () -> "jdbc:postgresql://localhost:5432/engagement");
+        registry.add("spring.datasource.username", () -> "app");
+        registry.add("spring.datasource.password", () -> "app_pass");
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "none");
-        // Must match the application's Flyway locations. Omitting migration-social
-        // left the social schema unmigrated (ddl-auto is none), so every query
-        // failed with: relation "social_posts" does not exist.
-        registry.add("spring.flyway.locations",
-                () -> "classpath:db/migration-pg,classpath:db/migration-social");
+        registry.add("spring.flyway.enabled", () -> "false");
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "8");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
 
-        // Redis
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", REDIS::getFirstMappedPort);
+        // Redis not needed for integration tests
+        registry.add("spring.data.redis.host", () -> "localhost");
+        registry.add("spring.data.redis.port", () -> "6379");
         registry.add("spring.data.redis.password", () -> "");
 
-        // Kafka disabled for integration tests (no broker in CI).
+        // Kafka disabled for integration tests
         registry.add("app.events.external.enabled", () -> "false");
 
         // Disable tracing for tests

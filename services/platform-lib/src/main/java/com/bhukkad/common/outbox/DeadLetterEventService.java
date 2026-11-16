@@ -68,7 +68,10 @@ public class DeadLetterEventService {
                 event.setAggregateId(deadLetter.getAggregateId());
                 event.setPayload(deadLetter.getPayload());
                 event.setStatus(OutboxEvent.OutboxStatus.PENDING);
-                event.setRetryCount(0);
+                // OPT-039: Preserve original timestamps and retry history
+                // so publish lag metrics remain accurate for requeued events.
+                event.setCreatedAt(deadLetter.getCreatedAt());
+                event.setRetryCount(deadLetter.getRetryCount());
                 outboxEventRepository.save(event);
                 deadLetterEventRepository.markRequeued(
                         deadLetter.getId(), DeadLetterEvent.DlqStatus.REQUEUED, LocalDateTime.now());
@@ -128,7 +131,9 @@ public class DeadLetterEventService {
         event.setAggregateId(deadLetter.getAggregateId());
         event.setPayload(deadLetter.getPayload());
         event.setStatus(OutboxEvent.OutboxStatus.PENDING);
-        event.setRetryCount(0);
+        // OPT-039: Preserve original timestamps and retry history
+        event.setCreatedAt(deadLetter.getCreatedAt());
+        event.setRetryCount(deadLetter.getRetryCount());
         outboxEventRepository.save(event);
         deadLetterEventRepository.markRequeued(
                 deadLetter.getId(), DeadLetterEvent.DlqStatus.REQUEUED, LocalDateTime.now());

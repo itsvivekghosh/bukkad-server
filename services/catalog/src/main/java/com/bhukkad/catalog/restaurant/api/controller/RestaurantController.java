@@ -10,6 +10,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -51,12 +53,15 @@ public class RestaurantController {
 
     @GetMapping
     public List<RestaurantSummary> browse(@RequestParam(required = false) Long cuisineId,
-                                          @RequestParam(required = false) String name) {
+                                          @RequestParam(required = false) String name,
+                                          @RequestParam(defaultValue = "0") int page,
+                                          @RequestParam(defaultValue = "20") int size) {
+        Pageable pageable = PageRequest.of(page, size);
         if (name != null && !name.isBlank()) {
-            return queryService.search(name.trim());
+            return queryService.search(name.trim(), pageable).getContent();
         }
         if (cuisineId != null) {
-            return queryService.browseByCuisine(cuisineId);
+            return queryService.browseByCuisine(cuisineId, pageable).getContent();
         }
         return List.of();
     }

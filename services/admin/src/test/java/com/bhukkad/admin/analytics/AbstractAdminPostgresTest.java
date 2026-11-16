@@ -1,6 +1,5 @@
 package com.bhukkad.admin.analytics;
 
-import com.bhukkad.admin.TestKafkaTestConfig;
 import org.opentest4j.TestAbortedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -9,10 +8,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-import org.springframework.context.annotation.Import;
-
+/**
+ * Base class for admin PostgreSQL integration tests.
+ * Does NOT import TestKafkaTestConfig to allow @DataJpaTest slices to work properly.
+ * Tests that need Kafka mocking should import TestKafkaTestConfig directly.
+ */
 @Testcontainers(disabledWithoutDocker = true)
-@Import(TestKafkaTestConfig.class)
 public abstract class AbstractAdminPostgresTest {
 
     /**

@@ -124,10 +124,16 @@ public class RestaurantClient {
         if (ids == null || ids.isEmpty()) {
             return Mono.just(List.of());
         }
-        String joined = ids.stream().map(String::valueOf)
-                .collect(java.util.stream.Collectors.joining(","));
+        if (ids.size() > 100) {
+            return Mono.error(new IllegalArgumentException("Batch size exceeds 100 items"));
+        }
+        // PERF-3: Use UriBuilder instead of string joining to avoid
+        // allocating a new comma-separated string on every call.
         return webClient.get()
-                .uri("/api/v1/menu/items?ids={ids}", joined)
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/menu/items")
+                        .queryParam("ids", ids.stream().map(String::valueOf).toArray(String[]::new))
+                        .build())
                 .retrieve()
                 .bodyToMono(java.util.Map.class)
                 .timeout(java.time.Duration.ofSeconds(3))
@@ -188,7 +194,17 @@ public class RestaurantClient {
                 .retrieve()
                 .bodyToFlux(RestaurantResponse.class)
                 .collectList()
-                .onErrorResume(e -> Mono.just(List.of()));
+                // PERF-5/OPT-030: Only swallow 404 (not found), propagate
+                // other errors as UpstreamUnavailableException so callers
+                // can surface 503 and circuit breakers can trip.
+                .onErrorResume(WebClientResponseException.NotFound.class,
+                        e -> Mono.just(List.of()))
+                .onErrorResume(e -> {
+                    log.warn("RESTAURANT_SEARCH_UNAVAILABLE keyword={} error={}", keyword,
+                            e.getMessage());
+                    return Mono.error(new UpstreamUnavailableException(
+                            "Restaurant search unavailable", e));
+                });
     }
 
     /**
@@ -229,7 +245,13 @@ public class RestaurantClient {
                 .map(body -> Long.valueOf(String.valueOf(body.get("ownerId"))))
                 .timeout(Duration.ofSeconds(3))
                 .onErrorResume(WebClientResponseException.NotFound.class,
-                        e -> Mono.empty());
+                        e -> Mono.empty())
+                .onErrorResume(e -> {
+                    log.warn("RESTAURANT_OWNER_ID_FAILED | restaurantId={} | error={}", restaurantId,
+                            e.getMessage());
+                    return Mono.error(new UpstreamUnavailableException(
+                            "Restaurant owner lookup unavailable", e));
+                });
     }
 
     /**
@@ -278,6 +300,6 @@ public class RestaurantClient {
                 // Bounds the WHOLE retry chain (filters: 3 attempts × 5s each
                 // + 1s backoffs) — a 5s outer timeout cut legitimate retries
                 // off mid-flight under load.
-                .timeout(Duration.ofSeconds(20));
+                .timeout(Duration.ofSeconds(10));
     }
 }

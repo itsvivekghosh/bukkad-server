@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: bhukkad
+data:
+  pgbouncer.ini: |
+    [databases]
+    identity = host=postgres port=5432 dbname=identity
+    commerce = host=postgres port=5432 dbname=commerce
+    catalog = host=postgres port=5432 dbname=catalog
+    engagement = host=postgres port=5432 dbname=engagement
+    admin = host=postgres port=5432 dbname=admin
+
+    [pgbouncer]
+    pool_mode = transaction
+    max_client_conn = 20000
+    default_pool_size = 1000
+    min_pool_size = 100
+    reserve_pool_size = 200
+    reserve_pool_timeout = 2
+    server_lifetime = 3600
+    server_idle_timeout = 600
+    query_wait_timeout = 120
+    client_idle_timeout = 0
+    server_connect_timeout = 15
+    server_reset_query = DISCARD ALL
+    auth_type = md5
+    auth_file = /etc/userlist.txt
+    stats_period = 10
+    log_connections = 1
+    log_disconnections = 1
+    log_pooler_errors = 1
+    ignore_startup_parameters = extra_float_digits,application_name
+
+  userlist.txt: |
+    "app" "md5password_hash_here"
+    "replica_app" "md5password_hash_here"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: bhukkad
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+      - name: pgbouncer
+        image: edoburu/pgbouncer:1.23
+        ports:
+        - containerPort: 5432
+        envFrom:
+        - secretRef:
+            name: postgres-secrets
+        volumeMounts:
+        - name: pgbouncer-config
+          mountPath: /etc/pgbouncer
+        - name: pgbouncer-userlist
+          mountPath: /etc/userlist.txt
+          subPath: userlist.txt
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+      volumes:
+      - name: pgbouncer-config
+        configMap:
+          name: pgbouncer-config
+      - name: pgbouncer-userlist
+        secret:
+          secretName: pgbouncer-userlist
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: bhukkad
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: pgbouncer
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pgbouncer-userlist
+  namespace: bhukkad
+type: Opaque
+stringData:
+  userlist.txt: |
+    "app" "md5password_hash_here"
+    "replica_app" "md5password_hash_here"

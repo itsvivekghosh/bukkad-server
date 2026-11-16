@@ -6,6 +6,8 @@ import com.bhukkad.engagement.growth.api.dto.response.LoyaltyPointsResponse;
 import com.bhukkad.engagement.growth.domain.entity.LoyaltyPointBalance;
 import com.bhukkad.engagement.growth.domain.repository.LoyaltyPointBalanceRepository;
 import com.bhukkad.engagement.growth.domain.repository.LoyaltyPointsLedgerRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +40,7 @@ class LoyaltyServiceImplUnitTest {
     @Mock private LoyaltyPointBalanceRepository balanceRepository;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
+    private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private final GrowthProperties properties = new GrowthProperties();
     private LoyaltyServiceImpl service;
@@ -45,7 +48,7 @@ class LoyaltyServiceImplUnitTest {
     @BeforeEach
     void setUp() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        service = new LoyaltyServiceImpl(ledgerRepository, balanceRepository, redisTemplate, properties);
+        service = new LoyaltyServiceImpl(ledgerRepository, balanceRepository, redisTemplate, properties, meterRegistry);
     }
 
     private LoyaltyPointBalance balance(long points, long lifetime) {
@@ -77,6 +80,7 @@ class LoyaltyServiceImplUnitTest {
     @Test
     void getLoyaltyPoints_cacheMiss_rebuildsFromLedgerAndRewarms() {
         when(valueOperations.get(anyString())).thenReturn(null);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
         when(ledgerRepository.ledgerBalance(1L)).thenReturn(6000L);
         when(balanceRepository.findByCustomerId(1L)).thenReturn(Optional.empty());
         when(ledgerRepository.ledgerLifetime(1L)).thenReturn(6000L);

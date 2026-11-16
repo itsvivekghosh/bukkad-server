@@ -370,3 +370,51 @@ ALTER TABLE ONLY public.notifications
     ADD CONSTRAINT notifications_pkey PRIMARY KEY (id);
 CREATE INDEX IF NOT EXISTS idx_notifications_channel_status ON public.notifications USING btree (channel, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON public.notifications USING btree (recipient, created_at);
+
+-- ---- from chat support ----
+CREATE TABLE IF NOT EXISTS public.customers (
+    id bigint NOT NULL,
+    email character varying(255) NOT NULL,
+    first_name character varying(100) NOT NULL,
+    last_name character varying(100) NOT NULL,
+    phone character varying(50),
+    created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+CREATE SEQUENCE IF NOT EXISTS public.customers_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.customers_id_seq OWNED BY public.customers.id;
+ALTER TABLE ONLY public.customers ALTER COLUMN id SET DEFAULT nextval('public.customers_id_seq'::regclass);
+ALTER TABLE ONLY public.customers
+    ADD CONSTRAINT customers_pkey PRIMARY KEY (id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_email ON public.customers USING btree (email);
+
+CREATE TABLE IF NOT EXISTS public.orders (
+    id bigint NOT NULL,
+    customer_id bigint NOT NULL,
+    restaurant_id bigint NOT NULL,
+    status character varying(50) NOT NULL,
+    total_amount numeric(12,2) NOT NULL DEFAULT 0.00,
+    status_updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+CREATE SEQUENCE IF NOT EXISTS public.orders_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.orders_id_seq OWNED BY public.orders.id;
+ALTER TABLE ONLY public.orders ALTER COLUMN id SET DEFAULT nextval('public.orders_id_seq'::regclass);
+ALTER TABLE ONLY public.orders
+    ADD CONSTRAINT orders_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.orders
+    ADD CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_orders_customer ON public.orders USING btree (customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_restaurant ON public.orders USING btree (restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders USING btree (status);

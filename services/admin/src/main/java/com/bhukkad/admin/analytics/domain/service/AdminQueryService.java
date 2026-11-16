@@ -8,12 +8,15 @@ import com.bhukkad.admin.analytics.domain.entity.RestaurantOrderStat;
 import com.bhukkad.admin.analytics.domain.repository.RestaurantOrderStatRepository;
 import com.bhukkad.common.scan.AllowFullScan;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * Read-model service for admin dashboards. Populated by Kafka consumers from
@@ -30,6 +33,8 @@ public class AdminQueryService {
     private final AuditEventRepository auditRepository;
     private final FraudEventRepository fraudRepository;
     private final RestaurantOrderStatRepository statRepository;
+    @Qualifier("taskExecutor")
+    private final Executor dsScheduler;
 
     @Transactional(readOnly = true)
     public List<AuditEvent> auditTrail(String entityType, Long entityId) {
@@ -67,5 +72,36 @@ public class AdminQueryService {
         event.setSeverity(severity);
         event.setStatus(FraudEvent.STATUS_REVIEW);
         return fraudRepository.save(event);
+    }
+
+    /**
+     * OPT-048: Parallel execution of independent admin dashboard queries.
+     * Executes auditTrail, fraudAlerts, and restaurantStats concurrently
+     * using CompletableFuture, reducing latency from O(sum) to O(max).
+     *
+     * @param dsScheduler the executor for parallel execution
+     */
+    public CompletableFuture<AdminDashboardData> getDashboardAsync(Executor dsScheduler,
+                                                                   String entityType,
+                                                                   Long entityId,
+                                                                   String fraudStatus) {
+        CompletableFuture<List<AuditEvent>> audits =
+                CompletableFuture.supplyAsync(() -> auditTrail(entityType, entityId), dsScheduler);
+        CompletableFuture<List<FraudEvent>> frauds =
+                CompletableFuture.supplyAsync(() -> fraudAlerts(fraudStatus), dsScheduler);
+        CompletableFuture<List<RestaurantOrderStat>> stats =
+                CompletableFuture.supplyAsync(this::restaurantStats, dsScheduler);
+
+        return CompletableFuture.allOf(audits, frauds, stats)
+                .thenApply(v -> new AdminDashboardData(
+                        audits.join(), frauds.join(), stats.join()));
+    }
+
+    /** Data transfer object for aggregated admin dashboard data. */
+    public record AdminDashboardData(
+            List<AuditEvent> auditTrail,
+            List<FraudEvent> fraudAlerts,
+            List<RestaurantOrderStat> restaurantStats
+    ) {
     }
 }

@@ -48,7 +48,8 @@ public record OutboxProperties(
         int maxErrorLength,
         int maxRetries,
         Duration retryBackoff,
-        int relayThreads
+        int relayThreads,
+        Duration retentionTtl
 ) {
 
     private static final int DEFAULT_BATCH_SIZE = 500;
@@ -59,6 +60,7 @@ public record OutboxProperties(
     private static final int DEFAULT_MAX_RETRIES = 5;
     private static final Duration DEFAULT_RETRY_BACKOFF = Duration.ofSeconds(2);
     private static final int DEFAULT_RELAY_THREADS = 4;
+    private static final Duration DEFAULT_RETENTION_TTL = Duration.ofDays(7);
 
     public OutboxProperties {
         if (batchSize <= 0) {
@@ -85,6 +87,9 @@ public record OutboxProperties(
         if (relayThreads <= 0) {
             relayThreads = DEFAULT_RELAY_THREADS;
         }
+        if (retentionTtl == null || retentionTtl.isZero() || retentionTtl.isNegative()) {
+            retentionTtl = DEFAULT_RETENTION_TTL;
+        }
     }
 
     public static OutboxProperties defaults() {
@@ -96,7 +101,8 @@ public record OutboxProperties(
                 DEFAULT_MAX_ERROR_LENGTH,
                 DEFAULT_MAX_RETRIES,
                 DEFAULT_RETRY_BACKOFF,
-                DEFAULT_RELAY_THREADS);
+                DEFAULT_RELAY_THREADS,
+                DEFAULT_RETENTION_TTL);
     }
 
     /**

@@ -159,6 +159,48 @@ class EdgeCacheFilterTest {
     }
 
     @Test
+    void cacheMiss_writesJitteredTtlWithinPlusMinusTenPercentBand() {
+        ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class);
+        ReactiveValueOperations<String, String> valueOps = mock(ReactiveValueOperations.class);
+        when(redis.opsForValue()).thenReturn(valueOps);
+        when(valueOps.get(anyString())).thenReturn(Mono.empty());
+        when(valueOps.set(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
+
+        ArgumentCaptor<String> setKeyCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> setValueCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Duration> ttlCaptor = ArgumentCaptor.forClass(Duration.class);
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        Chain chain = new Chain() {
+            @Override
+            public Mono<Void> filter(ServerWebExchange exchange) {
+                passed.set(true);
+                exchangeRef.set(exchange);
+                ServerHttpResponse response = exchange.getResponse();
+                response.setStatusCode(HttpStatus.NOT_FOUND);
+                response.getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+                DataBuffer buffer = response.bufferFactory()
+                        .wrap("{\"status\":404}".getBytes(StandardCharsets.UTF_8));
+                return response.writeWith(Mono.just(buffer));
+            }
+        };
+
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/restaurants/public"));
+
+        filter(redis, meters, true).filter(exchange, chain).block();
+
+        assertThat(chain.passed).as("chain must execute on cache miss").isTrue();
+        verify(valueOps).set(setKeyCaptor.capture(), setValueCaptor.capture(), ttlCaptor.capture());
+        long seconds = ttlCaptor.getValue().toSeconds();
+        assertThat(seconds)
+                .as("jittered TTL must stay within the documented +/-10%% band of 60s")
+                .isGreaterThanOrEqualTo(54L)
+                .isLessThanOrEqualTo(66L);
+    }
+
+    @Test
     void nonGetRequest_bypassesCache() {
         ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class);
         SimpleMeterRegistry meters = new SimpleMeterRegistry();

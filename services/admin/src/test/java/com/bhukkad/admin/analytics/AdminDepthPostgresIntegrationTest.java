@@ -1,4 +1,5 @@
 package com.bhukkad.admin.analytics;
+
 import com.bhukkad.admin.analytics.domain.entity.ExperimentExposure;
 import com.bhukkad.admin.analytics.domain.entity.ChurnScore;
 import com.bhukkad.admin.analytics.domain.entity.DataExportRequest;
@@ -10,7 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
@@ -20,10 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Validates Batch E depth tables (churn, experiment, data export) on PG.
  */
-@DataJpaTest
+@SpringBootTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class AdminDepthPostgresIntegrationTest extends AbstractAdminPostgresTest {
-
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ChurnScoreRepository churnRepository;
     @Autowired private ExperimentExposureRepository experimentRepository;

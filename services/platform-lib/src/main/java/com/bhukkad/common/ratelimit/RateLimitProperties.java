@@ -15,12 +15,21 @@ public class RateLimitProperties {
 
     /**
      * Availability posture when the rate-limit Redis is unreachable:
-     * {@code true} (default) lets traffic through and increments the
-     * {@code ratelimit_bypass_redis_error} counter (edge availability wins);
-     * {@code false} denies, trading availability for strict enforcement
-     * (audit V-18 — the bypass must be an explicit choice, never an accident).
+     * {@code false} (default) denies traffic, trading availability for strict
+     * enforcement (audit V-18 — the bypass must be an explicit choice, never
+     * an accident). {@code true} lets traffic through and increments the
+     * {@code ratelimit_bypass_redis_error} counter (edge availability wins).
      */
-    private boolean failOpenOnRedisError = true;
+    private boolean failOpenOnRedisError = false;
+
+    /**
+     * Number of shards per rate-limit bucket key. Requests are hashed to a
+     * shard so burst traffic is spread across multiple Redis sorted-set keys
+     * instead of contending on a single hot key (audit P2-05). Each shard
+     * enforces {@code limit / shardCount}; an identifier is pinned to one
+     * shard deterministically.
+     */
+    private int shardCount = 4;
 
     /**
      * Tier multipliers applied on top of the base bucket limit. Premium users

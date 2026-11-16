@@ -72,6 +72,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-observability</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 
 		<!-- Reactive Redis: edge kill switch reads the shared feature-flag
@@ -124,20 +130,29 @@
 			<version>1.0.8.RELEASE</version>
 			<scope>test</scope>
 		</dependency>
-		<!-- OpenTelemetry distributed tracing (H3). -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-observability</artifactId>
-		</dependency>
+		<!-- OpenTelemetry distributed tracing (H3). Resolved from Maven
+		     Central on 2026-11-15; 2.15.0 is the instrumentation line that
+		     matches the Boot 3.5-managed OpenTelemetry SDK 1.49.0. The
+		     registry adds OTLP metric export with exemplars (trace ids on
+		     Prometheus/OTLP samples). -->
 		<dependency>
 			<groupId>io.opentelemetry</groupId>
 			<artifactId>opentelemetry-exporter-otlp</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>io.opentelemetry.instrumentation</groupId>
-			<artifactId>opentelemetry-instrumentation-spring-boot-starter</artifactId>
+			<artifactId>opentelemetry-spring-boot-starter</artifactId>
+			<version>2.15.0</version>
 		</dependency>
-		<!-- AWS SDK v2 - Floci-compatible AWS service integration -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-otlp</artifactId>
+		</dependency>
+		<!-- AWS SDK v2 - Floci-compatible AWS service integration.
+		    	 Temporarily commented out: aws-sdk-bom:2.31.5 does not exist
+		    	 in Maven Central, and individual AWS SDK modules are not
+		    	 available locally. -->
+		<!--
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
@@ -174,11 +189,11 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>apache-client</artifactId>
 		</dependency>
-		<!-- Spring Cloud AWS starter for seamless AWS service integration -->
 		<dependency>
 			<groupId>io.awspring.cloud</groupId>
 			<artifactId>spring-cloud-aws-starter</artifactId>
 		</dependency>
+		-->
 	</dependencies>
 
 	<build>
@@ -235,7 +250,17 @@
 				<configuration>
 					<!-- Parent argLine (jacoco @{argLine} + byte-buddy agent)
 					     plus the preloaded BlockHound agent. -->
-					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -javaagent:${project.build.directory}/blockhound.jar</argLine>
+					<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration -javaagent:${project.build.directory}/blockhound.jar -Duser.timezone=UTC</argLine>
+					<systemPropertyVariables>
+						<!-- The OTel starter is exercised in tests, but no collector
+						     runs locally; disabling exporters avoids connection-refused
+						     noise without disabling the tracing instrumentation. -->
+						<management.otel.traces.exporter>none</management.otel.traces.exporter>
+						<management.otel.metrics.exporter>none</management.otel.metrics.exporter>
+						<management.otel.logs.exporter>none</management.otel.logs.exporter>
+						<otel.instrumentation.logback-appender.enabled>false</otel.instrumentation.logback-appender.enabled>
+						<management.otlp.metrics.export.enabled>false</management.otlp.metrics.export.enabled>
+					</systemPropertyVariables>
 				</configuration>
 			</plugin>
 		</plugins>
@@ -260,7 +285,7 @@
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-surefire-plugin</artifactId>
 						<configuration>
-							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dblockhound.armed=true</argLine>
+							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration -Dblockhound.armed=true</argLine>
 						</configuration>
 					</plugin>
 				</plugins>
@@ -282,7 +307,7 @@
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-surefire-plugin</artifactId>
 						<configuration>
-							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods</argLine>
+							<argLine>@{argLine} -javaagent:${project.build.directory}/byte-buddy-agent.jar -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true -Djdk.attach.allowAttachSelf=false -XX:+AllowRedefinitionToAddDeleteMethods -Dspring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration</argLine>
 						</configuration>
 					</plugin>
 				</plugins>

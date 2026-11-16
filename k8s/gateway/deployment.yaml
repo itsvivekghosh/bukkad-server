@@ -91,7 +91,6 @@ spec:
               cpu: 750m
               memory: 512Mi
             limits:
-              cpu: 1500m
               memory: 512Mi
           startupProbe:
             httpGet:
@@ -122,6 +121,18 @@ spec:
           volumeMounts:
             - name: gateway-logs
               mountPath: /tmp/logs/bhukkad
+            # CSI-mounted Secrets Manager files (k8s/secrets/secret-provider-class.yaml).
+            - name: bhukkad-csi-secrets
+              mountPath: /secrets
+              readOnly: true
       volumes:
         - name: gateway-logs
           emptyDir: {}
+        # AWS Secrets Manager CSI mount (architecture audit §2.3). Updated by
+        # the Secrets Store CSI Driver on secret rotation.
+        - name: bhukkad-csi-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bhukkad-secrets

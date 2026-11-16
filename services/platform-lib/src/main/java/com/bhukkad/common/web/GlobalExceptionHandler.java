@@ -3,6 +3,7 @@ package com.bhukkad.common.web;
 import com.bhukkad.common.error.ApiError;
 import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.DuplicateRequestException;
+import com.bhukkad.common.error.PageSizeExceededException;
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.error.UnauthorizedException;
 import com.bhukkad.common.ratelimit.RateLimitExceededException;
@@ -159,6 +160,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         return json(HttpStatus.BAD_REQUEST, 400, "INVALID_PARAM", "Invalid parameter value");
+    }
+
+    /**
+     * Oversized page size is a client error (400), never a 500. The
+     * {@link PageSizeInterceptor} throws this when `?size=N` exceeds
+     * {@code app.pagination.max-page-size} (audit P1-01 / SV-11).
+     */
+    @ExceptionHandler(PageSizeExceededException.class)
+    public ResponseEntity<ApiError> handlePageSizeExceeded(PageSizeExceededException ex) {
+        return json(HttpStatus.BAD_REQUEST, 400, PageSizeExceededException.CODE,
+                ex.getMessage());
     }
 
     @ExceptionHandler(RuntimeException.class)

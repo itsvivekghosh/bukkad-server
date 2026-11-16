@@ -82,8 +82,11 @@ class GatewayConfigTest {
         // admin-disputes route (ADR-001: support is the dispute SOR).
         // New routes: actuator, internal-guard, customer-disputes, compliance-users,
         // live-realtime-sse (SSE stream paths split off the shared "realtime"
-        // breaker so they can carry a long time limiter).
-        assertThat(routes.getRoutes().collectList().block()).hasSize(57);
+        // breaker so they can carry a long time limiter), admin-restaurant-reviews,
+        // admin-zones-cities, admin-user-console, admin-identity-tenants,
+        // admin-identity-affiliates, admin-orders, admin-notifications,
+        // admin-rider-payouts, pricing, chat, fraud.
+        assertThat(routes.getRoutes().collectList().block()).hasSize(59);
 
         Route restaurant = byId.get("restaurant");
         assertThat(restaurant.getUri().getScheme()).isEqualTo("http");

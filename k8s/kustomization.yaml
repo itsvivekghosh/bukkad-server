@@ -20,6 +20,7 @@ resources:
   # ---------------------------------------------------------------------------
   - secret-store.yaml
   - external-secret.yaml
+  - secrets/secret-provider-class.yaml
   - common/priority-class.yaml
   - postgres/pvc.yaml
   # WAL archiving spool for the wal-g sidecar (PITR, k8s/docs/RUNBOOK-PITR.md).
@@ -72,6 +73,8 @@ resources:
   - monitoring/grafana-dashboards-config.yaml
   - monitoring/grafana-datasources.yaml
   - monitoring/grafana-dashboards.yaml
+  # OpenTelemetry Collector tail-sampling pipeline (errors / slow / normal).
+  - observability/otel-collector-config.yaml
   - nginx/configmap.yaml
   - nginx/deployment.yaml
   - nginx/service.yaml

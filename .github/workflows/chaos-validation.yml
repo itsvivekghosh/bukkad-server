@@ -1,0 +1,406 @@
+name: Chaos Validation (Pre-Deploy SLO Gate)
+
+# Pre-deploy chaos engineering gate per docs/architecture-audit.md Section 3.5:
+#
+#   PR to main ──▶ deploy canary to staging ──▶ run chaos experiments ──▶
+#       check error budget burn rate < 1% ──▶ promote or block
+#
+# A monthly schedule (first of month 00:00 UTC) runs the same chaos suite
+# against staging and writes findings to docs/chaos-results/ (game day).
+#
+# Staging only. Never targets production. All experiments carry a blast-radius
+# label (bhukkad.blast-radius) and a maxDuration (bhukkad.max-duration) and are
+# rolled back (deleted) after the gate so they cannot persist past this run.
+#
+# Safe no-op when STAGING_KUBECONFIG / STAGING_PROMETHEUS_URL are not
+# configured (e.g. PRs from forks) — the gate is skipped, not blocking.
+
+on:
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 1 * *'  # monthly game day, 00:00 UTC on the 1st
+
+permissions:
+  contents: read
+
+jobs:
+  ############################################################################
+  # PRE-DEPLOY GATE — runs on every PR to main.
+  # Deploys a canary to staging, runs the chaos suite, then promotes or blocks
+  # based on the error-budget burn-rate SLO check.
+  ############################################################################
+  pre-deploy-gate:
+    name: Pre-Deploy Chaos + SLO Gate (${{ github.event.pull_request.number || 'manual' }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    environment: staging
+    permissions:
+      pull-requests: write  # comment the gate verdict on the PR
+    outputs:
+      gate: ${{ steps.gate.outputs.verdict }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # ------------------------------------------------------------------
+      # Guard: bail out (safe no-op) when the staging cluster isn't
+      # configured. Matches the existing chaos-drill.yml convention.
+      # ------------------------------------------------------------------
+      - name: Guard — staging kubeconfig present
+        id: guard
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          if [ -z "${KUBECONFIG_SECRET}" ]; then
+            echo "STAGING_KUBECONFIG not configured — chaos validation skipped (safe no-op)."
+            echo "Configure the STAGING_KUBECONFIG secret (a kubeconfig for the staging cluster) to enable the gate."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------------------------
+      # Build + run the in-process chaos unit tests (no cluster needed).
+      # Validates ChaosExperimentRunner maxDuration / fail-closed semantics.
+      # ------------------------------------------------------------------
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+          cache: maven
+
+      - name: Run ChaosExperimentRunner unit tests
+        if: steps.guard.outputs.run == 'true'
+        run: ./mvnw -B -f services/pom.xml -pl platform-lib test -Dtest='ChaosExperimentRunnerTest' -Dsurefire.failIfNoSpecifiedTests=false
+
+      # ------------------------------------------------------------------
+      # Deploy canary to staging (staging only — never production).
+      # Mirrors the staging deploy: apply k8s, wait for the gateway rollout.
+      # ------------------------------------------------------------------
+      - name: Deploy canary to staging
+        if: steps.guard.outputs.run == 'true'
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl cluster-info
+          kubectl apply -k k8s
+          kubectl rollout status deployment/bhukkad-gateway -n bhukkad --timeout=300s
+
+      # ------------------------------------------------------------------
+      # Run chaos experiments against staging.
+      # Each CRD carries bhukkad.blast-radius + bhukkad.max-duration and is
+      # deleted (rolled back) in the cleanup step below.
+      # ------------------------------------------------------------------
+      - name: Apply chaos experiments to staging
+        if: steps.guard.outputs.run == 'true'
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl apply -f k8s/chaos/pod-kill-gateway.yaml
+          kubectl apply -f k8s/chaos/redis-latency-100ms.yaml
+          kubectl apply -f k8s/chaos/db-connection-exhaustion.yaml
+          echo "Chaos experiments applied to staging (armed for execution)."
+
+      # ------------------------------------------------------------------
+      # Let chaos execute and the system reach a (degraded) steady state,
+      # then observe the error budget during/after the chaos window.
+      # ------------------------------------------------------------------
+      - name: Wait for chaos window / steady state
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          echo "Waiting 90s for chaos experiments to execute and the system to reach steady state..."
+          sleep 90
+
+      # ------------------------------------------------------------------
+      # SLO gate: error budget burn rate < 1% -> promote; >= 1% -> block.
+      #
+      # Exact PromQL (availability SLI over a 5m evaluation window):
+      #   sum(rate(http_server_requests_seconds_count{job=~"bhukkad-.*",status=~"5.."}[5m]))
+      #   /
+      #   sum(rate(http_server_requests_seconds_count{job=~"bhukkad-.*"}[5m]))
+      # Blocks when the ratio exceeds 0.01 (1% of requests erroring during the
+      # chaos window = error budget burn beyond the allowed budget).
+      # ------------------------------------------------------------------
+      - name: SLO gate — error budget burn rate < 1%
+        id: gate
+        if: steps.guard.outputs.run == 'true'
+        env:
+          PROMETHEUS_URL: ${{ vars.STAGING_PROMETHEUS_URL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, urllib.parse
+
+          prom = os.environ.get("PROMETHEUS_URL", "").strip()
+          if not prom:
+              print("STAGING_PROMETHEUS_URL not configured — cannot evaluate SLO gate; blocking.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("verdict=BLOCK\n")
+              sys.exit(1)
+
+          # Exact PromQL used for the promote/block gate.
+          query = (
+              "sum(rate(http_server_requests_seconds_count"
+              "{job=~\"bhukkad-(gateway|commerce|catalog|engagement|identity|admin)\",status=~\"5..\"}[5m]))"
+              "/"
+              "sum(rate(http_server_requests_seconds_count"
+              "{job=~\"bhukkad-(gateway|commerce|catalog|engagement|identity|admin)\"}[5m]))"
+          )
+          url = prom.rstrip("/") + "/api/v1/query?query=" + urllib.parse.quote(query)
+          try:
+              with urllib.request.urlopen(url, timeout=30) as resp:
+                  data = json.load(resp)
+          except Exception as exc:
+              print(f"Failed to query Prometheus: {exc}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("verdict=BLOCK\n")
+              sys.exit(1)
+
+          results = data.get("data", {}).get("result", [])
+          burn = float(results[0]["value"][1]) if results else 0.0
+          print(f"Error budget burn rate = {burn:.4f} ({burn * 100:.2f}% of requests erroring over 5m)")
+
+          if burn > 0.01:
+              print("GATE: BLOCK — error budget burn rate exceeds the 1% budget.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("verdict=BLOCK\n")
+              sys.exit(1)
+          else:
+              print("GATE: PROMOTE — error budget burn rate within the 1% budget.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("verdict=PROMOTE\n")
+          PY
+
+      # ------------------------------------------------------------------
+      # Comment the PR with the gate verdict.
+      # ------------------------------------------------------------------
+      - name: Comment PR with gate verdict
+        if: steps.guard.outputs.run == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const verdict = `${{ steps.gate.outputs.verdict || 'SKIPPED' }}`;
+            const body = `## Chaos Validation (Pre-Deploy SLO Gate)\n\nGate verdict: **${verdict}**\n\n` +
+              `The chaos suite (pod-kill-gateway, redis-latency-100ms, db-connection-exhaustion) was ` +
+              `applied to staging and the SLO gate evaluated the error-budget burn rate over a 5m window.\n\n` +
+              `Promote/block rule: **block when burn rate > 1%**, otherwise promote.\n\n` +
+              `All chaos experiments are rolled back (deleted) after the gate so nothing persists in staging.`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            })
+
+      # ------------------------------------------------------------------
+      # Enforce the block: fail the job when the gate says BLOCK.
+      # ------------------------------------------------------------------
+      - name: Enforce gate verdict
+        if: steps.guard.outputs.run == 'true' && steps.gate.outputs.verdict == 'BLOCK'
+        run: |
+          echo "::error::Chaos SLO gate BLOCKED — error budget burn rate >= 1%. Do not promote this change to staging."
+          exit 1
+
+      # ------------------------------------------------------------------
+      # Rollback: remove the chaos experiments from staging (automatic recovery
+      # is also provided by each experiment's `duration` + `deadline`).
+      # Runs always so chaos cannot persist past this gate.
+      # ------------------------------------------------------------------
+      - name: Rollback — remove chaos experiments from staging
+        if: always()
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          set +e
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl delete -f k8s/chaos/pod-kill-gateway.yaml --ignore-not-found=true -n bhukkad || true
+          kubectl delete -f k8s/chaos/redis-latency-100ms.yaml --ignore-not-found=true -n bhukkad || true
+          kubectl delete -f k8s/chaos/db-connection-exhaustion.yaml --ignore-not-found=true -n bhukkad || true
+          echo "Chaos experiments rolled back from staging."
+
+  ############################################################################
+  # MONTHLY GAME DAY — runs on a schedule against staging and writes findings
+  # to docs/chaos-results/.
+  ############################################################################
+  game-day:
+    name: Monthly Chaos Game Day (staging)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    environment: staging
+    permissions:
+      contents: write      # commit findings to docs/chaos-results/
+      pull-requests: write # open a PR with the findings
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Guard — staging kubeconfig present
+        id: guard
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          if [ -z "${KUBECONFIG_SECRET}" ]; then
+            echo "STAGING_KUBECONFIG not configured — game day skipped (safe no-op)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+          cache: maven
+
+      - name: Run ChaosExperimentRunner unit tests
+        if: steps.guard.outputs.run == 'true'
+        run: ./mvnw -B -f services/pom.xml -pl platform-lib test -Dtest='ChaosExperimentRunnerTest' -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Deploy canary to staging
+        if: steps.guard.outputs.run == 'true'
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl cluster-info
+          kubectl apply -k k8s
+          kubectl rollout status deployment/bhukkad-gateway -n bhukkad --timeout=300s
+
+      - name: Apply chaos experiments to staging
+        if: steps.guard.outputs.run == 'true'
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl apply -f k8s/chaos/pod-kill-gateway.yaml
+          kubectl apply -f k8s/chaos/redis-latency-100ms.yaml
+          kubectl apply -f k8s/chaos/db-connection-exhaustion.yaml
+          echo "Chaos experiments applied to staging for game day."
+
+      - name: Wait for chaos window / steady state
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          echo "Waiting 90s for chaos experiments to execute and the system to reach steady state..."
+          sleep 90
+
+      - name: Capture findings and write to docs/chaos-results/
+        if: steps.guard.outputs.run == 'true'
+        env:
+          PROMETHEUS_URL: ${{ vars.STAGING_PROMETHEUS_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p docs/chaos-results
+          DATE="$(date +%Y-%m)"
+          OUT="docs/chaos-results/game-day-${DATE}.md"
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+
+          echo "# Chaos Game-Day Findings — ${DATE}" > "${OUT}"
+          echo "" >> "${OUT}"
+          echo "- **Environment**: staging (never production)" >> "${OUT}"
+          echo "- **Triggered by**: scheduled monthly game day (cron)" >> "${OUT}"
+          echo "- **Experiments**: pod-kill-gateway, redis-latency-100ms, db-connection-exhaustion" >> "${OUT}"
+          echo "" >> "${OUT}"
+          echo "## SLO Gate (error budget burn rate < 1%)" >> "${OUT}"
+          echo "" >> "${OUT}"
+          echo "Exact PromQL (availability SLI, 5m evaluation window):" >> "${OUT}"
+          echo "" >> "${OUT}"
+          echo '```promql' >> "${OUT}"
+          echo 'sum(rate(http_server_requests_seconds_count{job=~"bhukkad-(gateway|commerce|catalog|engagement|identity|admin)",status=~"5.."}[5m]))' >> "${OUT}"
+          echo '  /' >> "${OUT}"
+          echo 'sum(rate(http_server_requests_seconds_count{job=~"bhukkad-(gateway|commerce|catalog|engagement|identity|admin)"}[5m]))' >> "${OUT}"
+          echo '```' >> "${OUT}"
+          echo "" >> "${OUT}"
+
+          if [ -z "${PROMETHEUS_URL}" ]; then
+            echo "STAGING_PROMETHEUS_URL not configured — could not measure error budget." >> "${OUT}"
+            echo "- **Verdict**: SKIPPED (no Prometheus endpoint configured)" >> "${OUT}"
+          else
+            BURN=$(python3 - <<'PY'
+import json, os, urllib.request, urllib.parse
+prom = os.environ["PROMETHEUS_URL"]
+query = ('sum(rate(http_server_requests_seconds_count{job=~"bhukkad-(gateway|commerce|catalog|engagement|identity|admin)",status=~"5.."}[5m]))/'
+         'sum(rate(http_server_requests_seconds_count{job=~"bhukkad-(gateway|commerce|catalog|engagement|identity|admin)"}[5m]))')
+url = prom.rstrip("/") + "/api/v1/query?query=" + urllib.parse.quote(query)
+with urllib.request.urlopen(url, timeout=30) as r:
+    data = json.load(r)
+res = data.get("data", {}).get("result", [])
+print(res[0]["value"][1] if res else "0")
+PY
+            )
+            echo "**- Measured error budget burn rate:** ${BURN} (${PROMETHEUS_URL})" >> "${OUT}"
+            if python3 -c "import sys; sys.exit(0 if float('${BURN}') <= 0.01 else 1)" 2>/dev/null; then
+              echo "- **Verdict**: WITHIN BUDGET (burn rate <= 1%)" >> "${OUT}"
+            else
+              echo "- **Verdict**: OVER BUDGET (burn rate > 1%) — investigate before promoting" >> "${OUT}"
+            fi
+          fi
+
+          echo "" >> "${OUT}"
+          echo "## Rollback" >> "${OUT}"
+          echo "" >> "${OUT}"
+          echo "All chaos experiments were deleted after the window (each also self-recovers via its `duration` + `deadline`)." >> "${OUT}"
+          echo "" >> "${OUT}"
+          echo "See docs/runbooks/chaos-triage.md for per-experiment triage steps." >> "${OUT}"
+          echo "Chaos findings recorded at $(date -u)." >> "${OUT}"
+          echo "Findings written to ${OUT}"
+
+      - name: Rollback — remove chaos experiments from staging
+        if: always()
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.STAGING_KUBECONFIG }}
+        run: |
+          set +e
+          KUBECONFIG_FILE="$(mktemp /tmp/bhukkad-chaos-kubeconfig.XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+          printf '%s' "${KUBECONFIG_SECRET}" > "${KUBECONFIG_FILE}"
+          export KUBECONFIG="${KUBECONFIG_FILE}"
+          kubectl delete -f k8s/chaos/pod-kill-gateway.yaml --ignore-not-found=true -n bhukkad || true
+          kubectl delete -f k8s/chaos/redis-latency-100ms.yaml --ignore-not-found=true -n bhukkad || true
+          kubectl delete -f k8s/chaos/db-connection-exhaustion.yaml --ignore-not-found=true -n bhukkad || true
+          echo "Chaos experiments rolled back from staging."
+
+      - name: Commit findings and open a PR
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          DATE="$(date +%Y-%m)"
+          BRANCH="chaos/game-day/${DATE}"
+          git config user.name "bhukkad-chaos"
+          git config user.email "chaos@bhukkad.internal"
+          git checkout -b "${BRANCH}"
+          git add docs/chaos-results/game-day-${DATE}.md
+          git commit -m "chaos: record game-day findings ${DATE} [skip ci]"
+          git push origin "${BRANCH}"
+          gh pr create --base main --head "${BRANCH}" \
+            --title "Chaos game-day findings ${DATE}" \
+            --body "Monthly chaos game-day findings for ${DATE}. See docs/chaos-results/game-day-${DATE}.md" || true

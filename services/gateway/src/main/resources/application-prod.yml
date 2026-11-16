@@ -4,9 +4,9 @@ spring:
       on-profile: prod
   data:
     redis:
-      sentinel:
-        master: bhukkad-master
-        nodes: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES:redis-0.bhukkad:6379,redis-1.bhukkad:6379,redis-2.bhukkad:6379,redis-3.bhukkad:6379,redis-4.bhukkad:6379,redis-5.bhukkad:6379}
+        max-redirects: 3
       password: ${REDIS_PASSWORD}
       database: ${REDIS_DATABASE:0}
       timeout: 2000
@@ -14,10 +14,10 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 64
-          min-idle: 8
-          max-idle: 32
-          max-wait: 5s
+          max-active: 200
+          min-idle: 50
+          max-idle: 100
+          max-wait: 5000ms
 
 app:
   datasource:
@@ -25,7 +25,7 @@ app:
       enabled: ${DB_REPLICA_ENABLED:false}
       url: ${DB_REPLICA_URL:}
       username: ${DB_USERNAME:app}
-      password: ${DB_PASSWORD:app_pass}
+      password: ${file:/secrets/db-password:${DB_PASSWORD:}}
       hikari:
         maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
         minimum-idle: 5
@@ -35,7 +35,13 @@ app:
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+  secrets:
+    rotation:
+      enabled: true
   environment: production
+
+  rate-limit:
+    fail-open-on-redis-error: false  # CR-09: Fail-closed in prod
 
   events:
     external:
@@ -46,6 +52,12 @@ app:
   outbox:
     wake:
       enabled: true
+aws:
+  # IRSA supplies AWS credentials in production. The static "test" values in
+  # the base config are for local/floci only — they are never prod credentials.
+  access-key: ${AWS_ACCESS_KEY_ID:}
+  secret-key: ${AWS_SECRET_ACCESS_KEY:}
+
 management:
   tracing:
     sampling:

@@ -12,6 +12,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
@@ -165,7 +168,7 @@ class CartServiceTest {
         CartItem b = new CartItem();
         b.setUnitPrice(new BigDecimal("50.00"));
         b.setQuantity(1);
-        when(cartItemRepository.findByCartId(5L)).thenReturn(List.of(a, b));
+        when(cartItemRepository.findByCartId(5L, PageRequest.of(0, 100))).thenReturn(new PageImpl<>(List.of(a, b), PageRequest.of(0, 100), 2));
 
         assertThat(service.subtotal(1L)).isEqualByComparingTo("250.00");
     }

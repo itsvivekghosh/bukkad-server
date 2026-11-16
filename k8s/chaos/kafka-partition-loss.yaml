@@ -1,0 +1,31 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: kafka-partition-loss
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: kafka-partition-loss
+  annotations:
+    bhukkad.scenario: "kafka-partition-loss"
+    bhukkad.description: "Partitions the Kafka (Redpanda) broker network from engagement clients for 60 seconds. Validates producer/consumer reconnect logic, leader re-election across brokers, and message replay once the partition heals."
+    bhukkad.severity: "high"
+    bhukkad.target: "redpanda brokers (component: redpanda) <-> engagement clients (component: engagement)"
+    bhukkad.recovery: "The network partition is lifted after 60s; brokers re-elect leaders and clients re-establish their connections."
+spec:
+  action: partition
+  mode: all
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: redpanda
+  partition:
+    target:
+      labelSelectors:
+        app: bhukkad
+        component: engagement
+    direction: both
+  duration: "60s"
+  schedule: "0 */4 * * *"
+  deadline: 2h

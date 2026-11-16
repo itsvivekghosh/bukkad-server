@@ -1,5 +1,6 @@
 package com.bhukkad.common.idempotency;
 
+import com.bhukkad.common.idempotency.IdempotencyRecordRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,7 @@ import java.time.LocalDateTime;
  * <p>{@code @SchedulerLock} keeps replicas serialised where a ShedLock
  * {@code LockProvider} is configured (the repo-wide pattern from order's
  * {@code ScheduledOrderProcessor}); without a provider the deletes are
- * idempotent anyway. Batched 5 000-row sweeps keep each transaction short and
+ * idempotent anyway. Batched sweeps keep each transaction short and
  * let a legacy backlog drain without vacuum pressure (V-19 rollout note).</p>
  *
  * <p>Metrics: {@code idempotency_cleaned{service=...}} counts purged rows.</p>
@@ -36,22 +37,25 @@ import java.time.LocalDateTime;
 @ConditionalOnProperty(name = "app.idempotency.cleanup.enabled", matchIfMissing = true)
 public class IdempotencyCleanupScheduler {
 
-    static final int BATCH_SIZE = 5000;
+    private static final int DEFAULT_BATCH_SIZE = 5000;
 
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final TransactionTemplate transactionTemplate;
     private final Counter cleanedCounter;
+    private final int batchSize;
 
     public IdempotencyCleanupScheduler(IdempotencyRecordRepository idempotencyRecordRepository,
                                        PlatformTransactionManager transactionManager,
                                        MeterRegistry meterRegistry,
-                                       @Value("${spring.application.name:unknown}") String serviceName) {
+                                       @Value("${spring.application.name:unknown}") String serviceName,
+                                       @Value("${app.idempotency.cleanup.batch-size:5000}") int batchSize) {
         this.idempotencyRecordRepository = idempotencyRecordRepository;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.cleanedCounter = Counter.builder("idempotency_cleaned")
                 .description("Expired idempotency records purged (V-19)")
                 .tag("service", serviceName)
                 .register(meterRegistry);
+        this.batchSize = batchSize;
     }
 
     /** Hourly sweep; one caller at a time via ShedLock when a provider exists. */
@@ -61,14 +65,12 @@ public class IdempotencyCleanupScheduler {
         int total = 0;
         int removed;
         // One transaction per batch keeps locks short while a big legacy
-        // backlog drains across successive batches. (TransactionTemplate —
-        // self-invoked @Transactional would be proxy-bypassed, the exact B1
-        // class of bug this batch is fixing.)
+        // backlog drains across successive batches.
         do {
             removed = transactionTemplate.execute(status ->
-                    idempotencyRecordRepository.deleteBatch(LocalDateTime.now(), BATCH_SIZE));
+                    idempotencyRecordRepository.deleteBatch(LocalDateTime.now(), batchSize));
             total += removed;
-        } while (removed >= BATCH_SIZE);
+        } while (removed >= batchSize);
         if (total > 0) {
             cleanedCounter.increment(total);
             log.info("IDEMPOTENCY_CLEANED | removed={}", total);

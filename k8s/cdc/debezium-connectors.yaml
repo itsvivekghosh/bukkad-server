@@ -1,0 +1,260 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: debezium-postgres-identity
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: cdc
+    debezium: "true"
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    database.hostname: bhukkad-postgresql
+    database.port: "5432"
+    database.user: ${DEBEZIUM_DB_USER}
+    database.password: ${DEBEZIUM_DB_PASSWORD}
+    database.dbname: identity
+    database.server.name: bhukkad.identity
+    schema.include.list: public
+    table.include.list: public.customers,public.addresses,public.refresh_tokens
+    plugin.name: pgoutput
+    slot.name: debezium_identity
+    slot.drop.on.stop: false
+    publication.name: debezium_identity_pub
+    publication.autocreate.mode: all
+    database.publication.name: debezium_identity_pub
+    topic.prefix: bhukkad.identity
+    transforms: route
+    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.route.regex: "bhukkad\\.identity\\.(.+)"
+    transforms.route.replacement: "bhukkad.identity.events.v1"
+    transforms.route.key.regex: "bhukkad\\.identity\\.(.+)"
+    transforms.route.key.replacement: "bhukkad.identity.events.v1"
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: bhukkad.identity.heartbeat
+    snapshot.mode: initial
+    snapshot.lock.timeout.ms: 10000
+    poll.interval.ms: 1000
+    max.batch.size: 2048
+    max.queue.size: 8192
+    provide.transaction.metadata: "true"
+    status.storage.topic: bhukkad.connect.status
+    config.storage.topic: bhukkad.connect.configs
+    offset.storage.topic: bhukkad.connect.offsets
+    offset.storage.partitions: 6
+    status.storage.partitions: 6
+    config.storage.partitions: 6
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: debezium-postgres-catalog
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: cdc
+    debezium: "true"
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    database.hostname: bhukkad-postgresql
+    database.port: "5432"
+    database.user: ${DEBEZIUM_DB_USER}
+    database.password: ${DEBEZIUM_DB_PASSWORD}
+    database.dbname: catalog
+    database.server.name: bhukkad.catalog
+    schema.include.list: public
+    table.include.list: public.restaurants,public.menu_items,public.menu_categories,public.cuisines
+    plugin.name: pgoutput
+    slot.name: debezium_catalog
+    slot.drop.on.stop: false
+    publication.name: debezium_catalog_pub
+    database.publication.name: debezium_catalog_pub
+    topic.prefix: bhukkad.catalog
+    transforms: route
+    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.route.regex: "bhukkad\\.catalog\\.(.+)"
+    transforms.route.replacement: "bhukkad.catalog.events.v1"
+    transforms.route.key.regex: "bhukkad\\.catalog\\.(.+)"
+    transforms.route.key.replacement: "bhukkad.catalog.events.v1"
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: bhukkad.catalog.heartbeat
+    snapshot.mode: initial
+    snapshot.lock.timeout.ms: 10000
+    poll.interval.ms: 1000
+    max.batch.size: 2048
+    max.queue.size: 8192
+    provide.transaction.metadata: "true"
+    status.storage.topic: bhukkad.connect.status
+    config.storage.topic: bhukkad.connect.configs
+    offset.storage.topic: bhukkad.connect.offsets
+    offset.storage.partitions: 6
+    status.storage.partitions: 6
+    config.storage.partitions: 6
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: debezium-postgres-commerce
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: cdc
+    debezium: "true"
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    database.hostname: bhukkad-postgresql
+    database.port: "5432"
+    database.user: ${DEBEZIUM_DB_USER}
+    database.password: ${DEBEZIUM_DB_PASSWORD}
+    database.dbname: commerce
+    database.server.name: bhukkad.commerce
+    schema.include.list: public
+    table.include.list: public.orders,public.order_items,public.payments,public.cart_items
+    plugin.name: pgoutput
+    slot.name: debezium_commerce
+    slot.drop.on.stop: false
+    publication.name: debezium_commerce_pub
+    database.publication.name: debezium_commerce_pub
+    topic.prefix: bhukkad.commerce
+    transforms: route
+    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.route.regex: "bhukkad\\.commerce\\.(.+)"
+    transforms.route.replacement: "bhukkad.commerce.events.v1"
+    transforms.route.key.regex: "bhukkad\\.commerce\\.(.+)"
+    transforms.route.key.replacement: "bhukkad.commerce.events.v1"
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: bhukkad.commerce.heartbeat
+    snapshot.mode: initial
+    snapshot.lock.timeout.ms: 10000
+    poll.interval.ms: 1000
+    max.batch.size: 2048
+    max.queue.size: 8192
+    provide.transaction.metadata: "true"
+    status.storage.topic: bhukkad.connect.status
+    config.storage.topic: bhukkad.connect.configs
+    offset.storage.topic: bhukkad.connect.offsets
+    offset.storage.partitions: 6
+    status.storage.partitions: 6
+    config.storage.partitions: 6
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: debezium-postgres-engagement
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: cdc
+    debezium: "true"
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    database.hostname: bhukkad-postgresql
+    database.port: "5432"
+    database.user: ${DEBEZIUM_DB_USER}
+    database.password: ${DEBEZIUM_DB_PASSWORD}
+    database.dbname: engagement
+    database.server.name: bhukkad.engagement
+    schema.include.list: public
+    table.include.list: public.posts,public.comments,public.likes,public.referrals
+    plugin.name: pgoutput
+    slot.name: debezium_engagement
+    slot.drop.on.stop: false
+    publication.name: debezium_engagement_pub
+    database.publication.name: debezium_engagement_pub
+    topic.prefix: bhukkad.engagement
+    transforms: route
+    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.route.regex: "bhukkad\\.engagement\\.(.+)"
+    transforms.route.replacement: "bhukkad.engagement.events.v1"
+    transforms.route.key.regex: "bhukkad\\.engagement\\.(.+)"
+    transforms.route.key.replacement: "bhukkad.engagement.events.v1"
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: bhukkad.engagement.heartbeat
+    snapshot.mode: initial
+    snapshot.lock.timeout.ms: 10000
+    poll.interval.ms: 1000
+    max.batch.size: 2048
+    max.queue.size: 8192
+    provide.transaction.metadata: "true"
+    status.storage.topic: bhukkad.connect.status
+    config.storage.topic: bhukkad.connect.configs
+    offset.storage.topic: bhukkad.connect.offsets
+    offset.storage.partitions: 6
+    status.storage.partitions: 6
+    config.storage.partitions: 6
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: debezium-postgres-admin
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: cdc
+    debezium: "true"
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    database.hostname: bhukkad-postgresql
+    database.port: "5432"
+    database.user: ${DEBEZIUM_DB_USER}
+    database.password: ${DEBEZIUM_DB_PASSWORD}
+    database.dbname: admin
+    database.server.name: bhukkad.admin
+    schema.include.list: public
+    table.include.list: public.support_tickets,public.audit_events,public.feature_flags
+    plugin.name: pgoutput
+    slot.name: debezium_admin
+    slot.drop.on.stop: false
+    publication.name: debezium_admin_pub
+    database.publication.name: debezium_admin_pub
+    topic.prefix: bhukkad.admin
+    transforms: route
+    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.route.regex: "bhukkad\\.admin\\.(.+)"
+    transforms.route.replacement: "bhukkad.admin.events.v1"
+    transforms.route.key.regex: "bhukkad\\.admin\\.(.+)"
+    transforms.route.key.replacement: "bhukkad.admin.events.v1"
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+    heartbeat.interval.ms: 10000
+    heartbeat.topics.prefix: bhukkad.admin.heartbeat
+    snapshot.mode: initial
+    snapshot.lock.timeout.ms: 10000
+    poll.interval.ms: 1000
+    max.batch.size: 2048
+    max.queue.size: 8192
+    provide.transaction.metadata: "true"
+    status.storage.topic: bhukkad.connect.status
+    config.storage.topic: bhukkad.connect.configs
+    offset.storage.topic: bhukkad.connect.offsets
+    offset.storage.partitions: 6
+    status.storage.partitions: 6
+    config.storage.partitions: 6

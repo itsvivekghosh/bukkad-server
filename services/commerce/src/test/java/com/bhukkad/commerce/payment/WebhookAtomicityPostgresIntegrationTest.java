@@ -40,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // cannot be used here. Follows PaymentServiceContextSmokeTest instead and wires
 // the REAL proxied service beans (MANDATORY propagation included).
 @SpringBootTest
+@Transactional
 class WebhookAtomicityPostgresIntegrationTest extends AbstractPaymentPostgresTest {
 
     @Autowired
@@ -57,12 +58,15 @@ class WebhookAtomicityPostgresIntegrationTest extends AbstractPaymentPostgresTes
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
         // Full clean slate each test: the FIRST method used to leave payments
         // id=1 behind and every later seed hit the PK.
-        jdbcTemplate.update("DELETE FROM idempotency_records");
-        jdbcTemplate.update("DELETE FROM outbox_events");
-        jdbcTemplate.update("DELETE FROM payments");
-        seedPayment(1L, "PAY-prov-1", "AUTH");
+        tx.executeWithoutResult(status -> {
+            jdbcTemplate.update("DELETE FROM idempotency_records");
+            jdbcTemplate.update("DELETE FROM outbox_events");
+            jdbcTemplate.update("DELETE FROM payments");
+            seedPayment(1L, "PAY-prov-1", "AUTH");
+        });
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

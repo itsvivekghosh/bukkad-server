@@ -1,10 +1,10 @@
 package com.bhukkad.commerce.order.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-
-import java.util.List;
 import com.bhukkad.commerce.order.domain.entity.Subscription;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, Long> {
-    List<Subscription> findByCustomerIdAndStatus(Long customerId, String status);
+    Page<Subscription> findByCustomerIdAndStatus(Long customerId, String status, Pageable pageable);
 }

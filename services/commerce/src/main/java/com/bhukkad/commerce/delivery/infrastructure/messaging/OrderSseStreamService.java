@@ -13,10 +13,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -64,9 +65,9 @@ public class OrderSseStreamService {
 
     private final AtomicInteger totalEmitters = new AtomicInteger();
 
-    private final Map<Long, CopyOnWriteArrayList<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
-    private final Map<Long, CopyOnWriteArrayList<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
-    private final Map<Long, CopyOnWriteArrayList<SseEmitter>> customerStreams = new ConcurrentHashMap<>();
+    private final Map<Long, ConcurrentLinkedQueue<SseEmitter>> kitchenStreams = new ConcurrentHashMap<>();
+    private final Map<Long, ConcurrentLinkedQueue<SseEmitter>> riderStreams = new ConcurrentHashMap<>();
+    private final Map<Long, ConcurrentLinkedQueue<SseEmitter>> customerStreams = new ConcurrentHashMap<>();
 
     /**
      * emitter → (streams, key). Disconnect and send failures resolve through
@@ -75,7 +76,7 @@ public class OrderSseStreamService {
      */
     private final Map<SseEmitter, StreamHandle> emitterIndex = new ConcurrentHashMap<>();
 
-    private record StreamHandle(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams, Long key) {
+    private record StreamHandle(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams, Long key) {
     }
 
     private void recordCapacityRejected(String reason) {
@@ -126,7 +127,7 @@ public class OrderSseStreamService {
         broadcast(customerStreams.get(orderId), update);
     }
 
-    private SseEmitter subscribe(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+    private SseEmitter subscribe(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams,
                                       Long key,
                                       String channel,
                                       String replayStreamKey,
@@ -134,8 +135,8 @@ public class OrderSseStreamService {
                                       Object snapshot) {
         reserveGlobalBudget(channel, key);
         SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
-        CopyOnWriteArrayList<SseEmitter> emitters =
-                streams.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>());
+        ConcurrentLinkedQueue<SseEmitter> emitters =
+                streams.computeIfAbsent(key, ignored -> new ConcurrentLinkedQueue<>());
         synchronized (emitters) {
             if (emitters.size() >= maxEmittersPerStream) {
                 totalEmitters.decrementAndGet();
@@ -200,7 +201,7 @@ public class OrderSseStreamService {
         }
     }
 
-    private void broadcast(List<SseEmitter> emitters, OrderLiveUpdate update) {
+    private void broadcast(Collection<SseEmitter> emitters, OrderLiveUpdate update) {
         if (emitters == null || emitters.isEmpty()) {
             return;
         }
@@ -217,7 +218,8 @@ public class OrderSseStreamService {
             } catch (RejectedExecutionException ex) {
                 // Never run the write on the caller thread: a saturated pool
                 // means the socket is behind, so drop it and count it.
-                log.warn("SSE_DISPATCH_REJECTED | error={}", ex.getMessage());
+                log.error("SSE_DISPATCH_REJECTED | updateId={} | error={}",
+                        update.getEventId(), ex.getMessage());
                 recordCapacityRejected("dispatch");
                 evictEmitter(emitter);
             }
@@ -251,15 +253,15 @@ public class OrderSseStreamService {
         remove(customerStreams, emitter);
     }
 
-    private void sendHeartbeatToAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
+    private void sendHeartbeatToAll(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams) {
+        for (ConcurrentLinkedQueue<SseEmitter> emitters : streams.values()) {
             sendHeartbeat(emitters);
         }
     }
 
-    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+    private void remove(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams,
                          SseEmitter emitter) {
-        for (Map.Entry<Long, CopyOnWriteArrayList<SseEmitter>> entry : streams.entrySet()) {
+        for (Map.Entry<Long, ConcurrentLinkedQueue<SseEmitter>> entry : streams.entrySet()) {
             remove(streams, entry.getKey(), emitter);
         }
     }
@@ -276,11 +278,11 @@ public class OrderSseStreamService {
         }
     }
 
-    private void remove(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams,
+    private void remove(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams,
                          Long key,
                          SseEmitter emitter) {
         emitterIndex.remove(emitter);
-        CopyOnWriteArrayList<SseEmitter> emitters = streams.get(key);
+        ConcurrentLinkedQueue<SseEmitter> emitters = streams.get(key);
         if (emitters != null) {
             if (emitters.remove(emitter)) {
                 totalEmitters.decrementAndGet();
@@ -295,7 +297,8 @@ public class OrderSseStreamService {
         if (emitter != null) {
             try {
                 emitter.complete();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.warn("SSE_COMPLETE_FAILED error={}", e.getMessage());
             }
         }
     }
@@ -315,11 +318,11 @@ public class OrderSseStreamService {
         return emitterIndex.size();
     }
 
-    private int countStreams(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        return streams.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
+    private int countStreams(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams) {
+        return streams.values().stream().mapToInt(ConcurrentLinkedQueue::size).sum();
     }
 
-    private void sendHeartbeat(List<SseEmitter> emitters) {
+    private void sendHeartbeat(Collection<SseEmitter> emitters) {
         if (emitters == null || emitters.isEmpty()) {
             return;
         }
@@ -333,7 +336,8 @@ public class OrderSseStreamService {
                     }
                 });
             } catch (RejectedExecutionException ex) {
-                log.warn("SSE_HEARTBEAT_DISPATCH_REJECTED | error={}", ex.getMessage());
+                log.error("SSE_HEARTBEAT_DISPATCH_REJECTED | error={}",
+                        ex.getMessage());
                 recordCapacityRejected("dispatch");
                 evictEmitter(emitter);
             }
@@ -349,13 +353,16 @@ public class OrderSseStreamService {
         log.info("SSE streams closed for graceful shutdown");
     }
 
-    private void closeAll(Map<Long, CopyOnWriteArrayList<SseEmitter>> streams) {
-        for (CopyOnWriteArrayList<SseEmitter> emitters : streams.values()) {
+    private void closeAll(Map<Long, ConcurrentLinkedQueue<SseEmitter>> streams) {
+        for (ConcurrentLinkedQueue<SseEmitter> emitters : streams.values()) {
             for (SseEmitter emitter : emitters) {
                 try {
                     emitter.complete();
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    log.warn("SSE_CLOSE_FAILED error={}", e.getMessage());
                 }
+                emitterIndex.remove(emitter);
+                totalEmitters.decrementAndGet();
             }
             emitters.clear();
         }

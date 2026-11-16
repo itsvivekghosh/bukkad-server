@@ -3,33 +3,68 @@ server:
   netty:
     worker-count: 0  # auto = CPU cores
     connection-timeout: 30s
-
-  shutdown: graceful
-  error:
-    include-message: never
-    include-stacktrace: never
-    include-binding-errors: never
+    max-initial-line-length: 4096
+    max-header-size: 16384
+    max-chunk-size: 8192
+    initial-buffer-size: 8192
 
 spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
   application:
-    name: bhukkad-gateway
-  # PERF-0 geometry: gateway is reactive (netty, no Tomcat/DB/Hikari keys apply);
+    name: bhukkad-
+  # PERF-0 geometry:  is reactive (netty, no Tomcat/DB/Hikari keys apply);
   # it gets the scheduler pool and Redis timeouts that it does support.
+  # Startup optimizations
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+    allow-bean-definition-overriding: true
   task:
     scheduling:
       pool:
-        size: ${SCHEDULER_POOL_SIZE:2}
+        size: 8
+    execution:
+      pool:
+        # PERF-4 / §4.6: gateway is purely reactive (Netty event loops, no
+        # Tomcat/Hikari), so this is the only Spring task execution pool in the
+        # module. It backs @Async / @Scheduled work and any code that pulls the
+        # default TaskExecutor. Geometry 8/32/1000 is intentionally modest:
+        # the edge must not let background task work crowd out the Netty
+        # event-loop threads that serve proxied requests. Core 8 keeps steady
+        # state small; max 32 absorbs bursts; queue 1000 bounds backlog so
+        # saturation surfaces as fast rejections rather than unbounded growth.
+        # PER-pool tuning signal: watch pool_active / pool_queued / pool_rejected
+        # (bound to gauges of the same name via platform-lib ThreadPoolMetrics)
+        # and only raise core/max if data shows persistent exhaustion.
+        core-size: 8
+        max-size: 32
+        queue-capacity: 1000
+  # ---------------------------------------------------------------------------
+  # Named bounded-elastic schedulers (§4.6 thread-pool tuning).
+  #
+  # These are NOT expressible as a single spring.task.execution.pool block
+  # (Spring exposes one default TaskExecutor), so they are declared as explicit
+  # @Bean schedulers in platform-lib (com.bhukkad.common.config.ThreadPoolConfig)
+  # and injected by name into WebFlux services via Schedulers.fromExecutorService(...).
+  # Each is a bounded pool: core threads, a bounded queue, then rejection (so
+  # saturation fails fast instead of unbounded growth). Tune core/queue only
+  # when the matching pool_active / pool_queued / pool_rejected gauge shows
+  # persistent saturation.
+  #
+  #   jdbc-scheduler     core=32, queue=1000  (blocking DB access off event loop)
+  #   redis-scheduler    core=16, queue=500   (blocking Redis ops off event loop)
+  #   external-api-scheduler core=64, queue=2000  (outbound HTTP/WebClient calls)
+  # ---------------------------------------------------------------------------
   cloud:
     gateway:
       # Audit batch A (edge hardening): bound upstream latency — without a
-      # response timeout a hung service pins gateway connections forever.
+      # response timeout a hung service pins  connections forever.
       httpclient:
         connect-timeout: 5000
         response-timeout: 8s
-        # W-5.4 / gateway pool (explicit budget; previously unconfigured =
+        # W-5.4 /  pool (explicit budget; previously unconfigured =
         # implicit elastic provider = unbounded upstream connections under
         # fan-out/retry storms, exhaustion traded for invisible fd/port risk).
         # Fixed 500/pod × HPA 3..10 bounds in-flight upstream work
@@ -38,16 +73,6 @@ spring:
         # silently melting node.
         pool:
           type: fixed
-          max-connections: 2000
-          acquire-timeout: 8000
-          max-idle-time: 30000
-      # Edge header hardening (DedupeResponseHeader for Access-Control-Allow-*,
-      # Proxy-Connection/TE stripping, Set-Cookie HttpOnly+Secure+SameSite=Strict)
-      # is implemented via the TransportHeaderHygieneFilter and SecureCookieFilter
-      # GlobalFilters — spring.cloud.gateway.default-filters only decorate
-      # configuration-defined routes, and this gateway's 36-route strangler table
-      # is a programmatic RouteLocator the property would silently bypass.
-  # Shared Redis holding runtime feature-flag overrides (edge kill switch).
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -57,10 +82,10 @@ spring:
       lettuce:
         pool:
           enabled: true
-          max-active: 16
-          min-idle: 2
-          max-idle: 8
-          max-wait: 5s
+          max-active: 60
+          min-idle: 10
+          max-idle: 30
+          max-wait: 2000
       # Redis Sentinel / Cluster are intentionally NOT declared here.
       # Spring Boot activates Sentinel auto-configuration from the mere
       # PRESENCE of spring.data.redis.sentinel.master, so an env-var stub with
@@ -77,14 +102,22 @@ app:
       username: ${DB_USERNAME:app}
       password: ${DB_PASSWORD:app_pass}
       hikari:
-        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:15}
-        minimum-idle: 2
+        maximum-pool-size: ${DB_REPLICA_POOL_SIZE:10}
+        minimum-idle: 5
         connection-timeout: 3000
         validation-timeout: 3000
         connection-test-query: SELECT 1
         idle-timeout: 600000
         max-lifetime: 1800000
         read-only: true
+  # Resource-level authorization at the edge. Disabled until an edge policy
+  # exists; the local platform-lib engine can later be replaced by an OPA
+  # sidecar without changing request handling.
+  authz:
+    enabled: ${AUTHZ_ENABLED:false}
+    policy-id: ${AUTHZ_POLICY_ID:gateway-default}
+    resource-type: ${AUTHZ_RESOURCE_TYPE:http}
+
   # ---------------------------------------------------------------------------
   # Routes after the 16 -> 5 consolidation.
   #
@@ -92,8 +125,8 @@ app:
   # each with its own circuit breaker + kill-switch), so the property names
   # stayed the same. What changed is WHERE each one points: the old
   # per-service defaults (order -> :8092, payment -> :8093, ...) no longer exist
-  # as separate processes, so every request fell through to the gateway itself
-  # and came back 405 with `Allow: GET` — the gateway's own actuator mapping.
+  # as separate processes, so every request fell through to the  itself
+  # and came back 405 with `Allow: GET` — the 's own actuator mapping.
   #
   #   identity    -> identity
   #   order       -> commerce   (order + payment + delivery)
@@ -109,29 +142,36 @@ app:
   # pod DNS names.
   # ---------------------------------------------------------------------------
   routes:
-    identity-uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+    identity-uri: http://identity:8080
 
     # commerce = order + payment + delivery
-    order-uri: ${COMMERCE_SERVICE_URL:http://localhost:8080}
-    payment-uri: ${COMMERCE_SERVICE_URL:http://localhost:8080}
-    delivery-uri: ${COMMERCE_SERVICE_URL:http://localhost:8080}
+    order-uri: http://commerce:8080
+    payment-uri: http://commerce:8080
+    delivery-uri: http://commerce:8080
 
     # catalog = restaurant + search + personalization
-    restaurant-uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
-    search-uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
-    personalization-uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    restaurant-uri: http://catalog:8080
+    search-uri: http://catalog:8080
+    personalization-uri: http://catalog:8080
 
     # engagement = social + growth + referral + survey + notification + realtime
-    social-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
-    growth-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
-    referral-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
-    survey-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
-    notification-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
-    realtime-uri: ${ENGAGEMENT_SERVICE_URL:http://localhost:8082}
+    social-uri: http://engagement:8080
+    growth-uri: http://engagement:8080
+    referral-uri: http://engagement:8080
+    survey-uri: http://engagement:8080
+    notification-uri: http://engagement:8080
+    realtime-uri: http://engagement:8080
 
     # admin = admin-analytics + supportticket
-    admin-analytics-uri: ${ADMIN_SERVICE_URL:http://localhost:8083}
-    support-uri: ${ADMIN_SERVICE_URL:http://localhost:8083}
+    admin-analytics-uri: http://admin:8080
+    support-uri: http://admin:8080
+  # Strict JSON validation at the edge. Non-positive values fall back to the
+  # same production-safe defaults in GatewayValidationProperties.
+  gateway:
+    validation:
+      max-depth: 10
+      max-key-count: 1000
+
   # Edge kill-switch defaults (W0 / gap A10). Same keys as every service's
   # app.feature-flags block; runtime overrides come from the shared Redis
   # hash bhukkad:feature-flag:overrides written by admin-analytics.
@@ -224,8 +264,6 @@ app:
           baseConfig: local
         notification:
           baseConfig: local
-        support:
-          baseConfig: local
         referral:
           baseConfig: local
         survey:
@@ -251,10 +289,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,circuitbreakers,circuitbreakerevents,gateway
+        include: health,info
+    jmx:
+      exposure:
+        exclude: "*"
   endpoint:
     health:
-      show-details: always
+      show-details: never
       probes:
         enabled: true
       group:
@@ -263,17 +304,26 @@ management:
         readiness:
           include: readinessState
   metrics:
-    enable:
-      reactor.netty: true
     export:
       prometheus:
-        enabled: true
+        enabled: false
   tracing:
     sampling:
-      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.0}
   zipkin:
     tracing:
       endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+  otel:
+    exporter:
+      otlp:
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://tempo:4317}
+        protocol: grpc
+  # Micrometer OTLP metrics registry (exemplars): HTTP/protobuf endpoint,
+  # separate from the trace gRPC endpoint above.
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:http://tempo:4318/v1/metrics}
 
 resilience4j:
   circuitbreaker:
@@ -291,67 +341,68 @@ resilience4j:
         # commerce returns 503 UPSTREAM_UNAVAILABLE while pricing a menu item,
         # i.e. a transient business condition. Counting it made one such response
         # push the failure rate over the threshold, open the breaker, and convert
-        # every subsequent request into a gateway 503 -- including ones that would
+        # every subsequent request into a  503 -- including ones that would
         # have succeeded. That is a self-inflicted outage cascade.
         #
         # A circuit breaker exists to protect against a *down* dependency, not a
         # dependency answering. Down means connect failures / timeouts / 5xx
-        # gateway errors, which is what is recorded below.
+        #  errors, which is what is recorded below.
         record-exceptions:
           - org.springframework.web.reactive.function.client.WebClientRequestException
           - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
           - org.springframework.web.reactive.function.client.WebClientResponseException$BadGateway
           - java.io.IOException
           - java.util.concurrent.TimeoutException
-    instances:
-      identity:
-        base-config: default
-      order:
-        base-config: default
-      payment:
-        base-config: default
-      delivery:
-        base-config: default
-      restaurant:
-        base-config: default
-      search:
-        base-config: default
-      notification:
-        base-config: default
-      referral:
-        base-config: default
-      support:
-        base-config: default
-      growth:
-        base-config: default
-      personalization:
-        base-config: default
-      realtime:
-        base-config: default
-      # SSE streams (/api/v1/live/{kitchen,rider,order}/**). The default
-      # Resilience4j time limiter is 1s, but a healthy SSE response produces no
-      # terminal signal, so every stream was aborted at one second and surfaced
-      # as 503 UPSTREAM_UNAVAILABLE. Widen only this instance — the other
-      # realtime routes keep the 1s limiter so a hung dependency fails fast.
-      realtimeSse:
-        base-config: default
-      survey:
-        base-config: default
+      instances:
+        identity:
+          base-config: default
+        order:
+          base-config: default
+        payment:
+          base-config: default
+        delivery:
+          base-config: default
+        restaurant:
+          base-config: default
+        search:
+          base-config: default
+        notification:
+          base-config: default
+        referral:
+          base-config: default
+        support:
+          base-config: default
+        growth:
+          base-config: default
+        personalization:
+          base-config: default
+        realtime:
+          base-config: default
+        # SSE streams (/api/v1/live/{kitchen,rider,order}/**). The default
+        # Resilience4j time limiter is 1s, but a healthy SSE response produces no
+        # terminal signal, so every stream was aborted at one second and surfaced
+        # as 503 UPSTREAM_UNAVAILABLE. Widen only this instance — the other
+        # realtime routes keep the 1s limiter so a hung dependency fails fast.
+        realtimeSse:
+          base-config: default
+        survey:
+          base-config: default
   # Per-instance time limiters (defaults: 1s connect, 1s overall).
   timelimiter:
     instances:
       realtimeSse:
         timeout-duration: 30m
         cancel-running-future: true
-
-# AWS SDK v2 - Floci-compatible AWS service integration
 aws:
   region: us-east-1
   access-key: test
   secret-key: test
   endpoint: http://floci:4566
-
-spring:
+  s3Bucket: bhukkad-assets
+  dynamodbTablePrefix: bhukkad-
+  sqsQueuePrefix: bhukkad-
+  snsTopicPrefix: bhukkad-
+  kmsKeyAlias: bhukkad-key
   cloud:
     aws:
       region:
@@ -360,30 +411,169 @@ spring:
         access-key: test
         secret-key: test
       s3:
-        bucket: bhukkad-gateway-assets
+        bucket: bhukkad-assets
       dynamodb:
-        table-name: bhukkad-gateway-events
+        table-name: bhukkad-events
       sqs:
-        queue-name: bhukkad-gateway-events
+        queue-name: bhukkad-events
       sns:
-        topic-name: bhukkad-gateway-events
+        topic-name: bhukkad-events
       secretsmanager:
-        prefix: bhukkad/gateway/
+        prefix: bhukkad//
       kms:
-        key-alias: bhukkad-gateway-key
+        key-alias: bhukkad-key
 
-# AWS SDK v2 - Floci integration (for AWS service access via Floci emulator)
-aws:
-  region: us-east-1
-  access-key: test
-  secret-key: test
-  endpoint: http://floci:4566
-
+# -----------------------------------------------------------------------------
+# PROFILE: LOCAL (development)
+# -----------------------------------------------------------------------------
+---
 spring:
+  config:
+    activate:
+      on-profile: local
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+  data:
+    redis:
+      ssl:
+        enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers,circuitbreakerevents,gateway
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState
+  metrics:
+    export:
+      prometheus:
+        enabled: false
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:0.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+
+# =============================================================================
+# PROFILE: PROD (production)
+# =============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  main:
+    lazy-initialization: false
+    banner-mode: "off"
+  data:
+    redis:
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 8
+          min-idle: 4
+          max-wait: 2000
+      ssl:
+        enabled: true
   cloud:
-    aws:
-      region:
-        static: us-east-1
-      credentials:
-        access-key: test
-        secret-key: test
+    gateway:
+      httpclient:
+        # Section 4.3 — HTTP/2 for upstream multiplexing (one connection,
+        # many concurrent streams) reduces TLS handshake + fd pressure under
+        # fan-out/retry load.
+        http2:
+          enabled: true
+        # Per-route ConnectionProvider for upstream calls: fixed 500
+        # connections/pod bounds in-flight work; saturation surfaces as fast,
+        # counted acquire timeouts (503) instead of a silently melting node.
+        # pendingAcquireMaxCount 1000 + pendingAcquireTimeout 5s bound queue
+        # depth so blocked acquires fail fast rather than pinning threads.
+        # metrics:true activates reactor-netty Micrometer gauges
+        # (reactor.netty.connection.provider.active.connections,
+        #  reactor.netty.connection.provider.pending.connections).
+        pool:
+          type: fixed
+          max-connections: 500
+          pending-acquire-max-count: 1000
+          pending-acquire-timeout: 5s
+          metrics: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}
+
+# =============================================================================
+# PROFILE: UAT (User Acceptance Testing)
+# =============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: uat
+  main:
+    lazy-initialization: true
+    banner-mode: "off"
+  data:
+    redis:
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 4
+          min-idle: 2
+          max-wait: 2000
+      ssl:
+        enabled: true
+  cloud:
+    gateway:
+      httpclient:
+        pool:
+          type: fixed
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers,circuitbreakerevents,gateway
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://tempo:9411/api/v2/spans}

@@ -1,0 +1,49 @@
+# Chaos Mesh experiment: redis-latency-100ms
+#
+# Scenario: Inject 100ms network latency into the Redis cache to validate cache
+#           fallback, circuit-breaker behavior, and graceful degradation when the
+#           cache responds slowly (rather than being fully down).
+# Target:   bhukkad-redis StatefulSet (app: bhukkad, component: redis)
+# Action:   NetworkChaos delay (mode: all)
+# Latency:  100ms (correlation 100)
+# Duration: 2 minutes
+# Blast radius: single cache node -> bhukkad.blast-radius=single-cache-node
+# Max duration: 10m (Chaos Mesh auto-recovers after `duration`; `deadline` bounds
+#                   how long it retries a missed run)
+#
+# NOTE: Chaos Mesh must be installed in the bhukkad namespace. Apply only to
+#       staging (never production).
+#
+#   kubectl apply -f k8s/chaos/redis-latency-100ms.yaml
+#   kubectl delete -f k8s/chaos/redis-latency-100ms.yaml   # rollback / cleanup
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: redis-latency-100ms
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: redis-latency-100ms
+    bhukkad.blast-radius: "single-cache-node"
+  annotations:
+    bhukkad.scenario: "redis-latency-100ms"
+    bhukkad.description: "Injects 100ms of network latency into the Redis cache for 2 minutes. Validates cache fallback to the database, circuit-breaker behavior, and graceful degradation of read paths that depend on the cache when it responds slowly."
+    bhukkad.severity: "medium"
+    bhukkad.target: "bhukkad-redis StatefulSet (app: bhukkad, component: redis)"
+    bhukkad.recovery: "Injected latency is removed after the duration; cache read path returns to normal latency."
+    bhukkad.max-duration: "10m"
+    bhukkad.max-duration-seconds: "600"
+spec:
+  action: delay
+  mode: all
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: redis
+  delay:
+    latency: "100ms"
+    correlation: 100
+  duration: "2m"
+  schedule: "0 * * * *"
+  deadline: 10m

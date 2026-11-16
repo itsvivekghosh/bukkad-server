@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: observability
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      tail_sampling:
+        decision_wait: 30s
+        num_traces: 50000
+        expected_new_traces_per_sec: 1000
+        policies:
+          # Keep every trace that contains an error span.
+          - name: errors
+            type: status_code
+            status_code:
+              status_codes:
+                - ERROR
+          # Keep 10% of traces whose duration exceeds 500 ms.
+          - name: slow-traces
+            type: and
+            and:
+              and_sub_policy:
+                - name: slower-than-500ms
+                  type: latency
+                  latency:
+                    threshold_ms: 500
+                - name: slow-trace-percent-10
+                  type: probabilistic
+                  probabilistic:
+                    sampling_percentage: 10
+          # Keep 1% of all remaining (normal) traces.
+          - name: normal-traces
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 1
+      batch: {}
+
+    exporters:
+      otlp/tempo:
+        endpoint: tempo:4317
+        tls:
+          insecure: true
+        compression: gzip
+
+    service:
+      pipelines:
+        traces:
+          receivers:
+            - otlp
+          processors:
+            - tail_sampling
+            - batch
+          exporters:
+            - otlp/tempo

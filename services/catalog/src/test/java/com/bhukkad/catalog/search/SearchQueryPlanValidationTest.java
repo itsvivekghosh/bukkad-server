@@ -41,7 +41,7 @@ class SearchQueryPlanValidationTest extends AbstractSearchPostgresTest {
     void seed() {
         menuItemRepository.deleteAll();
         restaurantRepository.deleteAll();
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 1000; i++) {
             RestaurantSearchEntity r = new RestaurantSearchEntity();
             r.setName("Biryani House " + i);
             r.setDescription("Slow-cooked dum biryani " + i);
@@ -50,7 +50,7 @@ class SearchQueryPlanValidationTest extends AbstractSearchPostgresTest {
             r.setIsOpen(true);
             restaurantRepository.saveAndFlush(r);
         }
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 1000; i++) {
             MenuItemSearchEntity m = new MenuItemSearchEntity();
             m.setName("Chicken Biryani " + i);
             m.setDescription("Creamy " + i);
@@ -60,6 +60,9 @@ class SearchQueryPlanValidationTest extends AbstractSearchPostgresTest {
             m.setAvailable(true);
             menuItemRepository.saveAndFlush(m);
         }
+        // Update statistics so the query planner can make informed decisions
+        jdbcTemplate.execute("ANALYZE restaurant_search");
+        jdbcTemplate.execute("ANALYZE menu_item_search");
     }
 
     @Test

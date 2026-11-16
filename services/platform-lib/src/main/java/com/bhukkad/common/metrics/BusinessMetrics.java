@@ -11,7 +11,19 @@ import java.util.function.Supplier;
 /**
  * Business-level metrics for growth monitoring: order throughput and the
  * order conversion funnel (search -> menu view -> cart add -> checkout ->
- * payment -> delivered).
+ * payment -> delivered), plus the real-time operational analytics events
+ * (order created, payment completed, delivery assigned, fraud blocked) and
+ * the gateway latency histogram that feed the analytics dashboards and
+ * alerts in {@code k8s/analytics} and {@code k8s/monitoring}.
+ *
+ * <p>Metric names (Prometheus renders {@code .} as {@code _}):</p>
+ * <ul>
+ *   <li>{@code bhukkad.business.orders.created} — counter, order created via outbox publish;</li>
+ *   <li>{@code bhukkad.business.payments.completed} — counter, payment completed via outbox publish;</li>
+ *   <li>{@code bhukkad.business.deliveries.assigned} — counter, delivery assigned via outbox publish;</li>
+ *   <li>{@code bhukkad.business.fraud.blocked} — counter, fraud block via outbox publish;</li>
+ *   <li>{@code bhukkad.business.gateway.latency} — timer (ms), gateway request latency.</li>
+ * </ul>
  */
 @Component
 public class BusinessMetrics {
@@ -23,6 +35,11 @@ public class BusinessMetrics {
     private final Counter funnelCheckout;
     private final Counter funnelPayment;
     private final Counter funnelDelivered;
+    private final Counter ordersCreated;
+    private final Counter paymentsCompleted;
+    private final Counter deliveriesAssigned;
+    private final Counter fraudBlocked;
+    private final Timer gatewayLatency;
 
     public BusinessMetrics(MeterRegistry registry) {
         this.registry = registry;
@@ -38,6 +55,17 @@ public class BusinessMetrics {
                 .description("Orders with a successful payment").register(registry);
         funnelDelivered = Counter.builder("bhukkad.funnel.delivered")
                 .description("Orders delivered").register(registry);
+        ordersCreated = Counter.builder("bhukkad.business.orders.created")
+                .description("Orders created (OrderCreated event published via Kafka outbox)").register(registry);
+        paymentsCompleted = Counter.builder("bhukkad.business.payments.completed")
+                .description("Payments completed (PaymentCompleted event published via Kafka outbox)").register(registry);
+        deliveriesAssigned = Counter.builder("bhukkad.business.deliveries.assigned")
+                .description("Deliveries assigned (DeliveryAssigned event published via Kafka outbox)").register(registry);
+        fraudBlocked = Counter.builder("bhukkad.business.fraud.blocked")
+                .description("Fraud blocks (FraudBlocked event published via Kafka outbox)").register(registry);
+        gatewayLatency = Timer.builder("bhukkad.business.gateway.latency")
+                .description("Gateway request latency histogram (base unit ms)")
+                .register(registry);
     }
 
     public void search() {
@@ -62,6 +90,31 @@ public class BusinessMetrics {
 
     public void delivered() {
         funnelDelivered.increment();
+    }
+
+    /** Increments the orders-created counter; called on acked {@code OrderCreated} publish. */
+    public void recordOrderCreated() {
+        ordersCreated.increment();
+    }
+
+    /** Increments the payments-completed counter; called on acked {@code PaymentCompleted} publish. */
+    public void recordPaymentCompleted() {
+        paymentsCompleted.increment();
+    }
+
+    /** Increments the deliveries-assigned counter; called on acked {@code DeliveryAssigned} publish. */
+    public void recordDeliveryAssigned() {
+        deliveriesAssigned.increment();
+    }
+
+    /** Increments the fraud-blocked counter; called on acked {@code FraudBlocked} publish. */
+    public void recordFraudBlocked() {
+        fraudBlocked.increment();
+    }
+
+    /** Records a gateway request latency sample (milliseconds). */
+    public void recordGatewayLatency(long durationMillis) {
+        gatewayLatency.record(durationMillis, TimeUnit.MILLISECONDS);
     }
 
     // ==================== Generic metrics API ====================

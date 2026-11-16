@@ -2,7 +2,14 @@ package com.bhukkad.commerce.order.api.controller;
 
 import com.bhukkad.common.security.PrincipalGuard;
 import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.common.util.CursorUtils;
+import com.bhukkad.commerce.order.domain.service.impl.OrderQueryService;
 import com.bhukkad.commerce.order.domain.service.impl.OrderService;
+import com.bhukkad.commerce.order.api.dto.request.CreateOrderRequest;
+import com.bhukkad.commerce.order.api.dto.response.OrderDetailsResponse;
+import com.bhukkad.commerce.order.api.dto.response.OrderListResponse;
+import com.bhukkad.commerce.order.api.dto.response.OrderResponse;
+import com.bhukkad.commerce.order.domain.entity.Order;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,6 +20,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.validation.annotation.Validated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -23,11 +32,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.bhukkad.commerce.order.api.dto.request.CreateOrderRequest;
-import com.bhukkad.commerce.order.api.dto.response.OrderDetailsResponse;
-import com.bhukkad.commerce.order.api.dto.response.OrderResponse;
-import com.bhukkad.commerce.order.domain.entity.Order;
+import org.springframework.http.ResponseEntity;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Order service public API ({@code /api/v1/orders}).
@@ -43,6 +53,7 @@ import com.bhukkad.commerce.order.domain.entity.Order;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderQueryService orderQueryService;
     private final ObjectProvider<MeterRegistry> meterRegistryProvider;
 
     private static final String FUNNEL_ORDER_CREATE = "order_create";
@@ -109,9 +120,7 @@ public class OrderController {
     public OrderResponse get(@AuthenticationPrincipal TokenPrincipal principal,
                              @Parameter(description = "ID of the order to retrieve", required = true)
                              @PathVariable Long orderId) {
-        OrderResponse order = orderService.getOrder(orderId);
-        PrincipalGuard.requireSelfOrAdmin(principal, order.customerId());
-        return order;
+        return orderService.getOrder(orderId, principal);
     }
 
     @Operation(summary = "Cancel an order", description = "Cancels an existing order by its ID")
@@ -176,9 +185,69 @@ public class OrderController {
             details = orderService.getOrderDetails(orderId);
         } else {
             PrincipalGuard.requireAuthenticated(principal);
-            details = orderService.getOrderDetails(orderId);
-            PrincipalGuard.requireSelfOrAdmin(principal, details.customerId());
+            details = orderService.getOrderDetails(orderId, principal);
         }
         return details;
+    }
+
+    @Operation(summary = "List customer orders", description = "Retrieves a paginated list of orders for the authenticated customer using cursor-based pagination")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Orders retrieved successfully",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = OrderListResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid cursor or page size",
+                    content = @Content),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content),
+            @ApiResponse(responseCode = "500", description = "Internal server error",
+                    content = @Content)
+    })
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping
+    public ResponseEntity<OrderListResponse> list(
+            @AuthenticationPrincipal TokenPrincipal principal,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") @Parameter(description = "Page size (max 100)", schema = @Schema(maximum = "100")) int size) {
+        PrincipalGuard.requireAuthenticated(principal);
+        Long customerId = principal.userId();
+
+        // Cap page size at 100
+        if (size > 100) {
+            size = 100;
+        }
+        if (size < 1) {
+            size = 20;
+        }
+
+        List<Order> orders;
+        String nextCursor = null;
+
+        if (cursor != null && !cursor.isBlank()) {
+            CursorUtils.OrderCursor orderCursor = CursorUtils.decode(cursor)
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid cursor"));
+            orders = orderService.findByCustomerIdCursor(
+                    customerId,
+                    orderCursor.createdAt(),
+                    orderCursor.id(),
+                    size);
+        } else {
+            orders = orderService.findByCustomerIdCursor(
+                    customerId,
+                    CursorUtils.END_OF_TIME,
+                    CursorUtils.END_OF_ID,
+                    size);
+        }
+
+        // Fetch one extra to determine if there are more pages
+        boolean hasMore = orders.size() > size;
+        if (hasMore) {
+            orders = orders.subList(0, size);
+            Order last = orders.get(orders.size() - 1);
+            nextCursor = CursorUtils.encode(last.getCreatedAt(), last.getId());
+        }
+
+        List<OrderResponse> content = orderQueryService.toResponseCompatBatch(orders);
+
+        return ResponseEntity.ok(new OrderListResponse(content, nextCursor, hasMore));
     }
 }

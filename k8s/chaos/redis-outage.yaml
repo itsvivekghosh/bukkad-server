@@ -1,0 +1,25 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: redis-outage
+  namespace: bhukkad
+  labels:
+    app: bhukkad
+    component: chaos
+    experiment: redis-outage
+  annotations:
+    bhukkad.scenario: "redis-outage"
+    bhukkad.description: "Simulates a Redis cache outage by killing one Redis pod for 30 seconds. Validates cache fallback to the database, circuit-breaker behavior, and graceful degradation of read paths that depend on the cache."
+    bhukkad.severity: "medium"
+    bhukkad.target: "bhukkad-redis StatefulSet (component: redis)"
+    bhukkad.recovery: "The killed pod is recreated by the StatefulSet controller; clients should fall back to the DB or serve stale cache until the pod is back."
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    labelSelectors:
+      app: bhukkad
+      component: redis
+  duration: "30s"
+  schedule: "0 */2 * * *"
+  deadline: 1h

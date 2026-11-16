@@ -1,5 +1,7 @@
 package com.bhukkad.catalog.restaurant.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,16 +12,20 @@ import com.bhukkad.catalog.restaurant.domain.entity.Review;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
+    Page<Review> findByRestaurantId(Long restaurantId, Pageable pageable);
     List<Review> findByRestaurantId(Long restaurantId);
 
+    Page<Review> findByStatus(String status, Pageable pageable);
     List<Review> findByStatus(String status);
 
+    Page<Review> findByRestaurantIdOrderByCreatedAtDesc(Long restaurantId, Pageable pageable);
     List<Review> findByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);
 
     org.springframework.data.domain.Page<Review>
             findByRestaurantIdAndStatusOrderByCreatedAtDesc(Long restaurantId, String status,
                                                             org.springframework.data.domain.Pageable pageable);
 
+    Page<Review> findByCustomerId(Long customerId, Pageable pageable);
     List<Review> findByCustomerId(Long customerId);
 
     org.springframework.data.domain.Page<Review> findByCustomerIdOrderByCreatedAtDesc(

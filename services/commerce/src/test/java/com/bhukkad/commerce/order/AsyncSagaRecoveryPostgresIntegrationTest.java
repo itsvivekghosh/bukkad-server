@@ -46,6 +46,7 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(properties = {
         "app.order.async-saga.enabled=true",
         "app.order.async-saga.sweep-interval-ms=3600000"})
+@Transactional
 class AsyncSagaRecoveryPostgresIntegrationTest extends AbstractOrderPostgresTest {
 
     @Autowired

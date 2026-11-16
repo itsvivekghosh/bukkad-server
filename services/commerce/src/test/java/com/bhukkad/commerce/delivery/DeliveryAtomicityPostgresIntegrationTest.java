@@ -17,8 +17,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -55,13 +57,21 @@ class DeliveryAtomicityPostgresIntegrationTest extends AbstractDeliveryPostgresT
 
     @MockBean private DeliveryEventPublisher eventPublisher;
 
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     private final AtomicInteger assignedEvents = new AtomicInteger();
     private final AtomicInteger deliveredEvents = new AtomicInteger();
 
     @BeforeEach
     void clean() {
-        jdbcTemplate.update("DELETE FROM delivery_assignments");
-        jdbcTemplate.update("DELETE FROM delivery_agents");
+        // Run cleanup in a separate transaction with NOT_SUPPORTED so it sees
+        // committed data from previous NOT_SUPPORTED test methods.
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbcTemplate.update("DELETE FROM delivery_assignments");
+                    jdbcTemplate.update("DELETE FROM delivery_agents");
+                });
         assignedEvents.set(0);
         deliveredEvents.set(0);
         doAnswer(inv -> {
@@ -183,14 +193,22 @@ class DeliveryAtomicityPostgresIntegrationTest extends AbstractDeliveryPostgresT
     void uniqueConstraintRejectsDuplicateOrderRows_directSql() {
         seedAgent();
         Long agentId = jdbcTemplate.queryForObject("SELECT id FROM delivery_agents LIMIT 1", Long.class);
-        jdbcTemplate.update("INSERT INTO delivery_assignments "
-                + "(order_id, agent_id, status, assigned_at, created_at) "
-                + "VALUES (700, ?, 'ASSIGNED', now(), now())", agentId);
-
-        assertThatThrownBy(() -> jdbcTemplate.update("INSERT INTO delivery_assignments "
-                + "(order_id, agent_id, status, assigned_at, created_at) "
-                + "VALUES (700, ?, 'ASSIGNED', now(), now())", agentId))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        
+        // First insert in its own transaction
+        var tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+        tx.executeWithoutResult(status -> {
+            jdbcTemplate.update("INSERT INTO delivery_assignments "
+                    + "(order_id, agent_id, status, assigned_at, created_at) "
+                    + "VALUES (700, ?, 'ASSIGNED', now(), now())", agentId);
+        });
+        
+        // Second insert should fail with unique constraint violation
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            jdbcTemplate.update("INSERT INTO delivery_assignments "
+                    + "(order_id, agent_id, status, assigned_at, created_at) "
+                    + "VALUES (700, ?, 'ASSIGNED', now(), now())", agentId);
+        })).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

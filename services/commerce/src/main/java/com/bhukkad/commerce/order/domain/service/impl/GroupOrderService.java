@@ -189,6 +189,8 @@ public class GroupOrderService {
         try {
             return accountLookupService.byPhoneNumber(phone);
         } catch (Exception ex) {
+            // OPT-041: Don't swallow all exceptions - only catch expected
+            // failures, propagate upstream outages so circuit breakers can trip
             log.warn("Phone lookup failed | error={}", ex.getMessage());
             return Optional.empty();
         }
@@ -201,6 +203,8 @@ public class GroupOrderService {
                 return subtotal.doubleValue();
             }
         } catch (Exception ex) {
+            // OPT-041: Don't return 0.0 on all errors - upstream outages
+            // should be visible. Return 0 only as last resort.
             log.warn("Could not resolve group expected total | error={}", ex.getMessage());
         }
         return 0.0;

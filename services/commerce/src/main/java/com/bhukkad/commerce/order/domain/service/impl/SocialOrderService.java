@@ -11,6 +11,7 @@ import com.bhukkad.commerce.order.domain.repository.GroupOrderMemberRepository;
 import com.bhukkad.commerce.order.domain.repository.GroupOrderRepository;
 import com.bhukkad.commerce.order.domain.repository.SubscriptionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -141,6 +142,7 @@ public class SocialOrderService {
 
     @Transactional(readOnly = true)
     public List<Subscription> subscriptions(Long customerId) {
-        return subscriptionRepository.findByCustomerIdAndStatus(customerId, Subscription.STATUS_ACTIVE);
+        return subscriptionRepository.findByCustomerIdAndStatus(customerId, Subscription.STATUS_ACTIVE, PageRequest.of(0, 100))
+                .getContent();
     }
 }

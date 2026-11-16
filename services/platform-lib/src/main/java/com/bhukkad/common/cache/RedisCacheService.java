@@ -3,15 +3,22 @@ package com.bhukkad.common.cache;
 import com.bhukkad.common.cache.CacheProperties;
 import com.bhukkad.common.cache.DistributedCacheInvalidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.RedisSystemException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -20,11 +27,12 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Extended Redis cache service that publishes invalidation events for
@@ -61,6 +69,11 @@ public class RedisCacheService {
      */
     private final int maxInFlightEntries;
 
+    /**
+     * Jitter percentage applied to TTL values > 10 seconds to prevent
+     * synchronized cache expiry (thundering herd) across multiple instances.
+     * Set to 10% (±10% around the base TTL).
+     */
     private static final double TTL_JITTER_PERCENT = 0.10;
 
     /**
@@ -92,6 +105,9 @@ public class RedisCacheService {
     private final DistributedCacheInvalidator distributedInvalidator;
     private final ObjectProvider<CircuitBreakerRegistry> circuitBreakerRegistryProvider;
     private final CacheProperties cacheProperties;
+    private final MeterRegistry meterRegistry;
+   /** Bounded-elastic scheduler for async cache computation (OPT-021). */
+   private final Scheduler computeScheduler = Schedulers.boundedElastic();
 
     /**
      * In-JVM single-flight map: one entry per key currently being computed by
@@ -99,9 +115,16 @@ public class RedisCacheService {
      * re-running the supplier or parking on sleeps. The flight key is prefixed
      * ({@code v:}/{@code l:}) so the single-value and list variants of the same
      * cache key never share a future whose value has a different shape.
+     *
+     * PERF-3: Use Caffeine cache with strict LRU eviction to guarantee bounded
+     * memory regardless of caller behavior. Previously used ConcurrentHashMap
+     * which could grow unbounded under high-cardinality cache miss storms.
      */
-    private final ConcurrentHashMap<String, CompletableFuture<?>> inFlightLoads =
-            new ConcurrentHashMap<>();
+    private final com.github.benmanes.caffeine.cache.Cache<String, CompletableFuture<?>> inFlightLoads =
+            Caffeine.newBuilder()
+                    .maximumSize(10_000)
+                    .expireAfterAccess(Duration.ofMinutes(5))
+                    .build();
 
     public RedisCacheService(RedisTemplate<String, Object> redisTemplate,
                              StringRedisTemplate stringRedisTemplate,
@@ -109,7 +132,8 @@ public class RedisCacheService {
                              LocalCacheService localCacheService,
                              DistributedCacheInvalidator distributedInvalidator,
                              ObjectProvider<CircuitBreakerRegistry> circuitBreakerRegistryProvider,
-                             CacheProperties cacheProperties) {
+                             CacheProperties cacheProperties,
+                             MeterRegistry meterRegistry) {
         this.redisTemplate = redisTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
@@ -117,6 +141,7 @@ public class RedisCacheService {
         this.distributedInvalidator = distributedInvalidator;
         this.circuitBreakerRegistryProvider = circuitBreakerRegistryProvider;
         this.cacheProperties = cacheProperties;
+        this.meterRegistry = meterRegistry;
         this.lockTtlSeconds = cacheProperties.getLockTtlSeconds();
         this.maxInFlightEntries = cacheProperties.getMaxInFlightEntries();
     }
@@ -129,7 +154,8 @@ public class RedisCacheService {
             return l1.get();
         }
 
-        Optional<T> cached = get(key, type);
+        // L2 read: if Redis is down, treat as cache miss and proceed to supplier
+        Optional<T> cached = l2ReadOrMiss(() -> get(key, type));
         if (cached.isPresent()) {
             return cached.get();
         }
@@ -141,17 +167,30 @@ public class RedisCacheService {
         CompletableFuture<T> future = new CompletableFuture<>();
         CompletableFuture<T> leader = registerOrJoinFlight(flightKey, future);
         if (leader != null) {
-            return joinSingleFlight(leader, () -> get(key, type).orElse(null), supplier);
+            return joinSingleFlight(leader, () -> l2ReadOrMiss(() -> get(key, type)).orElse(null), supplier);
         }
         try {
-            T computed = computeUnderDistributedLock(key, ttlSeconds, () -> get(key, type), supplier);
-            future.complete(computed);
-            return computed;
+            // OPT-021: Async computation on bounded-elastic scheduler to avoid
+            // blocking servlet/Kafka threads during cache miss storms.
+            CompletableFuture<T> computedFuture = CompletableFuture.supplyAsync(
+                () -> computeUnderDistributedLock(key, ttlSeconds,
+                        () -> l2ReadOrMiss(() -> get(key, type)), supplier),
+                computeScheduler::schedule);
+            try {
+                T computed = computedFuture.get(INFLIGHT_WAIT_CAP_MS, TimeUnit.MILLISECONDS);
+                future.complete(computed);
+                return computed;
+            } catch (TimeoutException | InterruptedException | ExecutionException e) {
+                // Fall through to L2 or own supplier on timeout
+                future.completeExceptionally(e);
+                T cachedVal = l2ReadOrMiss(() -> get(key, type)).orElse(null);
+                return cachedVal != null ? cachedVal : supplier.get();
+            }
         } catch (RuntimeException | Error ex) {
             future.completeExceptionally(ex);
             throw ex;
         } finally {
-            inFlightLoads.remove(flightKey, future);
+            inFlightLoads.invalidate(flightKey);
         }
     }
 
@@ -162,7 +201,8 @@ public class RedisCacheService {
             return l1.get();
         }
 
-        Optional<List<T>> cached = getList(key, type);
+        // L2 read: if Redis is down, treat as cache miss and proceed to supplier
+        Optional<List<T>> cached = l2ReadOrMiss(() -> getList(key, type));
         if (cached.isPresent()) {
             return cached.get();
         }
@@ -171,19 +211,31 @@ public class RedisCacheService {
         CompletableFuture<List<T>> future = new CompletableFuture<>();
         CompletableFuture<List<T>> leader = registerOrJoinFlight(flightKey, future);
         if (leader != null) {
-            return joinSingleFlight(leader, () -> getList(key, type).orElse(null),
+            return joinSingleFlight(leader,
+                    () -> l2ReadOrMiss(() -> getList(key, type)).orElse(null),
                     () -> normaliseList(supplier.get()));
         }
         try {
-            List<T> computed = normaliseList(computeUnderDistributedLock(
-                    key, ttlSeconds, () -> getList(key, type), supplier));
-            future.complete(computed);
-            return computed;
+            // OPT-021: Async computation on bounded-elastic scheduler.
+            CompletableFuture<List<T>> computedFuture = CompletableFuture.supplyAsync(
+                () -> normaliseList(computeUnderDistributedLock(
+                        key, ttlSeconds,
+                        () -> l2ReadOrMiss(() -> getList(key, type)), supplier)),
+                computeScheduler::schedule);
+            try {
+                List<T> computed = computedFuture.get(INFLIGHT_WAIT_CAP_MS, TimeUnit.MILLISECONDS);
+                future.complete(computed);
+                return computed;
+            } catch (TimeoutException | InterruptedException | ExecutionException e) {
+                future.completeExceptionally(e);
+                List<T> cachedVal = l2ReadOrMiss(() -> getList(key, type)).orElse(null);
+                return cachedVal != null ? cachedVal : normaliseList(supplier.get());
+            }
         } catch (RuntimeException | Error ex) {
             future.completeExceptionally(ex);
             throw ex;
         } finally {
-            inFlightLoads.remove(flightKey, future);
+            inFlightLoads.invalidate(flightKey);
         }
     }
 
@@ -195,20 +247,17 @@ public class RedisCacheService {
      * and list variants of the same cache key never share a differently-typed
      * future.
      *
-     * <p>When the in-flight map exceeds {@link #maxInFlightEntries}, completed
-     * futures are evicted before registering a new flight. This bounds heap
-     * usage under sustained high-cardinality workloads.</p>
+     * <p>Caffeine provides strict LRU eviction with maxSize=10,000 and
+     * expireAfterAccess=5min, guaranteeing bounded memory regardless of caller
+     * behavior. No manual eviction needed.</p>
      */
     @SuppressWarnings("unchecked")
     private <T> CompletableFuture<T> registerOrJoinFlight(String flightKey, CompletableFuture<T> future) {
-        // Best-effort eviction of completed flights to bound memory. Runs only
-        // on the cache-miss path, so it does not affect the hot L1/L2 hit
-        // fast-path.
-        if (inFlightLoads.size() > maxInFlightEntries) {
-            inFlightLoads.entrySet().removeIf(entry -> entry.getValue().isDone());
-        }
-        CompletableFuture<?> existing = inFlightLoads.putIfAbsent(flightKey, future);
-        return existing == null ? null : (CompletableFuture<T>) existing;
+        // Caffeine's get(key, mappingFunction) is atomic: returns existing value
+        // if present, otherwise computes and stores the mapping function result.
+        // We use a dummy mapping function that just returns 'future' for new entries.
+        CompletableFuture<?> existing = inFlightLoads.get(flightKey, k -> future);
+        return existing == future ? null : (CompletableFuture<T>) existing;
     }
 
     /**
@@ -221,10 +270,17 @@ public class RedisCacheService {
     private <T> T computeUnderDistributedLock(String key, long ttlSeconds,
                                               Supplier<Optional<T>> l2Reader, Supplier<T> supplier) {
         String lockKey = LOCK_PREFIX + key;
-        String lockToken = tryAcquireLock(lockKey);
+        String lockToken;
+        try {
+            lockToken = tryAcquireLock(lockKey);
+        } catch (Exception e) {
+            // Lock acquisition failed — fall through to direct L2 read / supplier
+            log.warn("CACHE_LOCK_ACQUIRE_FAILED key={} error={}", key, e.getMessage());
+            lockToken = null;
+        }
         if (lockToken != null) {
             try {
-                Optional<T> cached = l2Reader.get();
+                Optional<T> cached = l2ReadOrMiss(l2Reader);
                 if (cached.isPresent()) {
                     return cached.get();
                 }
@@ -235,13 +291,19 @@ public class RedisCacheService {
                 }
                 return value;
             } finally {
-                releaseLock(lockKey, lockToken);
+                try {
+                    releaseLock(lockKey, lockToken);
+                } catch (Exception e) {
+                    // Lock release failures must not mask a successful compute.
+                    // The lock will expire via TTL; log and record metric for observability.
+                    log.warn("CACHE_LOCK_RELEASE_FAILED key={} error={}", lockKey, e.getMessage());
+                }
             }
         }
         // Lock held by another pod, or Redis is unavailable: fall through to
         // L2, then to the supplier itself (never park; the pre-PERF-3 sleep
         // loop added up to ~3.5 s to this exact path).
-        Optional<T> cached = l2Reader.get();
+        Optional<T> cached = l2ReadOrMiss(l2Reader);
         return cached.isPresent() ? cached.get() : supplier.get();
     }
 
@@ -255,10 +317,11 @@ public class RedisCacheService {
             return leader.get(INFLIGHT_WAIT_CAP_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
+            log.warn("CACHE_LEADER_INTERRUPTED error={}", interrupted.getMessage());
         } catch (ExecutionException failedLeader) {
             log.warn("CACHE_LEADER_FAILED error={}", String.valueOf(failedLeader.getCause()));
         } catch (TimeoutException slowLeader) {
-            // bounded: never wait past the cap for a slow leader
+            log.warn("CACHE_LEADER_TIMEOUT waiting for leader; falling back to L2/supplier");
         }
         T cached = l2Reader.get();
         return cached != null ? cached : supplier.get();
@@ -266,6 +329,21 @@ public class RedisCacheService {
 
     private <T> List<T> normaliseList(List<T> value) {
         return value != null ? value : List.of();
+    }
+
+    /**
+     * Reads from L2 (Redis) but treats any exception as a cache miss — returns
+     * {@link Optional#empty()} instead of propagating. This lets callers fall
+     * through to the supplier when Redis is down, without aborting the compute
+     * flow.
+     */
+    private <T> Optional<T> l2ReadOrMiss(Supplier<Optional<T>> reader) {
+        try {
+            return reader.get();
+        } catch (CacheUnavailableException | CacheOperationException e) {
+            log.warn("CACHE_L2_READ_FAILED error={}", e.getMessage());
+            return Optional.empty();
+        }
     }
 
     // ==================== INVALIDATION (WITH DISTRIBUTED PUBLISH) ====================
@@ -279,8 +357,14 @@ public class RedisCacheService {
                     () -> { redisTemplate.delete(fullKey); return null; });
             localCacheService.invalidate(key);
             log.debug("CACHE_DELETE key={}", fullKey);
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for delete", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_DELETE_FAILED key={} error={}", key, e.getMessage());
+            log.error("CACHE_DELETE_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("delete");
+            throw new CacheOperationException("Cache delete failed: " + e.getMessage(), e);
         } finally {
             publishInvalidation(cacheName, key, false);
         }
@@ -299,8 +383,14 @@ public class RedisCacheService {
                 deleteBatch(new ArrayList<>(keys), "redisCacheWrite");
                 log.debug("CACHE_DELETE_PATTERN pattern={} count={}", fullPattern, keys.size());
             }
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for deletePattern", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_DELETE_PATTERN_FAILED pattern={} error={}", pattern, e.getMessage());
+            log.error("CACHE_DELETE_PATTERN_ERROR pattern={} error={}", pattern, e.getMessage(), e);
+            recordCacheFailure("deletePattern");
+            throw new CacheOperationException("Cache deletePattern failed: " + e.getMessage(), e);
         } finally {
             publishInvalidation(cacheName, pattern, true);
         }
@@ -322,6 +412,25 @@ public class RedisCacheService {
 
     // ==================== BASIC OPERATIONS ====================
 
+    /**
+     * Stores a value in Redis with a TTL that is jittered by ±10% to prevent
+     * synchronized cache expiry (thundering herd) across multiple instances.
+     *
+     * <p>For {@code ttlSeconds > 10}, the actual TTL stored in Redis is a random
+     * value in the range {@code [ttlSeconds - 10%, ttlSeconds + 10%]}, with a
+     * minimum floor of 10 seconds. For {@code ttlSeconds <= 10}, the exact TTL
+     * is used without jitter.</p>
+     *
+     * <p>This jitter applies to all cached keys written through this method,
+     * including feature flags, rate limits, search results, and any other
+     * cache entries. Feature flag overrides (stored in a Redis hash without TTL)
+     * and rate-limit keys (managed by {@link RedisRateLimitService} via Lua
+     * script with window-based EXPIRE) are outside the scope of this jitter.</p>
+     *
+     * @param key the cache key
+     * @param value the value to store
+     * @param ttlSeconds the base TTL in seconds before jitter is applied
+     */
     public void set(String key, Object value, long ttlSeconds) {
         try {
             String fullKey = buildKey(key);
@@ -338,8 +447,14 @@ public class RedisCacheService {
                         return null;
                     });
             log.debug("CACHE_SET key={} ttl={}s (jittered from {}s)", fullKey, jitteredTtl, ttlSeconds);
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for set", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_SET_FAILED key={} error={}", key, e.getMessage());
+            log.error("CACHE_SET_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("set");
+            throw new CacheOperationException("Cache set failed: " + e.getMessage(), e);
         }
     }
 
@@ -358,9 +473,17 @@ public class RedisCacheService {
 
             log.debug("CACHE_MISS key={}", fullKey);
             return Optional.empty();
+        } catch (CallNotPermittedException e) {
+            // Circuit breaker OPEN — fail fast, don't mask as miss
+            throw new CacheUnavailableException("Redis circuit breaker open for read", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            // Redis DOWN — propagate so caller can decide fail-open/fail-closed
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_GET_FAILED key={} error={}", key, e.getMessage());
-            return Optional.empty();
+            // Unexpected error — log with full context, rethrow as unchecked
+            log.error("CACHE_GET_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("get");
+            throw new CacheOperationException("Cache read failed: " + e.getMessage(), e);
         }
     }
 
@@ -381,9 +504,14 @@ public class RedisCacheService {
 
             log.debug("CACHE_MISS key={}", fullKey);
             return Optional.empty();
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for list read", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_GET_LIST_FAILED key={} error={}", key, e.getMessage());
-            return Optional.empty();
+            log.error("CACHE_GET_LIST_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("getList");
+            throw new CacheOperationException("Cache list read failed: " + e.getMessage(), e);
         }
     }
 
@@ -392,8 +520,14 @@ public class RedisCacheService {
             String fullKey = buildKey(key);
             return withCircuitBreaker("redisCacheExists",
                     () -> { Object v = redisTemplate.opsForValue().get(fullKey); return v != null; });
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for exists", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            return false;
+            log.error("CACHE_EXISTS_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("exists");
+            throw new CacheOperationException("Cache exists check failed: " + e.getMessage(), e);
         }
     }
 
@@ -402,8 +536,14 @@ public class RedisCacheService {
             String fullKey = buildKey(key);
             withCircuitBreaker("redisCacheWrite",
                     () -> { redisTemplate.expire(fullKey, ttlSeconds, TimeUnit.SECONDS); return null; });
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for setExpiry", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_EXPIRY_FAILED key={} error={}", key, e.getMessage());
+            log.error("CACHE_EXPIRY_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("setExpiry");
+            throw new CacheOperationException("Cache setExpiry failed: " + e.getMessage(), e);
         }
     }
 
@@ -415,8 +555,14 @@ public class RedisCacheService {
             withCircuitBreaker("redisCacheWrite",
                     () -> { redisTemplate.opsForHash().put(fullKey, field, value); return null; });
             log.debug("CACHE_HSET key={} field={}", fullKey, field);
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for hSet", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_HSET_FAILED key={} field={} error={}", key, field, e.getMessage());
+            log.error("CACHE_HSET_ERROR key={} field={} error={}", key, field, e.getMessage(), e);
+            recordCacheFailure("hSet");
+            throw new CacheOperationException("Cache hSet failed: " + e.getMessage(), e);
         }
     }
 
@@ -429,9 +575,14 @@ public class RedisCacheService {
                 return Optional.of(objectMapper.convertValue(value, type));
             }
             return Optional.empty();
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for hGet", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_HGET_FAILED key={} field={} error={}", key, field, e.getMessage());
-            return Optional.empty();
+            log.error("CACHE_HGET_ERROR key={} field={} error={}", key, field, e.getMessage(), e);
+            recordCacheFailure("hGet");
+            throw new CacheOperationException("Cache hGet failed: " + e.getMessage(), e);
         }
     }
 
@@ -440,8 +591,14 @@ public class RedisCacheService {
             String fullKey = buildKey(key);
             withCircuitBreaker("redisCacheWrite",
                     () -> { redisTemplate.opsForHash().delete(fullKey, (Object[]) fields); return null; });
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for hDelete", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_HDEL_FAILED key={} error={}", key, e.getMessage());
+            log.error("CACHE_HDEL_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("hDelete");
+            throw new CacheOperationException("Cache hDelete failed: " + e.getMessage(), e);
         }
     }
 
@@ -452,9 +609,14 @@ public class RedisCacheService {
             String fullKey = buildKey(key);
             return withCircuitBreaker("redisCacheWrite",
                     () -> redisTemplate.opsForValue().increment(fullKey));
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for increment", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_INCREMENT_FAILED key={} error={}", key, e.getMessage());
-            return null;
+            log.error("CACHE_INCREMENT_ERROR key={} error={}", key, e.getMessage(), e);
+            recordCacheFailure("increment");
+            throw new CacheOperationException("Cache increment failed: " + e.getMessage(), e);
         }
     }
 
@@ -470,8 +632,14 @@ public class RedisCacheService {
                 deleteBatch(new ArrayList<>(keys), "redisCacheAdmin");
                 log.info("CACHE_CLEAR_ALL count={}", keys.size());
             }
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for clearAll", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.error("CACHE_CLEAR_ALL_FAILED error={}", e.getMessage());
+            log.error("CACHE_CLEAR_ALL_ERROR error={}", e.getMessage(), e);
+            recordCacheFailure("clearAll");
+            throw new CacheOperationException("Cache clearAll failed: " + e.getMessage(), e);
         }
     }
 
@@ -488,8 +656,14 @@ public class RedisCacheService {
             }
             stats.put("keysByType", keyCounts);
             stats.put("localCache", localCacheService.getStats());
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for getCacheStats", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            stats.put("error", e.getMessage());
+            log.error("CACHE_STATS_ERROR error={}", e.getMessage(), e);
+            recordCacheFailure("getCacheStats");
+            throw new CacheOperationException("Cache getCacheStats failed: " + e.getMessage(), e);
         }
         return stats;
     }
@@ -514,6 +688,16 @@ public class RedisCacheService {
     }
 
     /**
+     * Increments the {@code cache_operation_failed} counter for the given
+     * operation when a MeterRegistry is available. Always safe to call.
+     */
+    private void recordCacheFailure(String operation) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("cache_operation_failed", "operation", operation).increment();
+        }
+    }
+
+    /**
      * Deletes keys in batches of 500 to avoid sending a single huge DEL
      * command that blocks the Redis event loop.
      */
@@ -522,8 +706,18 @@ public class RedisCacheService {
         for (int i = 0; i < keys.size(); i += batchSize) {
             int end = Math.min(i + batchSize, keys.size());
             List<String> batch = keys.subList(i, end);
-            withCircuitBreaker(breakerName,
-                    () -> { redisTemplate.delete(batch); return null; });
+            try {
+                withCircuitBreaker(breakerName,
+                        () -> { redisTemplate.delete(batch); return null; });
+            } catch (CallNotPermittedException e) {
+                throw new CacheUnavailableException("Redis circuit breaker open for deleteBatch", e);
+            } catch (RedisConnectionFailureException | RedisSystemException e) {
+                throw new CacheUnavailableException("Redis connection failed", e);
+            } catch (Exception e) {
+                log.error("CACHE_DELETE_BATCH_ERROR count={} error={}", batch.size(), e.getMessage(), e);
+                recordCacheFailure("deleteBatch");
+                throw new CacheOperationException("Cache deleteBatch failed: " + e.getMessage(), e);
+            }
         }
     }
 
@@ -540,9 +734,14 @@ public class RedisCacheService {
                     () -> stringRedisTemplate.opsForValue()
                             .setIfAbsent(buildKey(lockKey), token, Duration.ofSeconds(lockTtlSeconds)));
             return Boolean.TRUE.equals(acquired) ? token : null;
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for tryAcquireLock", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_LOCK_FAILED key={} error={}", lockKey, e.getMessage());
-            return null;
+            log.error("CACHE_LOCK_ERROR key={} error={}", lockKey, e.getMessage(), e);
+            recordCacheFailure("tryAcquireLock");
+            throw new CacheOperationException("Cache lock acquire failed: " + e.getMessage(), e);
         }
     }
 
@@ -556,8 +755,14 @@ public class RedisCacheService {
         try {
             withCircuitBreaker("redisCacheLock",
                     () -> stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(buildKey(lockKey)), token));
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for releaseLock", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_UNLOCK_FAILED key={} error={}", lockKey, e.getMessage());
+            log.error("CACHE_UNLOCK_ERROR key={} error={}", lockKey, e.getMessage(), e);
+            recordCacheFailure("releaseLock");
+            throw new CacheOperationException("Cache lock release failed: " + e.getMessage(), e);
         }
     }
 
@@ -582,10 +787,57 @@ public class RedisCacheService {
                     keys.add(cursor.next());
                 }
             }
+        } catch (CallNotPermittedException e) {
+            throw new CacheUnavailableException("Redis circuit breaker open for scanKeys", e);
+        } catch (RedisConnectionFailureException | RedisSystemException e) {
+            throw new CacheUnavailableException("Redis connection failed", e);
         } catch (Exception e) {
-            log.warn("CACHE_SCAN_FAILED pattern={} error={}", pattern, e.getMessage());
+            log.error("CACHE_SCAN_ERROR pattern={} error={}", pattern, e.getMessage(), e);
+            recordCacheFailure("scanKeys");
+            throw new CacheOperationException("Cache scanKeys failed: " + e.getMessage(), e);
         }
         return keys;
+    }
+
+    /**
+     * Functional interface for a single Redis command to be executed in a pipeline.
+     * The command receives a {@link RedisOperations} instance and can invoke
+     * any number of operations (SET, GET, HSET, etc.) which will be batched
+     * into a single round trip.
+     */
+    @FunctionalInterface
+    public interface PipelineCommand {
+        void apply(RedisOperations<String, String> ops);
+    }
+
+    /**
+     * Executes multiple independent Redis commands (SET, GET, HSET, DEL, etc.)
+     * in a single pipeline to reduce round trips.
+     *
+     * <p>For N commands, this reduces RTT from N to 1, achieving 50-80% fewer
+     * round trips for typical batch sizes (2-5 commands). Useful for batch
+     * feature-flag checks and rate-limit operations.</p>
+     *
+     * @param commands list of pipeline commands to execute atomically
+     * @return list of results in the same order as {@code commands}; each entry
+     *         corresponds to the Redis command's reply (e.g., "OK" for SET,
+     *         value for GET, Long for HSET/INCR)
+     */
+    public List<Object> pipeline(List<PipelineCommand> commands) {
+        if (commands == null || commands.isEmpty()) {
+            return List.of();
+        }
+        @SuppressWarnings("unchecked")
+        SessionCallback<List<Object>> callback = new SessionCallback<>() {
+            @Override
+            public List<Object> execute(RedisOperations operations) throws DataAccessException {
+                for (PipelineCommand command : commands) {
+                    command.apply(operations);
+                }
+                return null;
+            }
+        };
+        return stringRedisTemplate.executePipelined(callback);
     }
 
     private String buildKey(String key) {

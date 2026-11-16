@@ -137,7 +137,22 @@ public class PlatformConfig {
         executor.setMaxPoolSize(8);
         executor.setQueueCapacity(500);
         executor.setThreadNamePrefix("sse-dispatch-");
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        // OPT-022: Backpressure instead of silent drop — block caller when queue
+        // is full so SSE consumers don't lose live updates during traffic spikes.
+        executor.setRejectedExecutionHandler((r, executor1) -> {
+            if (!executor1.isShutdown()) {
+                try {
+                    executor1.getQueue().put(r);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.RejectedExecutionException(
+                            "SSE dispatch interrupted", e);
+                }
+            } else {
+                throw new java.util.concurrent.RejectedExecutionException(
+                        "SSE dispatch executor is shutdown");
+            }
+        });
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
         executor.initialize();

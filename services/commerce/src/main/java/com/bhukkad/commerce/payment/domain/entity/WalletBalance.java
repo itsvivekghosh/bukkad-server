@@ -6,6 +6,7 @@ import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
@@ -17,7 +18,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "wallet_balances")
+@Table(name = "wallet_balances", indexes = {
+        @Index(name = "idx_wallet_balance_customer", columnList = "customerId")
+})
 @EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter

@@ -59,7 +59,7 @@ public class ApiVersioningFilter implements GatewayFilter, Ordered {
 
         if (DEPRECATED_VERSION.equals(requestedVersion) || requestedVersion == null) {
             // v1 or unspecified → add deprecation headers
-            response.getHeaders().add(HttpHeaders.DEPRECATION, "true");
+            response.getHeaders().add("Deprecation", "true");
             response.getHeaders().add("Sunset", V1_SUNSET);
             response.getHeaders().add(HttpHeaders.LINK, V1_LINK);
             log.debug("API v1 request (deprecated): {} {}", exchange.getRequest().getMethod(),
@@ -69,7 +69,7 @@ public class ApiVersioningFilter implements GatewayFilter, Ordered {
                     exchange.getRequest().getURI().getPath());
         } else {
             // Unknown version → treat as v1 with deprecation
-            response.getHeaders().add(HttpHeaders.DEPRECATION, "true");
+            response.getHeaders().add("Deprecation", "true");
             response.getHeaders().add("Sunset", V1_SUNSET);
             response.getHeaders().add(HttpHeaders.LINK, V1_LINK);
         }

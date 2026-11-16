@@ -14,13 +14,16 @@ import com.bhukkad.engagement.referral.domain.repository.UserReferralCodeReposit
 import com.bhukkad.engagement.referral.domain.service.ReferralService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Personal referral codes and rewards summaries — the SINGLE code generator
@@ -43,6 +46,12 @@ import java.util.Locale;
  *   apply:<customerId>} or {@code REFERRAL_COMPLETE / order:<orderId>}), so
  *   replayed events can never double-credit.</li>
  * </ul>
+ *
+ * <p>Optimizations:</p>
+ * <ul>
+ *   <li>Redis-backed collision cache to avoid DB roundtrips for code collisions</li>
+ *   <li>Cache TTL of 1 hour for code existence tracking</li>
+ * </ul>
  */
 @Service
 public class ReferralServiceImpl implements ReferralService {
@@ -58,26 +67,33 @@ public class ReferralServiceImpl implements ReferralService {
     private static final int CODE_TAIL_LENGTH = 10;
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /** Redis collision cache prefix and TTL */
+    private static final String CODE_CACHE_PREFIX = "referral:code:";
+    private static final Duration CODE_CACHE_TTL = Duration.ofHours(1);
+
     private final UserReferralCodeRepository referralCodeRepository;
     private final ReferralRewardLedgerRepository rewardLedgerRepository;
     private final ReferralServiceProperties properties;
     private final RateLimitService rateLimitService;
     private final ReferralAbuseProperties abuseProperties;
+    private final StringRedisTemplate redisTemplate;
 
     public ReferralServiceImpl(UserReferralCodeRepository referralCodeRepository,
                                ReferralRewardLedgerRepository rewardLedgerRepository,
                                ReferralServiceProperties properties,
                                RateLimitService rateLimitService,
-                               ReferralAbuseProperties abuseProperties) {
+                               ReferralAbuseProperties abuseProperties,
+                               StringRedisTemplate redisTemplate) {
         this.referralCodeRepository = referralCodeRepository;
         this.rewardLedgerRepository = rewardLedgerRepository;
         this.properties = properties;
         this.rateLimitService = rateLimitService;
         this.abuseProperties = abuseProperties;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public ReferralInfoResponse getReferralInfo(Long customerId) {
         if (customerId == null) {
             throw new BusinessException("Customer id is required");
@@ -99,6 +115,13 @@ public class ReferralServiceImpl implements ReferralService {
         if (!StringUtils.hasText(code)) {
             return false;
         }
+        // Redis fast-path: check if code exists in collision cache
+        String cacheKey = CODE_CACHE_PREFIX + normalize(code);
+        Boolean cached = redisTemplate.hasKey(cacheKey);
+        if (Boolean.TRUE.equals(cached)) {
+            return true;
+        }
+        // Fall back to DB
         return referralCodeRepository.findByReferralCode(normalize(code)).isPresent();
     }
 
@@ -120,13 +143,13 @@ public class ReferralServiceImpl implements ReferralService {
     /**
      * Applies a referral code to a new customer. Idempotent: a customer that
      * already carries {@code referredBy} is never re-bound (early return,
-     * {@code firstBinding=false}); a concurrent re-bind reports the same.
+     * {@code firstBinding=false}); a concurrent re-bind is reported as already-bound.
      */
     @Override
     @Transactional
-    public ApplyReferralOutcome applyReferral(Long newCustomerId, String customerEmail, String referralCodeInput) {
+    public ReferralService.ApplyReferralOutcome applyReferral(Long newCustomerId, String customerEmail, String referralCodeInput) {
         if (newCustomerId == null || !StringUtils.hasText(referralCodeInput)) {
-            return ApplyReferralOutcome.notApplied();
+            return ReferralService.ApplyReferralOutcome.notApplied();
         }
         // Abuse ceiling (audit feature #4): per-customer fixed-window limit on
         // the apply surface, enforced by the atomic limiter regardless of caller.
@@ -155,7 +178,7 @@ public class ReferralServiceImpl implements ReferralService {
                     .orElse(null);
             log.info("Referral apply rejected: customer {} already bound to referrer {}",
                     newCustomerId, existingReferrer);
-            return ApplyReferralOutcome.alreadyBound(existingReferrer);
+            return ReferralService.ApplyReferralOutcome.alreadyBound(existingReferrer);
         }
 
         // Atomic referrer-counter bump (no read-modify-write lost update).
@@ -164,19 +187,19 @@ public class ReferralServiceImpl implements ReferralService {
         creditApplyRewardOnce(referrer.getCustomerId(), newCustomerId);
         log.info("Referral applied | customerId={} | referrerCustomerId={}",
                 newCustomerId, referrer.getCustomerId());
-        return ApplyReferralOutcome.firstBinding(referrer.getCustomerId());
+        return ReferralService.ApplyReferralOutcome.firstBinding(referrer.getCustomerId());
     }
 
     @Override
     @Transactional
-    public CompletionOutcome completeReferral(Long referredCustomerId, Long orderId) {
+    public ReferralService.CompletionOutcome completeReferral(Long referredCustomerId, Long orderId) {
         if (referredCustomerId == null) {
             throw new BusinessException("Customer id is required");
         }
         UserReferralCode referee = referralCodeRepository.findByCustomerId(referredCustomerId)
                 .orElseThrow(() -> new BusinessException("Customer has no referral record"));
         if (referee.getReferredBy() == null) {
-            return CompletionOutcome.noBinding();
+            return ReferralService.CompletionOutcome.noBinding();
         }
         String eventId = "order:" + (orderId != null ? orderId : referredCustomerId);
         double completionBonus = properties.getCompletionBonusAmount();
@@ -189,10 +212,10 @@ public class ReferralServiceImpl implements ReferralService {
             rewardLedgerRepository.addBonusEarned(referee.getReferredBy(), completionBonus);
             log.info("Referral completed | customerId={} | referrer={} | orderId={}",
                     referredCustomerId, referee.getReferredBy(), orderId);
-            return CompletionOutcome.completed(referee.getReferredBy());
+            return ReferralService.CompletionOutcome.completed(referee.getReferredBy());
         }
         log.info("Referral completion replay ignored | customerId={} | eventId={}", referredCustomerId, eventId);
-        return CompletionOutcome.alreadyCompleted();
+        return ReferralService.CompletionOutcome.alreadyCompleted();
     }
 
     /** One APPLY_BONUS ledger row per referee, ever; replays and races are no-ops. */
@@ -225,7 +248,20 @@ public class ReferralServiceImpl implements ReferralService {
 
     private void createWithUniqueCode(Long customerId) {
         for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
-            if (referralCodeRepository.insertReferralRow(customerId, newCode(tailLengthFor(attempt)), null) == 1) {
+            String code = newCode(tailLengthFor(attempt));
+            
+            // Redis fast-path: check if code already exists in collision cache
+            String cacheKey = CODE_CACHE_PREFIX + code;
+            Boolean exists = redisTemplate.hasKey(cacheKey);
+            if (Boolean.TRUE.equals(exists)) {
+                log.debug("Referral code collision (Redis cache) | code={} | attempt={}", code, attempt);
+                continue; // Skip DB roundtrip
+            }
+            
+            // Try DB insert
+            if (referralCodeRepository.insertReferralRow(customerId, code, null) == 1) {
+                // Cache the successful code
+                redisTemplate.opsForValue().set(cacheKey, String.valueOf(customerId), CODE_CACHE_TTL);
                 return;
             }
             // 0 rows: either this code is taken (draw a new one) or a
@@ -235,17 +271,28 @@ public class ReferralServiceImpl implements ReferralService {
             if (referralCodeRepository.findByCustomerId(customerId).isPresent()) {
                 return;
             }
-            log.debug("Referral code collision on create, retrying | customerId={} | attempt={}", customerId, attempt);
+            log.debug("Referral code collision on create | code={} | attempt={}", code, attempt);
         }
         throw new BusinessException("Could not generate a unique referral code");
     }
 
     private void assignUniqueCode(Long customerId) {
         for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
-            if (referralCodeRepository.assignCode(customerId, newCode(tailLengthFor(attempt))) == 1) {
+            String code = newCode(tailLengthFor(attempt));
+            
+            // Redis fast-path: check if code already exists
+            String cacheKey = CODE_CACHE_PREFIX + code;
+            Boolean exists = redisTemplate.hasKey(cacheKey);
+            if (Boolean.TRUE.equals(exists)) {
+                log.debug("Referral code collision (Redis cache) | code={} | attempt={}", code, attempt);
+                continue;
+            }
+            
+            if (referralCodeRepository.assignCode(customerId, code) == 1) {
+                redisTemplate.opsForValue().set(cacheKey, String.valueOf(customerId), CODE_CACHE_TTL);
                 return;
             }
-            log.debug("Referral code collision on assign, retrying | customerId={} | attempt={}", customerId, attempt);
+            log.debug("Referral code collision on assign | code={} | attempt={}", code, attempt);
         }
         throw new BusinessException("Could not generate a unique referral code");
     }

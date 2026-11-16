@@ -10,7 +10,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 @Entity
-@Table(name = "dynamic_pricing_rules")
+@Table(name = "dynamic_pricing_rules", indexes = {
+        @Index(name = "idx_dynamic_pricing_restaurant", columnList = "restaurantId"),
+        @Index(name = "idx_dynamic_pricing_restaurant_active", columnList = "restaurantId, active")
+})
 @EntityListeners(AuditingEntityListener.class)
 @Getter @Setter
 public class DynamicPricingRule {

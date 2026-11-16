@@ -11,6 +11,8 @@ import com.bhukkad.engagement.social.feed.FeedSegmentBuilder;
 import com.bhukkad.engagement.social.infrastructure.client.RestaurantClient;
 import com.bhukkad.engagement.social.observability.PerformanceMetrics;
 import com.bhukkad.engagement.social.util.BloomFilter;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,19 +26,30 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Geospatial social feed service optimized for 50K+ TPS.
- *
+ * 
  * <p>Lookup order:
  * <ol>
  *   <li>L1/L2 cache via {@link FeedCacheService} (target: &lt; 5ms).</li>
  *   <li>Bloom filter + pre-computed feed segments via {@link FeedSegmentBuilder}.</li>
  *   <li>PostGIS geospatial query fallback.</li>
  * </ol>
+ * 
+ * <p>Optimizations:
+ * <ul>
+ *   <li>Caffeine cache for restaurant metadata (10min TTL)</li>
+ *   <li>Batch restaurant metadata calls instead of per-post individual calls</li>
+ *   <li>Bounded parallelism with ForkJoinPool.commonPool()</li>
+ *   <li>Adaptive concurrency based on system load</li>
+ * </ul>
  */
-@Service
 @Slf4j
+@Service
+@RequiredArgsConstructor
 public class SocialFeedService {
 
     private static final int GEOHASH_PRECISION = 4;
@@ -49,6 +62,12 @@ public class SocialFeedService {
     private final StringRedisTemplate redisTemplate;
     private final PerformanceMetrics performanceMetrics;
     private final Executor feedEnrichmentExecutor;
+
+    // Caffeine cache for restaurant metadata - 10min TTL, bounded to 1000 entries
+    private final Cache<Long, Map<String, Object>> restaurantMetadataCache = Caffeine.newBuilder()
+        .maximumSize(1_000)
+        .expireAfterWrite(java.time.Duration.ofMinutes(10))
+        .build();
 
     @org.springframework.beans.factory.annotation.Autowired
     public SocialFeedService(SocialPostRepository postRepository, FeedCacheService feedCacheService,
@@ -82,7 +101,7 @@ public class SocialFeedService {
 
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public FeedResponse getNearbyFeed(double lat, double lng, double radiusKm,
-                                      String cursor, int size) {
+                                       String cursor, int size) {
         performanceMetrics.recordFeedRequest();
         Timer.Sample timer = performanceMetrics.startFeedTimer();
 
@@ -179,60 +198,115 @@ public class SocialFeedService {
     }
 
     /**
-     * Build feed response from segment post IDs, parallelizing restaurant metadata fetch.
+     * Build feed response from segment post IDs with batch restaurant enrichment.
+     * 
+     * <p>Optimization: Instead of individual restaurant metadata calls per post,
+     * we batch collect unique restaurant IDs and make a single batch call.
+     * Restaurant metadata is cached in Caffeine for 10 minutes.
      */
     private FeedResponse buildFeedFromSegments(List<Long> postIds, int safeSize) {
         List<Long> limitedIds = postIds.stream().limit(safeSize).toList();
 
-        // Parallel fetch: post details from cache + restaurant metadata
+        // Fetch post details from cache
         List<PostSummary> postSummaries = feedCacheService.getPostDetails(limitedIds);
         if (postSummaries.isEmpty()) {
             return FeedResponse.of(List.of(), null, false);
         }
 
-        // Parallelize restaurant lookups with bounded executor
+        // Collect unique restaurant IDs
+        List<Long> restaurantIds = postSummaries.stream()
+                .map(PostSummary::restaurantId)
+                .distinct()
+                .toList();
+
+        // Batch fetch restaurant metadata with Caffeine caching
+        Map<Long, Map<String, Object>> restaurantMetadata = batchGetRestaurantMetadata(restaurantIds);
+
+        // Enrich posts with restaurant metadata asynchronously for better throughput
         List<CompletableFuture<PostSummary>> futures = postSummaries.stream()
                 .map(summary -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        Map<String, Object> restaurant = restaurantClient.getRestaurant(summary.restaurantId());
-                        if (restaurant.isEmpty()) {
-                            return summary;
-                        }
-                        return new PostSummary(
-                                summary.id(),
-                                summary.restaurantId(),
-                                (String) restaurant.get("name"),
-                                summary.authorId(),
-                                summary.authorName(),
-                                summary.content(),
-                                summary.mediaUrls(),
-                                summary.postType(),
-                                summary.likeCount(),
-                                summary.commentCount(),
-                                summary.status(),
-                                summary.createdAt()
-                        );
-                    } catch (Exception ex) {
-                        log.debug("RESTAURANT_METADATA_FAILED restaurantId={} error={}",
-                                summary.restaurantId(), ex.getMessage());
+                    Map<String, Object> restaurant = restaurantMetadata.get(summary.restaurantId());
+                    if (restaurant == null || restaurant.isEmpty()) {
                         return summary;
                     }
+                    return new PostSummary(
+                            summary.id(),
+                            summary.restaurantId(),
+                            (String) restaurant.get("name"),
+                            summary.authorId(),
+                            summary.authorName(),
+                            summary.content(),
+                            summary.mediaUrls(),
+                            summary.postType(),
+                            summary.likeCount(),
+                            summary.commentCount(),
+                            summary.status(),
+                            summary.createdAt()
+                    );
                 }, feedEnrichmentExecutor))
                 .toList();
 
-        try {
-            List<PostSummary> enriched = futures.stream()
-                    .map(CompletableFuture::join)
-                    .toList();
+        // Wait for all enrichment to complete
+        List<PostSummary> enriched = futures.stream()
+                .map(CompletableFuture::join)
+                .toList();
 
-            String nextCursor = enriched.isEmpty() ? null : enriched.get(enriched.size() - 1).createdAt().toString();
-            boolean hasMore = postIds.size() > safeSize;
+        String nextCursor = enriched.isEmpty() ? null : enriched.get(enriched.size() - 1).createdAt().toString();
+        boolean hasMore = postIds.size() > safeSize;
 
-            return FeedResponse.of(enriched, nextCursor, hasMore);
-        } catch (Exception ex) {
-            log.warn("FEED_PARALLEL_ENRICH_FAILED error={}", ex.getMessage());
-            return FeedResponse.of(postSummaries, null, false);
+        return FeedResponse.of(enriched, nextCursor, hasMore);
+    }
+
+    /**
+     * Batch get restaurant metadata with Caffeine caching.
+     * 
+     * <p>First checks Caffeine cache for each restaurant ID, then makes a single
+     * batch call for any uncached restaurants.
+     */
+    private Map<Long, Map<String, Object>> batchGetRestaurantMetadata(List<Long> restaurantIds) {
+        Map<Long, Map<String, Object>> result = new java.util.HashMap<>();
+        List<Long> uncachedIds = new java.util.ArrayList<>();
+
+        // Check Caffeine cache first
+        for (Long restaurantId : restaurantIds) {
+            Map<String, Object> cached = restaurantMetadataCache.getIfPresent(restaurantId);
+            if (cached != null) {
+                result.put(restaurantId, cached);
+            } else {
+                uncachedIds.add(restaurantId);
+            }
         }
+
+        // Batch fetch uncached restaurant metadata
+        if (!uncachedIds.isEmpty()) {
+            try {
+                // Try batch call if available, otherwise fall back to individual calls
+                Map<Long, Map<String, Object>> batchResult = restaurantClient.getRestaurantsBatch(uncachedIds);
+                if (batchResult != null) {
+                    for (Map.Entry<Long, Map<String, Object>> entry : batchResult.entrySet()) {
+                        result.put(entry.getKey(), entry.getValue());
+                        // Cache the result
+                        restaurantMetadataCache.put(entry.getKey(), entry.getValue());
+                    }
+                }
+            } catch (Exception ex) {
+                log.warn("BATCH_RESTAURANT_METADATA_FAILED error={}", ex.getMessage());
+                // Fallback to individual calls
+                for (Long restaurantId : uncachedIds) {
+                    try {
+                        Map<String, Object> restaurant = restaurantClient.getRestaurant(restaurantId);
+                        if (restaurant != null && !restaurant.isEmpty()) {
+                            result.put(restaurantId, restaurant);
+                            restaurantMetadataCache.put(restaurantId, restaurant);
+                        }
+                    } catch (Exception innerEx) {
+                        log.debug("RESTAURANT_METADATA_FAILED restaurantId={} error={}", restaurantId, innerEx.getMessage());
+                    }
+                }
+            }
+        }
+
+        return result;
     }
 
     private PostSummary toSummary(SocialPost post) {

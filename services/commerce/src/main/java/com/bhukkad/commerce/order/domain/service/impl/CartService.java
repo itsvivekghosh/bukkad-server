@@ -7,6 +7,9 @@ import com.bhukkad.commerce.order.domain.entity.CartItem;
 import com.bhukkad.commerce.order.domain.repository.CartItemRepository;
 import com.bhukkad.commerce.order.domain.repository.CartRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -139,7 +142,8 @@ public class CartService {
     @Transactional(readOnly = true)
     public List<CartItem> getItems(Long customerId) {
         return cartRepository.findByCustomerIdAndStatus(customerId, STATUS_ACTIVE)
-                .map(cart -> cartItemRepository.findByCartId(cart.getId()))
+                .map(cart -> cartItemRepository.findByCartId(cart.getId(), PageRequest.of(0, 100)))
+                .map(Page::getContent)
                 .orElse(List.of());
     }
 

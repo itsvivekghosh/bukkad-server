@@ -9,6 +9,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
 
 import javax.crypto.SecretKey;
@@ -38,37 +42,44 @@ class InternalPaymentApiPostgresIntegrationTest extends AbstractPaymentPostgresT
 
     @LocalServerPort private int port;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private RestClient restClient;
+    private TransactionTemplate tx;
 
     private record HttpResult(int status, String body) {
     }
 
     @BeforeEach
     void setUpAndClean() {
+        tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
         restClient = RestClient.create("http://localhost:" + port);
-        jdbcTemplate.update("DELETE FROM dunning_runs");
-        jdbcTemplate.update("DELETE FROM disputes");
-        jdbcTemplate.update("DELETE FROM rider_earnings");
-        jdbcTemplate.update("DELETE FROM agent_cod_wallets");
-        jdbcTemplate.update("DELETE FROM restaurant_settlements");
-        jdbcTemplate.update("DELETE FROM settlement_runs");
-        jdbcTemplate.update("DELETE FROM wallet_transactions");
-        jdbcTemplate.update("DELETE FROM wallet_balances");
-        jdbcTemplate.update("DELETE FROM idempotency_records");
-        jdbcTemplate.update("DELETE FROM payments");
-        // agent_cod_wallets.agent_id and rider_earnings.agent_id both carry a FK
-        // to delivery_agents(id) (V1 baseline). The internal delivery surface
-        // below round-trips agent 9, so the parent rider row must exist —
-        // without it the earnings insert fails the FK and the API answers 409.
-        // delivery_agents.id is GENERATED ALWAYS AS IDENTITY, hence OVERRIDING
-        // SYSTEM VALUE; ON CONFLICT keeps it idempotent on the shared database.
-        jdbcTemplate.update(
-                "INSERT INTO delivery_agents (id, name, is_active, created_at, updated_at) "
-                        + "OVERRIDING SYSTEM VALUE VALUES (9, ?, true, now(), now()) "
-                        + "ON CONFLICT (id) DO NOTHING",
-                "test-rider-9");
+        // Use REQUIRES_NEW to ensure cleanup commits before test runs
+        tx.executeWithoutResult(status -> {
+            jdbcTemplate.update("DELETE FROM dunning_runs");
+            jdbcTemplate.update("DELETE FROM disputes");
+            jdbcTemplate.update("DELETE FROM rider_earnings");
+            jdbcTemplate.update("DELETE FROM agent_cod_wallets");
+            jdbcTemplate.update("DELETE FROM restaurant_settlements");
+            jdbcTemplate.update("DELETE FROM settlement_runs");
+            jdbcTemplate.update("DELETE FROM wallet_transactions");
+            jdbcTemplate.update("DELETE FROM wallet_balances");
+            jdbcTemplate.update("DELETE FROM idempotency_records");
+            jdbcTemplate.update("DELETE FROM payments");
+            // agent_cod_wallets.agent_id and rider_earnings.agent_id both carry a FK
+            // to delivery_agents(id) (V1 baseline). The internal delivery surface
+            // below round-trips agent 9, so the parent rider row must exist —
+            // without it the earnings insert fails the FK and the API answers 409.
+            // delivery_agents.id is GENERATED ALWAYS AS IDENTITY, hence OVERRIDING
+            // SYSTEM VALUE; ON CONFLICT keeps it idempotent on the shared database.
+            jdbcTemplate.update(
+                    "INSERT INTO delivery_agents (id, name, is_active, created_at, updated_at) "
+                            + "OVERRIDING SYSTEM VALUE VALUES (9, ?, true, now(), now()) "
+                            + "ON CONFLICT (id) DO NOTHING",
+                    "test-rider-9");
+        });
     }
 
     private String serviceToken() {
@@ -172,14 +183,16 @@ class InternalPaymentApiPostgresIntegrationTest extends AbstractPaymentPostgresT
 
     @Test
     void refund_marksRefunded_andWalletCompensationRunsExactlyOnce() throws Exception {
-        jdbcTemplate.update(
-                "INSERT INTO wallet_balances (customer_id, balance, updated_at) " +
-                        "VALUES (7, 50.00, localtimestamp)");
-        Long paymentId = jdbcTemplate.queryForObject(
-                "INSERT INTO payments (order_id, customer_id, amount, currency, status, " +
-                        "payment_method, purpose, wallet_amount, gateway_amount, created_at, updated_at) " +
-                        "VALUES (55, 7, 100.00, 'INR', 'SETTLED', 'WALLET', 'ORDER', 100.00, 0, " +
-                        "localtimestamp, localtimestamp) RETURNING id", Long.class);
+        Long paymentId = tx.execute(status -> {
+            jdbcTemplate.update(
+                    "INSERT INTO wallet_balances (customer_id, balance, updated_at) " +
+                            "VALUES (7, 50.00, localtimestamp)");
+            return jdbcTemplate.queryForObject(
+                    "INSERT INTO payments (order_id, customer_id, amount, currency, status, " +
+                            "payment_method, purpose, wallet_amount, gateway_amount, created_at, updated_at) " +
+                            "VALUES (55, 7, 100.00, 'INR', 'SETTLED', 'WALLET', 'ORDER', 100.00, 0, " +
+                            "localtimestamp, localtimestamp) RETURNING id", Long.class);
+        });
 
         HttpResult first = post("/api/v1/internal/payments/" + paymentId + "/refund",
                 Map.of("reason", "order cancelled"));

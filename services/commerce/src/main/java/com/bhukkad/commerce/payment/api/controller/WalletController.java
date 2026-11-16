@@ -20,6 +20,7 @@ import com.bhukkad.commerce.payment.api.dto.request.WalletTopUpRequest;
 import com.bhukkad.commerce.payment.api.dto.response.WalletResponse;
 import com.bhukkad.commerce.payment.api.dto.response.WalletTransactionResponse;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import reactor.core.publisher.Mono;
@@ -49,8 +50,8 @@ public class WalletController {
                                   @RequestHeader("Idempotency-Key") String idempotencyKey) {
         // Only the wallet owner (or an admin) may top it up.
         PrincipalGuard.requireSelfOrAdmin(principal, customerId);
-        return Mono.fromCallable(() -> paymentService.processPayment(0L, customerId, request.getAmount(),
-                Payment.METHOD_WALLET, idempotencyKey))
+        return paymentService.processPayment(0L, customerId, request.getAmount(),
+                Payment.METHOD_WALLET, idempotencyKey)
                 .then(Mono.fromCallable(() -> walletService.balance(customerId)))
                 .map(paymentMapper::toWalletResponse);
     }
@@ -165,7 +166,8 @@ public class WalletController {
         }
         paymentService.processPayment(0L, customerId, amount, Payment.METHOD_WALLET,
                 idempotencyKey == null || idempotencyKey.isBlank()
-                        ? "self-topup:" + customerId + ":" + amount : idempotencyKey);
+                        ? "self-topup:" + customerId + ":" + amount : idempotencyKey)
+                .block(Duration.ofSeconds(5));
         return paymentMapper.toWalletResponse(walletService.balance(customerId));
     }
 
