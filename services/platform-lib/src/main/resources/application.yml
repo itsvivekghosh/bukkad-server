@@ -33,6 +33,8 @@ spring:
         query_plan_cache_size: 200
         query_plan_cache_parameter_metadata_max_size: 20
         globally_quoted_identifiers: false
+        batch_fetch_style: PARENT
+        default_batch_fetch_size: 50
         id:
           new_generator_mappings: true
         generate_statistics: false

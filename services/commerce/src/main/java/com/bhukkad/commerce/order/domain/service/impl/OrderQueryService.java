@@ -49,16 +49,14 @@ public class OrderQueryService {
         if (cache != null) {
             String key = ORDER_CACHE_KEY_PREFIX + orderId;
             return cache.getOrCompute(key, OrderResponse.class, ORDER_CACHE_TTL_SECONDS, () -> {
-                Order order = orderRepository.findById(orderId)
+                Order order = orderRepository.findByIdWithItems(orderId)
                         .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
-                List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-                return toResponse(order, items);
+                return toResponse(order, order.getItems());
             });
         }
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdWithItems(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + orderId));
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        return toResponse(order, items);
+        return toResponse(order, order.getItems());
     }
 
     @Transactional(readOnly = true)

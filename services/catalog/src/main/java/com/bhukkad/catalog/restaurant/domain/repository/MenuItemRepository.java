@@ -70,4 +70,6 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     Page<Object[]> findAvailableMenuItemNames(Pageable pageable);
     @Query("SELECT m.id, m.name FROM MenuItem m WHERE m.isAvailable = true")
     List<Object[]> findAvailableMenuItemNames();
+
+    List<MenuItem> findByRestaurantIdInAndIsAvailableTrue(List<Long> restaurantIds);
 }
