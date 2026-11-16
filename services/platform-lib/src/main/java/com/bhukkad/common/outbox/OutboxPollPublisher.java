@@ -184,7 +184,13 @@ public class OutboxPollPublisher {
             boolean acked;
             String error = "publish timed out";
             try {
-                acked = publisher.publishForResult(message);
+                if (com.bhukkad.common.audit.AuditEventService.AUDIT_EVENT_TYPE.equals(message.eventType())) {
+                    // Audit outbox rows ship to the dedicated audit.events topic.
+                    acked = publisher.publishForResult(message,
+                            com.bhukkad.common.audit.AuditEventService.AUDIT_EVENTS_TOPIC);
+                } else {
+                    acked = publisher.publishForResult(message);
+                }
             } catch (Exception e) {
                 acked = false;
                 error = e.getMessage();
