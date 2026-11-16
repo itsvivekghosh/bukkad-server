@@ -27,9 +27,36 @@ spring:
         size: 8
     execution:
       pool:
+        # PERF-4 / §4.6: gateway is purely reactive (Netty event loops, no
+        # Tomcat/Hikari), so this is the only Spring task execution pool in the
+        # module. It backs @Async / @Scheduled work and any code that pulls the
+        # default TaskExecutor. Geometry 8/32/1000 is intentionally modest:
+        # the edge must not let background task work crowd out the Netty
+        # event-loop threads that serve proxied requests. Core 8 keeps steady
+        # state small; max 32 absorbs bursts; queue 1000 bounds backlog so
+        # saturation surfaces as fast rejections rather than unbounded growth.
+        # PER-pool tuning signal: watch pool_active / pool_queued / pool_rejected
+        # (bound to gauges of the same name via platform-lib ThreadPoolMetrics)
+        # and only raise core/max if data shows persistent exhaustion.
         core-size: 8
         max-size: 32
         queue-capacity: 1000
+  # ---------------------------------------------------------------------------
+  # Named bounded-elastic schedulers (§4.6 thread-pool tuning).
+  #
+  # These are NOT expressible as a single spring.task.execution.pool block
+  # (Spring exposes one default TaskExecutor), so they are declared as explicit
+  # @Bean schedulers in platform-lib (com.bhukkad.common.config.ThreadPoolConfig)
+  # and injected by name into WebFlux services via Schedulers.fromExecutorService(...).
+  # Each is a bounded pool: core threads, a bounded queue, then rejection (so
+  # saturation fails fast instead of unbounded growth). Tune core/queue only
+  # when the matching pool_active / pool_queued / pool_rejected gauge shows
+  # persistent saturation.
+  #
+  #   jdbc-scheduler     core=32, queue=1000  (blocking DB access off event loop)
+  #   redis-scheduler    core=16, queue=500   (blocking Redis ops off event loop)
+  #   external-api-scheduler core=64, queue=2000  (outbound HTTP/WebClient calls)
+  # ---------------------------------------------------------------------------
   cloud:
     gateway:
       # Audit batch A (edge hardening): bound upstream latency — without a
