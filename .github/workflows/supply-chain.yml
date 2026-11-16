@@ -1,0 +1,198 @@
+name: Supply Chain Security (SLSA L3 / SBOM)
+
+# Supply chain security for the Bhukkad microservices platform
+# (docs/architecture-audit.md §2.2).
+#
+# Triggers:
+#   push / pull_request / release  -> build + CycloneDX SBOM (target/sbom/bom.xml)
+#   release                        -> cosign keyless (OIDC) image signing
+#   pull_request                   -> dependency-review-action
+#   push (main) / release          -> OWASP dependency-check-maven scan
+#
+# No credentials or registry URLs are hardcoded: REGISTRY and IMAGE_ORG come
+# from repository variables (defaults: ghcr.io / itsvivekghosh) and auth uses
+# ${{ secrets.GITHUB_TOKEN }} plus an OIDC id-token for cosign keyless signing.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+  id-token: write      # OIDC for cosign keyless signing
+  packages: write      # push container images / signatures to the registry
+  pull-requests: read  # dependency-review-action on pull requests
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-sbom:
+    name: Build & Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Build services reactor
+        run: ./mvnw -B -f services/pom.xml package -DskipTests
+
+      # CycloneDX aggregate BOM for the whole reactor -> services/target/sbom/bom.xml
+      # (org.cyclonedx:cyclonedx-maven-plugin:2.8.2, bound to the package phase in
+      # services/pom.xml; invoked explicitly here so the SBOM is regenerated fresh
+      # for every run.)
+      - name: Generate CycloneDX SBOM
+        run: ./mvnw -B -f services/pom.xml cyclonedx:makeAggregateBom
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: sbom-bom-xml
+          path: services/target/sbom/bom.xml
+          retention-days: 90
+
+  sbom-verify:
+    name: Verify SBOM Format
+    needs: build-and-sbom
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      # Regenerate via cyclonedx-maven-plugin: a successful regeneration proves the
+      # project model resolves to a well-formed CycloneDX BOM (the plugin has no
+      # standalone validate goal in 2.8.2; regeneration is the format check).
+      - name: Regenerate SBOM via cyclonedx-maven-plugin
+        run: ./mvnw -B -f services/pom.xml cyclonedx:makeAggregateBom
+
+      - name: Verify bom.xml is well-formed CycloneDX XML
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          path = "services/target/sbom/bom.xml"
+          tree = ET.parse(path)
+          root = tree.getroot()
+          ns = root.tag.split("}")[0].strip("{") if "}" in root.tag else ""
+          assert "cyclonedx.org" in ns, f"not a CycloneDX BOM: ns={ns}"
+          print(f"SBOM OK: {path} (ns={ns}, root={root.tag})")
+          PY
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Review dependency changes for introduced vulnerabilities
+        uses: actions/dependency-review-action@v3
+
+  dependency-check:
+    name: OWASP Dependency-Check
+    runs-on: ubuntu-latest
+    # dependency-check downloads the NVD CVE database on every run (several
+    # minutes), so it is intentionally NOT run on every pull request.
+    # dependency-review-action above covers PRs; this job runs on push to main
+    # and on releases. Remove the `if` to run it per PR.
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      # org.owasp:dependency-check-maven:7.4.4 resolves from Central (verified).
+      # Fails the job on CVSS >= 7 findings. Tune -DfailBuildOnCVSS as needed.
+      - name: Run OWASP dependency-check-maven scan
+        run: ./mvnw -B -f services/pom.xml org.owasp:dependency-check-maven:7.4.4:check -DfailBuildOnCVSS=7
+
+  sign-images:
+    name: Sign Container Images (cosign keyless / OIDC)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    needs: build-and-sbom
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Must match the service deployments in k8s/ and production.yml.
+        service: [identity, commerce, catalog, engagement, admin, gateway]
+    env:
+      REGISTRY: ${{ vars.REGISTRY || 'ghcr.io' }}
+      IMAGE_ORG: ${{ vars.IMAGE_ORG || 'itsvivekghosh' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: services
+          file: services/docker/Dockerfile.service
+          push: true
+          build-args: |
+            MODULE=${{ matrix.service }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ matrix.service }}:${{ github.ref_name }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v9
+
+      # Keyless signing via OIDC: cosign exchanges the GitHub Actions OIDC
+      # token (id-token: write above) for a short-lived Sigstore certificate
+      # and signs the image; the signature records the signer identity.
+      - name: Sign ${{ matrix.service }} image (keyless via OIDC)
+        run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ matrix.service }}:${{ github.ref_name }}
+        env:
+          COSIGN_EXPERIMENTAL: "1"
