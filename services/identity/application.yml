@@ -31,6 +31,20 @@ spring:
     scheduling:
       pool:
         size: ${SCHEDULER_POOL_SIZE:12}
+  # ---------------------------------------------------------------------------
+  # Named bounded-elastic schedulers (§4.6 thread-pool tuning).
+  #
+  # Declared as explicit @Bean schedulers in platform-lib
+  # (com.bhukkad.common.config.ThreadPoolConfig) and injected by name into
+  # WebFlux/reactive services via Schedulers.fromExecutorService(...). Each is a
+  # bounded pool: core threads, a bounded queue, then rejection so saturation
+  # fails fast instead of unbounded growth. Tune core/queue only when the
+  # matching pool_active / pool_queued / pool_rejected gauge shows saturation.
+  #
+  #   jdbc-scheduler     core=32, queue=1000  (blocking DB access off event loop)
+  #   redis-scheduler    core=16, queue=500   (blocking Redis ops off event loop)
+  #   external-api-scheduler core=64, queue=2000  (outbound HTTP/WebClient calls)
+  # ---------------------------------------------------------------------------
   datasource:
     url: ${IDENTITY_DB_URL:jdbc:postgresql://localhost:5432/identity}
     username: ${IDENTITY_DB_USERNAME:app}
