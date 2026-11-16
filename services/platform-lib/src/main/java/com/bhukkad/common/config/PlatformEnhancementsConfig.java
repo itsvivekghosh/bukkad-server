@@ -1,7 +1,9 @@
 package com.bhukkad.common.config;
 
 import com.bhukkad.common.cache.CacheProperties;
+import com.bhukkad.common.cache.CacheWarmupProperties;
 import com.bhukkad.common.cache.LocalCacheProperties;
+import com.bhukkad.common.cache.NegativeCacheProperties;
 import com.bhukkad.common.cache.StampedeProperties;
 import com.bhukkad.common.chaos.ChaosProperties;
 import com.bhukkad.common.cluster.ClusterProperties;
@@ -34,12 +36,14 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties({
         CacheProperties.class,
+        CacheWarmupProperties.class,
         ChaosProperties.class,
         ClusterProperties.class,
         ExternalEventsProperties.class,
         com.bhukkad.common.storage.ImageStorageProperties.class,
         KafkaPlatformProperties.class,
         LocalCacheProperties.class,
+        NegativeCacheProperties.class,
         MtlsProperties.class,
         OutboxProperties.class,
         PlatformJwtProperties.class,
