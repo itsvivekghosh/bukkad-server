@@ -130,6 +130,13 @@ app:
     # admin = admin-analytics + supportticket
     admin-analytics-uri: http://admin:8080
     support-uri: http://admin:8080
+  # Strict JSON validation at the edge. Non-positive values fall back to the
+  # same production-safe defaults in GatewayValidationProperties.
+  gateway:
+    validation:
+      max-depth: 10
+      max-key-count: 1000
+
   # Edge kill-switch defaults (W0 / gap A10). Same keys as every service's
   # app.feature-flags block; runtime overrides come from the shared Redis
   # hash bhukkad:feature-flag:overrides written by admin-analytics.
