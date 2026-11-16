@@ -1,21 +1,21 @@
 package com.bhukkad.commerce.order.domain.service.impl;
 
+import com.bhukkad.common.security.TokenPrincipal;
+import com.bhukkad.common.security.authz.AuthorizationDecision;
+import com.bhukkad.common.security.authz.AuthorizationRequest;
+import com.bhukkad.common.security.authz.AuthorizationService;
+import com.bhukkad.common.security.authz.ResourceOwnershipPolicy;
+import com.bhukkad.commerce.order.domain.authz.OrderOwnershipPolicy;
 import com.bhukkad.commerce.order.api.dto.request.CreateOrderRequest;
 import com.bhukkad.commerce.order.api.dto.response.OrderDetailsResponse;
 import com.bhukkad.commerce.order.api.dto.response.OrderResponse;
 import com.bhukkad.commerce.order.domain.entity.Order;
-import com.bhukkad.commerce.order.domain.repository.OrderRepository;
-import com.bhukkad.commerce.order.domain.repository.OrderItemRepository;
-import com.bhukkad.commerce.order.domain.repository.OrderTimelineEventRepository;
-import com.bhukkad.commerce.order.domain.service.impl.OrderEventPublisher;
 import com.bhukkad.commerce.order.domain.service.impl.OrderCreationService;
 import com.bhukkad.commerce.order.domain.service.impl.OrderLifecycleService;
 import com.bhukkad.commerce.order.domain.service.impl.OrderQueryService;
 import com.bhukkad.commerce.order.domain.service.impl.OrderReorderService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -23,8 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderService {
@@ -33,6 +33,7 @@ public class OrderService {
     private final OrderQueryService orderQueryService;
     private final OrderLifecycleService orderLifecycleService;
     private final OrderReorderService orderReorderService;
+    private final AuthorizationService authorizationService;
 
     public OrderResponse createOrder(CreateOrderRequest request) {
         return orderCreationService.createOrder(request);
@@ -41,6 +42,18 @@ public class OrderService {
     @Transactional(readOnly = true)
     public OrderResponse getOrder(Long orderId) {
         return orderQueryService.getOrder(orderId);
+    }
+
+    /**
+     * Public order-read path with resource-level authorization. The order is
+     * loaded to obtain the server-derived owner id, then the platform ABAC
+     * engine decides owner-or-admin access. Unknown policies fail closed.
+     */
+    @Transactional(readOnly = true)
+    public OrderResponse getOrder(Long orderId, TokenPrincipal principal) {
+        OrderResponse order = orderQueryService.getOrder(orderId);
+        authorizeRead(orderId, order.customerId(), principal);
+        return order;
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +77,14 @@ public class OrderService {
     @Transactional(readOnly = true)
     public OrderDetailsResponse getOrderDetails(Long orderId) {
         return orderQueryService.getOrderDetails(orderId);
+    }
+
+    /** Resource-authorized order-details read for customer principals. */
+    @Transactional(readOnly = true)
+    public OrderDetailsResponse getOrderDetails(Long orderId, TokenPrincipal principal) {
+        OrderDetailsResponse details = orderQueryService.getOrderDetails(orderId);
+        authorizeRead(orderId, details.customerId(), principal);
+        return details;
     }
 
     @Transactional(readOnly = true)
@@ -104,5 +125,20 @@ public class OrderService {
     @Transactional
     public OrderResponse reorder(Long customerId, Long orderId) {
         return orderReorderService.reorder(customerId, orderId);
+    }
+
+    private void authorizeRead(Long orderId, Long ownerId, TokenPrincipal principal) {
+        AuthorizationRequest request = AuthorizationRequest.fromPrincipal(
+                principal,
+                "read",
+                "order",
+                String.valueOf(orderId),
+                Map.of(ResourceOwnershipPolicy.OWNER_ID_ATTRIBUTE, ownerId));
+        AuthorizationDecision decision = authorizationService.check(
+                OrderOwnershipPolicy.POLICY_ID,
+                request);
+        if (!decision.allowed()) {
+            throw new AccessDeniedException("Cannot read another customer's order");
+        }
     }
 }

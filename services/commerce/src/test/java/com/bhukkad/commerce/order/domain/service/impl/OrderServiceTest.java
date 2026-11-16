@@ -4,6 +4,7 @@ import com.bhukkad.common.error.BusinessException;
 import com.bhukkad.common.error.ResourceNotFoundException;
 import com.bhukkad.common.saga.SagaCoordinator;
 import com.bhukkad.common.security.ServiceJwtAuthTokenProvider;
+import com.bhukkad.common.security.authz.AuthorizationService;
 import com.bhukkad.commerce.order.api.dto.request.CreateOrderRequest;
 import com.bhukkad.commerce.order.api.dto.request.OrderItemRequest;
 import com.bhukkad.commerce.order.api.dto.response.OrderResponse;
@@ -43,6 +44,7 @@ class OrderServiceTest {
     @Mock private OrderQueryService orderQueryService;
     @Mock private OrderLifecycleService orderLifecycleService;
     @Mock private OrderReorderService orderReorderService;
+    @Mock private AuthorizationService authorizationService;
     @Mock private OrderEventPublisher eventPublisher;
     @Mock private RestaurantClient restaurantClient;
     @Mock private RestaurantPricedItemResolver pricedItemResolver;

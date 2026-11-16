@@ -49,6 +49,7 @@ public final class LoggingConstants {
     public static final String EVENT_COUPON_APPLIED = "COUPON_APPLIED";
     public static final String EVENT_UNAUTHORIZED_ACCESS = "UNAUTHORIZED_ACCESS";
     public static final String EVENT_INVALID_TOKEN = "INVALID_TOKEN";
+    public static final String EVENT_AUTHORIZATION_DENIED = "AUTHORIZATION_DENIED";
 
     private LoggingConstants() {}
 }

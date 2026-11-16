@@ -45,7 +45,8 @@ class OrderDetailsEndpointTest {
 
     @Test
     void owner_canReadOwnOrderDetails() {
-        when(orderService.getOrderDetails(1L)).thenReturn(details(7L));
+        when(orderService.getOrderDetails(1L, org.mockito.ArgumentMatchers.any(TokenPrincipal.class)))
+                .thenReturn(details(7L));
         TokenPrincipal owner = new TokenPrincipal(7L, "o@t", "CUSTOMER");
 
         assertThat(controller.getOrderDetails(1L, owner, auth("ROLE_CUSTOMER")).customerId())
@@ -54,7 +55,8 @@ class OrderDetailsEndpointTest {
 
     @Test
     void anotherCustomer_isDenied() {
-        when(orderService.getOrderDetails(1L)).thenReturn(details(7L));
+        when(orderService.getOrderDetails(1L, org.mockito.ArgumentMatchers.any(TokenPrincipal.class)))
+                .thenThrow(new AccessDeniedException("Cannot read another customer's order"));
         TokenPrincipal other = new TokenPrincipal(8L, "x@t", "CUSTOMER");
 
         assertThatThrownBy(() -> controller.getOrderDetails(1L, other, auth("ROLE_CUSTOMER")))

@@ -1,5 +1,8 @@
 package com.bhukkad.common.logging;
 
+import com.bhukkad.common.security.authz.AuthorizationDecision;
+import com.bhukkad.common.security.authz.AuthorizationDenialListener;
+import com.bhukkad.common.security.authz.AuthorizationRequest;
 import com.bhukkad.common.tracing.TraceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -12,7 +15,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.Instant;
 
 @Component
-public class SecurityEventLogger {
+public class SecurityEventLogger implements AuthorizationDenialListener {
 
     private static final Logger securityLogger = LoggerFactory.getLogger(LoggingConstants.SECURITY_LOGGER);
     private static final Logger log = LoggerFactory.getLogger(SecurityEventLogger.class);
@@ -129,6 +132,32 @@ public class SecurityEventLogger {
                 userId,
                 path,
                 requiredRole,
+                TraceContext.currentTraceId()
+        );
+    }
+
+    /**
+     * Records a resource-level authorization denial in the dedicated security
+     * event stream. The policy id and server-derived resource identifiers make
+     * the decision auditable without including the resource attribute map.
+     */
+    @Override
+    public void onAuthorizationDenied(AuthorizationDecision decision, AuthorizationRequest request) {
+        Long userId = request == null ? null : request.subject();
+        String action = request == null ? null : request.action();
+        String resourceType = request == null ? null : request.resourceType();
+        String resourceId = request == null ? null : request.resourceId();
+        securityLogger.warn(
+                "[{}] [{}] [AUTHORIZATION_DENIED] UserId: {} | Action: {} | ResourceType: {} | ResourceId: {} | Policy: {} | Reason: {} | IP: {} | TraceId: {}",
+                Instant.now(),
+                LoggingConstants.EVENT_AUTHORIZATION_DENIED,
+                userId,
+                action,
+                resourceType,
+                resourceId,
+                decision == null ? null : decision.policyId(),
+                decision == null ? null : decision.reason(),
+                getClientIp(),
                 TraceContext.currentTraceId()
         );
     }

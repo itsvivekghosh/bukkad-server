@@ -120,9 +120,7 @@ public class OrderController {
     public OrderResponse get(@AuthenticationPrincipal TokenPrincipal principal,
                              @Parameter(description = "ID of the order to retrieve", required = true)
                              @PathVariable Long orderId) {
-        OrderResponse order = orderService.getOrder(orderId);
-        PrincipalGuard.requireSelfOrAdmin(principal, order.customerId());
-        return order;
+        return orderService.getOrder(orderId, principal);
     }
 
     @Operation(summary = "Cancel an order", description = "Cancels an existing order by its ID")
@@ -187,8 +185,7 @@ public class OrderController {
             details = orderService.getOrderDetails(orderId);
         } else {
             PrincipalGuard.requireAuthenticated(principal);
-            details = orderService.getOrderDetails(orderId);
-            PrincipalGuard.requireSelfOrAdmin(principal, details.customerId());
+            details = orderService.getOrderDetails(orderId, principal);
         }
         return details;
     }
