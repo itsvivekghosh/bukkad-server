@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.net.URI;
 import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -38,6 +39,19 @@ import java.util.stream.Collectors;
  */
 @Configuration
 public class GatewayConfig {
+
+    /**
+     * Route-table exceptions to gateway JSON-body validation. These endpoints
+     * intentionally consume multipart uploads or raw webhook payloads and must
+     * not be parsed as JSON by the edge. Paths are kept beside the route table
+     * so adding another non-JSON surface requires an explicit exclusion.
+     */
+    static final List<String> REQUEST_VALIDATION_EXCLUDED_PATHS = List.of(
+            "/api/v1/chat/sessions/*/messages",
+            "/api/v1/chat/messages/*/attachments",
+            "/api/v1/support/chat/rooms/*/messages/*/attachments",
+            "/api/v1/payments/webhooks/**"
+    );
 
     /**
      * Per-route response timeout for SSE streams, in milliseconds. The shared
